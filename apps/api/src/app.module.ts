@@ -8,6 +8,7 @@ import { PrdModule } from './prd/prd.module';
 import { RequirementsModule } from './requirements/requirements.module';
 import { ProjectsModule } from './projects/projects.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
+import { TasksModule } from './tasks/tasks.module';
 import { TraceModule } from './trace/trace.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { HttpExceptionFilter } from './common/http-exception.filter';
@@ -45,6 +46,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     RequirementsModule,
     KnowledgeModule,
     PrdModule,
+    TasksModule,
     TraceModule,
     IntegrationsModule,
     DashboardModule,

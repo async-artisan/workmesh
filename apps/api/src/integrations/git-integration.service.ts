@@ -209,12 +209,13 @@ export class GitIntegrationService {
   ) {
     const parsed = this.parser.parse(text);
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    const requirementIds = parsed.requirementIds.filter((id) => uuid.test(id));
+    // 开发者只会把人类可读的编号写进 commit，不会写 uuid
+    const codes = parsed.requirementIds;
     const prdIds = parsed.prdIds.filter((id) => uuid.test(id));
     const [requirements, prds] = await Promise.all([
-      requirementIds.length
+      codes.length
         ? this.prisma.requirement.findMany({
-            where: { id: { in: requirementIds }, projectId },
+            where: { code: { in: codes }, projectId },
             select: { id: true },
           })
         : [],

@@ -17,6 +17,20 @@ enum ProjectMemberRole {
   ADMIN
   MEMBER
 }
+enum RoleType {
+  PRODUCT
+  UI
+  FRONTEND
+  BACKEND
+  QA
+  OPS
+}
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  REVIEW_PENDING
+  DONE
+}
 enum RequirementStatus {
   DRAFT
   PRD_READY
@@ -165,11 +179,46 @@ model Requirement {
   traces             Trace[]
   dependenciesFrom   RequirementDependency[] @relation("dependency_from")
   dependenciesTo     RequirementDependency[] @relation("dependency_to")
+  tasks              Task[]
   @@unique([projectId, seq])
   @@unique([projectId, code])
   @@index([projectId, updatedAt])
   @@index([createdById])
   @@map("requirements")
+}
+
+model Task {
+  id            String     @id @default(uuid())
+  requirementId String     @map("requirement_id")
+  seq           Int
+  code          String
+  title         String
+  role          RoleType
+  assigneeType  String     @default("HUMAN") @map("assignee_type")
+  assigneeId    String?    @map("assignee_id")
+  status        TaskStatus @default(OPEN)
+  acceptance    Json       @default("[]")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  blocking      TaskDependency[] @relation("dependency_from")
+  blockedBy     TaskDependency[] @relation("dependency_to")
+  @@unique([requirementId, seq])
+  @@unique([requirementId, code])
+  @@index([requirementId, status])
+  @@index([role, status])
+  @@map("tasks")
+}
+
+model TaskDependency {
+  id     String @id @default(uuid())
+  fromId String @map("from_id")
+  toId   String @map("to_id")
+  type   String @default("blocks")
+  from   Task   @relation("dependency_from", fields: [fromId], references: [id], onDelete: Cascade)
+  to     Task   @relation("dependency_to", fields: [toId], references: [id], onDelete: Cascade)
+  @@unique([fromId, toId, type])
+  @@map("task_dependencies")
 }
 
 model RequirementLink {

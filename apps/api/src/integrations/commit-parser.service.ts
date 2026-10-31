@@ -18,7 +18,7 @@ export class CommitParserService {
       type: match?.[1] ?? 'other',
       scope: match?.[2],
       subject: match?.[3] ?? first,
-      requirementIds: this.ids(message, /REQ-([A-Za-z0-9_-]+)/g),
+      requirementIds: this.ids(message, /\b([A-Z]{2,6}-REQ-\d+)\b/g),
       prdIds: this.ids(message, /PRD-([A-Za-z0-9_-]+)/g),
       issueIds: this.ids(message, /#(\d+)/g),
     };

@@ -30,7 +30,7 @@ describe('GitIntegrationService repository ownership', () => {
           commits: [
             {
               id: 'sha-1',
-              message: `feat: REQ-${requirementId} PRD-${prdId}`,
+              message: `feat: YFF-REQ-1 PRD-${prdId}`,
               url: `${repositoryUrl}/commit/sha-1`,
               author: { name: 'Developer' },
               timestamp: '2026-10-30T12:00:00Z',
@@ -50,7 +50,7 @@ describe('GitIntegrationService repository ownership', () => {
       }),
     );
     expect(prisma.requirement.findMany).toHaveBeenCalledWith({
-      where: { id: { in: [requirementId] }, projectId: 'project-1' },
+      where: { code: { in: ['YFF-REQ-1'] }, projectId: 'project-1' },
       select: { id: true },
     });
     expect(prisma.prd.findMany).toHaveBeenCalledWith({
@@ -82,7 +82,7 @@ describe('GitIntegrationService repository ownership', () => {
           project: { id: 42, web_url: 'https://gitlab.example/acme/app.git/' },
           object_attributes: {
             iid: 12,
-            title: `REQ-${requirementId}`,
+            title: `YFF-REQ-1`,
             description: `PRD-${prdId}`,
             url: 'https://gitlab.example/acme/app/-/merge_requests/12',
             state: 'opened',
@@ -104,7 +104,7 @@ describe('GitIntegrationService repository ownership', () => {
       }),
     );
     expect(prisma.requirement.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: { in: [requirementId] }, projectId: 'project-1' } }),
+      expect.objectContaining({ where: { code: { in: ['YFF-REQ-1'] }, projectId: 'project-1' } }),
     );
     expect(prisma.traceLink.upsert).toHaveBeenCalledWith(
       expect.objectContaining({

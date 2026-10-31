@@ -144,6 +144,71 @@ cli
     },
   );
 cli
+  .command('ready')
+  .description('List unblocked tasks for a role — the first thing an agent asks')
+  .requiredOption('--role <role>', 'PRODUCT | UI | FRONTEND | BACKEND | QA | OPS')
+  .option('--api <url>', 'API base URL')
+  .option('--project <id>', 'limit to one project')
+  .option('--json', 'machine readable output', false)
+  .action(async (options: { role: string; api?: string; project?: string; json: boolean }) => {
+    const { client } = await configuredClient(options.api);
+    const query = new URLSearchParams({ role: options.role.toUpperCase() });
+    if (options.project) query.set('projectId', options.project);
+    const tasks = await client.request<
+      Array<{
+        id: string;
+        code: string;
+        title: string;
+        status: string;
+        requirementCode: string;
+        requirementTitle: string;
+        projectId: string;
+        blockedBy: string[];
+      }>
+    >(`/tasks/ready?${query.toString()}`);
+    if (options.json) {
+      console.log(JSON.stringify(tasks, null, 2));
+      return;
+    }
+    if (!tasks.length) {
+      console.log(`No ready tasks for role ${options.role.toUpperCase()}.`);
+      return;
+    }
+    for (const task of tasks) {
+      console.log(`${task.code}  [${task.status}]  ${task.title}`);
+      console.log(`    requirement: ${task.requirementCode} ${task.requirementTitle}`);
+    }
+  });
+cli
+  .command('context <code>')
+  .description('Fetch the authoritative context package for a requirement code')
+  .option('--api <url>', 'API base URL')
+  .option('--json', 'machine readable output', false)
+  .action(async (code: string, options: { api?: string; json: boolean }) => {
+    const { client } = await configuredClient(options.api);
+    const context = await client.request<Record<string, unknown>>(
+      `/context/${encodeURIComponent(code)}`,
+    );
+    if (options.json) {
+      console.log(JSON.stringify(context, null, 2));
+      return;
+    }
+    const source = context.source as {
+      title: string;
+      prdVersion: number | null;
+      acceptance: string[];
+    };
+    console.log(`${context.code}  [${context.status}]  ${source.title}`);
+    console.log(`PRD version: ${source.prdVersion ?? '(none)'}`);
+    console.log('Acceptance:');
+    for (const item of source.acceptance) console.log(`  - ${item}`);
+    const tasks = context.tasks as Array<{ code: string; role: string; status: string }>;
+    if (tasks.length) {
+      console.log('Tasks:');
+      for (const task of tasks) console.log(`  ${task.code} [${task.role}/${task.status}]`);
+    }
+  });
+cli
   .command('parse-commit <message>')
   .description('Parse a conventional commit and linked IDs')
   .action((message: string) => {
@@ -154,7 +219,9 @@ cli
           type: match?.[1] ?? 'other',
           scope: match?.[2],
           subject: match?.[3] ?? message,
-          requirementIds: [...message.matchAll(/REQ-([A-Za-z0-9_-]+)/g)].map((item) => item[1]),
+          requirementIds: [
+            ...new Set([...message.matchAll(/\b[A-Z]{2,6}-REQ-\d+\b/g)].map((item) => item[0])),
+          ],
           prdIds: [...message.matchAll(/PRD-([A-Za-z0-9_-]+)/g)].map((item) => item[1]),
         },
         null,
