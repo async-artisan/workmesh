@@ -8,6 +8,8 @@ export interface ProjectItem {
 }
 export interface RequirementItem {
   id: string;
+  code?: string;
+  seq?: number;
   title: string;
   status: string;
   description?: string;

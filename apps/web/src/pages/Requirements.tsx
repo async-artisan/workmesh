@@ -7,31 +7,46 @@ import { useProjectContext } from '../hooks/useProjectContext';
 import { toast } from '../store/toast';
 
 const transitions: Record<string, string[]> = {
-  DRAFT: ['IN_REVIEW', 'ARCHIVED'],
-  IN_REVIEW: ['APPROVED', 'DRAFT'],
-  APPROVED: ['IN_PROGRESS', 'DRAFT'],
-  IN_PROGRESS: ['DONE', 'APPROVED'],
-  DONE: ['ARCHIVED'],
+  DRAFT: ['PRD_READY', 'ARCHIVED'],
+  PRD_READY: ['DESIGN_READY', 'DRAFT'],
+  DESIGN_READY: ['IN_DEV', 'PRD_READY'],
+  IN_DEV: ['CODE_LINKED', 'DESIGN_READY'],
+  CODE_LINKED: ['TESTED', 'IN_DEV'],
+  TESTED: ['RELEASED', 'CODE_LINKED'],
+  RELEASED: ['ARCHIVED'],
   ARCHIVED: [],
 };
 
-const STATUSES = ['DRAFT', 'IN_REVIEW', 'APPROVED', 'IN_PROGRESS', 'DONE', 'ARCHIVED'];
+const STATUSES = [
+  'DRAFT',
+  'PRD_READY',
+  'DESIGN_READY',
+  'IN_DEV',
+  'CODE_LINKED',
+  'TESTED',
+  'RELEASED',
+  'ARCHIVED',
+];
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: '草稿',
-  IN_REVIEW: '评审中',
-  APPROVED: '已批准',
-  IN_PROGRESS: '进行中',
-  DONE: '已完成',
+  PRD_READY: 'PRD 就绪',
+  DESIGN_READY: '设计就绪',
+  IN_DEV: '开发中',
+  CODE_LINKED: '代码已回链',
+  TESTED: '已测试',
+  RELEASED: '已发布',
   ARCHIVED: '已归档',
 };
 
 const STATUS_TONES: Record<string, string> = {
-  IN_REVIEW: 'is-review',
-  IN_PROGRESS: 'is-active',
-  APPROVED: 'is-active',
-  DONE: 'is-done',
+  PRD_READY: 'is-review',
+  DESIGN_READY: 'is-review',
+  IN_DEV: 'is-active',
+  CODE_LINKED: 'is-active',
+  TESTED: 'is-active',
+  RELEASED: 'is-done',
 };
 
 const PRIORITY_LABELS: Record<string, string> = {
@@ -207,6 +222,7 @@ export function Requirements() {
           <table className="data-table">
             <thead>
               <tr>
+                <th>编号</th>
                 <th>标题</th>
                 <th>优先级</th>
                 <th>状态</th>
@@ -216,6 +232,9 @@ export function Requirements() {
             <tbody>
               {items.map((item) => (
                 <tr key={item.id}>
+                  <td>
+                    <span className="req-code">{item.code ?? '—'}</span>
+                  </td>
                   <td>
                     <strong>{item.title}</strong>
                   </td>
@@ -245,7 +264,7 @@ export function Requirements() {
               ))}
               {items.length === 0 && (
                 <tr className="table-empty">
-                  <td colSpan={4}>{projectId ? '该项目还没有需求。' : '先选择项目。'}</td>
+                  <td colSpan={5}>{projectId ? '该项目还没有需求。' : '先选择项目。'}</td>
                 </tr>
               )}
             </tbody>

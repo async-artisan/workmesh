@@ -738,6 +738,15 @@ button {
   border-color: var(--success-border);
 }
 
+/* 需求编号：等宽以便扫描与复制 */
+.req-code {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 /* ===== 页面卡片 ===== */
 .page-card,
 .auth-card {
@@ -1107,11 +1116,13 @@ a:focus:not(:focus-visible) {
 /* ===== 知识库 ===== */
 .kb-page {
   width: 100%;
-}.kb-project {
+}
+.kb-project {
   width: 280px;
   max-width: 100%;
   flex-shrink: 0;
-}.kb-search-panel {
+}
+.kb-search-panel {
   display: grid;
   gap: 10px;
   padding: 14px 16px;
@@ -1163,7 +1174,8 @@ a:focus:not(:focus-visible) {
 .kb-examples-foot {
   padding: 0 16px 14px;
   justify-content: flex-start;
-}.kb-hit-body mark {
+}
+.kb-hit-body mark {
   background: var(--accent-soft);
   color: var(--text-primary);
   border-radius: 2px;
@@ -1180,7 +1192,8 @@ a:focus:not(:focus-visible) {
   -webkit-line-clamp: 6;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}.kb-examples {
+}
+.kb-examples {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
@@ -1198,10 +1211,11 @@ a:focus:not(:focus-visible) {
   margin: 0;
   color: var(--text-muted);
   font-size: 12px;
-}/* ===== PRD 工作台 ===== */
+} /* ===== PRD 工作台 ===== */
 .prd-page {
   width: 100%;
-}.prd-doc-body {
+}
+.prd-doc-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -1209,7 +1223,8 @@ a:focus:not(:focus-visible) {
   border-radius: var(--radius-sm);
   background: var(--bg-app);
   padding: 4px 18px;
-}.prd-compare-columns {
+}
+.prd-compare-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
@@ -1219,7 +1234,8 @@ a:focus:not(:focus-visible) {
   margin: 0;
   max-height: 320px;
   overflow: auto;
-}.prd-grid-2 {
+}
+.prd-grid-2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
@@ -1247,7 +1263,7 @@ a:focus:not(:focus-visible) {
 
 .prd-workflow .kb-panel {
   gap: 10px;
-}/* ===== 响应式 ===== */
+} /* ===== 响应式 ===== */
 @media (max-width: 960px) {
   .sidebar {
     display: none;
@@ -3124,7 +3140,12 @@ button.logo {
 
 .skeleton-card {
   height: 108px;
-  background: linear-gradient(90deg, var(--bg-app) 25%, var(--surface-hover) 37%, var(--bg-app) 63%);
+  background: linear-gradient(
+    90deg,
+    var(--bg-app) 25%,
+    var(--surface-hover) 37%,
+    var(--bg-app) 63%
+  );
   background-size: 400% 100%;
   animation: skeleton-shimmer 1.4s ease infinite;
 }
@@ -3230,8 +3251,10 @@ button.logo {
   .table-scroll {
     -webkit-overflow-scrolling: touch;
     background:
-      linear-gradient(to right, var(--surface) 30%, rgba(255, 255, 255, 0)) left / 24px 100% no-repeat,
-      linear-gradient(to left, var(--surface) 30%, rgba(255, 255, 255, 0)) right / 24px 100% no-repeat;
+      linear-gradient(to right, var(--surface) 30%, rgba(255, 255, 255, 0)) left / 24px 100%
+        no-repeat,
+      linear-gradient(to left, var(--surface) 30%, rgba(255, 255, 255, 0)) right / 24px 100%
+        no-repeat;
   }
 }
 

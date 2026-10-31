@@ -6,7 +6,7 @@ describe('DashboardService', () => {
     const findMany = vi.fn().mockResolvedValue([{ id: 'project-1', name: 'Project One' }]);
     const groupBy = vi.fn().mockResolvedValue([
       { status: 'DRAFT', _count: { _all: 2 } },
-      { status: 'DONE', _count: { _all: 1 } },
+      { status: 'RELEASED', _count: { _all: 1 } },
     ]);
     const count = vi.fn().mockResolvedValue(3);
     const recent = vi.fn().mockResolvedValue([]);

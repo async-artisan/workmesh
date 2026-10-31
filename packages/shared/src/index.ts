@@ -1,6 +1,13 @@
 export type Role = 'USER' | 'ADMIN' | 'SUPER_ADMIN';
 export type RequirementStatus =
-  'DRAFT' | 'IN_REVIEW' | 'APPROVED' | 'IN_PROGRESS' | 'DONE' | 'ARCHIVED';
+  | 'DRAFT'
+  | 'PRD_READY'
+  | 'DESIGN_READY'
+  | 'IN_DEV'
+  | 'CODE_LINKED'
+  | 'TESTED'
+  | 'RELEASED'
+  | 'ARCHIVED';
 export type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 
 export interface User {
@@ -18,6 +25,8 @@ export interface Project {
 export interface Requirement {
   id: string;
   projectId: string;
+  seq: number;
+  code: string;
   title: string;
   description: string;
   status: RequirementStatus;

@@ -33,7 +33,7 @@ export class DashboardService {
       ]),
     );
     const total = Object.values(statusCounts).reduce((sum, value) => sum + value, 0);
-    const completed = statusCounts.DONE + statusCounts.ARCHIVED;
+    const completed = statusCounts.RELEASED + statusCounts.ARCHIVED;
     return {
       projects,
       projectCount: projects.length,

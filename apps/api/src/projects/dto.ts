@@ -1,7 +1,8 @@
 import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 export class CreateProjectDto {
   @IsString() @MinLength(1) @MaxLength(100) name!: string;
-  @IsString() @Matches(/^[A-Z][A-Z0-9_-]{1,15}$/) key!: string;
+  // 编号前缀：2–6 位大写字母，创建后不可变更（改名需要迁移全部需求编号）
+  @IsString() @Matches(/^[A-Z]{2,6}$/) key!: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
   @IsOptional() @IsString() @MaxLength(2048) repositoryUrl?: string | null;
 }

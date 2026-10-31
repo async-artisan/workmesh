@@ -19,10 +19,12 @@ enum ProjectMemberRole {
 }
 enum RequirementStatus {
   DRAFT
-  IN_REVIEW
-  APPROVED
-  IN_PROGRESS
-  DONE
+  PRD_READY
+  DESIGN_READY
+  IN_DEV
+  CODE_LINKED
+  TESTED
+  RELEASED
   ARCHIVED
 }
 enum Priority {
@@ -144,6 +146,8 @@ model ProjectMember {
 model Requirement {
   id                 String            @id @default(uuid())
   projectId          String            @map("project_id")
+  seq                Int               @map("seq")
+  code               String            @map("code")
   createdById        String            @map("created_by_id")
   title              String
   description        String            @default("")
@@ -161,6 +165,8 @@ model Requirement {
   traces             Trace[]
   dependenciesFrom   RequirementDependency[] @relation("dependency_from")
   dependenciesTo     RequirementDependency[] @relation("dependency_to")
+  @@unique([projectId, seq])
+  @@unique([projectId, code])
   @@index([projectId, updatedAt])
   @@index([createdById])
   @@map("requirements")

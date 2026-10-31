@@ -5,11 +5,13 @@ import { RequirementStatus } from '@prisma/client';
 import { ProjectAccessService } from '../projects/project-access.service';
 
 const transitions: Record<RequirementStatus, RequirementStatus[]> = {
-  DRAFT: ['IN_REVIEW', 'ARCHIVED'],
-  IN_REVIEW: ['APPROVED', 'DRAFT'],
-  APPROVED: ['IN_PROGRESS', 'DRAFT'],
-  IN_PROGRESS: ['DONE', 'APPROVED'],
-  DONE: ['ARCHIVED'],
+  DRAFT: ['PRD_READY', 'ARCHIVED'],
+  PRD_READY: ['DESIGN_READY', 'DRAFT'],
+  DESIGN_READY: ['IN_DEV', 'PRD_READY'],
+  IN_DEV: ['CODE_LINKED', 'DESIGN_READY'],
+  CODE_LINKED: ['TESTED', 'IN_DEV'],
+  TESTED: ['RELEASED', 'CODE_LINKED'],
+  RELEASED: ['ARCHIVED'],
   ARCHIVED: [],
 };
 
@@ -46,10 +48,18 @@ export class RequirementsService {
     return item;
   }
   async create(userId: string, dto: CreateRequirementDto) {
-    await this.access.assertMember(userId, dto.projectId);
+    const project = await this.prisma.project.findUnique({
+      where: { id: dto.projectId },
+      select: { id: true, key: true },
+    });
+    if (!project) throw new NotFoundException('项目不存在');
+    await this.access.assertMember(userId, project.id);
+    const seq = await this.nextSeq(dto.projectId);
     return this.prisma.requirement.create({
       data: {
         projectId: dto.projectId,
+        seq,
+        code: `${project.key}-REQ-${seq}`,
         createdById: userId,
         title: dto.title,
         description: dto.description ?? '',
@@ -58,6 +68,14 @@ export class RequirementsService {
         acceptanceCriteria: dto.acceptanceCriteria ?? [],
       },
     });
+  }
+  private async nextSeq(projectId: string) {
+    const last = await this.prisma.requirement.findFirst({
+      where: { projectId },
+      orderBy: { seq: 'desc' },
+      select: { seq: true },
+    });
+    return (last?.seq ?? 0) + 1;
   }
   async update(userId: string, id: string, dto: UpdateRequirementDto) {
     const current = await this.get(userId, id);
