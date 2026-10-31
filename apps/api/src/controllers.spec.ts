@@ -1,7 +1,6 @@
 import 'reflect-metadata';
 import { ApprovalStatus, DecisionStatus, SpecStatus } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
-import type { Observable } from 'rxjs';
 import { AuthController } from './auth/auth.controller';
 import { DashboardController } from './dashboard/dashboard.controller';
 import { KnowledgeController } from './knowledge/knowledge.controller';
@@ -15,18 +14,6 @@ import { AppController } from './app.controller';
 import { MetricsService } from './common/metrics.service';
 
 const request = { user: { sub: 'user-1' } } as never;
-
-async function collect<T>(observable: Observable<T>) {
-  const values: T[] = [];
-  await new Promise<void>((resolve, reject) => {
-    observable.subscribe({
-      next: (value) => values.push(value),
-      error: reject,
-      complete: resolve,
-    });
-  });
-  return values;
-}
 
 describe('API controllers', () => {
   it('returns health and metric snapshots', () => {
@@ -219,23 +206,17 @@ describe('API controllers', () => {
     );
   });
 
-  it('delegates PRD operations, streams output, and exports both formats', async () => {
+  it('delegates PRD operations and exports both formats', async () => {
     const prds = {
       list: vi.fn(),
-      generate: vi.fn(),
-      generateStream: vi.fn(async function* () {
-        yield { content: 'draft' };
-      }),
+      create: vi.fn(),
     };
     const prdController = new PrdController(prds as never);
-    const body = { templateId: 't-1', knowledgeBaseId: 'k-1' };
+    const body = { title: '登录 PRD', content: '# PRD', templateId: 't-1' };
     prdController.list(request, 'r-1');
-    prdController.generate(request, 'r-1', body);
+    prdController.create(request, 'r-1', body);
     expect(prds.list).toHaveBeenCalledWith('user-1', 'r-1');
-    expect(prds.generate).toHaveBeenCalledWith('user-1', 'r-1', body);
-    await expect(collect(prdController.stream(request, 'r-1', 't-1', 'k-1'))).resolves.toEqual([
-      { data: { content: 'draft' } },
-    ]);
+    expect(prds.create).toHaveBeenCalledWith('user-1', 'r-1', body);
 
     const methods = [
       'templates',
@@ -249,7 +230,6 @@ describe('API controllers', () => {
       'exportMarkdown',
       'specs',
       'createSpec',
-      'generateSpec',
       'setSpecStatus',
       'decisions',
       'createDecision',
@@ -272,7 +252,6 @@ describe('API controllers', () => {
     controller.restore(request, 'prd-1', 2);
     controller.specs(request, 'p-1');
     controller.createSpec(request, 'p-1', { title: 's', content: 'c', prdId: 'prd-1' });
-    controller.generateSpec(request, 'p-1', 'prd-1');
     controller.setSpecStatus(request, 'spec-1', { status: SpecStatus.APPROVED });
     controller.decisions(request, 'p-1');
     controller.createDecision(request, 'p-1', {

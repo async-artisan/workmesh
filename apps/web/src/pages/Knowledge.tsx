@@ -86,7 +86,6 @@ export function Knowledge() {
   useEffect(() => {
     const requested = searchParams.get('project');
     if (requested && requested !== projectId) setProjectId(requested);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadBases(targetProjectId = projectId) {

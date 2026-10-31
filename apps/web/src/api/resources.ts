@@ -56,8 +56,8 @@ export const requirementApi = {
 };
 export const prdApi = {
   list: (requirementId: string) => client.get(`/requirements/${requirementId}/prds`),
-  generate: (requirementId: string, data: { templateId?: string; knowledgeBaseId?: string } = {}) =>
-    client.post(`/requirements/${requirementId}/prds/generate`, data),
+  create: (requirementId: string, data: { title?: string; content: string; templateId?: string }) =>
+    client.post(`/requirements/${requirementId}/prds`, data),
   versions: (prdId: string) => client.get(`/prds/${prdId}/versions`),
   revise: (prdId: string, content: string) => client.post(`/prds/${prdId}/versions`, { content }),
   restore: (prdId: string, version: number) =>
@@ -92,12 +92,10 @@ export const prdApi = {
     data: { status: 'APPROVED' | 'REJECTED' | 'CHANGES_REQUESTED'; comment?: string },
   ) => client.patch(`/prd-approvals/${encodeURIComponent(id)}`, data),
   specs: (projectId: string) => client.get(`/projects/${encodeURIComponent(projectId)}/specs`),
+  createSpec: (projectId: string, data: { title: string; content: string; prdId?: string }) =>
+    client.post(`/projects/${encodeURIComponent(projectId)}/specs`, data),
   updateSpecContent: (id: string, data: { title?: string; content?: string }) =>
     client.patch(`/specs/${encodeURIComponent(id)}/content`, data),
-  generateSpec: (projectId: string, prdId: string) =>
-    client.post(
-      `/projects/${encodeURIComponent(projectId)}/specs/generate/${encodeURIComponent(prdId)}`,
-    ),
   setSpecStatus: (id: string, status: 'DRAFT' | 'IN_REVIEW' | 'APPROVED' | 'ARCHIVED') =>
     client.patch(`/specs/${encodeURIComponent(id)}`, { status }),
   decisions: (projectId: string) =>

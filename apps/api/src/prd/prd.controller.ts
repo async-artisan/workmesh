@@ -1,16 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  MessageEvent,
-  Param,
-  Post,
-  Query,
-  Req,
-  Sse,
-  UseGuards,
-} from '@nestjs/common';
-import { Observable } from 'rxjs';
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuthGuard } from '../auth/auth.guard';
 import { PrdService } from './prd.service';
@@ -25,34 +13,11 @@ export class PrdController {
   ) {
     return this.prds.list(req.user!.sub, requirementId);
   }
-  @Post('generate') generate(
+  @Post() create(
     @Req() req: Request & { user?: { sub: string } },
     @Param('requirementId') requirementId: string,
-    @Body() body: { templateId?: string; knowledgeBaseId?: string },
+    @Body() body: { title?: string; content: string; templateId?: string },
   ) {
-    return this.prds.generate(req.user!.sub, requirementId, body);
-  }
-  @Sse('generate-stream') stream(
-    @Req() req: Request & { user?: { sub: string } },
-    @Param('requirementId') requirementId: string,
-    @Query('templateId') templateId?: string,
-    @Query('knowledgeBaseId') knowledgeBaseId?: string,
-  ): Observable<MessageEvent> {
-    return new Observable((subscriber) => {
-      void (async () => {
-        try {
-          for await (const event of this.prds.generateStream(req.user!.sub, requirementId, {
-            templateId,
-            knowledgeBaseId,
-          })) {
-            if (subscriber.closed) break;
-            subscriber.next({ data: event });
-          }
-          if (!subscriber.closed) subscriber.complete();
-        } catch (error) {
-          if (!subscriber.closed) subscriber.error(error);
-        }
-      })();
-    });
+    return this.prds.create(req.user!.sub, requirementId, body);
   }
 }

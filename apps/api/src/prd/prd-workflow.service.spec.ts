@@ -15,7 +15,6 @@ describe('PrdWorkflowService approvals', () => {
     const service = new PrdWorkflowService(
       { prdApproval: { findUnique: vi.fn().mockResolvedValue(approval), update } } as never,
       { assertMember: vi.fn() } as never,
-      {} as never,
     );
 
     await expect(
@@ -37,7 +36,6 @@ describe('PrdWorkflowService approvals', () => {
         prd: { update: updatePrd },
       } as never,
       { assertMember: vi.fn() } as never,
-      {} as never,
     );
 
     await service.decideApproval('approver-1', 'approval-1', ApprovalStatus.APPROVED);
@@ -55,7 +53,6 @@ describe('PrdWorkflowService approvals', () => {
         prdApproval: { upsert },
       } as never,
       { assertMember } as never,
-      {} as never,
     );
 
     await service.submitApproval('member-1', 'prd-1', 'approver-1');
@@ -73,7 +70,6 @@ describe('PrdWorkflowService lifecycle', () => {
     const service = new PrdWorkflowService(
       { prdTemplate: { updateMany, create, findMany } } as never,
       access as never,
-      {} as never,
     );
 
     await service.createTemplate('user-1', 'project-1', {
@@ -112,7 +108,6 @@ describe('PrdWorkflowService lifecycle', () => {
         prdApproval: { findUnique: vi.fn().mockResolvedValue(null) },
       } as never,
       { assertMember: vi.fn().mockResolvedValue(undefined) } as never,
-      {} as never,
     );
     await expect(service.submitApproval('user-1', 'missing', 'approver-1')).rejects.toMatchObject({
       status: 404,
@@ -124,7 +119,6 @@ describe('PrdWorkflowService lifecycle', () => {
     const pending = new PrdWorkflowService(
       { prdApproval: { findUnique: vi.fn().mockResolvedValue(approval) } } as never,
       { assertMember: vi.fn() } as never,
-      {} as never,
     );
     await expect(
       pending.decideApproval('approver-1', 'approval-1', ApprovalStatus.PENDING),
@@ -142,7 +136,6 @@ describe('PrdWorkflowService lifecycle', () => {
         prd: { update: updatePrd },
       } as never,
       { assertMember: vi.fn() } as never,
-      {} as never,
     );
 
     await service.decideApproval('approver-1', 'approval-1', ApprovalStatus.REJECTED);
@@ -175,11 +168,7 @@ describe('PrdWorkflowService lifecycle', () => {
       },
       $transaction: vi.fn((callback: (tx: any) => unknown) => callback(tx)),
     };
-    const service = new PrdWorkflowService(
-      prisma as never,
-      { assertMember: vi.fn() } as never,
-      {} as never,
-    );
+    const service = new PrdWorkflowService(prisma as never, { assertMember: vi.fn() } as never);
 
     await service.revise('user-1', 'prd-1', 'revised');
     await expect(service.versions('user-1', 'prd-1')).resolves.toEqual([
@@ -209,7 +198,6 @@ describe('PrdWorkflowService lifecycle', () => {
     const service = new PrdWorkflowService(
       { prd: { findUnique: vi.fn().mockResolvedValue(prd) } } as never,
       { assertMember: vi.fn() } as never,
-      {} as never,
     );
 
     const markdown = await service.exportMarkdown('user-1', 'prd-1');
@@ -224,20 +212,15 @@ describe('PrdWorkflowService lifecycle', () => {
     expect(html.content).toContain('<p>plain &lt;unsafe&gt;</p>');
   });
 
-  it('creates and lists specs and decisions, including AI-generated specs', async () => {
+  it('creates and lists specs and decisions', async () => {
     const createdSpec = { id: 'spec-1' };
     const createdDecision = { id: 'decision-1' };
-    const findPrd = vi.fn().mockResolvedValue({
-      title: 'Requirement',
-      content: 'Details',
-    });
     const createSpec = vi.fn().mockResolvedValue(createdSpec);
     const findSpecs = vi.fn().mockResolvedValue([createdSpec]);
     const createDecision = vi.fn().mockResolvedValue(createdDecision);
     const findDecisions = vi.fn().mockResolvedValue([createdDecision]);
     const service = new PrdWorkflowService(
       {
-        prd: { findUnique: findPrd },
         technicalSpec: {
           create: createSpec,
           findMany: findSpecs,
@@ -252,11 +235,9 @@ describe('PrdWorkflowService lifecycle', () => {
         },
       } as never,
       { assertMember: vi.fn().mockResolvedValue(undefined) } as never,
-      { complete: vi.fn().mockResolvedValue('Generated spec') } as never,
     );
 
     await service.createSpec('user-1', 'project-1', 'Manual', 'content', 'prd-1');
-    await service.generateSpec('user-1', 'project-1', 'prd-1');
     await expect(service.specs('user-1', 'project-1')).resolves.toEqual([createdSpec]);
     await service.setSpecStatus('user-1', 'spec-1', SpecStatus.APPROVED);
     await service.updateSpec('user-1', 'spec-1', { title: 'Revised', content: 'Updated content' });
@@ -265,11 +246,7 @@ describe('PrdWorkflowService lifecycle', () => {
     await service.setDecisionStatus('user-1', 'decision-1', DecisionStatus.ACCEPTED);
     await service.updateDecision('user-1', 'decision-1', { decision: 'Revised choice' });
 
-    expect(findPrd).toHaveBeenCalledWith({
-      where: { id: 'prd-1' },
-      select: { title: true, content: true },
-    });
-    expect(createSpec).toHaveBeenCalledTimes(2);
+    expect(createSpec).toHaveBeenCalledTimes(1);
     expect(findSpecs).toHaveBeenCalledWith({
       where: { projectId: 'project-1' },
       orderBy: { updatedAt: 'desc' },

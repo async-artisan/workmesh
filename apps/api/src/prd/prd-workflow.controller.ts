@@ -119,13 +119,6 @@ export class PrdWorkflowController {
   ) {
     return this.workflow.createSpec(req.user!.sub, projectId, body.title, body.content, body.prdId);
   }
-  @Post('projects/:projectId/specs/generate/:prdId') generateSpec(
-    @Req() req: Request & { user?: { sub: string } },
-    @Param('projectId') projectId: string,
-    @Param('prdId') prdId: string,
-  ) {
-    return this.workflow.generateSpec(req.user!.sub, projectId, prdId);
-  }
   @Patch('specs/:id') setSpecStatus(
     @Req() req: Request & { user?: { sub: string } },
     @Param('id') id: string,

@@ -1,6 +1,6 @@
 # ReqFlow
 
-ReqFlow 是一个从需求、PRD 到代码追溯的 AI 辅助需求管理平台。本仓库按 Phase 0–6 的规格组织为 pnpm + Turbo monorepo。
+ReqFlow 是面向异构 AI 协作团队的需求与追溯中枢：每个角色在自己电脑上用自己的 agent 干活，平台只负责沉淀事实——把需求、PRD、代码与测试串成可追溯的链条，并向各角色的 agent 供给上下文。本仓库按 Phase 0–6 的规格组织为 pnpm + Turbo monorepo。
 
 ## 快速开始
 
@@ -18,7 +18,7 @@ API 默认运行在 `http://localhost:3000`，Web 默认运行在 `http://localh
 
 - `apps/api`：NestJS API、认证、需求、知识库、PRD、追溯和 Webhook。
 - `apps/web`：React + Vite 前端。
-- `apps/cli`：`reqflow` CLI，支持需求同步和 PRD 生成。
+- `apps/cli`：`reqflow` CLI，支持需求同步与本地 PRD 提交。
 - `packages/shared`：跨端类型契约。
 - `packages/ui`：最小共享组件。
 

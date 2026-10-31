@@ -34,7 +34,6 @@ export function useProjectContext() {
       alive = false;
     };
     // 只在挂载时拉取；项目增删由页面显式刷新
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return { projects, projectId, setProjectId, loading, error };

@@ -7,14 +7,12 @@ import {
 import { ApprovalStatus, DecisionStatus, PrdStatus, SpecStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProjectAccessService } from '../projects/project-access.service';
-import { AiService } from '../ai/ai.service';
 
 @Injectable()
 export class PrdWorkflowService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ProjectAccessService,
-    private readonly ai: AiService,
   ) {}
   async createTemplate(
     userId: string,
@@ -213,25 +211,6 @@ export class PrdWorkflowService {
     await this.access.assertMember(userId, projectId);
     return this.prisma.technicalSpec.create({
       data: { projectId, prdId, title, content, createdById: userId },
-    });
-  }
-  async generateSpec(userId: string, projectId: string, prdId: string) {
-    await this.access.assertMember(userId, projectId);
-    const prd = await this.prisma.prd.findUnique({
-      where: { id: prdId },
-      select: { title: true, content: true },
-    });
-    if (!prd) throw new NotFoundException('PRD 不存在');
-    const content = await this.ai.complete([
-      {
-        role: 'system',
-        content:
-          '你是资深架构师，输出结构化 Markdown 技术规格，包含架构、API、数据模型和测试策略。',
-      },
-      { role: 'user', content: `PRD 标题：${prd.title}\n${prd.content}` },
-    ]);
-    return this.prisma.technicalSpec.create({
-      data: { projectId, prdId, title: `技术规格 - ${prd.title}`, content, createdById: userId },
     });
   }
   specs(userId: string, projectId: string) {

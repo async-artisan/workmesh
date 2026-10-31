@@ -1,13 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import {
-  knowledgeApi,
-  prdApi,
-  projectApi,
-  requirementApi,
-  type RequirementItem,
-} from '../api/resources';
-import { useAuthStore } from '../store/auth';
+import { prdApi, projectApi, requirementApi, type RequirementItem } from '../api/resources';
 import { Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
@@ -23,10 +16,6 @@ interface PrdVersion {
   version: number;
   content: string;
   current: boolean;
-}
-interface KnowledgeBaseOption {
-  id: string;
-  name: string;
 }
 interface SpecItem {
   id: string;
@@ -69,7 +58,6 @@ export function Prds() {
   const { projectId, setProjectId } = useProjectContext();
   const [requirements, setRequirements] = useState<RequirementItem[]>([]);
   const [requirementId, setRequirementId] = useState(searchParams.get('req') ?? '');
-  const [kbs, setKbs] = useState<KnowledgeBaseOption[]>([]);
   const [items, setItems] = useState<PrdItem[]>([]);
   const [selected, setSelected] = useState<PrdItem | null>(null);
   const [versions, setVersions] = useState<PrdVersion[]>([]);
@@ -85,7 +73,9 @@ export function Prds() {
   const [modalError, setModalError] = useState('');
 
   const [genOpen, setGenOpen] = useState(false);
-  const [genForm, setGenForm] = useState({ templateId: '', knowledgeBaseId: '' });
+  const [genForm, setGenForm] = useState({ title: '', content: '', templateId: '' });
+  const [specOpen, setSpecOpen] = useState(false);
+  const [specForm, setSpecForm] = useState({ title: '', content: '' });
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templateForm, setTemplateForm] = useState({ name: '', content: '', isDefault: false });
   const [revisionOpen, setRevisionOpen] = useState(false);
@@ -113,13 +103,11 @@ export function Prds() {
   const [decisionForm, setDecisionForm] = useState({ title: '', context: '', decision: '' });
   const [editingDecision, setEditingDecision] = useState<DecisionItem | null>(null);
   const [editingSpec, setEditingSpec] = useState<SpecItem | null>(null);
-  const accessToken = useAuthStore((state) => state.accessToken);
 
   // 深链接优先：URL 指定的项目写入共享上下文
   useEffect(() => {
     const requested = searchParams.get('project');
     if (requested && requested !== projectId) setProjectId(requested);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -132,7 +120,6 @@ export function Prds() {
   useEffect(() => {
     if (!projectId) {
       setRequirements([]);
-      setKbs([]);
       setTemplates([]);
       setSpecs([]);
       setDecisions([]);
@@ -141,22 +128,16 @@ export function Prds() {
     let cancelled = false;
     (async () => {
       try {
-        const [reqRows, kbRows, templateRows, specRows, decisionRows, memberRows] =
-          await Promise.all([
-            requirementApi.list(projectId, 1, 50),
-            knowledgeApi.list(projectId),
-            prdApi.templates(projectId),
-            prdApi.specs(projectId),
-            prdApi.decisions(projectId),
-            projectApi.members(projectId).catch(() => []),
-          ]);
+        const [reqRows, templateRows, specRows, decisionRows, memberRows] = await Promise.all([
+          requirementApi.list(projectId, 1, 50),
+          prdApi.templates(projectId),
+          prdApi.specs(projectId),
+          prdApi.decisions(projectId),
+          projectApi.members(projectId).catch(() => []),
+        ]);
         if (cancelled) return;
         setRequirements(reqRows.items);
         setMembers(memberRows);
-        setKbs(
-          ((kbRows as unknown as { items?: KnowledgeBaseOption[] }).items ??
-            []) as KnowledgeBaseOption[],
-        );
         setTemplates(templateRows as unknown as Array<{ id: string; name: string }>);
         setSpecs(specRows as unknown as SpecItem[]);
         setDecisions(decisionRows as unknown as DecisionItem[]);
@@ -285,17 +266,6 @@ export function Prds() {
     }
   }
 
-  async function generateSpec() {
-    if (!projectId.trim() || !selected?.id) return;
-    try {
-      await prdApi.generateSpec(projectId.trim(), selected.id);
-      setSpecs((await prdApi.specs(projectId.trim())) as unknown as SpecItem[]);
-      setNotice('技术规格已生成');
-    } catch {
-      setError('技术规格生成失败。');
-    }
-  }
-
   async function createDecision() {
     if (
       !projectId.trim() ||
@@ -317,6 +287,32 @@ export function Prds() {
       setDecisions((await prdApi.decisions(projectId.trim())) as unknown as DecisionItem[]);
     } catch {
       setModalError('技术决策创建失败。');
+    }
+  }
+
+  function openSpec() {
+    setSpecForm({ title: '', content: '' });
+    setModalError('');
+    setSpecOpen(true);
+  }
+
+  async function createSpec() {
+    if (!projectId.trim()) return;
+    if (!specForm.title.trim() || !specForm.content.trim()) {
+      setModalError('技术规格标题与正文都不能为空。');
+      return;
+    }
+    try {
+      await prdApi.createSpec(projectId.trim(), {
+        title: specForm.title.trim(),
+        content: specForm.content,
+        ...(selected?.id ? { prdId: selected.id } : {}),
+      });
+      setSpecs((await prdApi.specs(projectId.trim())) as unknown as SpecItem[]);
+      setSpecOpen(false);
+      setNotice('技术规格已创建。');
+    } catch {
+      setModalError('技术规格创建失败。');
     }
   }
 
@@ -364,62 +360,30 @@ export function Prds() {
     }
   }
 
-  async function generate() {
+  async function create() {
     if (!requirementId.trim()) return;
+    if (!genForm.content.trim()) {
+      setModalError('PRD 正文不能为空。');
+      return;
+    }
     setBusy(true);
     setError('');
     setNotice('');
-    setGenOpen(false);
+    setModalError('');
     try {
-      if (!accessToken) throw new Error('Authentication required');
-      setSelected({ id: '', title: '正在生成 PRD', version: 0, content: '' });
+      const created = (await prdApi.create(requirementId.trim(), {
+        title: genForm.title.trim() || undefined,
+        content: genForm.content,
+        templateId: genForm.templateId || undefined,
+      })) as unknown as PrdItem;
+      setItems((current) => [created, ...current.filter((item) => item.id !== created.id)]);
+      setSelected(created);
       setVersions([]);
-      const query = new URLSearchParams();
-      if (genForm.templateId.trim()) query.set('templateId', genForm.templateId.trim());
-      if (genForm.knowledgeBaseId.trim())
-        query.set('knowledgeBaseId', genForm.knowledgeBaseId.trim());
-      const suffix = query.size ? `?${query.toString()}` : '';
-      const response = await fetch(
-        `/api/requirements/${encodeURIComponent(requirementId.trim())}/prds/generate-stream${suffix}`,
-        { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'text/event-stream' } },
-      );
-      if (!response.ok || !response.body) throw new Error('PRD stream failed');
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let content = '';
-      while (true) {
-        const { value, done } = await reader.read();
-        buffer += decoder.decode(value, { stream: !done });
-        const messages = buffer.split('\n\n');
-        buffer = messages.pop() ?? '';
-        for (const message of messages) {
-          const line = message.split('\n').find((item) => item.startsWith('data:'));
-          if (!line) continue;
-          const event = JSON.parse(line.slice(5).trim()) as {
-            content?: string;
-            done?: boolean;
-            prd?: PrdItem;
-          };
-          if (event.content) {
-            content += event.content;
-            setSelected({ id: '', title: '正在生成 PRD', version: 0, content });
-          }
-          if (event.done && event.prd) {
-            const generated = event.prd;
-            setItems((current) => [
-              generated,
-              ...current.filter((item) => item.id !== generated.id),
-            ]);
-            setSelected(generated);
-            await loadVersions(generated.id);
-          }
-        }
-        if (done) break;
-      }
-      await reader.cancel().catch(() => undefined);
+      await loadVersions(created.id);
+      setGenOpen(false);
+      setNotice('PRD 已提交。');
     } catch {
-      setError('PRD 生成失败，请确认需求存在并可访问。');
+      setModalError('PRD 提交失败，请确认需求存在并可访问。');
     } finally {
       setBusy(false);
     }
@@ -474,7 +438,7 @@ export function Prds() {
   }
 
   function openGenerate() {
-    setGenForm({ templateId: '', knowledgeBaseId: '' });
+    setGenForm({ title: '', content: '', templateId: '' });
     setModalError('');
     setGenOpen(true);
   }
@@ -490,7 +454,7 @@ export function Prds() {
       <header className="page-head">
         <div>
           <h2>PRD 工作台</h2>
-          <p className="page-sub">从需求生成 PRD，管理版本、审批与技术决策</p>
+          <p className="page-sub">提交并管理 PRD 版本、审批与技术决策</p>
         </div>
         <div className="page-actions">
           <ProjectSelect
@@ -504,7 +468,7 @@ export function Prds() {
             }}
           />
           <button className="primary" disabled={!requirementId || busy} onClick={openGenerate}>
-            {busy ? '生成中…' : '生成 PRD'}
+            {busy ? '提交中…' : '提交 PRD'}
           </button>
         </div>
       </header>
@@ -615,7 +579,7 @@ export function Prds() {
                 <tr className="table-empty">
                   <td colSpan={4}>
                     {requirementId
-                      ? '该需求还没有 PRD，点右上角「生成 PRD」。'
+                      ? '该需求还没有 PRD，点右上角「提交 PRD」。'
                       : '先选择一个需求。'}
                   </td>
                 </tr>
@@ -831,7 +795,7 @@ export function Prds() {
                             setGenOpen(true);
                           }}
                         >
-                          用于生成
+                          用于撰写 PRD
                         </button>
                       </div>
                     </td>
@@ -891,12 +855,8 @@ export function Prds() {
             <h3>
               技术规格<small>{specs.length}</small>
             </h3>
-            <button
-              className="ghost"
-              disabled={!projectId || !selected?.id}
-              onClick={() => void generateSpec()}
-            >
-              从当前 PRD 生成
+            <button className="ghost" disabled={!projectId} onClick={openSpec}>
+              新建技术规格
             </button>
           </div>
           <div className="table-scroll">
@@ -1001,22 +961,32 @@ export function Prds() {
 
       <Modal
         open={genOpen}
-        title="生成 PRD"
+        title="提交 PRD"
         description={currentRequirement ? `需求：${currentRequirement.title}` : ''}
-        size="md"
+        size="lg"
         onClose={() => setGenOpen(false)}
         footer={
           <>
             <button className="ghost" onClick={() => setGenOpen(false)}>
               取消
             </button>
-            <button className="primary" onClick={() => void generate()}>
-              开始生成
+            <button className="primary" disabled={busy} onClick={() => void create()}>
+              {busy ? '提交中…' : '提交 PRD'}
             </button>
           </>
         }
       >
         <div className="form-grid">
+          <div className="field">
+            <span>标题</span>
+            <input
+              value={genForm.title}
+              onChange={(event) => setGenForm({ ...genForm, title: event.target.value })}
+              placeholder={currentRequirement?.title ?? '留则沿用需求标题'}
+              maxLength={200}
+              aria-label="PRD 标题"
+            />
+          </div>
           <div className="field">
             <span>PRD 模板</span>
             <select
@@ -1024,7 +994,7 @@ export function Prds() {
               onChange={(event) => setGenForm({ ...genForm, templateId: event.target.value })}
               aria-label="选择 PRD 模板"
             >
-              <option value="">{templates.length ? '默认方式生成' : '无可用模板'}</option>
+              <option value="">不关联模板</option>
               {templates.map((template) => (
                 <option value={template.id} key={template.id}>
                   {template.name}
@@ -1033,19 +1003,53 @@ export function Prds() {
             </select>
           </div>
           <div className="field">
-            <span>引用知识库</span>
-            <select
-              value={genForm.knowledgeBaseId}
-              onChange={(event) => setGenForm({ ...genForm, knowledgeBaseId: event.target.value })}
-              aria-label="选择知识库"
-            >
-              <option value="">{kbs.length ? '不引用知识库' : '无可用知识库'}</option>
-              {kbs.map((base) => (
-                <option value={base.id} key={base.id}>
-                  {base.name}
-                </option>
-              ))}
-            </select>
+            <span>PRD 正文（Markdown）</span>
+            <textarea
+              value={genForm.content}
+              onChange={(event) => setGenForm({ ...genForm, content: event.target.value })}
+              rows={16}
+              placeholder="粘贴本地 agent 写好的 PRD 正文"
+              aria-label="PRD 正文"
+            />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={specOpen}
+        title="新建技术规格"
+        description={selected ? `关联 PRD：${selected.title}` : '未选择 PRD 时创建为独立技术规格'}
+        size="lg"
+        onClose={() => setSpecOpen(false)}
+        footer={
+          <>
+            <button className="ghost" onClick={() => setSpecOpen(false)}>
+              取消
+            </button>
+            <button className="primary" onClick={() => void createSpec()}>
+              创建
+            </button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          <div className="field">
+            <span>标题</span>
+            <input
+              value={specForm.title}
+              onChange={(event) => setSpecForm({ ...specForm, title: event.target.value })}
+              maxLength={200}
+              aria-label="技术规格标题"
+            />
+          </div>
+          <div className="field">
+            <span>正文（Markdown）</span>
+            <textarea
+              value={specForm.content}
+              onChange={(event) => setSpecForm({ ...specForm, content: event.target.value })}
+              rows={16}
+              aria-label="技术规格正文"
+            />
           </div>
         </div>
       </Modal>
@@ -1053,7 +1057,7 @@ export function Prds() {
       <Modal
         open={templateOpen}
         title="新建模板"
-        description="模板内容使用 Markdown，可作为 PRD 生成的结构骨架。"
+        description="模板内容使用 Markdown，可作为 PRD 撰写的结构骨架。"
         size="lg"
         onClose={() => setTemplateOpen(false)}
         footer={
@@ -1098,7 +1102,7 @@ export function Prds() {
                 }
                 aria-label="设为默认模板"
               />{' '}
-              生成 PRD 时默认使用该模板
+              撰写 PRD 时默认套用该模板
             </span>
           </label>
           {modalError && <p className="modal-error">{modalError}</p>}

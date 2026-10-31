@@ -6,7 +6,7 @@
 - `GET/PATCH /api/auth/profile`, `PATCH /api/auth/password` — authenticated profile and password changes.
 - `GET/POST /api/projects`, `PUT/DELETE /api/projects/:id` — member-scoped projects.
 - `GET/POST/PATCH/DELETE /api/requirements` — member-scoped requirement lifecycle.
-- `GET/POST /api/requirements/:id/prds`, `POST /api/requirements/:id/prds/generate`, `GET /api/requirements/:id/prds/generate-stream` — PRD versions and authenticated SSE generation.
+- `GET/POST /api/requirements/:id/prds` — list and submit PRDs. PRD 正文由角色在本地撰写后提交，平台不做生成。
 - `GET /api/prds/:id/export?format=html` — escaped HTML export; omit `format` for Markdown.
 - `GET/POST /api/knowledge-bases/project/:projectId`, `POST /api/knowledge-bases/:id/upload`, `GET /api/knowledge-bases/:id/search` — knowledge ingestion and hybrid search.
 - `GET/POST /api/traces/...` — trace graph and links.

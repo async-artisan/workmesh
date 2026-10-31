@@ -94,15 +94,20 @@ cli
     console.log(`Updated ${updated} requirements.`);
   });
 cli
-  .command('generate <requirementId>')
+  .command('prd-push <requirementId>')
   .alias('prd')
-  .description('Generate and save a PRD through the ReqFlow API')
+  .description('Submit a locally authored PRD Markdown file to the ReqFlow API')
   .option('--api <url>', 'API base URL')
   .option('--template <id>', 'template id')
-  .option('--out <file>', 'Markdown output', 'PRD.md')
+  .option('--title <title>', 'PRD title, defaults to the requirement title')
+  .option('--file <file>', 'Markdown file to submit', 'PRD.md')
   .action(
-    async (requirementId: string, options: { api?: string; template?: string; out: string }) => {
+    async (
+      requirementId: string,
+      options: { api?: string; template?: string; title?: string; file: string },
+    ) => {
       const { client } = await configuredClient(options.api);
+      const content = await readFile(options.file, 'utf8');
       const prd = await client.request<{
         id: string;
         requirementId: string;
@@ -110,30 +115,32 @@ cli
         version: number;
         content: string;
         createdAt: string;
-      }>(`/requirements/${encodeURIComponent(requirementId)}/prds/generate`, {
+      }>(`/requirements/${encodeURIComponent(requirementId)}/prds`, {
         method: 'POST',
-        body: JSON.stringify({ templateId: options.template }),
+        body: JSON.stringify({
+          title: options.title,
+          content,
+          templateId: options.template,
+        }),
       });
-      await mkdir(dirname(options.out), { recursive: true });
-      await writeFile(options.out, `${prd.content}\n`);
-      const metaPath = options.out.endsWith('.md')
-        ? `${options.out.slice(0, -3)}.meta.json`
-        : `${options.out}.meta.json`;
+      const metaPath = options.file.endsWith('.md')
+        ? `${options.file.slice(0, -3)}.meta.json`
+        : `${options.file}.meta.json`;
+      await mkdir(dirname(metaPath) || '.', { recursive: true });
       await writeFile(
         metaPath,
         `${JSON.stringify(
           {
             id: prd.id,
             requirementId: prd.requirementId,
-            generatedAt: prd.createdAt,
+            submittedAt: prd.createdAt,
             version: prd.version,
           },
           null,
           2,
         )}\n`,
       );
-      console.log(`Saved PRD to ${options.out}`);
-      console.log(prd.content.slice(0, 500));
+      console.log(`Submitted ${options.file} as PRD v${prd.version} (${prd.id})`);
     },
   );
 cli
