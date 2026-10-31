@@ -1,0 +1,43 @@
+{
+    "schema_version": 1,
+    "evidence_id": "evidence-20261031T061255Z-f25b7765bc",
+    "run_id": "20261031-053806-database-migration",
+    "revision": 2,
+    "repo": "environment.identity-probe",
+    "worktree": "/opt/homebrew/var/www/yesgooo/req-flow",
+    "scope": {
+        "repos": [],
+        "files": [],
+        "impact_files": [
+            "apps/api/prisma/seed.ts",
+            "apps/api/src/controllers.spec.ts",
+            "apps/api/src/prd/prd-workflow.service.spec.ts",
+            "scripts/verify.sh",
+            "handbook/agents/run-types.yaml"
+        ],
+        "changes_summary": ""
+    },
+    "before_snapshot": [],
+    "after_snapshot": [],
+    "policy_id": "environment.identity-probe",
+    "policy_hash": "",
+    "environment_hash": "23039f9300e6265a170e63c5d8bc5cdb9d78d70d15a95c86a214259cf15009af",
+    "tenant_fingerprint": "",
+    "actor": "manual",
+    "started_at": "2026-10-31T06:12:55+00:00",
+    "finished_at": "2026-10-31T06:12:55+00:00",
+    "stdout": "",
+    "stderr": "",
+    "stdout_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "artifact_hash": "90a71d109f0373b33b818ae4ecfbb9fe3318f7c6866a68ba579e05d53df3f74e",
+    "evidence_level": "unknown",
+    "status": "unknown",
+    "exit_code": null,
+    "threshold_passed": null,
+    "manual": false,
+    "reason": "验证策略文件不存在",
+    "failed_rules": [],
+    "evidence_path": "",
+    "recorded_at": "2026-10-31T06:12:55+00:00"
+}

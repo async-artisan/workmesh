@@ -1,0 +1,32 @@
+{
+    "schema_version": 1,
+    "transaction_id": "archive-20261031022142-13312f488a",
+    "task_id": "",
+    "run_id": "20261031-014850-code-change",
+    "operation": "run.archive",
+    "phase": "committed",
+    "expected_revisions": {
+        "run": 9
+    },
+    "files": {
+        "/opt/homebrew/var/www/yesgooo/req-flow/.runs/active/20261031-014850-code-change/manifest.yaml": {
+            "staged": "/opt/homebrew/var/www/yesgooo/req-flow/.runs/transactions/.archive-20261031022142-13312f488a.manifest.stage",
+            "target_hash": "6a371c2e5127ff0362c545f1c289b3832df3d5df2c18ffc639ba0da8eb9954a5",
+            "staged_hash": "7f2ac296603579a9ec59204432f71cc65ba5e0626c3e83ad641443b0f43a37ec",
+            "committed_hash": "7f2ac296603579a9ec59204432f71cc65ba5e0626c3e83ad641443b0f43a37ec"
+        }
+    },
+    "actor": "codex",
+    "prepared_at": "2026-10-31T02:21:42+00:00",
+    "committed_at": "2026-10-31T02:21:42+00:00",
+    "status": "committed",
+    "events": [],
+    "archive": {
+        "active_path": "/opt/homebrew/var/www/yesgooo/req-flow/.runs/active/20261031-014850-code-change",
+        "archive_path": "/opt/homebrew/var/www/yesgooo/req-flow/.runs/archive/20261031-014850-code-change",
+        "manifest_hash": "7f2ac296603579a9ec59204432f71cc65ba5e0626c3e83ad641443b0f43a37ec",
+        "claim_id": "",
+        "claim_owner": "manual",
+        "claim_token_hash": ""
+    }
+}

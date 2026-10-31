@@ -1,0 +1,39 @@
+{
+    "schema_version": 1,
+    "evidence_id": "evidence-20261031T022106Z-bea09352c3",
+    "run_id": "20261031-014850-code-change",
+    "revision": 6,
+    "repo": "test",
+    "worktree": "",
+    "scope": {
+        "repos": [],
+        "files": [],
+        "impact_files": [
+            "req-flow/**"
+        ],
+        "changes_summary": ""
+    },
+    "before_snapshot": [],
+    "after_snapshot": [],
+    "policy_id": "manual.attestation",
+    "policy_hash": "42e2ee0a46d78f6299f9d574f15153cac57c048e724ff4bcfa626a219ce156fb",
+    "environment_hash": "23039f9300e6265a170e63c5d8bc5cdb9d78d70d15a95c86a214259cf15009af",
+    "tenant_fingerprint": "",
+    "actor": "codex",
+    "started_at": "2026-10-31T02:21:06+00:00",
+    "finished_at": "2026-10-31T02:21:06+00:00",
+    "stdout": "",
+    "stderr": "",
+    "stdout_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "artifact_hash": "14e19a6efa7c2a02c014ca7bb21962c82c26190b725615491987831e10e0d593",
+    "evidence_level": "manual-attestation",
+    "status": "attested",
+    "exit_code": null,
+    "threshold_passed": null,
+    "manual": true,
+    "reason": "local tests and build",
+    "failed_rules": [],
+    "evidence_path": "evidence/tests.txt",
+    "recorded_at": "2026-10-31T02:21:06+00:00"
+}

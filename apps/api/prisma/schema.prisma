@@ -1,0 +1,480 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+enum ProjectMemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+enum RequirementStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  IN_PROGRESS
+  DONE
+  ARCHIVED
+}
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+enum PrdStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+}
+enum SpecStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  ARCHIVED
+}
+enum DecisionStatus {
+  PROPOSED
+  ACCEPTED
+  SUPERSEDED
+  REJECTED
+}
+enum AiRunType {
+  PRODUCT_DISCOVERY
+}
+enum AiRunStatus {
+  ACTIVE
+  PROCESSING
+  PAUSED
+  WAITING_CONFIRMATION
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+enum AiRunStep {
+  BACKGROUND_GOAL
+  USERS_SCENARIOS
+  USER_STORIES_FLOWS
+  ACCEPTANCE_CRITERIA
+  WAITING_CONFIRMATION
+}
+enum AiRunMessageRole {
+  SYSTEM
+  USER
+  ASSISTANT
+}
+enum AiRunEventType {
+  RUN_STARTED
+  RUN_PROCESSING
+  MESSAGE_CREATED
+  STEP_CHANGED
+  DRAFT_UPDATED
+  RUN_WAITING_CONFIRMATION
+  RUN_COMPLETED
+  RUN_PAUSED
+  RUN_RESUMED
+  RUN_CANCELLED
+  RUN_FAILED
+  HEARTBEAT
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  users     User[]
+  projects  Project[]
+  @@map("organizations")
+}
+
+model User {
+  id            String   @id @default(uuid())
+  organizationId String? @map("organization_id")
+  email         String   @unique
+  passwordHash  String   @map("password_hash")
+  name          String?
+  avatarData    Bytes?   @map("avatar_data")
+  avatarMimeType String? @map("avatar_mime_type")
+  role          Role     @default(USER)
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  lastLoginAt   DateTime? @map("last_login_at")
+  organization  Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  refreshTokens RefreshToken[]
+  memberships   ProjectMember[]
+  createdProjects Project[] @relation("project_creator")
+  requirements  Requirement[]
+  createdTemplates PrdTemplate[] @relation("template_creator")
+  approvals     PrdApproval[] @relation("approval_approver")
+  createdPrds   Prd[] @relation("prd_creator")
+  createdVersions PrdVersion[] @relation("version_creator")
+  createdSpecs  TechnicalSpec[] @relation("spec_creator")
+  createdDecisions TechnicalDecision[] @relation("decision_creator")
+  aiRuns        AiRun[] @relation("ai_run_creator")
+  @@index([organizationId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique @map("token_hash")
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, expiresAt])
+  @@map("refresh_tokens")
+}
+
+model Project {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  key            String
+  description    String?
+  repositoryUrl  String?  @unique @map("repository_url")
+  createdById    String?  @map("created_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members        ProjectMember[]
+  creator        User?    @relation("project_creator", fields: [createdById], references: [id], onDelete: SetNull)
+  requirements   Requirement[]
+  templates      PrdTemplate[]
+  specs          TechnicalSpec[]
+  decisions      TechnicalDecision[]
+  knowledgeBases KnowledgeBase[]
+  aiRuns         AiRun[]
+  @@unique([organizationId, key])
+  @@index([organizationId, createdAt])
+  @@map("projects")
+}
+
+model ProjectMember {
+  projectId String @map("project_id")
+  userId    String @map("user_id")
+  role      ProjectMemberRole @default(MEMBER)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([projectId, userId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+model Requirement {
+  id                 String            @id @default(uuid())
+  projectId          String            @map("project_id")
+  createdById        String            @map("created_by_id")
+  title              String
+  description        String            @default("")
+  status             RequirementStatus @default(DRAFT)
+  priority           Priority          @default(MEDIUM)
+  acceptanceCriteria Json              @default("[]") @map("acceptance_criteria")
+  userStories        Json              @default("[]") @map("user_stories")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  project            Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy          User              @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  prds               Prd[]
+  outgoingLinks      RequirementLink[] @relation("link_from")
+  incomingLinks      RequirementLink[] @relation("link_to")
+  traces             Trace[]
+  dependenciesFrom   RequirementDependency[] @relation("dependency_from")
+  dependenciesTo     RequirementDependency[] @relation("dependency_to")
+  aiRunId            String?           @unique @map("ai_run_id")
+  aiRun              AiRun?            @relation(fields: [aiRunId], references: [id], onDelete: SetNull)
+  @@index([projectId, updatedAt])
+  @@index([createdById])
+  @@map("requirements")
+}
+
+model AiRun {
+  id            String         @id @default(uuid())
+  projectId     String         @map("project_id")
+  createdById   String         @map("created_by_id")
+  type          AiRunType      @default(PRODUCT_DISCOVERY)
+  status        AiRunStatus    @default(ACTIVE)
+  step          AiRunStep      @default(BACKGROUND_GOAL)
+  eventSequence Int            @default(0) @map("event_sequence")
+  draft         Json           @default("{}")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  completedAt   DateTime?      @map("completed_at")
+  project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy     User           @relation("ai_run_creator", fields: [createdById], references: [id], onDelete: Restrict)
+  requirement   Requirement?
+  messages      AiRunMessage[]
+  @@index([projectId, status, updatedAt])
+  @@index([createdById, updatedAt])
+  @@map("ai_runs")
+}
+
+model AiRunMessage {
+  id        String            @id @default(uuid())
+  runId     String            @map("run_id")
+  sequence  Int
+  role      AiRunMessageRole
+  step      AiRunStep?
+  eventType AiRunEventType    @map("event_type")
+  content   String
+  createdAt DateTime          @default(now()) @map("created_at")
+  run       AiRun             @relation(fields: [runId], references: [id], onDelete: Cascade)
+  @@unique([runId, sequence])
+  @@index([runId, createdAt])
+  @@map("ai_run_messages")
+}
+
+model RequirementLink {
+  id             String @id @default(uuid())
+  fromId         String @map("from_id")
+  toId           String @map("to_id")
+  relation       String @default("depends_on")
+  fromRequirement Requirement @relation("link_from", fields: [fromId], references: [id], onDelete: Cascade)
+  toRequirement   Requirement @relation("link_to", fields: [toId], references: [id], onDelete: Cascade)
+  @@unique([fromId, toId, relation])
+  @@map("requirement_links")
+}
+
+model RequirementDependency {
+  id        String @id @default(uuid())
+  fromId    String @map("from_id")
+  toId      String @map("to_id")
+  type      String @default("depends_on")
+  createdAt DateTime @default(now()) @map("created_at")
+  from      Requirement @relation("dependency_from", fields: [fromId], references: [id], onDelete: Cascade)
+  to        Requirement @relation("dependency_to", fields: [toId], references: [id], onDelete: Cascade)
+  @@unique([fromId, toId, type])
+  @@index([toId])
+  @@map("requirement_dependencies")
+}
+
+model Prd {
+  id            String    @id @default(uuid())
+  requirementId String    @map("requirement_id")
+  version       Int       @default(1)
+  title         String
+  content       String
+  status        PrdStatus @default(DRAFT)
+  templateId    String?   @map("template_id")
+  createdById   String?   @map("created_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  template      PrdTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  createdBy     User? @relation("prd_creator", fields: [createdById], references: [id], onDelete: SetNull)
+  approvals     PrdApproval[]
+  versions      PrdVersion[]
+  specs         TechnicalSpec[]
+  traces        Trace[]
+  @@unique([requirementId, version])
+  @@index([status])
+  @@map("prds")
+}
+
+model PrdTemplate {
+  id          String @id @default(uuid())
+  projectId   String? @map("project_id")
+  name        String
+  description String?
+  content     String
+  variables   Json @default("[]")
+  isDefault   Boolean @default(false) @map("is_default")
+  createdById String @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy   User @relation("template_creator", fields: [createdById], references: [id], onDelete: Restrict)
+  prds        Prd[]
+  @@index([projectId, isDefault])
+  @@map("prd_templates")
+}
+
+model PrdApproval {
+  id         String @id @default(uuid())
+  prdId      String @map("prd_id")
+  approverId String @map("approver_id")
+  status     ApprovalStatus @default(PENDING)
+  comment    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  prd        Prd @relation(fields: [prdId], references: [id], onDelete: Cascade)
+  approver   User @relation("approval_approver", fields: [approverId], references: [id], onDelete: Restrict)
+  @@unique([prdId, approverId])
+  @@index([approverId])
+  @@map("prd_approvals")
+}
+
+model PrdVersion {
+  id        String @id @default(uuid())
+  prdId     String @map("prd_id")
+  version   Int
+  content   String
+  createdById String? @map("created_by_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  prd       Prd @relation(fields: [prdId], references: [id], onDelete: Cascade)
+  createdBy User? @relation("version_creator", fields: [createdById], references: [id], onDelete: SetNull)
+  @@unique([prdId, version])
+  @@map("prd_versions")
+}
+
+model TechnicalSpec {
+  id          String @id @default(uuid())
+  projectId   String @map("project_id")
+  prdId       String? @map("prd_id")
+  title       String
+  content     String
+  version     Int @default(1)
+  status      SpecStatus @default(DRAFT)
+  createdById String @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  prd         Prd? @relation(fields: [prdId], references: [id], onDelete: SetNull)
+  createdBy   User @relation("spec_creator", fields: [createdById], references: [id], onDelete: Restrict)
+  @@index([projectId, status])
+  @@map("technical_specs")
+}
+
+model TechnicalDecision {
+  id          String @id @default(uuid())
+  projectId   String @map("project_id")
+  title       String
+  context     String
+  decision    String
+  consequences String?
+  status      DecisionStatus @default(PROPOSED)
+  createdById String @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy   User @relation("decision_creator", fields: [createdById], references: [id], onDelete: Restrict)
+  @@index([projectId, status])
+  @@map("technical_decisions")
+}
+
+model KnowledgeBase {
+  id          String   @id @default(uuid())
+  projectId   String   @map("project_id")
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  documents   KnowledgeDocument[]
+  @@index([projectId])
+  @@map("knowledge_bases")
+}
+
+model KnowledgeDocument {
+  id              String @id @default(uuid())
+  knowledgeBaseId String @map("knowledge_base_id")
+  filename        String
+  mimeType        String @map("mime_type")
+  content         String
+  createdAt       DateTime @default(now()) @map("created_at")
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  chunks          DocumentChunk[]
+  @@index([knowledgeBaseId, createdAt])
+  @@map("knowledge_documents")
+}
+
+model DocumentChunk {
+  id         String   @id @default(uuid())
+  documentId String   @map("document_id")
+  content    String
+  embedding  Json?
+  position   Int
+  document   KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  @@unique([documentId, position])
+  @@map("document_chunks")
+}
+
+model Trace {
+  id            String @id @default(uuid())
+  requirementId String @map("requirement_id")
+  prdId         String? @map("prd_id")
+  kind          String
+  targetId      String @map("target_id")
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  prd           Prd? @relation(fields: [prdId], references: [id], onDelete: Cascade)
+  @@index([requirementId, kind])
+  @@index([prdId])
+  @@map("traces")
+}
+
+model GitCommit {
+  id          String   @id @default(uuid())
+  sha         String
+  repositoryUrl String? @map("repository_url")
+  message     String
+  author      String
+  url         String
+  committedAt DateTime @map("committed_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  @@unique([repositoryUrl, sha])
+  @@index([sha])
+  @@map("git_commits")
+}
+
+model PullRequest {
+  id        String   @id @default(uuid())
+  provider  String
+  number    Int
+  repositoryUrl String? @map("repository_url")
+  title     String
+  url       String
+  state     String
+  author    String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@unique([provider, number, url])
+  @@index([provider, number])
+  @@map("pull_requests")
+}
+
+model TraceLink {
+  id         String   @id @default(uuid())
+  sourceType String   @map("source_type")
+  sourceId   String   @map("source_id")
+  targetType String   @map("target_type")
+  targetId   String   @map("target_id")
+  linkType   String   @map("link_type")
+  createdAt  DateTime @default(now()) @map("created_at")
+  @@unique([sourceType, sourceId, targetType, targetId])
+  @@index([sourceType, sourceId])
+  @@index([targetType, targetId])
+  @@map("trace_links")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  actorId   String?  @map("actor_id")
+  action    String
+  target    String
+  targetId  String?  @map("target_id")
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@map("audit_logs")
+}

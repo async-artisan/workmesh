@@ -1,0 +1,107 @@
+id: 20261031-094445-code-change
+task_id: ''
+run_id: 20261031-094445-code-change
+attempt: 0
+type: code-change
+status: active
+created_by: manual
+owner: manual
+session: pid-43114
+created_at: "2026-10-31T09:44:45+00:00"
+updated_at: "2026-10-31T09:44:45+00:00"
+completed_at: null
+description: "ReqFlow 项目仓库映射与 Git 追溯隔离"
+user_request: "ReqFlow 项目仓库映射与 Git 追溯隔离"
+environment: unconfigured
+tenant_fingerprint: ''
+scope:
+  repos: []
+  files: []
+  impact_files:
+    - apps/api/prisma/schema.prisma
+    - apps/api/prisma/migrations/20261031010000_add_project_repository_url/migration.sql
+    - apps/api/src/projects
+    - apps/api/src/integrations
+    - apps/api/src/trace
+    - apps/web/src/pages/Projects.tsx
+    - apps/web/src/api/resources.ts
+  changes_summary: ''
+verification:
+  rules:
+    -
+      rule: lint
+      policy_id: manual.attestation
+      description: "类型检查、构建与静态检查已运行"
+      manual: true
+      required: true
+    -
+      rule: test
+      policy_id: manual.attestation
+      description: "相关自动化测试已执行并记录"
+      manual: true
+      required: true
+    -
+      rule: spec
+      policy_id: manual.attestation
+      description: "阶段文档对应交付范围已核对"
+      manual: true
+      required: true
+  base_rules:
+    -
+      rule: lint
+      policy_id: manual.attestation
+      description: "类型检查、构建与静态检查已运行"
+      manual: true
+      required: true
+    -
+      rule: test
+      policy_id: manual.attestation
+      description: "相关自动化测试已执行并记录"
+      manual: true
+      required: true
+    -
+      rule: spec
+      policy_id: manual.attestation
+      description: "阶段文档对应交付范围已核对"
+      manual: true
+      required: true
+  results: []
+rollback:
+  available: true
+  backup_path: null
+  instructions: "Revert only the ReqFlow paths changed by this task."
+  auto_backup: false
+metadata:
+  git_branch: main
+  git_commits: []
+  estimated_hours: null
+  actual_hours: null
+  role: child
+host_workspace:
+  host: MacBook-Pro-14.local
+  workspace: /opt/homebrew/var/www/yesgooo/req-flow
+baseline:
+  impact_snapshots: []
+current: []
+lease:
+  token: f5e8f34a685acb4613d4c15c26df574a
+  generation: 1
+  expires_at: "2026-10-31T21:44:45+00:00"
+reasoning:
+  why: "按可信项目仓库映射隔离 webhook 与追溯数据"
+  what: "为 Project 配置 repositoryUrl 并限定 webhook、trace 到映射项目"
+  how: "增量迁移、URL 规范化、签名事件身份精确匹配、项目范围查询和回归测试"
+  context: "无项目仓库字段，上一阶段 fail-closed；只做源码和迁移，不运行数据库或外网"
+schema_version: 1
+revision: 1
+state: active
+task_scope: []
+scope_lock_keys: []
+verification_ref: null
+handoff: null
+audit:
+  -
+    seq: 1
+    event: created
+    actor: manual
+    at: "2026-10-31T09:44:45+00:00"

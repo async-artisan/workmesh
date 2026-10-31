@@ -1,0 +1,146 @@
+id: 20261031-064419-code-change
+task_id: ''
+run_id: 20261031-064419-code-change
+attempt: 0
+type: code-change
+status: active
+created_by: manual
+owner: manual
+session: pid-41923
+created_at: "2026-10-31T06:44:19+00:00"
+updated_at: "2026-10-31T07:12:04+00:00"
+completed_at: null
+description: "Docker Redis 缓存与性能监控"
+user_request: "Docker Redis 缓存与性能监控"
+environment: unconfigured
+tenant_fingerprint: ''
+scope:
+  repos: []
+  files: []
+  impact_files:
+    - apps/api/src/common/metrics.service.ts
+    - apps/api/src/knowledge/knowledge.service.ts
+    - apps/api/src/knowledge/knowledge.module.ts
+    - apps/api/src/cache/redis-cache.service.ts
+    - apps/api/package.json
+    - package.json
+    - docker-compose.redis.yml
+  changes_summary: ''
+verification:
+  rules:
+    -
+      rule: lint
+      policy_id: manual.attestation
+      description: "类型检查、构建与静态检查已运行"
+      manual: true
+      required: true
+    -
+      rule: test
+      policy_id: manual.attestation
+      description: "相关自动化测试已执行并记录"
+      manual: true
+      required: true
+    -
+      rule: spec
+      policy_id: manual.attestation
+      description: "阶段文档对应交付范围已核对"
+      manual: true
+      required: true
+  base_rules:
+    -
+      rule: lint
+      policy_id: manual.attestation
+      description: "类型检查、构建与静态检查已运行"
+      manual: true
+      required: true
+    -
+      rule: test
+      policy_id: manual.attestation
+      description: "相关自动化测试已执行并记录"
+      manual: true
+      required: true
+    -
+      rule: spec
+      policy_id: manual.attestation
+      description: "阶段文档对应交付范围已核对"
+      manual: true
+      required: true
+  results:
+    -
+      rule: lint
+      status: unknown
+      evidence: null
+      evidence_id: null
+      details: "manual requires actor, reason and evidence_path; status-only input rejected"
+      timestamp: "2026-10-31T07:12:04+00:00"
+    -
+      rule: test
+      status: unknown
+      evidence: null
+      evidence_id: null
+      details: "manual requires actor, reason and evidence_path; status-only input rejected"
+      timestamp: "2026-10-31T07:12:04+00:00"
+    -
+      rule: spec
+      status: unknown
+      evidence: null
+      evidence_id: null
+      details: "manual requires actor, reason and evidence_path; status-only input rejected"
+      timestamp: "2026-10-31T07:12:04+00:00"
+rollback:
+  available: true
+  backup_path: null
+  instructions: "Revert only the ReqFlow paths changed by this task."
+  auto_backup: false
+metadata:
+  git_branch: main
+  git_commits: []
+  estimated_hours: null
+  actual_hours: null
+  role: child
+host_workspace:
+  host: MacBook-Pro-14.local
+  workspace: /opt/homebrew/var/www/yesgooo/req-flow
+baseline:
+  impact_snapshots: []
+current: []
+lease:
+  token: ab7dc0def99568be620e4c18437617e7
+  generation: 1
+  expires_at: "2026-10-31T18:44:19+00:00"
+reasoning:
+  why: "完成 Phase 6 性能监控和 Redis 缓存缺口，并按用户要求使用 Docker"
+  what: "启动隔离 Redis，接入知识库 embedding 缓存，公开 P95/P99 指标并验证"
+  how: "使用 localhost 6380 的项目专用 Redis；Redis 不可用时应用降级为无缓存；运行测试、构建和真实 HTTP 验证"
+  context: "现有 PostgreSQL/API/Web 保持本机运行，不触碰其他 Docker 容器"
+schema_version: 1
+revision: 3
+state: active
+task_scope: []
+scope_lock_keys: []
+verification_ref: null
+handoff: null
+audit:
+  -
+    seq: 1
+    event: created
+    actor: manual
+    at: "2026-10-31T06:44:19+00:00"
+  -
+    seq: 2
+    event: updated
+    actor: manual
+    at: "2026-10-31T07:12:04+00:00"
+  -
+    seq: 3
+    event: updated
+    actor: manual
+    at: "2026-10-31T07:12:04+00:00"
+impact_assessment:
+  status: unknown
+  profiles: []
+  paths_digest: 953fb35fffb9810255b30eb3210e8f7df7b0c4e0a625388df6f6f9d6d64da484
+  changed_path_count: 7
+  unresolved_repos: []
+  assessed_at: "2026-10-31T07:12:04+00:00"
+_actor: manual

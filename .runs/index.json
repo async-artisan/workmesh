@@ -1,0 +1,744 @@
+[
+    {
+        "id": "20261031-053806-database-migration",
+        "task_id": "",
+        "run_id": "20261031-053806-database-migration",
+        "attempt": 0,
+        "type": "database-migration",
+        "status": "active",
+        "created_by": "manual",
+        "owner": "manual",
+        "session": "pid-24006",
+        "created_at": "2026-10-31T05:38:06+00:00",
+        "updated_at": "2026-10-31T06:12:55+00:00",
+        "completed_at": null,
+        "description": "reqflow_dev 隔离库管理员 seed 与本地服务切换",
+        "user_request": "reqflow_dev 隔离库管理员 seed 与本地服务切换",
+        "environment": "unconfigured",
+        "tenant_fingerprint": "",
+        "scope": {
+            "repos": [],
+            "files": [],
+            "impact_files": [
+                "apps\/api\/prisma\/seed.ts",
+                "apps\/api\/src\/controllers.spec.ts",
+                "apps\/api\/src\/prd\/prd-workflow.service.spec.ts",
+                "scripts\/verify.sh",
+                "handbook\/agents\/run-types.yaml"
+            ],
+            "changes_summary": ""
+        },
+        "verification": {
+            "rules": [
+                {
+                    "rule": "identity-probe",
+                    "policy_id": "environment.identity-probe",
+                    "description": "需要使用命名的只读环境身份探针确认数据库目标",
+                    "needs_runtime": true,
+                    "required": true
+                },
+                {
+                    "rule": "dry-run",
+                    "policy_id": "database.dry-run",
+                    "description": "必须先在隔离本地环境验证",
+                    "needs_runtime": true,
+                    "required": true
+                },
+                {
+                    "rule": "rollback-plan",
+                    "policy_id": "rollback.plan",
+                    "description": "必须记录数据变更的回滚方法",
+                    "needs_runtime": true,
+                    "required": true
+                }
+            ],
+            "base_rules": [
+                {
+                    "rule": "identity-probe",
+                    "policy_id": "environment.identity-probe",
+                    "description": "需要使用命名的只读环境身份探针确认数据库目标",
+                    "needs_runtime": true,
+                    "required": true
+                },
+                {
+                    "rule": "dry-run",
+                    "policy_id": "database.dry-run",
+                    "description": "必须先在隔离本地环境验证",
+                    "needs_runtime": true,
+                    "required": true
+                },
+                {
+                    "rule": "rollback-plan",
+                    "policy_id": "rollback.plan",
+                    "description": "必须记录数据变更的回滚方法",
+                    "needs_runtime": true,
+                    "required": true
+                }
+            ],
+            "results": [
+                {
+                    "rule": "identity-probe",
+                    "status": "unknown",
+                    "evidence": "evidence\/evidence-20261031T061255Z-f25b7765bc.json",
+                    "evidence_id": "evidence-20261031T061255Z-f25b7765bc",
+                    "details": "unknown policy: environment.identity-probe",
+                    "timestamp": "2026-10-31T06:12:55+00:00"
+                },
+                {
+                    "rule": "dry-run",
+                    "status": "unknown",
+                    "evidence": "evidence\/evidence-20261031T061255Z-fb11d71850.json",
+                    "evidence_id": "evidence-20261031T061255Z-fb11d71850",
+                    "details": "unknown policy: database.dry-run",
+                    "timestamp": "2026-10-31T06:12:55+00:00"
+                },
+                {
+                    "rule": "rollback-plan",
+                    "status": "unknown",
+                    "evidence": "evidence\/evidence-20261031T061255Z-9bbf9583be.json",
+                    "evidence_id": "evidence-20261031T061255Z-9bbf9583be",
+                    "details": "unknown policy: rollback.plan",
+                    "timestamp": "2026-10-31T06:12:55+00:00"
+                }
+            ]
+        },
+        "rollback": {
+            "available": true,
+            "backup_path": null,
+            "instructions": "删除本次创建的 reqflow-demo 组织、管理员和 DEMO 项目；结构迁移通过 Prisma 备份恢复。",
+            "manual": true
+        },
+        "metadata": {
+            "git_branch": "main",
+            "git_commits": [],
+            "estimated_hours": null,
+            "actual_hours": null,
+            "role": "child"
+        },
+        "host_workspace": {
+            "host": "MacBook-Pro-14.local",
+            "workspace": "\/opt\/homebrew\/var\/www\/yesgooo\/req-flow"
+        },
+        "baseline": {
+            "impact_snapshots": []
+        },
+        "current": [],
+        "lease": {
+            "token": "035fe04f25c7e2408a8fb4df4cc25b33",
+            "generation": 1,
+            "expires_at": "2026-10-31T17:38:06+00:00"
+        },
+        "reasoning": {
+            "why": "使用用户确认的 reqflow_dev 隔离库完成演示数据初始化和服务验证",
+            "what": "验证目标库身份与迁移状态，待本机 seed 密码配置后执行幂等 seed，运行持久化烟测和质量检查",
+            "how": "本地 PostgreSQL 探针限定 reqflow_dev；验证迁移、seed 和 API；若 seed 数据需回滚，删除 reqflow-demo 组织、管理员与 DEMO 项目",
+            "context": "不使用 Docker；apps\/api\/.env 的 DATABASE_URL 已定向 reqflow_dev；当前 seed 密码尚未配置"
+        },
+        "schema_version": 1,
+        "revision": 3,
+        "state": "active",
+        "task_scope": [],
+        "scope_lock_keys": [],
+        "verification_ref": null,
+        "handoff": null,
+        "audit": [
+            {
+                "seq": 1,
+                "event": "created",
+                "actor": "manual",
+                "at": "2026-10-31T05:38:06+00:00"
+            },
+            {
+                "seq": 2,
+                "event": "updated",
+                "actor": "manual",
+                "at": "2026-10-31T06:12:55+00:00"
+            },
+            {
+                "seq": 3,
+                "event": "updated",
+                "actor": "manual",
+                "at": "2026-10-31T06:12:55+00:00"
+            }
+        ],
+        "impact_assessment": {
+            "status": "unknown",
+            "profiles": [],
+            "paths_digest": "479e2992870c786e8ddf68b89b5b3e9a59b7f0590c184f76fb798f0a81321580",
+            "changed_path_count": 5,
+            "unresolved_repos": [],
+            "assessed_at": "2026-10-31T06:12:55+00:00"
+        },
+        "_actor": "manual",
+        "_scope": "active"
+    },
+    {
+        "id": "20261031-064419-code-change",
+        "task_id": "",
+        "run_id": "20261031-064419-code-change",
+        "attempt": 0,
+        "type": "code-change",
+        "status": "active",
+        "created_by": "manual",
+        "owner": "manual",
+        "session": "pid-41923",
+        "created_at": "2026-10-31T06:44:19+00:00",
+        "updated_at": "2026-10-31T07:12:04+00:00",
+        "completed_at": null,
+        "description": "Docker Redis 缓存与性能监控",
+        "user_request": "Docker Redis 缓存与性能监控",
+        "environment": "unconfigured",
+        "tenant_fingerprint": "",
+        "scope": {
+            "repos": [],
+            "files": [],
+            "impact_files": [
+                "apps\/api\/src\/common\/metrics.service.ts",
+                "apps\/api\/src\/knowledge\/knowledge.service.ts",
+                "apps\/api\/src\/knowledge\/knowledge.module.ts",
+                "apps\/api\/src\/cache\/redis-cache.service.ts",
+                "apps\/api\/package.json",
+                "package.json",
+                "docker-compose.redis.yml"
+            ],
+            "changes_summary": ""
+        },
+        "verification": {
+            "rules": [
+                {
+                    "rule": "lint",
+                    "policy_id": "manual.attestation",
+                    "description": "类型检查、构建与静态检查已运行",
+                    "manual": true,
+                    "required": true
+                },
+                {
+                    "rule": "test",
+                    "policy_id": "manual.attestation",
+                    "description": "相关自动化测试已执行并记录",
+                    "manual": true,
+                    "required": true
+                },
+                {
+                    "rule": "spec",
+                    "policy_id": "manual.attestation",
+                    "description": "阶段文档对应交付范围已核对",
+                    "manual": true,
+                    "required": true
+                }
+            ],
+            "base_rules": [
+                {
+                    "rule": "lint",
+                    "policy_id": "manual.attestation",
+                    "description": "类型检查、构建与静态检查已运行",
+                    "manual": true,
+                    "required": true
+                },
+                {
+                    "rule": "test",
+                    "policy_id": "manual.attestation",
+                    "description": "相关自动化测试已执行并记录",
+                    "manual": true,
+                    "required": true
+                },
+                {
+                    "rule": "spec",
+                    "policy_id": "manual.attestation",
+                    "description": "阶段文档对应交付范围已核对",
+                    "manual": true,
+                    "required": true
+                }
+            ],
+            "results": [
+                {
+                    "rule": "lint",
+                    "status": "unknown",
+                    "evidence": null,
+                    "evidence_id": null,
+                    "details": "manual requires actor, reason and evidence_path; status-only input rejected",
+                    "timestamp": "2026-10-31T07:12:04+00:00"
+                },
+                {
+                    "rule": "test",
+                    "status": "unknown",
+                    "evidence": null,
+                    "evidence_id": null,
+                    "details": "manual requires actor, reason and evidence_path; status-only input rejected",
+                    "timestamp": "2026-10-31T07:12:04+00:00"
+                },
+                {
+                    "rule": "spec",
+                    "status": "unknown",
+                    "evidence": null,
+                    "evidence_id": null,
+                    "details": "manual requires actor, reason and evidence_path; status-only input rejected",
+                    "timestamp": "2026-10-31T07:12:04+00:00"
+                }
+            ]
+        },
+        "rollback": {
+            "available": true,
+            "backup_path": null,
+            "instructions": "Revert only the ReqFlow paths changed by this task.",
+            "auto_backup": false
+        },
+        "metadata": {
+            "git_branch": "main",
+            "git_commits": [],
+            "estimated_hours": null,
+            "actual_hours": null,
+            "role": "child"
+        },
+        "host_workspace": {
+            "host": "MacBook-Pro-14.local",
+            "workspace": "\/opt\/homebrew\/var\/www\/yesgooo\/req-flow"
+        },
+        "baseline": {
+            "impact_snapshots": []
+        },
+        "current": [],
+        "lease": {
+            "token": "ab7dc0def99568be620e4c18437617e7",
+            "generation": 1,
+            "expires_at": "2026-10-31T18:44:19+00:00"
+        },
+        "reasoning": {
+            "why": "完成 Phase 6 性能监控和 Redis 缓存缺口，并按用户要求使用 Docker",
+            "what": "启动隔离 Redis，接入知识库 embedding 缓存，公开 P95\/P99 指标并验证",
+            "how": "使用 localhost 6380 的项目专用 Redis；Redis 不可用时应用降级为无缓存；运行测试、构建和真实 HTTP 验证",
+            "context": "现有 PostgreSQL\/API\/Web 保持本机运行，不触碰其他 Docker 容器"
+        },
+        "schema_version": 1,
+        "revision": 3,
+        "state": "active",
+        "task_scope": [],
+        "scope_lock_keys": [],
+        "verification_ref": null,
+        "handoff": null,
+        "audit": [
+            {
+                "seq": 1,
+                "event": "created",
+                "actor": "manual",
+                "at": "2026-10-31T06:44:19+00:00"
+            },
+            {
+                "seq": 2,
+                "event": "updated",
+                "actor": "manual",
+                "at": "2026-10-31T07:12:04+00:00"
+            },
+            {
+                "seq": 3,
+                "event": "updated",
+                "actor": "manual",
+                "at": "2026-10-31T07:12:04+00:00"
+            }
+        ],
+        "impact_assessment": {
+            "status": "unknown",
+            "profiles": [],
+            "paths_digest": "953fb35fffb9810255b30eb3210e8f7df7b0c4e0a625388df6f6f9d6d64da484",
+            "changed_path_count": 7,
+            "unresolved_repos": [],
+            "assessed_at": "2026-10-31T07:12:04+00:00"
+        },
+        "_actor": "manual",
+        "_scope": "active"
+    },
+    {
+        "id": "20261031-094445-code-change",
+        "task_id": "",
+        "run_id": "20261031-094445-code-change",
+        "attempt": 0,
+        "type": "code-change",
+        "status": "active",
+        "created_by": "manual",
+        "owner": "manual",
+        "session": "pid-43114",
+        "created_at": "2026-10-31T09:44:45+00:00",
+        "updated_at": "2026-10-31T09:44:45+00:00",
+        "completed_at": null,
+        "description": "ReqFlow 项目仓库映射与 Git 追溯隔离",
+        "user_request": "ReqFlow 项目仓库映射与 Git 追溯隔离",
+        "environment": "unconfigured",
+        "tenant_fingerprint": "",
+        "scope": {
+            "repos": [],
+            "files": [],
+            "impact_files": [
+                "apps\/api\/prisma\/schema.prisma",
+                "apps\/api\/prisma\/migrations\/20261031010000_add_project_repository_url\/migration.sql",
+                "apps\/api\/src\/projects",
+                "apps\/api\/src\/integrations",
+                "apps\/api\/src\/trace",
+                "apps\/web\/src\/pages\/Projects.tsx",
+                "apps\/web\/src\/api\/resources.ts"
+            ],
+            "changes_summary": ""
+        },
+        "verification": {
+            "rules": [
+                {
+                    "rule": "lint",
+                    "policy_id": "manual.attestation",
+                    "description": "类型检查、构建与静态检查已运行",
+                    "manual": true,
+                    "required": true
+                },
+                {
+                    "rule": "test",
+                    "policy_id": "manual.attestation",
+                    "description": "相关自动化测试已执行并记录",
+                    "manual": true,
+                    "required": true
+                },
+                {
+                    "rule": "spec",
+                    "policy_id": "manual.attestation",
+                    "description": "阶段文档对应交付范围已核对",
+                    "manual": true,
+                    "required": true
+                }
+            ],
+            "base_rules": [
+                {
+                    "rule": "lint",
+                    "policy_id": "manual.attestation",
+                    "description": "类型检查、构建与静态检查已运行",
+                    "manual": true,
+                    "required": true
+                },
+                {
+                    "rule": "test",
+                    "policy_id": "manual.attestation",
+                    "description": "相关自动化测试已执行并记录",
+                    "manual": true,
+                    "required": true
+                },
+                {
+                    "rule": "spec",
+                    "policy_id": "manual.attestation",
+                    "description": "阶段文档对应交付范围已核对",
+                    "manual": true,
+                    "required": true
+                }
+            ],
+            "results": []
+        },
+        "rollback": {
+            "available": true,
+            "backup_path": null,
+            "instructions": "Revert only the ReqFlow paths changed by this task.",
+            "auto_backup": false
+        },
+        "metadata": {
+            "git_branch": "main",
+            "git_commits": [],
+            "estimated_hours": null,
+            "actual_hours": null,
+            "role": "child"
+        },
+        "host_workspace": {
+            "host": "MacBook-Pro-14.local",
+            "workspace": "\/opt\/homebrew\/var\/www\/yesgooo\/req-flow"
+        },
+        "baseline": {
+            "impact_snapshots": []
+        },
+        "current": [],
+        "lease": {
+            "token": "f5e8f34a685acb4613d4c15c26df574a",
+            "generation": 1,
+            "expires_at": "2026-10-31T21:44:45+00:00"
+        },
+        "reasoning": {
+            "why": "按可信项目仓库映射隔离 webhook 与追溯数据",
+            "what": "为 Project 配置 repositoryUrl 并限定 webhook、trace 到映射项目",
+            "how": "增量迁移、URL 规范化、签名事件身份精确匹配、项目范围查询和回归测试",
+            "context": "无项目仓库字段，上一阶段 fail-closed；只做源码和迁移，不运行数据库或外网"
+        },
+        "schema_version": 1,
+        "revision": 1,
+        "state": "active",
+        "task_scope": [],
+        "scope_lock_keys": [],
+        "verification_ref": null,
+        "handoff": null,
+        "audit": [
+            {
+                "seq": 1,
+                "event": "created",
+                "actor": "manual",
+                "at": "2026-10-31T09:44:45+00:00"
+            }
+        ],
+        "_scope": "active"
+    },
+    {
+        "id": "20261031-014850-code-change",
+        "task_id": "",
+        "run_id": "20261031-014850-code-change",
+        "attempt": 0,
+        "type": "code-change",
+        "status": "failed",
+        "created_by": "manual",
+        "owner": "manual",
+        "session": "pid-19411",
+        "created_at": "2026-10-31T01:48:50+00:00",
+        "updated_at": "2026-10-31T02:21:42+00:00",
+        "completed_at": "2026-10-31T02:21:42+00:00",
+        "description": "按顺序实施 ReqFlow Phase 0–6",
+        "user_request": "按顺序实施 ReqFlow Phase 0–6",
+        "environment": "unconfigured",
+        "tenant_fingerprint": "",
+        "scope": {
+            "repos": [],
+            "files": [],
+            "impact_files": [
+                "req-flow\/**"
+            ],
+            "changes_summary": ""
+        },
+        "verification": {
+            "rules": [
+                {
+                    "rule": "lint",
+                    "policy_id": "manual.attestation",
+                    "description": "类型检查、构建与静态检查已运行",
+                    "manual": true,
+                    "required": true
+                },
+                {
+                    "rule": "test",
+                    "policy_id": "manual.attestation",
+                    "description": "相关自动化测试已执行并记录",
+                    "manual": true,
+                    "required": true
+                },
+                {
+                    "rule": "spec",
+                    "policy_id": "manual.attestation",
+                    "description": "阶段文档对应交付范围已核对",
+                    "manual": true,
+                    "required": true
+                }
+            ],
+            "base_rules": [
+                {
+                    "rule": "lint",
+                    "policy_id": "manual.attestation",
+                    "description": "类型检查、构建与静态检查已运行",
+                    "manual": true,
+                    "required": true
+                },
+                {
+                    "rule": "test",
+                    "policy_id": "manual.attestation",
+                    "description": "相关自动化测试已执行并记录",
+                    "manual": true,
+                    "required": true
+                },
+                {
+                    "rule": "spec",
+                    "policy_id": "manual.attestation",
+                    "description": "阶段文档对应交付范围已核对",
+                    "manual": true,
+                    "required": true
+                }
+            ],
+            "results": [
+                {
+                    "rule": "lint",
+                    "status": "attested",
+                    "evidence": "evidence\/evidence-20261031T022106Z-88a2b9e703.json",
+                    "evidence_id": "evidence-20261031T022106Z-88a2b9e703",
+                    "details": "local quality gates",
+                    "timestamp": "2026-10-31T02:21:06+00:00"
+                },
+                {
+                    "rule": "test",
+                    "status": "attested",
+                    "evidence": "evidence\/evidence-20261031T022106Z-bea09352c3.json",
+                    "evidence_id": "evidence-20261031T022106Z-bea09352c3",
+                    "details": "local tests and build",
+                    "timestamp": "2026-10-31T02:21:06+00:00"
+                },
+                {
+                    "rule": "spec",
+                    "status": "attested",
+                    "evidence": "evidence\/evidence-20261031T022106Z-4790869ff2.json",
+                    "evidence_id": "evidence-20261031T022106Z-4790869ff2",
+                    "details": "phase documents reconciled",
+                    "timestamp": "2026-10-31T02:21:06+00:00"
+                }
+            ]
+        },
+        "rollback": {
+            "available": true,
+            "backup_path": null,
+            "instructions": "Revert only the ReqFlow paths changed by this task.",
+            "auto_backup": false
+        },
+        "metadata": {
+            "git_branch": "main",
+            "git_commits": [],
+            "estimated_hours": null,
+            "actual_hours": null,
+            "role": "child"
+        },
+        "host_workspace": {
+            "host": "MacBook-Pro-14.local",
+            "workspace": "\/opt\/homebrew\/var\/www\/yesgooo\/req-flow"
+        },
+        "baseline": {
+            "impact_snapshots": []
+        },
+        "current": [],
+        "lease": {
+            "token": "eb0aa1bfe8f09ca2697c77b2104755d0",
+            "generation": 1,
+            "expires_at": "2026-10-31T13:48:50+00:00"
+        },
+        "reasoning": {
+            "why": "交付用户要求的阶段化 ReqFlow 平台",
+            "what": "实现初始化、数据层、认证、业务、前端、集成和质量文档",
+            "how": "按依赖顺序在 req-flow 内实现并运行本地验证",
+            "context": "当前目录原为空；已有基础骨架作为 Run 基线，后续变更限于 ReqFlow。数据库和第三方 AI 使用本地占位配置，不对共享环境执行写入。"
+        },
+        "schema_version": 1,
+        "revision": 10,
+        "state": "failed",
+        "task_scope": [],
+        "scope_lock_keys": [],
+        "verification_ref": null,
+        "handoff": null,
+        "audit": [
+            {
+                "seq": 1,
+                "event": "created",
+                "actor": "manual",
+                "at": "2026-10-31T01:48:50+00:00"
+            },
+            {
+                "seq": 2,
+                "event": "updated",
+                "actor": "manual",
+                "at": "2026-10-31T02:20:25+00:00"
+            },
+            {
+                "seq": 3,
+                "event": "updated",
+                "actor": "manual",
+                "at": "2026-10-31T02:20:25+00:00"
+            },
+            {
+                "seq": 4,
+                "event": "updated",
+                "actor": "manual",
+                "at": "2026-10-31T02:20:55+00:00"
+            },
+            {
+                "seq": 5,
+                "event": "updated",
+                "actor": "manual",
+                "at": "2026-10-31T02:20:55+00:00"
+            },
+            {
+                "seq": 6,
+                "event": "updated",
+                "actor": "manual",
+                "at": "2026-10-31T02:21:06+00:00"
+            },
+            {
+                "seq": 7,
+                "event": "updated",
+                "actor": "manual",
+                "at": "2026-10-31T02:21:06+00:00"
+            },
+            {
+                "seq": 8,
+                "event": "updated",
+                "actor": "manual",
+                "at": "2026-10-31T02:21:42+00:00"
+            },
+            {
+                "seq": 9,
+                "event": "updated",
+                "actor": "codex",
+                "at": "2026-10-31T02:21:42+00:00"
+            },
+            {
+                "seq": 10,
+                "event": "archived",
+                "actor": "codex",
+                "at": "2026-10-31T02:21:42+00:00"
+            }
+        ],
+        "impact_assessment": {
+            "status": "unknown",
+            "profiles": [],
+            "paths_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "changed_path_count": 0,
+            "unresolved_repos": [
+                "impact-files"
+            ],
+            "assessed_at": "2026-10-31T02:21:06+00:00"
+        },
+        "_actor": "codex",
+        "aggregation": {
+            "status": "ready",
+            "ok": true,
+            "parent_run_id": "20261031-014850-code-change",
+            "parent_revision": 7,
+            "children": [],
+            "reasons": [],
+            "generated_at": "2026-10-31T02:21:42+00:00"
+        },
+        "completion": {
+            "status": "partial",
+            "barrier": {
+                "ok": false,
+                "status": "blocked",
+                "failed_rules": [
+                    "impact-analysis",
+                    "lint",
+                    "test",
+                    "spec"
+                ],
+                "reasons": [
+                    {
+                        "rule": "impact-analysis",
+                        "code": "impact_unknown",
+                        "unresolved_repos": [
+                            "impact-files"
+                        ]
+                    },
+                    {
+                        "rule": "impact-analysis",
+                        "code": "impact_evidence_stale"
+                    },
+                    {
+                        "rule": "lint",
+                        "code": "policy_unknown"
+                    },
+                    {
+                        "rule": "test",
+                        "code": "policy_unknown"
+                    },
+                    {
+                        "rule": "spec",
+                        "code": "policy_unknown"
+                    }
+                ],
+                "accepted_evidence": []
+            },
+            "force_audit": {
+                "evidence_id": "evidence-20261031T022142Z-e21b38c0ca",
+                "path": "evidence\/evidence-20261031T022142Z-e21b38c0ca.json"
+            }
+        },
+        "_scope": "archive"
+    }
+]

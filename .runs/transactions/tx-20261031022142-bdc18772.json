@@ -1,0 +1,37 @@
+{
+    "schema_version": 1,
+    "transaction_id": "tx-20261031022142-bdc18772",
+    "task_id": "",
+    "run_id": "20261031-014850-code-change",
+    "operation": "evidence.record",
+    "phase": "commit",
+    "expected_revisions": {
+        "evidence": 8,
+        "run": 0
+    },
+    "files": {
+        "/opt/homebrew/var/www/yesgooo/req-flow/.runs/active/20261031-014850-code-change/evidence/evidence-20261031T022142Z-e21b38c0ca.json": {
+            "staged": "/opt/homebrew/var/www/yesgooo/req-flow/.runs/active/20261031-014850-code-change/evidence/.evidence-14t95iph3ijs3vezwbx",
+            "target_hash": null,
+            "staged_hash": "fc1a0acb9b65fdbd9c666ea7f4ac444a5bb187d97bff4154a79afe8b2d5eda08",
+            "committed_hash": "fc1a0acb9b65fdbd9c666ea7f4ac444a5bb187d97bff4154a79afe8b2d5eda08"
+        },
+        "/opt/homebrew/var/www/yesgooo/req-flow/.runs/active/20261031-014850-code-change/evidence/index.jsonl": {
+            "staged": "/opt/homebrew/var/www/yesgooo/req-flow/.runs/active/20261031-014850-code-change/evidence/.evidence-index-c1i41iapb3nj95Tvp4v",
+            "target_hash": "7737d5314aacd7f43cc4f0a614df2c87847e6f4a7871a5571427d44c73a73aa1",
+            "staged_hash": "1ee15142a8599a802b7409850b5e54e3fdd3faad24adaed3ddd868ceffb33714",
+            "committed_hash": "1ee15142a8599a802b7409850b5e54e3fdd3faad24adaed3ddd868ceffb33714"
+        }
+    },
+    "actor": "codex",
+    "prepared_at": "2026-10-31T02:21:42+00:00",
+    "committed_at": "2026-10-31T02:21:42+00:00",
+    "status": "committed",
+    "events": [
+        {
+            "type": "transaction.committed",
+            "actor": "codex",
+            "at": "2026-10-31T02:21:42+00:00"
+        }
+    ]
+}

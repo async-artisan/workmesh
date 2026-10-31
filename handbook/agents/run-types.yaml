@@ -1,0 +1,48 @@
+run_types:
+  - id: code-change
+    name: 代码变更
+    description: ReqFlow 源码、配置与文档实现
+    verification:
+      - rule: lint
+        policy_id: manual.attestation
+        description: 类型检查、构建与静态检查已运行
+        manual: true
+        required: true
+      - rule: test
+        policy_id: manual.attestation
+        description: 相关自动化测试已执行并记录
+        manual: true
+        required: true
+      - rule: spec
+        policy_id: manual.attestation
+        description: 阶段文档对应交付范围已核对
+        manual: true
+        required: true
+    rollback:
+      available: true
+      auto_backup: false
+      instructions: Revert only the ReqFlow paths changed by this task.
+
+  - id: database-migration
+    name: 数据库迁移
+    description: Schema 变更和数据迁移
+    verification:
+      - rule: identity-probe
+        policy_id: environment.identity-probe
+        description: 需要使用命名的只读环境身份探针确认数据库目标
+        needs_runtime: true
+        required: true
+      - rule: dry-run
+        policy_id: database.dry-run
+        description: 必须先在隔离本地环境验证
+        needs_runtime: true
+        required: true
+      - rule: rollback-plan
+        policy_id: rollback.plan
+        description: 必须记录数据变更的回滚方法
+        needs_runtime: true
+        required: true
+    rollback:
+      available: true
+      manual: true
+      instructions: 删除本次创建的 reqflow-demo 组织、管理员和 DEMO 项目；结构迁移通过 Prisma 备份恢复。

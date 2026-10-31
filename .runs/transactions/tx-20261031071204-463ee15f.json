@@ -1,0 +1,28 @@
+{
+    "schema_version": 1,
+    "transaction_id": "tx-20261031071204-463ee15f",
+    "task_id": "",
+    "run_id": ".runs",
+    "operation": "taskstore.file_write",
+    "phase": "commit",
+    "expected_revisions": [],
+    "files": {
+        "/opt/homebrew/var/www/yesgooo/req-flow/.runs/task-events.jsonl": {
+            "staged": "/opt/homebrew/var/www/yesgooo/req-flow/.runs/.taskstore-scu7n9f2b3rgewIYjFq",
+            "target_hash": "2108858ffd2d1fcf98eb7ec6f767d3b0723638c98c54b6c046f0bbf266c2b475",
+            "staged_hash": "2ad0c621eee9e50ca27bcd3d33e2bce1b1817b4ef6c94110c83d48ab6e772c4e",
+            "committed_hash": "2ad0c621eee9e50ca27bcd3d33e2bce1b1817b4ef6c94110c83d48ab6e772c4e"
+        }
+    },
+    "actor": "taskstore",
+    "prepared_at": "2026-10-31T07:12:04+00:00",
+    "committed_at": "2026-10-31T07:12:04+00:00",
+    "status": "committed",
+    "events": [
+        {
+            "type": "transaction.committed",
+            "actor": "taskstore",
+            "at": "2026-10-31T07:12:04+00:00"
+        }
+    ]
+}
