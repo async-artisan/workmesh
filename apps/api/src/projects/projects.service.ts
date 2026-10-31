@@ -44,7 +44,8 @@ export class ProjectsService {
       role: row.role,
     }));
   }
-  private async membership(userId: string, projectId: string, ownerOnly = false) {    const member = await this.prisma.projectMember.findUnique({
+  private async membership(userId: string, projectId: string, ownerOnly = false) {
+    const member = await this.prisma.projectMember.findUnique({
       where: { projectId_userId: { projectId, userId } },
     });
     if (!member) throw new NotFoundException('项目不存在');

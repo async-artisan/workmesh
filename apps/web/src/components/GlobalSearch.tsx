@@ -173,7 +173,12 @@ export function GlobalSearch() {
       <span className="search-icon" aria-hidden="true">
         <svg viewBox="0 0 16 16" width="14" height="14">
           <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
-          <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          <path
+            d="M10.5 10.5L14 14"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+          />
         </svg>
       </span>
       <input
@@ -198,7 +203,12 @@ export function GlobalSearch() {
         onKeyDown={onKeyDown}
       />
       {showPanel && (
-        <div className="search-panel" id="global-search-results" role="listbox" aria-label="搜索结果">
+        <div
+          className="search-panel"
+          id="global-search-results"
+          role="listbox"
+          aria-label="搜索结果"
+        >
           {entries.length === 0 && (
             <p className="search-empty">
               {loading

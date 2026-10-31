@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { requirementApi, type RequirementItem } from '../api/resources';
 import { ConfirmDialog, Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
@@ -44,9 +44,8 @@ const PRIORITY_LABELS: Record<string, string> = {
 const emptyForm = { title: '', description: '', stories: '', criteria: '' };
 
 export function Requirements() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { projects, projectId, setProjectId } = useProjectContext();
+  const { projectId } = useProjectContext();
   const [items, setItems] = useState<RequirementItem[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -177,13 +176,6 @@ export function Requirements() {
           <p className="page-sub">按项目维护需求条目与状态流转</p>
         </div>
         <div className="page-actions">
-          <button
-            className="ghost"
-            disabled={!projectId}
-            onClick={() => navigate(`/runs?projectId=${encodeURIComponent(projectId)}`)}
-          >
-            AI 需求发现
-          </button>
           <button className="primary" disabled={!projectId} onClick={openCreate}>
             新建需求
           </button>
@@ -236,10 +228,13 @@ export function Requirements() {
                   </td>
                   <td className="col-actions">
                     <div className="cell-actions row-actions">
-                      <button className="ghost" onClick={() => {
-                        setModalError('');
-                        setEditing(item);
-                      }}>
+                      <button
+                        className="ghost"
+                        onClick={() => {
+                          setModalError('');
+                          setEditing(item);
+                        }}
+                      >
                         编辑
                       </button>
                       <button className="danger" onClick={() => setPendingDelete(item)}>
@@ -251,9 +246,7 @@ export function Requirements() {
               ))}
               {items.length === 0 && (
                 <tr className="table-empty">
-                  <td colSpan={4}>
-                    {projectId ? '该项目还没有需求。' : '先选择项目。'}
-                  </td>
+                  <td colSpan={4}>{projectId ? '该项目还没有需求。' : '先选择项目。'}</td>
                 </tr>
               )}
             </tbody>

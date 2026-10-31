@@ -290,7 +290,9 @@ export function Knowledge() {
               {bases.length === 0 && (
                 <tr className="table-empty">
                   <td colSpan={3}>
-                    {projectId ? '该项目还没有知识库，点右上角「新建知识库」创建。' : '先选择项目。'}
+                    {projectId
+                      ? '该项目还没有知识库，点右上角「新建知识库」创建。'
+                      : '先选择项目。'}
                   </td>
                 </tr>
               )}
@@ -421,7 +423,9 @@ export function Knowledge() {
               {!searched && (
                 <tr className="table-empty">
                   <td colSpan={3}>
-                    {knowledgeBaseId ? '输入问题检索知识库，回车即可。' : '选择项目与知识库后开始检索。'}
+                    {knowledgeBaseId
+                      ? '输入问题检索知识库，回车即可。'
+                      : '选择项目与知识库后开始检索。'}
                   </td>
                 </tr>
               )}

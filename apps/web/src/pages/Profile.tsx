@@ -161,7 +161,11 @@ export function Profile() {
             <small className="field-hint">至少 8 位，修改后需要重新登录。</small>
           </label>
           <div className="form-actions">
-            <button className="ghost" onClick={savePassword} disabled={!currentPassword || !newPassword}>
+            <button
+              className="ghost"
+              onClick={savePassword}
+              disabled={!currentPassword || !newPassword}
+            >
               修改密码
             </button>
           </div>

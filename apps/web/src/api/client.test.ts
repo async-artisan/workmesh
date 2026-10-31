@@ -44,7 +44,8 @@ describe('auth interceptor', () => {
   });
 
   it('surfaces the server message instead of the axios default', async () => {
-    client.defaults.adapter = (config) => fail(config, 400, { message: { message: '邮箱或密码错误' } });
+    client.defaults.adapter = (config) =>
+      fail(config, 400, { message: { message: '邮箱或密码错误' } });
 
     await expect(client.post('/auth/login', {})).rejects.toThrow('邮箱或密码错误');
   });

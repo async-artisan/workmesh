@@ -64,7 +64,11 @@ export function Trace() {
         </div>
         <div className="page-actions">
           <ProjectSelect />
-          <button className="ghost" disabled={!projectId || loading} onClick={() => void load(projectId)}>
+          <button
+            className="ghost"
+            disabled={!projectId || loading}
+            onClick={() => void load(projectId)}
+          >
             <RefreshCw size={13} style={{ verticalAlign: -2, marginRight: 4 }} />
             {loading ? '加载中…' : '刷新'}
           </button>
@@ -82,7 +86,9 @@ export function Trace() {
           {!error && !projectId && <p className="muted">先选择项目。</p>}
           {!error && projectId && loading && <p className="muted">正在加载追溯关系…</p>}
           {!error && projectId && !loading && graph.length === 0 && (
-            <p className="muted">该项目还没有追溯数据。需求关联 PRD、提交或 PR 后会自动出现在这里。</p>
+            <p className="muted">
+              该项目还没有追溯数据。需求关联 PRD、提交或 PR 后会自动出现在这里。
+            </p>
           )}
           {graph.length > 0 && (
             <div className="trace-map">

@@ -22,20 +22,20 @@
 
 ## 2. 现有模型盘点（对照 `prisma/schema.prisma`）
 
-| 现有模型 | 处置 | 说明 |
-| --- | --- | --- |
-| `Project.key` | **保留强化** | 已有 key，但需定为不可变、全局唯一、2–6 位大写，作为编号前缀 |
-| `Organization` / `User` / `ProjectMember` | **保留改造** | `ProjectMemberRole` 需从 OWNER/ADMIN/MEMBER 扩展出角色维度（PRODUCT/UI/FRONTEND/BACKEND/QA/OPS） |
-| `Requirement` | **改造** | 缺项目内序号 `seq`（当前 uuid，无人类可读编号）；状态枚举需换成新状态机 |
-| `Prd` / `PrdVersion` / `PrdApproval` | **保留改造** | 审批机制已有，与新的 SignOff 统一 |
-| `TechnicalSpec` / `TechnicalDecision` | **保留** | 对应规范中的技术方案层 |
-| `KnowledgeBase` / `KnowledgeDocument` / `DocumentChunk` | **重大改造** | 当前是"项目下一个库、正文入库"；需改为**外部/本地知识源注册表 + 条目索引**，正文不入库 |
-| `Trace` / `TraceLink` | **保留扩展** | 多态设计正好承得住，需增加"知识条目 ↔ 需求"边 |
-| `GitCommit` / `PullRequest` | **保留** | PR review 作为签字证据来源 |
-| `AuditLog` | **保留** | 与签字记录互补 |
-| `AiRun` / `AiRunMessage` | **降级** | AI 产品发现非核心，冻结不再扩展 |
-| `RequirementLink` / `RequirementDependency` | **保留** | 需求级依赖；任务级依赖需新增 |
-| — | **新增** | `Task` / `TaskDependency` / `Artifact` / `KnowledgeSource` / `KnowledgeEntry` / `SignOff` / `ChangeEvent` |
+| 现有模型                                                | 处置         | 说明                                                                                                      |
+| ------------------------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------- |
+| `Project.key`                                           | **保留强化** | 已有 key，但需定为不可变、全局唯一、2–6 位大写，作为编号前缀                                              |
+| `Organization` / `User` / `ProjectMember`               | **保留改造** | `ProjectMemberRole` 需从 OWNER/ADMIN/MEMBER 扩展出角色维度（PRODUCT/UI/FRONTEND/BACKEND/QA/OPS）          |
+| `Requirement`                                           | **改造**     | 缺项目内序号 `seq`（当前 uuid，无人类可读编号）；状态枚举需换成新状态机                                   |
+| `Prd` / `PrdVersion` / `PrdApproval`                    | **保留改造** | 审批机制已有，与新的 SignOff 统一                                                                         |
+| `TechnicalSpec` / `TechnicalDecision`                   | **保留**     | 对应规范中的技术方案层                                                                                    |
+| `KnowledgeBase` / `KnowledgeDocument` / `DocumentChunk` | **重大改造** | 当前是"项目下一个库、正文入库"；需改为**外部/本地知识源注册表 + 条目索引**，正文不入库                    |
+| `Trace` / `TraceLink`                                   | **保留扩展** | 多态设计正好承得住，需增加"知识条目 ↔ 需求"边                                                             |
+| `GitCommit` / `PullRequest`                             | **保留**     | PR review 作为签字证据来源                                                                                |
+| `AuditLog`                                              | **保留**     | 与签字记录互补                                                                                            |
+| `AiRun` / `AiRunMessage`                                | **降级**     | AI 产品发现非核心，冻结不再扩展                                                                           |
+| `RequirementLink` / `RequirementDependency`             | **保留**     | 需求级依赖；任务级依赖需新增                                                                              |
+| —                                                       | **新增**     | `Task` / `TaskDependency` / `Artifact` / `KnowledgeSource` / `KnowledgeEntry` / `SignOff` / `ChangeEvent` |
 
 ## 3. 数据模型变更
 
@@ -163,14 +163,14 @@ ChangeEvent {
 
 ### 4.1 命令面
 
-| 命令 | 作用 | 使用者 |
-| --- | --- | --- |
-| `reqflow init --role <role>` | 初始化本地工作区，下发 `.reqflow/` 规范与目录骨架 | 人（一次） |
-| `reqflow ready --json` | 返回本角色未被阻塞的任务队列 | agent |
-| `reqflow context <CODE> --json` | 拉取上下文包 | agent |
-| `reqflow deliver` | 提交工件（本地 schema 自检后上传指针与校验结果） | agent |
-| `reqflow sync` | 上报本地知识索引与挂靠关系 | agent |
-| `reqflow ack <eventId>` | 确认需求变更已处理 | 人/agent |
+| 命令                            | 作用                                              | 使用者     |
+| ------------------------------- | ------------------------------------------------- | ---------- |
+| `reqflow init --role <role>`    | 初始化本地工作区，下发 `.reqflow/` 规范与目录骨架 | 人（一次） |
+| `reqflow ready --json`          | 返回本角色未被阻塞的任务队列                      | agent      |
+| `reqflow context <CODE> --json` | 拉取上下文包                                      | agent      |
+| `reqflow deliver`               | 提交工件（本地 schema 自检后上传指针与校验结果）  | agent      |
+| `reqflow sync`                  | 上报本地知识索引与挂靠关系                        | agent      |
+| `reqflow ack <eventId>`         | 确认需求变更已处理                                | 人/agent   |
 
 原则（对齐 beads）：**默认非交互、输出可 JSON 解析、ID 稳定防冲突**。
 
@@ -187,17 +187,22 @@ ChangeEvent {
     "authority": "product"
   },
   "artifacts": [
-    { "kind": "DESIGN", "role": "UI", "uri": "designs/YFF-REQ-123-settings.png", "status": "approved" }
+    {
+      "kind": "DESIGN",
+      "role": "UI",
+      "uri": "designs/YFF-REQ-123-settings.png",
+      "status": "approved"
+    }
   ],
-  "tasks": [
-    { "code": "YFF-REQ-123-T01", "role": "BACKEND", "status": "OPEN", "blockedBy": [] }
-  ],
+  "tasks": [{ "code": "YFF-REQ-123-T01", "role": "BACKEND", "status": "OPEN", "blockedBy": [] }],
   "localKnowledge": [
-    { "externalId": "k-8f3a2c", "title": "AI provider 适配层约定", "path": "knowledge/backend/ai-provider.md" }
+    {
+      "externalId": "k-8f3a2c",
+      "title": "AI provider 适配层约定",
+      "path": "knowledge/backend/ai-provider.md"
+    }
   ],
-  "evidence": [
-    { "type": "commit", "ref": "a1b2c3d", "task": "YFF-REQ-123-T01" }
-  ],
+  "evidence": [{ "type": "commit", "ref": "a1b2c3d", "task": "YFF-REQ-123-T01" }],
   "rules": {
     "onConflict": "product source wins",
     "mustIncludeAnchor": "YFF-REQ-123",
@@ -226,15 +231,15 @@ ChangeEvent {
 
 ## 6. 落地步骤（建议顺序）
 
-| 步骤 | 内容 | 目的 |
-| --- | --- | --- |
-| S1 | 需求编号改造（`seq` + `code`）、项目 key 不可变 | 一切锚定的前提 |
-| S2 | `Task` + `TaskDependency` + 桥接器 `ready/context` | 让 agent 能拉到活和上下文 |
-| S3 | `KnowledgeSource`/`KnowledgeEntry` + `sync`（仅索引） | 建立挂靠关系，为变更传播铺路 |
-| S4 | `Artifact` + schema 校验 + `deliver` | 规范可执行 |
-| S5 | `SignOff`（含 PR review 证据） | 状态门闭合 |
-| S6 | `ChangeEvent` + 变更传播 | 杀手锏能力 |
-| S7 | Web 进度视图改造（项目维度看板） | 给人看 |
+| 步骤 | 内容                                                  | 目的                         |
+| ---- | ----------------------------------------------------- | ---------------------------- |
+| S1   | 需求编号改造（`seq` + `code`）、项目 key 不可变       | 一切锚定的前提               |
+| S2   | `Task` + `TaskDependency` + 桥接器 `ready/context`    | 让 agent 能拉到活和上下文    |
+| S3   | `KnowledgeSource`/`KnowledgeEntry` + `sync`（仅索引） | 建立挂靠关系，为变更传播铺路 |
+| S4   | `Artifact` + schema 校验 + `deliver`                  | 规范可执行                   |
+| S5   | `SignOff`（含 PR review 证据）                        | 状态门闭合                   |
+| S6   | `ChangeEvent` + 变更传播                              | 杀手锏能力                   |
+| S7   | Web 进度视图改造（项目维度看板）                      | 给人看                       |
 
 **Dogfooding**：S1–S2 完成后，立即用一条真实需求（建议：本地模型接入）在自己机器上跑通"建需求 → 定稿 PRD → 拉上下文 → 编码 → commit 回链"，验证后再继续 S3 之后。
 

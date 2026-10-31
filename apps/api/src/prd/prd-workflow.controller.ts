@@ -55,10 +55,7 @@ export class PrdWorkflowController {
     return this.workflow.createTemplate(req.user!.sub, projectId, body);
   }
   @Get('prds/:prdId/approvals')
-  approvals(
-    @Req() req: Request & { user?: { sub: string } },
-    @Param('prdId') prdId: string,
-  ) {
+  approvals(@Req() req: Request & { user?: { sub: string } }, @Param('prdId') prdId: string) {
     return this.workflow.approvals(req.user!.sub, prdId);
   }
   @Post('prds/:prdId/approvals') submit(

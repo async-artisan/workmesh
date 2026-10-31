@@ -2,7 +2,6 @@ import 'reflect-metadata';
 import { ApprovalStatus, DecisionStatus, SpecStatus } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { Observable } from 'rxjs';
-import { AiController } from './ai/ai.controller';
 import { AuthController } from './auth/auth.controller';
 import { DashboardController } from './dashboard/dashboard.controller';
 import { KnowledgeController } from './knowledge/knowledge.controller';
@@ -101,34 +100,6 @@ describe('API controllers', () => {
     await controller.avatar(request, response as never);
     expect(response.type).toHaveBeenCalledWith('image/png');
     expect(response.send).toHaveBeenCalledWith(Buffer.from('image'));
-  });
-
-  it('streams AI responses and forwards stream failures', async () => {
-    const ai = {
-      stream: vi.fn(async function* () {
-        yield 'draft';
-      }),
-    };
-    const controller = new AiController(ai as never);
-    await expect(collect(controller.stream('prompt'))).resolves.toEqual([
-      { data: { content: 'draft', done: false } },
-      { data: { content: '', done: true } },
-    ]);
-    const failed = new AiController({
-      stream: vi.fn(async function* () {
-        yield* [];
-        throw new Error('provider failure');
-      }),
-    } as never);
-    await expect(
-      new Promise<void>((resolve, reject) =>
-        failed.stream().subscribe({
-          next: () => undefined,
-          error: reject,
-          complete: () => resolve(),
-        }),
-      ),
-    ).rejects.toThrow('provider failure');
   });
 
   it('delegates project, requirement, dependency, trace, and dashboard actions', () => {

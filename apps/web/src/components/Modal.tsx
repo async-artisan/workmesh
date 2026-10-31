@@ -69,7 +69,11 @@ export function Modal({
   if (!open) return null;
 
   return (
-    <div className="modal-layer" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="modal-layer"
+      role="presentation"
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
       <div
         className={`modal-card modal-${size}`}
         role="dialog"

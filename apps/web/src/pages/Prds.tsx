@@ -297,7 +297,12 @@ export function Prds() {
   }
 
   async function createDecision() {
-    if (!projectId.trim() || !decisionForm.title.trim() || !decisionForm.context.trim() || !decisionForm.decision.trim()) {
+    if (
+      !projectId.trim() ||
+      !decisionForm.title.trim() ||
+      !decisionForm.context.trim() ||
+      !decisionForm.decision.trim()
+    ) {
       setModalError('标题、背景与决策内容不能为空。');
       return;
     }
@@ -371,7 +376,8 @@ export function Prds() {
       setVersions([]);
       const query = new URLSearchParams();
       if (genForm.templateId.trim()) query.set('templateId', genForm.templateId.trim());
-      if (genForm.knowledgeBaseId.trim()) query.set('knowledgeBaseId', genForm.knowledgeBaseId.trim());
+      if (genForm.knowledgeBaseId.trim())
+        query.set('knowledgeBaseId', genForm.knowledgeBaseId.trim());
       const suffix = query.size ? `?${query.toString()}` : '';
       const response = await fetch(
         `/api/requirements/${encodeURIComponent(requirementId.trim())}/prds/generate-stream${suffix}`,
@@ -512,7 +518,9 @@ export function Prds() {
             需求<small>{requirements.length}</small>
           </h3>
           <span className="card-head-actions">
-            <small>{currentRequirement ? `当前：${currentRequirement.title}` : '先选择一个需求'}</small>
+            <small>
+              {currentRequirement ? `当前：${currentRequirement.title}` : '先选择一个需求'}
+            </small>
           </span>
         </div>
         <div className="table-scroll">
@@ -540,10 +548,7 @@ export function Prds() {
                   </td>
                   <td className="col-actions">
                     <div className="cell-actions row-actions">
-                      <button
-                        className="ghost"
-                        onClick={() => selectRequirement(requirement.id)}
-                      >
+                      <button className="ghost" onClick={() => selectRequirement(requirement.id)}>
                         {requirementId === requirement.id ? '当前' : '选择'}
                       </button>
                     </div>
@@ -566,7 +571,9 @@ export function Prds() {
             PRD<small>{items.length}</small>
           </h3>
           <span className="card-head-actions">
-            <small>{selected ? `当前：${selected.title} v${selected.version}` : '先选择需求'}</small>
+            <small>
+              {selected ? `当前：${selected.title} v${selected.version}` : '先选择需求'}
+            </small>
           </span>
         </div>
         <div className="table-scroll">
@@ -607,7 +614,9 @@ export function Prds() {
               {items.length === 0 && (
                 <tr className="table-empty">
                   <td colSpan={4}>
-                    {requirementId ? '该需求还没有 PRD，点右上角「生成 PRD」。' : '先选择一个需求。'}
+                    {requirementId
+                      ? '该需求还没有 PRD，点右上角「生成 PRD」。'
+                      : '先选择一个需求。'}
                   </td>
                 </tr>
               )}
@@ -705,7 +714,9 @@ export function Prds() {
                   <td>
                     <strong>v{version.version}</strong>
                   </td>
-                  <td>{version.current ? <span className="status-tag">当前版本</span> : '历史版本'}</td>
+                  <td>
+                    {version.current ? <span className="status-tag">当前版本</span> : '历史版本'}
+                  </td>
                   <td className="col-actions">
                     <div className="cell-actions row-actions">
                       <button
@@ -1025,9 +1036,7 @@ export function Prds() {
             <span>引用知识库</span>
             <select
               value={genForm.knowledgeBaseId}
-              onChange={(event) =>
-                setGenForm({ ...genForm, knowledgeBaseId: event.target.value })
-              }
+              onChange={(event) => setGenForm({ ...genForm, knowledgeBaseId: event.target.value })}
               aria-label="选择知识库"
             >
               <option value="">{kbs.length ? '不引用知识库' : '无可用知识库'}</option>
@@ -1242,9 +1251,7 @@ export function Prds() {
             <span>决策标题</span>
             <input
               value={decisionForm.title}
-              onChange={(event) =>
-                setDecisionForm({ ...decisionForm, title: event.target.value })
-              }
+              onChange={(event) => setDecisionForm({ ...decisionForm, title: event.target.value })}
               aria-label="决策标题"
             />
           </div>
@@ -1359,9 +1366,7 @@ export function Prds() {
               <span>规格标题</span>
               <input
                 value={editingSpec.title}
-                onChange={(event) =>
-                  setEditingSpec({ ...editingSpec, title: event.target.value })
-                }
+                onChange={(event) => setEditingSpec({ ...editingSpec, title: event.target.value })}
                 aria-label="编辑规格标题"
               />
             </div>

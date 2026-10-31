@@ -19,14 +19,14 @@ ReqFlow 不是一个"需求管理系统"，而是**项目事实的联邦层**：
 
 ## 2. 术语
 
-| 术语 | 含义 |
-| --- | --- |
-| 需求（Requirement） | 产品定义的最小协作单元，全局唯一编号 `REQ-<数字>` |
-| 工件（Artifact） | 任一角色交付的、可校验的产出（PRD、设计、实现说明、用例、发布记录） |
-| 证据（Evidence） | 工件中可机器校验的部分（commit hash、用例执行结果、发布版本号） |
-| 挂靠（Anchor） | 声明某段本地知识或某个工件归属于哪条需求 |
-| 上下文包（Context Pack） | 平台按需求装配、供 agent 开工使用的结构化上下文 |
-| 状态门（Gate） | 需求状态流转的准入条件：工件存在 + schema 校验通过 + 人已签字 |
+| 术语                     | 含义                                                                |
+| ------------------------ | ------------------------------------------------------------------- |
+| 需求（Requirement）      | 产品定义的最小协作单元，全局唯一编号 `REQ-<数字>`                   |
+| 工件（Artifact）         | 任一角色交付的、可校验的产出（PRD、设计、实现说明、用例、发布记录） |
+| 证据（Evidence）         | 工件中可机器校验的部分（commit hash、用例执行结果、发布版本号）     |
+| 挂靠（Anchor）           | 声明某段本地知识或某个工件归属于哪条需求                            |
+| 上下文包（Context Pack） | 平台按需求装配、供 agent 开工使用的结构化上下文                     |
+| 状态门（Gate）           | 需求状态流转的准入条件：工件存在 + schema 校验通过 + 人已签字       |
 
 ## 3. 核心原则
 
@@ -52,16 +52,16 @@ ReqFlow 不是一个"需求管理系统"，而是**项目事实的联邦层**：
 
 ### 4.2 编号必须出现的位置
 
-| 载体 | 约定 |
-| --- | --- |
-| Git 分支 | `feat/YFF-REQ-123-<简述>`、`fix/YFF-REQ-123-<简述>` |
-| Commit message | 正文或 footer 含 `YFF-REQ-123`；建议 `feat(scope): 描述 (YFF-REQ-123)` |
-| Pull Request | 标题前缀 `[YFF-REQ-123]`，描述含 `Closes YFF-REQ-123` |
-| 测试用例 | 用例 ID `TC-YFF-REQ-123-<序号>`，用例文件内声明 `req: YFF-REQ-123` |
-| 设计稿 | 文件命名 `YFF-REQ-123-<页面>.fig / .png`，front-matter 或描述区声明 `req: YFF-REQ-123` |
-| 本地知识条目 | 文件 front-matter 必须含 `req: YFF-REQ-123` |
-| 发布记录 | 记录体必填 `requirements: [YFF-REQ-123]` |
-| 任务 | 任务 ID `YFF-REQ-123-T01`，见 §5.6 |
+| 载体           | 约定                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------- |
+| Git 分支       | `feat/YFF-REQ-123-<简述>`、`fix/YFF-REQ-123-<简述>`                                    |
+| Commit message | 正文或 footer 含 `YFF-REQ-123`；建议 `feat(scope): 描述 (YFF-REQ-123)`                 |
+| Pull Request   | 标题前缀 `[YFF-REQ-123]`，描述含 `Closes YFF-REQ-123`                                  |
+| 测试用例       | 用例 ID `TC-YFF-REQ-123-<序号>`，用例文件内声明 `req: YFF-REQ-123`                     |
+| 设计稿         | 文件命名 `YFF-REQ-123-<页面>.fig / .png`，front-matter 或描述区声明 `req: YFF-REQ-123` |
+| 本地知识条目   | 文件 front-matter 必须含 `req: YFF-REQ-123`                                            |
+| 发布记录       | 记录体必填 `requirements: [YFF-REQ-123]`                                               |
+| 任务           | 任务 ID `YFF-REQ-123-T01`，见 §5.6                                                     |
 
 **缺失锚点的产出视为无效工件**，平台拒收并记录。
 
@@ -167,10 +167,10 @@ reqflow context YFF-REQ-123 --json     # agent 使用
 
 ```markdown
 ---
-id: k-8f3a2c                 # 稳定 ID（路径哈希），改名不丢挂靠关系
-req: YFF-REQ-123             # 挂靠需求，必填
-role: frontend               # 归属角色
-status: approved             # approved | draft（draft 不进入上下文装配）
+id: k-8f3a2c # 稳定 ID（路径哈希），改名不丢挂靠关系
+req: YFF-REQ-123 # 挂靠需求，必填
+role: frontend # 归属角色
+status: approved # approved | draft（draft 不进入上下文装配）
 updated: 2026-10-31
 ---
 ```
@@ -201,14 +201,14 @@ updated: 2026-10-31
 DRAFT → PRD_READY → DESIGN_READY → IN_DEV → CODE_LINKED → TESTED → RELEASED
 ```
 
-| 状态 | 进入条件 |
-| --- | --- |
-| `PRD_READY` | 存在 `prd.md` 且通过 schema 校验 + 产品签字 |
-| `DESIGN_READY` | 存在 `design.md`/设计附件 + 产品与设计确认 |
-| `IN_DEV` | 至少一个任务进入 `IN_PROGRESS` |
-| `CODE_LINKED` | 关联任务全部 `DONE` + commit/PR 已回链 + `impl.md` + 评审签字 |
-| `TESTED` | 存在 `cases.yaml` 且用例覆盖验收标准 + 结果已记录 |
-| `RELEASED` | 存在 `release.md` + 发布确认 |
+| 状态           | 进入条件                                                      |
+| -------------- | ------------------------------------------------------------- |
+| `PRD_READY`    | 存在 `prd.md` 且通过 schema 校验 + 产品签字                   |
+| `DESIGN_READY` | 存在 `design.md`/设计附件 + 产品与设计确认                    |
+| `IN_DEV`       | 至少一个任务进入 `IN_PROGRESS`                                |
+| `CODE_LINKED`  | 关联任务全部 `DONE` + commit/PR 已回链 + `impl.md` + 评审签字 |
+| `TESTED`       | 存在 `cases.yaml` 且用例覆盖验收标准 + 结果已记录             |
+| `RELEASED`     | 存在 `release.md` + 发布确认                                  |
 
 任务层状态独立流转：`OPEN → IN_PROGRESS → REVIEW_PENDING → DONE`，
 需求状态由平台依据关联任务的聚合结果自动推进，人只在需求级状态门签字。
@@ -217,13 +217,13 @@ DRAFT → PRD_READY → DESIGN_READY → IN_DEV → CODE_LINKED → TESTED → R
 
 **原则：AI 生产，人关门。任何环节都不得由 agent 自行宣告完成。**
 
-| 环节 | 签字方式 | 机制 |
-| --- | --- | --- |
+| 环节              | 签字方式               | 机制                                                              |
+| ----------------- | ---------------------- | ----------------------------------------------------------------- |
 | 代码（前端/后端） | **PR review 隐式代表** | GitHub/GitLab 上 approve 后，webhook 同步为签字证据，无需额外动作 |
-| PRD 定稿 | 平台内签字 | 产品在平台确认，记录签字人与时间 |
-| 设计确认 | 平台内签字 | 产品 + 设计负责人确认 |
-| 用例确认 | 平台内签字 | 测试负责人确认 |
-| 发布确认 | 平台内签字 | 运维确认 |
+| PRD 定稿          | 平台内签字             | 产品在平台确认，记录签字人与时间                                  |
+| 设计确认          | 平台内签字             | 产品 + 设计负责人确认                                             |
+| 用例确认          | 平台内签字             | 测试负责人确认                                                    |
+| 发布确认          | 平台内签字             | 运维确认                                                          |
 
 规则细则：
 
@@ -239,13 +239,13 @@ DRAFT → PRD_READY → DESIGN_READY → IN_DEV → CODE_LINKED → TESTED → R
 
 每个角色的本地工作区通过统一桥接器与平台交互，命令面固定：
 
-| 命令 | 用途 |
-| --- | --- |
-| `reqflow init --role <role>` | 初始化本地工作区，下发规范文件 |
-| `reqflow ready --json` | 查询本角色可执行的工作（未被阻塞的需求/任务） |
-| `reqflow context REQ-xxx --json` | 拉取上下文包 |
-| `reqflow deliver` | 提交工件与证据（含锚点与 schema 自检） |
-| `reqflow sync` | 上报本地知识索引与挂靠关系 |
+| 命令                             | 用途                                          |
+| -------------------------------- | --------------------------------------------- |
+| `reqflow init --role <role>`     | 初始化本地工作区，下发规范文件                |
+| `reqflow ready --json`           | 查询本角色可执行的工作（未被阻塞的需求/任务） |
+| `reqflow context REQ-xxx --json` | 拉取上下文包                                  |
+| `reqflow deliver`                | 提交工件与证据（含锚点与 schema 自检）        |
+| `reqflow sync`                   | 上报本地知识索引与挂靠关系                    |
 
 同一套能力同时以 MCP 工具暴露，供不支持 CLI 的 agent 直接调用。
 

@@ -13,7 +13,6 @@ import { Profile } from './pages/Profile';
 import { Register } from './pages/Register';
 import { Prds } from './pages/Prds';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { Runs } from './pages/Runs';
 import { GlobalSearch } from './components/GlobalSearch';
 import { ToastHost } from './components/ToastHost';
 import { findNav, navItems } from './nav';
@@ -96,7 +95,9 @@ export function App() {
   }
 
   if (!user)
-    return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
+    return (
+      <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />
+    );
 
   const menuItems = (onNavigate?: () => void) =>
     navItems.map((item) => {
@@ -226,8 +227,6 @@ export function App() {
               <Trace />
             ) : location.pathname === '/profile' ? (
               <Profile />
-            ) : location.pathname === '/runs' ? (
-              <Runs />
             ) : location.pathname === '/' ? (
               <Dashboard />
             ) : (

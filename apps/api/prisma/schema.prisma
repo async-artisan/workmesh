@@ -56,44 +56,6 @@ enum DecisionStatus {
   SUPERSEDED
   REJECTED
 }
-enum AiRunType {
-  PRODUCT_DISCOVERY
-}
-enum AiRunStatus {
-  ACTIVE
-  PROCESSING
-  PAUSED
-  WAITING_CONFIRMATION
-  COMPLETED
-  CANCELLED
-  FAILED
-}
-enum AiRunStep {
-  BACKGROUND_GOAL
-  USERS_SCENARIOS
-  USER_STORIES_FLOWS
-  ACCEPTANCE_CRITERIA
-  WAITING_CONFIRMATION
-}
-enum AiRunMessageRole {
-  SYSTEM
-  USER
-  ASSISTANT
-}
-enum AiRunEventType {
-  RUN_STARTED
-  RUN_PROCESSING
-  MESSAGE_CREATED
-  STEP_CHANGED
-  DRAFT_UPDATED
-  RUN_WAITING_CONFIRMATION
-  RUN_COMPLETED
-  RUN_PAUSED
-  RUN_RESUMED
-  RUN_CANCELLED
-  RUN_FAILED
-  HEARTBEAT
-}
 
 model Organization {
   id        String   @id @default(uuid())
@@ -129,7 +91,6 @@ model User {
   createdVersions PrdVersion[] @relation("version_creator")
   createdSpecs  TechnicalSpec[] @relation("spec_creator")
   createdDecisions TechnicalDecision[] @relation("decision_creator")
-  aiRuns        AiRun[] @relation("ai_run_creator")
   @@index([organizationId])
   @@map("users")
 }
@@ -164,7 +125,6 @@ model Project {
   specs          TechnicalSpec[]
   decisions      TechnicalDecision[]
   knowledgeBases KnowledgeBase[]
-  aiRuns         AiRun[]
   @@unique([organizationId, key])
   @@index([organizationId, createdAt])
   @@map("projects")
@@ -201,47 +161,9 @@ model Requirement {
   traces             Trace[]
   dependenciesFrom   RequirementDependency[] @relation("dependency_from")
   dependenciesTo     RequirementDependency[] @relation("dependency_to")
-  aiRunId            String?           @unique @map("ai_run_id")
-  aiRun              AiRun?            @relation(fields: [aiRunId], references: [id], onDelete: SetNull)
   @@index([projectId, updatedAt])
   @@index([createdById])
   @@map("requirements")
-}
-
-model AiRun {
-  id            String         @id @default(uuid())
-  projectId     String         @map("project_id")
-  createdById   String         @map("created_by_id")
-  type          AiRunType      @default(PRODUCT_DISCOVERY)
-  status        AiRunStatus    @default(ACTIVE)
-  step          AiRunStep      @default(BACKGROUND_GOAL)
-  eventSequence Int            @default(0) @map("event_sequence")
-  draft         Json           @default("{}")
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @updatedAt @map("updated_at")
-  completedAt   DateTime?      @map("completed_at")
-  project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy     User           @relation("ai_run_creator", fields: [createdById], references: [id], onDelete: Restrict)
-  requirement   Requirement?
-  messages      AiRunMessage[]
-  @@index([projectId, status, updatedAt])
-  @@index([createdById, updatedAt])
-  @@map("ai_runs")
-}
-
-model AiRunMessage {
-  id        String            @id @default(uuid())
-  runId     String            @map("run_id")
-  sequence  Int
-  role      AiRunMessageRole
-  step      AiRunStep?
-  eventType AiRunEventType    @map("event_type")
-  content   String
-  createdAt DateTime          @default(now()) @map("created_at")
-  run       AiRun             @relation(fields: [runId], references: [id], onDelete: Cascade)
-  @@unique([runId, sequence])
-  @@index([runId, createdAt])
-  @@map("ai_run_messages")
 }
 
 model RequirementLink {

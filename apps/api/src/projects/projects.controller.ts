@@ -14,10 +14,7 @@ export class ProjectsController {
     return this.projects.create(req.user!.sub, dto);
   }
   @Get(':id/members')
-  members(
-    @Req() req: Request & { user?: { sub: string } },
-    @Param('id') id: string,
-  ) {
+  members(@Req() req: Request & { user?: { sub: string } }, @Param('id') id: string) {
     return this.projects.members(req.user!.sub, id);
   }
   @Put(':id') update(

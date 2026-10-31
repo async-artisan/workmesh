@@ -17,7 +17,8 @@ client.interceptors.request.use((config) => {
 
 type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean };
 
-const isAuthRequest = (url?: string) => Boolean(url && /\/auth\/(login|register|refresh)/.test(url));
+const isAuthRequest = (url?: string) =>
+  Boolean(url && /\/auth\/(login|register|refresh)/.test(url));
 
 const endSession = () => {
   const { user, clearAuth } = useAuthStore.getState();

@@ -163,10 +163,7 @@ export function Projects() {
                     </span>
                   </td>
                   <td>
-                    <span
-                      className="cell-truncate cell-mono"
-                      title={project.repositoryUrl ?? ''}
-                    >
+                    <span className="cell-truncate cell-mono" title={project.repositoryUrl ?? ''}>
                       {project.repositoryUrl || '—'}
                     </span>
                   </td>
@@ -289,9 +286,7 @@ export function Projects() {
             <span>仓库 URL</span>
             <input
               value={editForm.repositoryUrl}
-              onChange={(event) =>
-                setEditForm({ ...editForm, repositoryUrl: event.target.value })
-              }
+              onChange={(event) => setEditForm({ ...editForm, repositoryUrl: event.target.value })}
               aria-label="编辑仓库 URL"
             />
           </div>
@@ -303,9 +298,7 @@ export function Projects() {
         open={Boolean(pendingDelete)}
         title="删除项目"
         description={
-          pendingDelete
-            ? `「${pendingDelete.name}」下的需求、PRD 与知识库关联会一并删除。`
-            : ''
+          pendingDelete ? `「${pendingDelete.name}」下的需求、PRD 与知识库关联会一并删除。` : ''
         }
         busy={busy}
         onCancel={() => setPendingDelete(null)}
