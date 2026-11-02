@@ -8,3 +8,5 @@ coverage
 !.env.example
 *.log
 apps/api/prisma/dev.db
+# 本地临时素材（需求包解压、截图、seeding 中间产物）
+.tmp
