@@ -1719,21 +1719,37 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
     const outputKinds = Array.isArray(step?.outputKinds) ? step!.outputKinds : [];
 
     if (outputKinds.includes('IMPL')) {
-      const evidence = await tx.codeReviewEvidence.findMany({
-        where: { projectId: ctx.input.projectId, artifactSetId: ctx.set.id },
-        select: { state: true, reviewerKind: true },
+      // 只有“真的指向代码”的交付才要求 PR 评审证据：GIT_REF，或带 commitSha 的工件。
+      // 纯 HOSTED 的 IMPL（例如实现说明、变更清单）没有可评审的提交，
+      // 无条件要求 GitHub 证据会让这类交付永远过不了验收。
+      const artifacts = await tx.artifact.findMany({
+        where: { artifactSetId: ctx.set.id },
+        select: { storage: true, commitSha: true },
       });
-      // 证据必须全部为 APPROVED 且非 Bot；任一 changes_requested/dismissed/pending 都拒绝。
-      if (
-        evidence.length === 0 ||
-        evidence.some((item) => item.state !== 'APPROVED' || item.reviewerKind === 'BOT')
-      )
-        throw new WorkmeshError(
-          V1_ERROR_CODES.CODE_EVIDENCE_MISSING,
-          'CODE_REVIEW_EVIDENCE_MISSING',
-          { taskId: ctx.task.id, artifactSetId: ctx.set.id },
-          422,
-        );
+      const claimsCode = artifacts.some(
+        (item) => item.storage === 'GIT_REF' || Boolean(item.commitSha),
+      );
+      if (claimsCode) {
+        const evidence = await tx.codeReviewEvidence.findMany({
+          where: { projectId: ctx.input.projectId, artifactSetId: ctx.set.id },
+          select: { state: true, reviewerKind: true },
+        });
+        // 证据必须全部为 APPROVED 且非 Bot；任一 changes_requested/dismissed/pending 都拒绝。
+        if (
+          evidence.length === 0 ||
+          evidence.some((item) => item.state !== 'APPROVED' || item.reviewerKind === 'BOT')
+        )
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CODE_EVIDENCE_MISSING,
+            'CODE_REVIEW_EVIDENCE_MISSING',
+            {
+              taskId: ctx.task.id,
+              artifactSetId: ctx.set.id,
+              reason: 'CODE_CLAIM_REQUIRES_APPROVED_PR_REVIEW',
+            },
+            422,
+          );
+      }
     }
 
     if (ctx.task.currentClaimId) {
