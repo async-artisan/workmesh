@@ -10,3 +10,5 @@ coverage
 apps/api/prisma/dev.db
 # 本地临时素材（需求包解压、截图、seeding 中间产物）
 .tmp
+# 本地数据库导出（含演示账号，不入库）
+backup/
