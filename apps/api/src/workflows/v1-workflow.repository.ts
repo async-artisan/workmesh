@@ -38,6 +38,7 @@ export type V1WorkflowStepView = {
   generation: number;
   version: number;
   repositoryIds: string[];
+  acceptanceKeys: string[];
 };
 
 export type V1WorkflowInstanceView = {
@@ -58,6 +59,8 @@ export type V1RequirementWorkflowView = {
   version: number;
   currentPrdRevisionId: string | null;
   deliveryScope: unknown;
+  /** 当前已发布 PRD 的验收 key；无 PRD 时为空数组 */
+  acceptanceKeys: string[];
 };
 
 export type V1PackageVersionRecord = {
@@ -104,6 +107,7 @@ export type V1CreateInstanceStepBinding = {
   roleId: string;
   responsibleUserId: string;
   repositoryIds: string[];
+  acceptanceKeys: string[];
 };
 
 export type V1CreateInstanceSlotBinding = { slotKey: string; roleId: string; userId: string };
@@ -122,6 +126,7 @@ export type V1CreateInstanceInput = {
     roleId: string;
     responsibleUserId: string;
     repositoryIds: string[];
+    acceptanceKeys: string[];
     outputKinds: string[];
   }>;
   actorUserId: string;

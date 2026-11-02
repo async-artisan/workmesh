@@ -15,6 +15,16 @@ pnpm 10.28.2 + Turborepo 的 monorepo：
 - `apps/cli`：`workmesh` CLI，设备授权登录与 Agent 工作流。
 - `packages/shared`：跨端契约（错误码、严格 JSON、摘要、角色包与流程校验）。
 - `packages/ui`：最小共享组件。
+- `packages/role-packages`：六个内置角色包（product / ui / frontend / backend / qa / ops），manifest 1.1。
+
+## 能力概览
+
+- **需求与流程**：需求编号 `KEY-001`、任务编号 `KEY-001/stepKey`；流程定义校验与发布、内置模板 `standard` / `software-delivery`、任务实例的验收 key 覆盖校验。
+- **角色与工件**：内置角色包安装、上下文快照、HOSTED / GIT_REF 工件、代码评审证据。
+- **评审与变更**：工作台待办与证据卡、逐条/批量决定、变更请求分级与传播、发布候选冻结。
+- **知识与度量**：三类知识库（BUSINESS / SYSTEM / PRACTICE）字段、流程度量接口 `GET /projects/:id/metrics/flow`。
+- **项目治理**：代码仓库登记、自定义角色、成员与角色指派。
+- **文档**：[开发计划](docs/dev-plan.md) · [API 清单](docs/api.md) · [流程度量](docs/metrics.md) · [审批工位](docs/design/approval-workstation.md) · [迁移路线](docs/migration-plan.md) · [阻塞项](BLOCKED.md)。
 
 ## 快速开始
 
@@ -26,7 +36,7 @@ corepack pnpm --filter @workmesh/shared build
 corepack pnpm --filter @workmesh/api exec prisma generate --schema prisma/schema.prisma
 ```
 
-配置 `WORKMESH_V1_DATABASE_URL` 指向显式选择的 PostgreSQL，确认目标与回滚方式后再应用唯一初始迁移：
+配置 `WORKMESH_V1_DATABASE_URL` 指向显式选择的 PostgreSQL，确认目标与回滚方式后按顺序应用迁移（当前 0001–0008）：
 
 ```bash
 corepack pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/schema.prisma
@@ -57,10 +67,10 @@ corepack pnpm --filter @workmesh/cli build
 corepack pnpm workmesh --help
 ```
 
-`workmesh auth login` 使用浏览器设备授权，凭据保存在 `~/.workmesh`（可用 `--config-home` 覆盖）。业务项目首次使用先安装角色包并绑定项目：`--api` 指向平台，`--host` 只接受 `codex` 或 `claude-code`。角色包目录必须含 `manifest.json` 与资源清单；仓库当前尚未附带默认角色包（见 [docs/positioning.md](docs/positioning.md) 的 A2）。
+`workmesh auth login` 使用浏览器设备授权，凭据保存在 `~/.workmesh`（可用 `--config-home` 覆盖）。业务项目首次使用先安装角色包并绑定项目：`--api` 指向平台，`--host` 只接受 `codex` 或 `claude-code`。仓库自带六个内置角色包，位于 `packages/role-packages/roles/<role>`。
 
 ```bash
-workmesh roles install --package <角色包目录> --project <项目UUID> --api https://<host>/api/v1 --host codex
+workmesh roles install --package packages/role-packages/roles/product --project <项目UUID> --api https://<host>/api/v1 --host codex
 ```
 
 之后按角色执行标准作业序列。任务编号来自 `GET /api/v1/projects/:projectId/tasks/ready` 或 Web 工作台；上下文快照创建后，任务版本以服务端返回为准。

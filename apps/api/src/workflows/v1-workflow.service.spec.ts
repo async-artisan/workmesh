@@ -140,6 +140,7 @@ type Requirement = {
   version: number;
   currentPrdRevisionId: string | null;
   deliveryScope: unknown;
+  acceptanceKeys: string[];
 };
 
 type State = {
@@ -166,7 +167,14 @@ function store(): State {
     definition: null,
     revisions: [],
     requirements: [
-      { id: 'req-1', projectId, version: 1, currentPrdRevisionId: null, deliveryScope: null },
+      {
+        id: 'req-1',
+        projectId,
+        version: 1,
+        currentPrdRevisionId: null,
+        deliveryScope: null,
+        acceptanceKeys: [],
+      },
     ],
     instances: [],
     operations: [],
@@ -203,7 +211,9 @@ function workflowRepository(state: State): V1WorkflowRepository {
       return found ? { ...found, projectId: null } : null;
     },
     async findRequirement(requirementId) {
-      return state.requirements.find((requirement) => requirement.id === requirementId) ?? null;
+      const found =
+        state.requirements.find((requirement) => requirement.id === requirementId) ?? null;
+      return found ? { ...found, acceptanceKeys: found.acceptanceKeys ?? [] } : null;
     },
     async isActiveMember(project, userId) {
       return state.members.includes(userId);
@@ -332,6 +342,7 @@ function workflowRepository(state: State): V1WorkflowRepository {
           generation: 1,
           version: 1,
           repositoryIds: step.repositoryIds,
+          acceptanceKeys: step.acceptanceKeys,
         })),
       };
       state.instances.push(instance);
@@ -512,14 +523,27 @@ describe('V1WorkflowService', () => {
       definitionRevisionId: 'rev-1',
       expectedRequirementVersion: 1,
       stepBindings: [
-        { stepKey: 'define', roleId: 'r-product', responsibleUserId: 'alice', repositoryIds: [] },
+        {
+          stepKey: 'define',
+          roleId: 'r-product',
+          responsibleUserId: 'alice',
+          repositoryIds: [],
+          acceptanceKeys: [],
+        },
         {
           stepKey: 'implement',
           roleId: 'r-eng',
           responsibleUserId: 'alice',
           repositoryIds: ['repo-1'],
+          acceptanceKeys: [],
         },
-        { stepKey: 'release', roleId: 'r-ops', responsibleUserId: 'alice', repositoryIds: [] },
+        {
+          stepKey: 'release',
+          roleId: 'r-ops',
+          responsibleUserId: 'alice',
+          repositoryIds: [],
+          acceptanceKeys: [],
+        },
       ],
       roleSlotBindings: [{ slotKey: 'release-approval', roleId: 'r-ops', userId: 'alice' }],
       ...overrides,
@@ -856,6 +880,54 @@ describe('V1WorkflowService', () => {
       expect(result.requirementVersion).toBe(2);
       expect(state.requirements[0].version).toBe(2);
       expect(state.operations).toHaveLength(1);
+    });
+
+    it('covers every PRD acceptance key and stores them on tasks', async () => {
+      await seedPublishedDefinition(demoDefinition());
+      state.requirements[0].acceptanceKeys = ['A1', 'A2'];
+      const input = instanceInput();
+      input.stepBindings[0].acceptanceKeys = ['A1'];
+      input.stepBindings[1].acceptanceKeys = ['A2'];
+      const result = await service.createInstance(
+        alice,
+        'req-1',
+        input,
+        instanceContext(instanceBody(input)),
+      );
+      expect(result.instance.steps.map((step) => step.acceptanceKeys)).toEqual([
+        ['A1'],
+        ['A2'],
+        [],
+      ]);
+    });
+
+    it('rejects creation when a PRD acceptance key is not covered', async () => {
+      await seedPublishedDefinition(demoDefinition());
+      state.requirements[0].acceptanceKeys = ['A1', 'A2'];
+      const input = instanceInput();
+      input.stepBindings[0].acceptanceKeys = ['A1'];
+      await expect(
+        service.createInstance(alice, 'req-1', input, instanceContext(instanceBody(input))),
+      ).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+        message: 'UNCOVERED_ACCEPTANCE',
+        status: 422,
+      });
+      expect(state.instances).toHaveLength(0);
+    });
+
+    it('rejects unknown acceptance keys', async () => {
+      await seedPublishedDefinition(demoDefinition());
+      state.requirements[0].acceptanceKeys = ['A1'];
+      const input = instanceInput();
+      input.stepBindings[0].acceptanceKeys = ['A1', 'A9'];
+      await expect(
+        service.createInstance(alice, 'req-1', input, instanceContext(instanceBody(input))),
+      ).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+        message: 'UNCOVERED_ACCEPTANCE',
+        status: 422,
+      });
     });
 
     it('rejects a revision that is no longer the published pointer', async () => {

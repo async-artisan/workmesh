@@ -6,17 +6,17 @@
 
 ## 0. 已完成（可核对）
 
-| 能力 | 证据 |
-| --- | --- |
-| 定位与 README/SPEC 收敛 | `8bef997` 之前的 docs 提交 |
-| 需求编号统一 `KEY-001` / `KEY-001/stepImpl` | `spec/SPEC.md`、`spec/artifacts/*` |
-| 代码仓库登记 API | `apps/api/src/projects/projects.controller.ts` |
-| 自定义角色 API | 同上 |
-| 流程度量接口 | `apps/api/src/tasks/v1-flow-metrics.*`、[metrics.md](metrics.md) |
-| 六个角色包（49 资源） | `packages/role-packages/roles/*` |
-| 角色包单一来源合并 | `fd0c8b3` |
-| 审批证据卡（类型/检查/代码引用） | `v1-workbench.service.ts`、`Workbench.tsx` |
-| 迁移路线 M0–M5 | [migration-plan.md](migration-plan.md) |
+| 能力                                        | 证据                                                             |
+| ------------------------------------------- | ---------------------------------------------------------------- |
+| 定位与 README/SPEC 收敛                     | `8bef997` 之前的 docs 提交                                       |
+| 需求编号统一 `KEY-001` / `KEY-001/stepImpl` | `spec/SPEC.md`、`spec/artifacts/*`                               |
+| 代码仓库登记 API                            | `apps/api/src/projects/projects.controller.ts`                   |
+| 自定义角色 API                              | 同上                                                             |
+| 流程度量接口                                | `apps/api/src/tasks/v1-flow-metrics.*`、[metrics.md](metrics.md) |
+| 六个角色包（49 资源）                       | `packages/role-packages/roles/*`                                 |
+| 角色包单一来源合并                          | `fd0c8b3`                                                        |
+| 审批证据卡（类型/检查/代码引用）            | `v1-workbench.service.ts`、`Workbench.tsx`                       |
+| 迁移路线 M0–M5                              | [migration-plan.md](migration-plan.md)                           |
 
 ## 1. 开发原则
 
@@ -28,19 +28,19 @@
 
 ## 2. 工作包总览
 
-| WP | 内容 | 依赖 | 状态 |
-| --- | --- | --- | --- |
-| WP0 | 基线闸门：迁移状态、备份演练、CI 漂移检查 | 无 | 待做 |
-| WP1 | M1 知识治理字段 | WP0 | 待做 |
-| WP2 | M2 验收映射 `acceptanceKeys` | WP1 | 待做 |
-| WP3 | M3 变更管理（ChangeRequest / 策略 / 冻结） | WP2 | 待做 |
-| WP4 | M4 单元与依赖 | WP1 | 待做 |
-| WP5 | M5 通用化（kind 注册、枚举字符串化） | WP4 | 待做 |
-| WP6 | 角色包 schema 1.1（`skills[]` / `evidence`） | 无 | 待做 |
-| WP7 | 审批批处理（同类型、逐条校验） | 无 | 待做 |
-| WP8 | 委托与超时升级 | WP3（槽位 `dueAt`） | 待做 |
-| WP9 | 默认模板 `software-delivery` + 角色排除变体 | WP6 | 待做 |
-| WP10 | 文档/度量收尾与导航 | 全部 | 待做 |
+| WP   | 内容                                         | 依赖                | 状态                            |
+| ---- | -------------------------------------------- | ------------------- | ------------------------------- |
+| WP0  | 基线闸门：迁移状态、备份演练、CI 漂移检查    | 无                  | ✅ 已完成（生产演练待运维）     |
+| WP1  | M1 知识治理字段                              | WP0                 | ✅ 已完成                       |
+| WP2  | M2 验收映射 `acceptanceKeys`                 | WP1                 | ✅ 已完成                       |
+| WP3  | M3 变更管理（ChangeRequest / 策略 / 冻结）   | WP2                 | ✅ 已完成（apply 受 B1 限制）   |
+| WP4  | M4 单元与依赖                                | WP1                 | ✅ 已完成（apply 受 B1 限制）   |
+| WP5  | M5 通用化（kind 注册、枚举字符串化）         | WP4                 | ✅ 已完成（生产 apply 待运维）  |
+| WP6  | 角色包 schema 1.1（`skills[]` / `evidence`） | 无                  | ✅ 已完成                       |
+| WP7  | 审批批处理（同类型、逐条校验）               | 无                  | ✅ 已完成（E2E 受 B3/B4 限制）  |
+| WP8  | 委托与超时升级                               | WP3（槽位 `dueAt`） | ✅ 已完成（升级动作可手动触发） |
+| WP9  | 默认模板 `software-delivery` + 角色排除变体  | WP6                 | ✅ 已完成                       |
+| WP10 | 文档/度量收尾与导航                          | 全部                | ✅ 已完成                       |
 
 ## 3. 工作包明细
 
@@ -117,11 +117,11 @@
 
 ## 4. 阻塞项
 
-| 项 | 原因 | 解除条件 |
-| --- | --- | --- |
-| 迁移 apply | 无真实 PostgreSQL 授权 | 提供隔离库连接与备份 |
-| GitHub live | 无测试仓库与凭据 | 提供只读测试仓 |
-| 浏览器 E2E | 无隔离 API+DB | 与迁移 apply 一并解除 |
+| 项          | 原因                   | 解除条件              |
+| ----------- | ---------------------- | --------------------- |
+| 迁移 apply  | 无真实 PostgreSQL 授权 | 提供隔离库连接与备份  |
+| GitHub live | 无测试仓库与凭据       | 提供只读测试仓        |
+| 浏览器 E2E  | 无隔离 API+DB          | 与迁移 apply 一并解除 |
 
 ## 5. 每包验证命令
 

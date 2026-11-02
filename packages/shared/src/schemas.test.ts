@@ -32,6 +32,30 @@ describe('role package schema', () => {
   };
 
   it('accepts a strict manifest', () => expect(validateRolePackage(valid).valid).toBe(true));
+
+  it('accepts a 1.1 manifest with skills and evidence', () => {
+    const v11 = {
+      ...valid,
+      packageSchemaVersion: '1.1',
+      description: '产品角色包',
+      license: 'MIT',
+      skills: [{ key: 'write-prd', path: 'skills/write-prd/SKILL.md', description: '写 PRD' }],
+      outputs: [
+        {
+          key: 'prd',
+          channel: 'CANDIDATE',
+          kind: 'PRD',
+          contractVersion: '1.0',
+          evidence: ['INSPECTION'],
+        },
+      ],
+    };
+    expect(validateRolePackage(v11).valid).toBe(true);
+    expect(validateRolePackage({ ...v11, packageSchemaVersion: '9.9' }).valid).toBe(false);
+    expect(
+      validateRolePackage({ ...v11, outputs: [{ ...v11.outputs[0], evidence: ['NOPE'] }] }).valid,
+    ).toBe(false);
+  });
   it('rejects unknown fields and malformed digest', () => {
     expect(validateRolePackage({ ...valid, extra: true }).valid).toBe(false);
     expect(

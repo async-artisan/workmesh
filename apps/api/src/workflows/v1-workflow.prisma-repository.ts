@@ -163,7 +163,26 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
       },
     });
     if (!row) return null;
-    return { ...row, deliveryScope: row.deliveryScope as unknown };
+    const acceptanceKeys = await this.acceptanceKeysOf(row.currentPrdRevisionId);
+    return { ...row, deliveryScope: row.deliveryScope as unknown, acceptanceKeys };
+  }
+
+  /** PRD 修订的 acceptance 是 JSON 数组；只取其中带 key 的条目，非法条目忽略。 */
+  private async acceptanceKeysOf(revisionId: string | null): Promise<string[]> {
+    if (!revisionId) return [];
+    const revision = await this.prisma.documentRevision.findUnique({
+      where: { id: revisionId },
+      select: { acceptance: true },
+    });
+    const raw = revision?.acceptance;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((item) =>
+        item && typeof item === 'object' && typeof (item as { key?: unknown }).key === 'string'
+          ? (item as { key: string }).key
+          : null,
+      )
+      .filter((key): key is string => Boolean(key));
   }
 
   async isActiveMember(projectId: string, userId: string): Promise<boolean> {
@@ -449,6 +468,7 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
             projectId: input.projectId,
             workflowInstanceId: instance.id,
             stepKey: step.stepKey,
+            acceptanceKeys: step.acceptanceKeys,
             roleId: step.roleId,
             responsibleUserId: step.responsibleUserId,
           })),
@@ -520,6 +540,7 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
               repositoryIds:
                 input.stepBindings.find((binding) => binding.stepKey === task.stepKey)
                   ?.repositoryIds ?? [],
+              acceptanceKeys: task.acceptanceKeys,
             })),
           },
           requirementVersion: input.expectedRequirementVersion + 1,
@@ -558,6 +579,7 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
         repositoryIds:
           bindings.stepBindings?.find((binding) => binding.stepKey === task.stepKey)
             ?.repositoryIds ?? [],
+        acceptanceKeys: task.acceptanceKeys,
       })),
     };
   }

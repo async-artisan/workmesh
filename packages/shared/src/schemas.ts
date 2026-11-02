@@ -2,13 +2,18 @@ import Ajv2020, { type JSONSchemaType, type ValidateFunction } from 'ajv/dist/20
 import addFormats from 'ajv-formats';
 
 export type RolePackageManifest = {
-  packageSchemaVersion: '1.0';
+  packageSchemaVersion: '1.0' | '1.1';
   id: string;
   version: string;
   protocolVersion: '1.0';
   title: string;
+  /** 1.1：包级描述与许可证，用于发现与开源合规 */
+  description?: string;
+  license?: string;
   roleKey: string;
   compatibility: { minCliVersion: string; maxCliVersionExclusive: string; contractVersion: '1.0' };
+  /** 1.1：一个包多个 skill，path 指向 SKILL.md */
+  skills?: Array<{ key: string; path: string; description: string; whenToUse?: string }>;
   inputs: Array<{
     key: string;
     source: string;
@@ -22,6 +27,8 @@ export type RolePackageManifest = {
     kind: string;
     contractVersion: '1.0';
     templateResourceId?: string;
+    /** 1.1：该类产出需要的证据类型 */
+    evidence?: Array<'TEST' | 'INSPECTION' | 'DEMO'>;
   }>;
   resources: Array<{
     id: string;
@@ -56,12 +63,29 @@ export const rolePackageManifestSchema = {
     'agentEntries',
   ],
   properties: {
-    packageSchemaVersion: { const: '1.0' },
+    packageSchemaVersion: { enum: ['1.0', '1.1'] },
     id: { type: 'string', maxLength: 120 },
     version: semver,
     protocolVersion: { const: '1.0' },
     title: { type: 'string', minLength: 1, maxLength: 120 },
+    description: { type: 'string', minLength: 1, maxLength: 1024 },
+    license: { type: 'string', minLength: 1, maxLength: 120 },
     roleKey: key,
+    skills: {
+      type: 'array',
+      maxItems: 8,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['key', 'path', 'description'],
+        properties: {
+          key,
+          path: { type: 'string', minLength: 1, maxLength: 240 },
+          description: { type: 'string', minLength: 1, maxLength: 1024 },
+          whenToUse: { type: 'string', maxLength: 500 },
+        },
+      },
+    },
     compatibility: {
       type: 'object',
       additionalProperties: false,
@@ -102,6 +126,11 @@ export const rolePackageManifestSchema = {
           kind: { type: 'string' },
           contractVersion: { const: '1.0' },
           templateResourceId: key,
+          evidence: {
+            type: 'array',
+            maxItems: 3,
+            items: { enum: ['TEST', 'INSPECTION', 'DEMO'] },
+          },
         },
       },
     },

@@ -1,15 +1,37 @@
 {
-  "packageSchemaVersion": "1.0",
+  "packageSchemaVersion": "1.1",
   "id": "workmesh.role.backend",
   "version": "1.1.0",
   "protocolVersion": "1.0",
   "title": "后端角色包",
+  "description": "把 PRD 转成可并行的接口契约，按契约实现并交付可验证证据。",
+  "license": "MIT",
   "roleKey": "backend",
   "compatibility": {
     "minCliVersion": "1.0.0",
     "maxCliVersionExclusive": "2.0.0",
     "contractVersion": "1.0"
   },
+  "skills": [
+    {
+      "key": "design-contract",
+      "path": "skills/design-contract/SKILL.md",
+      "description": "从 PRD 推导接口契约、数据变更与错误码，作为并行开发的共同参照。",
+      "whenToUse": "PRD 就绪、开工前需要定契约时。"
+    },
+    {
+      "key": "implement-change",
+      "path": "skills/implement-change/SKILL.md",
+      "description": "按已发布契约实现代码，回链需求编号并完成自测。",
+      "whenToUse": "契约已发布、任务已认领时。"
+    },
+    {
+      "key": "attach-evidence",
+      "path": "skills/attach-evidence/SKILL.md",
+      "description": "收集提交级证据与检查结果，组成可复核的交付。",
+      "whenToUse": "实现完成、准备交付时。"
+    }
+  ],
   "inputs": [
     {
       "key": "context",
@@ -39,14 +61,21 @@
       "channel": "CANDIDATE",
       "kind": "KNOWLEDGE",
       "contractVersion": "1.0",
-      "templateResourceId": "template-contract"
+      "templateResourceId": "template-contract",
+      "evidence": [
+        "INSPECTION"
+      ]
     },
     {
       "key": "impl",
       "channel": "CANDIDATE",
       "kind": "IMPL",
       "contractVersion": "1.0",
-      "templateResourceId": "template-impl"
+      "templateResourceId": "template-impl",
+      "evidence": [
+        "TEST",
+        "INSPECTION"
+      ]
     }
   ],
   "resources": [

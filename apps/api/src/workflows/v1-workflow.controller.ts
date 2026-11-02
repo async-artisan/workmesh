@@ -12,12 +12,14 @@ import {
 } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsInt,
   IsObject,
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   Min,
   ValidateNested,
@@ -74,6 +76,13 @@ class StepBindingDto {
   @IsUUID() responsibleUserId!: string;
 
   @IsOptional() @IsArray() @IsUUID('4', { each: true }) repositoryIds?: string[];
+
+  /** 本步骤覆盖的验收 key；未覆盖任何验收的 PRD 条目会在服务端被拒。 */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(64)
+  @Matches(/^[A-Za-z0-9._-]{1,64}$/, { each: true })
+  acceptanceKeys?: string[];
 }
 
 class RoleSlotBindingDto {
@@ -143,6 +152,11 @@ export class V1WorkflowController {
       limit: query.limit,
       cursor: query.cursor ?? null,
     });
+  }
+
+  @Get('projects/:projectId/workflow-templates')
+  templates(@Req() request: V1Request, @Param('projectId') projectId: string) {
+    return this.workflows.templates(principalOf(request), projectId);
   }
 
   @Post('projects/:projectId/workflow-definitions/validate')
@@ -235,6 +249,7 @@ export class V1WorkflowController {
           roleId: binding.roleId,
           responsibleUserId: binding.responsibleUserId,
           repositoryIds: binding.repositoryIds ?? [],
+          acceptanceKeys: binding.acceptanceKeys ?? [],
         })),
         roleSlotBindings: dto.roleSlotBindings.map((binding) => ({
           slotKey: binding.slotKey,

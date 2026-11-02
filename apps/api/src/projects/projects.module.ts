@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { V1_IDEMPOTENCY_REPOSITORY } from '../common/v1-idempotency';
 import { V1IdempotencyPrismaRepository } from '../common/v1-idempotency.prisma-repository';
+import { ChangeRequestsController } from '../changes/change-requests.controller';
+import { ChangeRequestsService } from '../changes/change-requests.service';
 import { ProjectAccessService } from './project-access.service';
 import { PROJECT_ROLE_REPOSITORY } from './project-role.repository';
 import { ProjectRolePrismaRepository } from './project-role.prisma-repository';
@@ -8,12 +10,21 @@ import { ProjectsController } from './projects.controller';
 import { ProjectsService } from './projects.service';
 import { RequirementsController } from './requirements.controller';
 import { RequirementsService } from './requirements.service';
+import { UnitsController } from './units.controller';
+import { UnitsService } from './units.service';
 
 @Module({
-  controllers: [ProjectsController, RequirementsController],
+  controllers: [
+    ProjectsController,
+    RequirementsController,
+    UnitsController,
+    ChangeRequestsController,
+  ],
   providers: [
     ProjectsService,
     RequirementsService,
+    UnitsService,
+    ChangeRequestsService,
     ProjectAccessService,
     { provide: PROJECT_ROLE_REPOSITORY, useClass: ProjectRolePrismaRepository },
     { provide: V1_IDEMPOTENCY_REPOSITORY, useClass: V1IdempotencyPrismaRepository },

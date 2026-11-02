@@ -7,6 +7,22 @@ on:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: workmesh_shadow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      WORKMESH_V1_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/workmesh_shadow?schema=workmesh_v1
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -23,6 +39,9 @@ jobs:
       - run: pnpm type-check
       - run: pnpm lint:eslint
       - run: pnpm --filter @workmesh/api exec prisma validate --schema prisma/schema.prisma
+      # 漂移闸门：先把迁移目录应用到空库，再与 schema 比对；不一致直接失败。
+      - run: pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/schema.prisma
+      - run: pnpm --filter @workmesh/api exec prisma migrate diff --from-url "$WORKMESH_V1_DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
       - run: pnpm test
       # 契约脚本与进程内 HTTP 套件此前不在流水线里：
       # `pnpm test` 只匹配 src/**/*.spec.ts，test/** 从不执行。

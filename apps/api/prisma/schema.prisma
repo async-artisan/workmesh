@@ -26,13 +26,6 @@ enum GrantSubjectKind {
   ROLE
   @@schema("workmesh_v1")
 }
-enum DocumentKind {
-  UNDERSTANDING
-  DECISION
-  PRD
-  KNOWLEDGE
-  @@schema("workmesh_v1")
-}
 enum PublicationKind {
   PUBLISH
   WITHDRAW
@@ -75,14 +68,6 @@ enum ArtifactKind {
 enum ArtifactStorage {
   HOSTED
   GIT_REF
-  @@schema("workmesh_v1")
-}
-enum ReviewKind {
-  UNDERSTANDING_CONFIRM
-  PRD_PUBLICATION
-  KNOWLEDGE_PUBLICATION
-  TASK_ACCEPTANCE
-  RELEASE_ACCEPTANCE
   @@schema("workmesh_v1")
 }
 enum ReviewStatus {
@@ -153,6 +138,8 @@ model Project {
   rolePackages          RolePackageVersion[]
   knowledgeBindings     ProjectKnowledgeBinding[]
   repositories          ProjectRepository[]
+  units                 Unit[]
+  unitDependencies      UnitDependency[]
   tickets               ConfirmationTicket[] @relation("TicketProject")
   stamps                PrincipalStamp[] @relation("StampProject")
   auditEvents           AuditEvent[] @relation("AuditProject")
@@ -268,7 +255,7 @@ model KnowledgeDocument {
   projectId               String @db.Uuid
   knowledgeBaseId         String @db.Uuid
   requirementId           String? @db.Uuid
-  kind                    DocumentKind
+  kind                    String @db.VarChar(48)
   /// PROJECT | UNIT | ROLE
   scopeKind               String @default("PROJECT") @db.VarChar(16)
   scopeId                 String? @db.Uuid
@@ -288,6 +275,7 @@ model KnowledgeDocument {
 
   @@unique([id, projectId])
   @@index([projectId, knowledgeBaseId])
+  @@index([projectId, scopeKind, scopeId])
   @@schema("workmesh_v1")
 }
 
@@ -354,6 +342,8 @@ model Requirement {
   currentUnderstandingRevisionId String? @db.Uuid
   currentPrdRevisionId String? @db.Uuid
   deliveryScope Json?
+  /// 发布候选冻结时间；冻结后普通变更默认 DEFERRED
+  frozenAt DateTime? @db.Timestamptz(3)
   createdAt   DateTime @default(now()) @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
   project     Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
@@ -462,11 +452,99 @@ model WorkflowInstance {
   @@schema("workmesh_v1")
 }
 
+/// 工作单元：服务、应用、数据集或外部系统；依赖图以它为节点。
+/// 变更请求：需求变更的唯一入口，审批后生成 ChangeEvent 与失效动作。
+model ChangeRequest {
+  id            String @id @default(uuid()) @db.Uuid
+  projectId     String @db.Uuid
+  requirementId String @db.Uuid
+  /// L0 | L1 | L2 | L3
+  level         String @db.VarChar(4)
+  diff          Json
+  reason        String @db.VarChar(2000)
+  proposedById  String @db.Uuid
+  impactPreview Json?
+  /// PENDING | ACCEPTED | REJECTED | DEFERRED
+  decision      String @default("PENDING") @db.VarChar(16)
+  decidedById   String? @db.Uuid
+  decidedAt     DateTime? @db.Timestamptz(3)
+  appliedAt     DateTime? @db.Timestamptz(3)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([projectId, decision, createdAt])
+  @@index([requirementId, createdAt])
+  @@schema("workmesh_v1")
+}
+
+/// 变更分级到审批槽的策略；缺省由模板给出，项目可覆盖。
+model ProjectChangePolicy {
+  id        String   @id @default(uuid()) @db.Uuid
+  projectId String   @db.Uuid
+  level     String   @db.VarChar(4)
+  slots     Json
+  version   Int      @default(1)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, level])
+  @@schema("workmesh_v1")
+}
+
+model Unit {
+  id           String @id @default(uuid()) @db.Uuid
+  projectId    String @db.Uuid
+  key          String @db.VarChar(48)
+  name         String @db.VarChar(120)
+  /// SERVICE | APP | DATASET | EXTERNAL
+  kind         String @default("SERVICE") @db.VarChar(16)
+  repositoryId String? @db.Uuid
+  repoPath     String? @db.VarChar(200)
+  ownerUserId  String? @db.Uuid
+  status       String @default("ACTIVE") @db.VarChar(16)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+  project      Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  outgoing     UnitDependency[] @relation("UnitDependencyFrom")
+  incoming     UnitDependency[] @relation("UnitDependencyTo")
+  tasks        Task[]
+
+  @@unique([projectId, key])
+  @@unique([id, projectId])
+  @@index([projectId, status])
+  @@schema("workmesh_v1")
+}
+
+model UnitDependency {
+  id                 String @id @default(uuid()) @db.Uuid
+  projectId          String @db.Uuid
+  fromUnitId         String @db.Uuid
+  toUnitId           String @db.Uuid
+  /// CALLS | READS | PUBLISHES | UPSTREAM
+  edgeKind           String @default("CALLS") @db.VarChar(16)
+  protocol           String? @db.VarChar(16)
+  contractDocumentId String? @db.Uuid
+  /// DECLARED | INFERRED | RUNTIME
+  source             String @default("DECLARED") @db.VarChar(16)
+  confidence         String @default("MEDIUM") @db.VarChar(16)
+  evidence           String? @db.VarChar(500)
+  verifiedAt         DateTime? @db.Timestamptz(3)
+  createdAt          DateTime @default(now()) @db.Timestamptz(3)
+  project            Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  fromUnit           Unit @relation("UnitDependencyFrom", fields: [fromUnitId, projectId], references: [id, projectId], onDelete: Restrict)
+  toUnit             Unit @relation("UnitDependencyTo", fields: [toUnitId, projectId], references: [id, projectId], onDelete: Restrict)
+
+  @@unique([projectId, fromUnitId, toUnitId, edgeKind])
+  @@index([projectId, toUnitId])
+  @@schema("workmesh_v1")
+}
+
 model Task {
   id              String @id @default(uuid()) @db.Uuid
   projectId       String @db.Uuid
   workflowInstanceId String @db.Uuid
   stepKey         String @db.VarChar(48)
+  /// 本任务覆盖的验收 key（来自 PRD acceptance[].key）
+  acceptanceKeys  String[] @default([]) @db.Text
   roleId          String @db.Uuid
   responsibleUserId String @db.Uuid
   version         Int @default(1)
@@ -476,7 +554,9 @@ model Task {
   currentClaimId  String? @db.Uuid
   currentSnapshotId String? @db.Uuid
   currentArtifactSetId String? @db.Uuid
+  unitId          String? @db.Uuid
   instance        WorkflowInstance @relation(fields: [workflowInstanceId, projectId], references: [id, projectId], onDelete: Restrict)
+  unit            Unit? @relation(fields: [unitId, projectId], references: [id, projectId], onDelete: Restrict)
   role            ProjectRole @relation(fields: [roleId, projectId], references: [id, projectId], onDelete: Restrict)
   responsibleUser User @relation("TaskResponsible", fields: [responsibleUserId], references: [id], onDelete: Restrict)
   claims          TaskClaim[]
@@ -616,7 +696,7 @@ model Artifact {
 model ReviewRequest {
   id             String @id @default(uuid()) @db.Uuid
   projectId      String @db.Uuid
-  kind           ReviewKind
+  kind           String @db.VarChar(48)
   documentRevisionId String? @db.Uuid
   artifactSetId  String? @db.Uuid
   taskId         String? @db.Uuid
@@ -635,6 +715,22 @@ model ReviewRequest {
   @@schema("workmesh_v1")
 }
 
+/// 槽位级临时委托：原责任人不变，委托到期自动失效。
+model ApprovalSlotDelegation {
+  id              String @id @default(uuid()) @db.Uuid
+  projectId       String @db.Uuid
+  slotId          String @db.Uuid
+  delegatorUserId String @db.Uuid
+  delegateUserId  String @db.Uuid
+  expiresAt       DateTime @db.Timestamptz(3)
+  revokedAt       DateTime? @db.Timestamptz(3)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([slotId, revokedAt])
+  @@index([delegateUserId, expiresAt])
+  @@schema("workmesh_v1")
+}
+
 model ApprovalSlot {
   id              String @id @default(uuid()) @db.Uuid
   projectId       String @db.Uuid
@@ -645,6 +741,10 @@ model ApprovalSlot {
   requiredRoleId  String? @db.Uuid
   sourceSlotBindingId String? @db.Uuid
   createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  /// 超时升级截止时间；到期只提醒与升级，不自动批准
+  dueAt           DateTime? @db.Timestamptz(3)
+  /// 已升级时间；只发提醒与升级，不自动批准
+  escalatedAt     DateTime? @db.Timestamptz(3)
   reviewRequest   ReviewRequest @relation(fields: [reviewRequestId, projectId], references: [id, projectId], onDelete: Restrict)
   requiredUser    User? @relation("ApprovalSlotUser", fields: [requiredUserId], references: [id], onDelete: Restrict)
   requiredRole    ProjectRole? @relation(fields: [requiredRoleId], references: [id], onDelete: Restrict)
@@ -711,6 +811,9 @@ model ChangeRecipient {
   userId     String @db.Uuid
   roleId     String? @db.Uuid
   version    Int @default(1)
+  action     String @default("ACK_ONLY") @db.VarChar(16)
+  dueAt      DateTime? @db.Timestamptz(3)
+  escalatedAt DateTime? @db.Timestamptz(3)
   ackedAt    DateTime? @db.Timestamptz(3)
   createdAt  DateTime @default(now()) @db.Timestamptz(3)
   event      ChangeEvent @relation(fields: [eventId], references: [id], onDelete: Restrict)

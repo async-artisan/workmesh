@@ -86,3 +86,53 @@ export class UpdateProjectRoleDto {
 
   @IsString() @MinLength(1) @MaxLength(80) title!: string;
 }
+
+const UNIT_KINDS = ['SERVICE', 'APP', 'DATASET', 'EXTERNAL'] as const;
+const UNIT_STATUSES = ['ACTIVE', 'DEPRECATED'] as const;
+const EDGE_KINDS = ['CALLS', 'READS', 'PUBLISHES', 'UPSTREAM'] as const;
+const EDGE_PROTOCOLS = ['HTTP', 'GRPC', 'MQ', 'DB'] as const;
+const EDGE_SOURCES = ['DECLARED', 'INFERRED', 'RUNTIME'] as const;
+const CONFIDENCES = ['HIGH', 'MEDIUM', 'LOW'] as const;
+
+/** 工作单元：key 创建后不可变，依赖图与任务绑定都以它为准。 */
+export class CreateUnitDto {
+  @IsString() @Matches(/^[a-z][a-z0-9-]{0,47}$/) key!: string;
+
+  @IsString() @MinLength(1) @MaxLength(120) name!: string;
+
+  @IsOptional() @IsIn(UNIT_KINDS) kind?: (typeof UNIT_KINDS)[number];
+
+  @IsOptional() @IsUUID() repositoryId?: string;
+
+  @IsOptional() @IsString() @MaxLength(200) repoPath?: string;
+
+  @IsOptional() @IsUUID() ownerUserId?: string;
+}
+
+export class UpdateUnitDto {
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(120) name?: string;
+
+  @IsOptional() @IsIn(UNIT_STATUSES) status?: (typeof UNIT_STATUSES)[number];
+
+  @IsOptional() @IsString() @MaxLength(200) repoPath?: string;
+
+  @IsOptional() @IsUUID() ownerUserId?: string;
+}
+
+export class CreateUnitDependencyDto {
+  @IsUUID() fromUnitId!: string;
+
+  @IsUUID() toUnitId!: string;
+
+  @IsIn(EDGE_KINDS) edgeKind!: (typeof EDGE_KINDS)[number];
+
+  @IsOptional() @IsIn(EDGE_PROTOCOLS) protocol?: (typeof EDGE_PROTOCOLS)[number];
+
+  @IsOptional() @IsUUID() contractDocumentId?: string;
+
+  @IsOptional() @IsIn(EDGE_SOURCES) source?: (typeof EDGE_SOURCES)[number];
+
+  @IsOptional() @IsIn(CONFIDENCES) confidence?: (typeof CONFIDENCES)[number];
+
+  @IsOptional() @IsString() @MaxLength(500) evidence?: string;
+}

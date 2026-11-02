@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { compileWorkflowDefinition, type WorkflowPackageLock } from './workflow';
 import {
+  buildSoftwareDeliveryWorkflowTemplate,
   buildStandardWorkflowTemplate,
+  SOFTWARE_DELIVERY_ROLE_KEYS,
+  SOFTWARE_DELIVERY_WORKFLOW_KEY,
   STANDARD_TEMPLATE_ROLE_KEYS,
   STANDARD_WORKFLOW_KEY,
   usedWorkflowRoleKeys,
@@ -75,6 +78,35 @@ describe('standard workflow template', () => {
     });
     expect(template.workflowKey).toBe('fast-track');
     expect(template.title).toBe('快速通道');
+  });
+});
+
+describe('software delivery template', () => {
+  it('compiles with six roles and derives code review gates for both impl steps', async () => {
+    const template = buildSoftwareDeliveryWorkflowTemplate();
+    expect(template.workflowKey).toBe(SOFTWARE_DELIVERY_WORKFLOW_KEY);
+    const result = await compileWorkflowDefinition(template, {
+      roleIdsByKey,
+      packageLocks: locksFor(SOFTWARE_DELIVERY_ROLE_KEYS),
+    });
+    expect(result.issues).toEqual([]);
+    expect(result.compiledRules?.systemGates.map((gate) => gate.stepKey)).toEqual([
+      'backend',
+      'frontend',
+    ]);
+    expect(usedWorkflowRoleKeys(template)).toEqual([...SOFTWARE_DELIVERY_ROLE_KEYS].sort());
+  });
+
+  it('excludes ui and removes the design step when design is reused', async () => {
+    const template = buildSoftwareDeliveryWorkflowTemplate({ excludeUi: true });
+    const steps = template.steps as Array<{ key: string }>;
+    expect(steps.map((step) => step.key)).not.toContain('design');
+    const result = await compileWorkflowDefinition(template, {
+      roleIdsByKey,
+      packageLocks: locksFor(['product', 'frontend', 'backend', 'qa', 'ops']),
+    });
+    expect(result.issues).toEqual([]);
+    expect(usedWorkflowRoleKeys(template)).toEqual(['backend', 'frontend', 'ops', 'product', 'qa']);
   });
 });
 

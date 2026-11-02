@@ -49,6 +49,8 @@ M2 与 M4 可并行，但 M3 的影响分析要等 M2。
 
 ## 4. M1 知识治理字段
 
+> 状态：已实施（`0005_knowledge_governance`），真实库 apply 未验证。
+
 **Schema**
 
 ```prisma
@@ -82,6 +84,8 @@ model DocumentRevision {
 **回滚**：停写新列即可，列保留，无数据损失。
 
 ## 5. M2 验收映射
+
+> 状态：已实施（`0006_acceptance_keys`），真实库 apply 未验证。
 
 **Schema**
 
@@ -209,6 +213,8 @@ model Task {
 **回滚**：新表与可空列保留，停写即可。
 
 ## 8. M5 通用化收尾
+
+> 状态：已实施（`0011_kinds_as_strings`），隔离库验证通过；生产 apply 待运维。
 
 **内容**
 

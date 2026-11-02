@@ -27,6 +27,10 @@
 - `PUT /api/v1/projects/:projectId/members/:userId/roles/:roleId`、`POST /api/v1/projects/:projectId/members/:userId/roles/:roleId/revoke` — 授权 OWNER/ADMIN 的 HUMAN 授予/撤销业务角色；票据绑定 `PROJECT_ROLE_ASSIGN`/`PROJECT_ROLE_UNASSIGN`、目标 `PROJECT_MEMBER`、`expectedVersion` 为成员版本。
 - `GET/POST /api/v1/projects/:projectId/repositories`、`DELETE /api/v1/projects/:projectId/repositories/:repositoryId` — 代码仓库登记与归档；`adapter` 当前仅 `github`，`externalId` 使用厂商稳定 ID（GitHub 数值仓库 ID），改名不影响引用；重复登记返回 `409 REPOSITORY_EXISTS`，归档不物理删除，已归档仓库重新登记即恢复。
 - `POST /api/v1/projects/:projectId/roles`、`PATCH /api/v1/projects/:projectId/roles/:roleId`、`DELETE /api/v1/projects/:projectId/roles/:roleId` — 自定义业务角色：`key` 创建后不可变；重命名需 `expectedVersion`，冲突返回 `409 ROLE_VERSION_CONFLICT`；停用用 `isActive`，有在任成员时返回 `409 ROLE_IN_USE`，停用不删除历史任务与工作流引用。
+- `GET/POST /api/v1/projects/:projectId/units`、`PATCH /api/v1/projects/:projectId/units/:unitId` — 工作单元（`SERVICE` / `APP` / `DATASET` / `EXTERNAL`）；`key` 创建后不可变，重复返回 `409 UNIT_EXISTS`，停用用 `status=DEPRECATED`。
+- `GET/POST /api/v1/projects/:projectId/unit-dependencies`、`DELETE /api/v1/projects/:projectId/unit-dependencies/:dependencyId` — 单元依赖边（`CALLS` / `READS` / `PUBLISHES` / `UPSTREAM`）；`source` 区分 `DECLARED` / `INFERRED` / `RUNTIME`，`DECLARED` 优先；自环返回 `422 SELF_DEPENDENCY`，重复返回 `409 DEPENDENCY_EXISTS`。
+- `GET/POST /api/v1/projects/:projectId/change-requests`、`GET /api/v1/projects/:projectId/change-requests/:changeId`、`POST /api/v1/projects/:projectId/change-requests/:changeId/decisions` — 变更请求：等级由受影响面取最大值（`COPY`→L0、`SCOPE`/`ACCEPTANCE`→L1、`CONTRACT`→L2、`GOAL`→L3）；需求冻结时非 L3 变更落为 `DEFERRED`；通过后生成 `ChangeEvent` 与收件人（按等级 24–168h 到期）。提案允许成员，决定需 OWNER/ADMIN。
+- `GET/PUT /api/v1/projects/:projectId/change-policy` — 变更策略：`freezeMode` 为 `BLOCK` / `WARN` / `ALLOW`，`levels` 只接受 L0–L3；未配置时使用默认策略（L0 product、L1 product+qa、L2 product+engineering-lead、L3 owner）。
 - `GET/POST /api/v1/projects/:projectId/knowledge-bases` — 知识库分页列表（PROJECT 库默认可读，RESTRICTED 库按当前用户/活动角色 grant 过滤）与创建（OWNER/ADMIN，需幂等键）。
 - `GET/PUT /api/v1/knowledge-bases/:knowledgeBaseId/access` — 读取/替换知识库 ACL；替换需 `expectedVersion`、`expectedAuthzVersion`、`KB_ACCESS_REPLACE` 票据与幂等键，撤销的 grant 保留历史。
 - `GET /api/v1/knowledge-bases/:knowledgeBaseId/search?q` — 只在当前已发布修订中做标题/正文包含检索，返回摘要片段与稳定游标。
@@ -86,6 +90,7 @@ PRD 的生产入口在本地 Product Agent。Web 负责读取候选、查看正�
 ## 流程与角色包
 
 - `GET/POST /api/v1/projects/:projectId/workflow-definitions`、`POST /api/v1/projects/:projectId/workflow-definitions/validate`、`POST /api/v1/projects/:projectId/workflow-definitions/:workflowKey/publish`、`GET /api/v1/workflow-definition-revisions/:revisionId` — 受限 DAG 定义校验与发布。
+- `GET /api/v1/projects/:projectId/workflow-templates` — 内置流程模板（`standard`、`software-delivery`、`software-delivery-no-ui`）；返回可直接提交 validate 的定义，仍需人工确认票据后发布。
 - `POST /api/v1/requirements/:requirementId/workflow-instances`、`GET /api/v1/workflow-instances/:instanceId` — 为需求创建流程实例并读取步骤/任务状态。
 - `GET/POST /api/v1/projects/:projectId/role-packages`、`GET /api/v1/projects/:projectId/role-packages/:packageId/versions/:version`、`GET /api/v1/projects/:projectId/role-packages/:packageId/versions/:version/resources/:resourceId` — 角色包清单与锁定版本资源。
 
@@ -95,7 +100,11 @@ PRD 的生产入口在本地 Product Agent。Web 负责读取候选、查看正�
 - `GET /api/v1/projects/:projectId/review-requests?assignedToMe&status&limit&cursor` — 项目评审待办分页；按主体可见范围、指派/业务角色与状态过滤。
 - `GET /api/v1/review-requests/:reviewId` — 读取评审请求、槽位与已作决定。
 - `POST /api/v1/review-requests/:reviewId/decisions` — 提交 `APPROVE` / `CHANGES_REQUESTED` / `REJECT`；仅当前槽位资格的 HUMAN，携带父请求 `expectedVersion`、一次性票据与幂等键。`CHANGES_REQUESTED` 与 `REJECT` 必须提供非空 `comment`，让本地 Agent 能据此生成下一版；`APPROVE` 的说明可选。全部槽位批准时在同一事务完成发布或任务验收效应。
+- `POST /api/v1/review-requests/batch-decisions` — 批量决定：`{ decision, items: [{ reviewId, slotId, expectedVersion, comment?, confirmation }] }`；逐条独立校验与授权，最多 20 条，返回每条 `APPLIED` 或错误码，部分失败不回滚已成功条目。
 - `POST /api/v1/review-decisions/:decisionId/revoke` — 撤销批准；`expectedVersion` 指所属评审请求版本。追加撤销记录，失效发布指针与受影响任务，不删除历史。
+- `GET/POST /api/v1/projects/:projectId/delegations`、`DELETE .../delegations/:delegationId` — 槽位级临时委托；原责任人不变，`expiresAt` 必填且必须晚于当前时间；同一槽位同时只允许一条有效委托（`409 DELEGATION_EXISTS`）；被委托人在有效期内可代为决定。
+- `GET /api/v1/projects/:projectId/approvals/overdue` — 到期未决定的槽位视图（按 `dueAt` 升序）；只读，不自动批准。
+- `POST /api/v1/projects/:projectId/approvals/escalate` — 把到期未决定且未升级的槽位标记为已升级（`escalatedAt`），返回标记数量；不自动批准。
 
 ## 任务与工件
 
