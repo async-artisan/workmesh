@@ -14,6 +14,7 @@ import type {
   V1SnapshotTaskState,
   V1SnapshotView,
 } from './v1-snapshot.repository';
+import { snapshotBaselinePolicyOf, snapshotDependenciesOf } from './v1-snapshot-step';
 
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [25, 100, 100];
@@ -22,34 +23,31 @@ function isRetryable(error: unknown): boolean {
   const code = (error as { code?: string })?.code;
   if (code === 'P2034') return true;
   const message = String((error as Error)?.message ?? '');
-  return message.includes('40001') || message.includes('40P01') || message.includes('could not serialize');
+  return (
+    message.includes('40001') ||
+    message.includes('40P01') ||
+    message.includes('could not serialize')
+  );
 }
 
 function claimScopeKeyOf(userId: string, credentialId: string | null): string {
   return credentialId ? `agent:${credentialId}` : `user:${userId}`;
 }
 
-type CompiledSteps = Array<{ key?: unknown; deps?: unknown }>;
-
-function stepsOf(compiledRules: unknown): CompiledSteps {
-  const rules = compiledRules as { definition?: { steps?: unknown } } | null;
-  const steps = rules?.definition?.steps;
-  return Array.isArray(steps) ? (steps as CompiledSteps) : [];
-}
-
-function depsOf(compiledRules: unknown, stepKey: string): string[] {
-  const step = stepsOf(compiledRules).find((item) => item.key === stepKey);
-  const deps = step?.deps;
-  return Array.isArray(deps) ? deps.filter((dep): dep is string => typeof dep === 'string') : [];
-}
-
-function packageLockOf(compiledRules: unknown, roleKey: string): { packageId: string; version: string } | null {
+/**
+ * 步骤语义只存在于修订正文 `definition.steps`；`compiledRules` 只有服务端派生规则
+ * （resolvedRoles / packageLocks / systemGates）。读错对象会让基线策略与依赖恒为空，
+ * 因此解析集中在 `v1-snapshot-step` 里并被单测锁定。
+ */
+function packageLockOf(
+  compiledRules: unknown,
+  roleKey: string,
+): { packageId: string; version: string } | null {
   const rules = compiledRules as { packageLocks?: unknown } | null;
   const locks = rules?.packageLocks;
   if (!Array.isArray(locks)) return null;
   const lock = locks.find((item) => (item as { roleKey?: unknown }).roleKey === roleKey) as
-    | { packageId?: unknown; version?: unknown }
-    | undefined;
+    { packageId?: unknown; version?: unknown } | undefined;
   if (!lock || typeof lock.packageId !== 'string' || typeof lock.version !== 'string') return null;
   return { packageId: lock.packageId, version: lock.version };
 }
@@ -97,7 +95,7 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
       roleId: task.roleId,
       roleKey: task.role.key,
       responsibleUserId: task.responsibleUserId,
-      baselinePolicy: this.baselinePolicyOf(revision.compiledRules, task.stepKey),
+      baselinePolicy: snapshotBaselinePolicyOf(revision.definition, task.stepKey),
       workflowDefinitionRevisionId: revision.id,
       workflowDigest: revision.digest,
       retiredAt: task.instance.retiredAt,
@@ -180,7 +178,10 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
     }));
   }
 
-  async listRoleKnowledgeBindings(projectId: string, roleId: string): Promise<V1SnapshotBindingRecord[]> {
+  async listRoleKnowledgeBindings(
+    projectId: string,
+    roleId: string,
+  ): Promise<V1SnapshotBindingRecord[]> {
     const bindings = await this.prisma.projectKnowledgeBinding.findMany({
       where: {
         projectId,
@@ -188,7 +189,12 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
       },
       include: {
         document: {
-          select: { id: true, knowledgeBaseId: true, currentPublishedRevisionId: true, archivedAt: true },
+          select: {
+            id: true,
+            knowledgeBaseId: true,
+            currentPublishedRevisionId: true,
+            archivedAt: true,
+          },
         },
       },
     });
@@ -204,7 +210,9 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
       }));
   }
 
-  async listAcceptedPrerequisiteArtifacts(taskId: string): Promise<V1SnapshotPrerequisiteArtifact[]> {
+  async listAcceptedPrerequisiteArtifacts(
+    taskId: string,
+  ): Promise<V1SnapshotPrerequisiteArtifact[]> {
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
       select: { id: true, workflowInstanceId: true, projectId: true, stepKey: true },
@@ -217,10 +225,10 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
     if (!instance?.definitionRevisionId) return [];
     const revision = await this.prisma.workflowRevision.findUnique({
       where: { id: instance.definitionRevisionId },
-      select: { compiledRules: true },
+      select: { definition: true },
     });
     if (!revision) return [];
-    const deps = depsOf(revision.compiledRules, task.stepKey);
+    const deps = snapshotDependenciesOf(revision.definition, task.stepKey);
     if (deps.length === 0) return [];
 
     const dependencyTasks = await this.prisma.task.findMany({
@@ -302,7 +310,10 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
     return this.toView(snapshot);
   }
 
-  async findSnapshotResource(snapshotId: string, refId: string): Promise<V1SnapshotResourceBody | null> {
+  async findSnapshotResource(
+    snapshotId: string,
+    refId: string,
+  ): Promise<V1SnapshotResourceBody | null> {
     const ref = await this.prisma.snapshotResourceRef.findFirst({
       where: { snapshotId, refKey: refId },
     });
@@ -366,29 +377,59 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
       async (tx) => {
         const task = await tx.task.findUnique({ where: { id: input.taskId } });
         if (!task)
-          throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId: input.taskId }, 404);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'TASK_NOT_FOUND',
+            { taskId: input.taskId },
+            404,
+          );
 
-        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${task.projectId}::uuid FOR UPDATE`);
-        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."User" WHERE "id" = ${input.actorUserId}::uuid FOR SHARE`);
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${task.projectId}::uuid FOR UPDATE`,
+        );
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "workmesh_v1"."User" WHERE "id" = ${input.actorUserId}::uuid FOR SHARE`,
+        );
 
         // 版本与代次在事务内复核；任一变即 409 BASELINE_STALE，不基于事务外旧基线下注。
         if (task.version !== input.expectedTaskVersion || task.generation !== input.taskGeneration)
           throw new WorkmeshError(
             V1_ERROR_CODES.BASELINE_STALE,
             'BASELINE_STALE',
-            { taskId: task.id, expectedVersion: input.expectedTaskVersion, currentVersion: task.version },
+            {
+              taskId: task.id,
+              expectedVersion: input.expectedTaskVersion,
+              currentVersion: task.version,
+            },
             409,
           );
 
-        const claim = await tx.taskClaim.findFirst({ where: { taskId: task.id, releasedAt: null } });
+        const claim = await tx.taskClaim.findFirst({
+          where: { taskId: task.id, releasedAt: null },
+        });
         if (!claim || claim.id !== input.claimId || claim.taskGeneration !== input.taskGeneration)
-          throw new WorkmeshError(V1_ERROR_CODES.CLAIM_INVALID, 'CLAIM_INVALID', { taskId: task.id, claimId: input.claimId }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CLAIM_INVALID,
+            'CLAIM_INVALID',
+            { taskId: task.id, claimId: input.claimId },
+            409,
+          );
         if (claimScopeKeyOf(claim.userId, claim.credentialId) !== input.operation.principalScopeKey)
-          throw new WorkmeshError(V1_ERROR_CODES.CLAIM_INVALID, 'CLAIM_INVALID', { taskId: task.id, claimId: input.claimId }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CLAIM_INVALID,
+            'CLAIM_INVALID',
+            { taskId: task.id, claimId: input.claimId },
+            409,
+          );
 
         // 条件 CAS：并发创建同一 task 的另一快照会命中 0 行并被拒绝。
         const updated = await tx.task.updateMany({
-          where: { id: task.id, version: input.expectedTaskVersion, generation: input.taskGeneration, currentClaimId: claim.id },
+          where: {
+            id: task.id,
+            version: input.expectedTaskVersion,
+            generation: input.taskGeneration,
+            currentClaimId: claim.id,
+          },
           data: { version: { increment: 1 }, currentSnapshotId: input.snapshotId },
         });
         if (updated.count !== 1)
@@ -443,7 +484,8 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
               sha256: resource.sha256,
               byteLength: resource.byteLength,
               mediaType: resource.mediaType,
-              authority: resource.authority as Prisma.SnapshotResourceRefCreateManyInput['authority'],
+              authority:
+                resource.authority as Prisma.SnapshotResourceRefCreateManyInput['authority'],
             })),
           });
         }
@@ -499,11 +541,6 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
     );
   }
 
-  private baselinePolicyOf(compiledRules: unknown, stepKey: string): 'NONE' | 'PUBLISHED_PRD' {
-    const step = stepsOf(compiledRules).find((item) => item.key === stepKey) as { baselinePolicy?: unknown } | undefined;
-    return step?.baselinePolicy === 'PUBLISHED_PRD' ? 'PUBLISHED_PRD' : 'NONE';
-  }
-
   private toView(snapshot: {
     id: string;
     projectId: string;
@@ -539,7 +576,11 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
       resources: snapshot.resources.map((resource) => ({
         refId: resource.refKey,
         kind: resource.kind as V1SnapshotView['resources'][number]['kind'],
-        targetId: resource.documentRevisionId ?? resource.artifactId ?? resource.rolePackageResourceId ?? '',
+        targetId:
+          resource.documentRevisionId ??
+          resource.artifactId ??
+          resource.rolePackageResourceId ??
+          '',
         sha256: resource.sha256,
         byteLength: resource.byteLength,
         mediaType: resource.mediaType,
