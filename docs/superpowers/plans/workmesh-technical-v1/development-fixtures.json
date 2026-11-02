@@ -108,22 +108,15 @@
         "kind": "PRODUCT",
         "baselinePolicy": "NONE",
         "outputKinds": [],
-        "candidateKinds": [
-          "UNDERSTANDING",
-          "DECISION"
-        ],
+        "candidateKinds": ["UNDERSTANDING", "DECISION"],
         "deps": [],
         "gates": [
           {
             "key": "understanding",
             "kind": "HUMAN_APPROVAL",
             "outputKinds": [],
-            "candidateKinds": [
-              "UNDERSTANDING"
-            ],
-            "reviewerSlots": [
-              "understanding-owner"
-            ],
+            "candidateKinds": ["UNDERSTANDING"],
+            "reviewerSlots": ["understanding-owner"],
             "mode": "ALL"
           }
         ]
@@ -134,25 +127,15 @@
         "kind": "PRODUCT",
         "baselinePolicy": "NONE",
         "outputKinds": [],
-        "candidateKinds": [
-          "PRD",
-          "DECISION",
-          "KNOWLEDGE"
-        ],
-        "deps": [
-          "understand"
-        ],
+        "candidateKinds": ["PRD", "DECISION", "KNOWLEDGE"],
+        "deps": ["understand"],
         "gates": [
           {
             "key": "publish-prd",
             "kind": "HUMAN_APPROVAL",
             "outputKinds": [],
-            "candidateKinds": [
-              "PRD"
-            ],
-            "reviewerSlots": [
-              "prd-owner"
-            ],
+            "candidateKinds": ["PRD"],
+            "reviewerSlots": ["prd-owner"],
             "mode": "ALL"
           }
         ]
@@ -162,24 +145,16 @@
         "roleKey": "backend",
         "kind": "DELIVERY",
         "baselinePolicy": "PUBLISHED_PRD",
-        "outputKinds": [
-          "IMPL"
-        ],
+        "outputKinds": ["IMPL"],
         "candidateKinds": [],
-        "deps": [
-          "prd"
-        ],
+        "deps": ["prd"],
         "gates": [
           {
             "key": "accept-impl",
             "kind": "HUMAN_APPROVAL",
-            "outputKinds": [
-              "IMPL"
-            ],
+            "outputKinds": ["IMPL"],
             "candidateKinds": [],
-            "reviewerSlots": [
-              "backend-accept"
-            ],
+            "reviewerSlots": ["backend-accept"],
             "mode": "ALL"
           }
         ]
@@ -189,24 +164,16 @@
         "roleKey": "qa",
         "kind": "VERIFY",
         "baselinePolicy": "PUBLISHED_PRD",
-        "outputKinds": [
-          "CASES"
-        ],
+        "outputKinds": ["CASES"],
         "candidateKinds": [],
-        "deps": [
-          "implement"
-        ],
+        "deps": ["implement"],
         "gates": [
           {
             "key": "accept-tests",
             "kind": "HUMAN_APPROVAL",
-            "outputKinds": [
-              "CASES"
-            ],
+            "outputKinds": ["CASES"],
             "candidateKinds": [],
-            "reviewerSlots": [
-              "qa-accept"
-            ],
+            "reviewerSlots": ["qa-accept"],
             "mode": "ALL"
           }
         ]
@@ -216,24 +183,16 @@
         "roleKey": "ops",
         "kind": "RELEASE",
         "baselinePolicy": "PUBLISHED_PRD",
-        "outputKinds": [
-          "RELEASE"
-        ],
+        "outputKinds": ["RELEASE"],
         "candidateKinds": [],
-        "deps": [
-          "verify"
-        ],
+        "deps": ["verify"],
         "gates": [
           {
             "key": "accept-release",
             "kind": "HUMAN_APPROVAL",
-            "outputKinds": [
-              "RELEASE"
-            ],
+            "outputKinds": ["RELEASE"],
             "candidateKinds": [],
-            "reviewerSlots": [
-              "release-owner"
-            ],
+            "reviewerSlots": ["release-owner"],
             "mode": "ALL"
           }
         ]
@@ -261,22 +220,16 @@
         "roleKey": "ops",
         "kind": "RELEASE",
         "baselinePolicy": "PUBLISHED_PRD",
-        "outputKinds": [
-          "RELEASE"
-        ],
+        "outputKinds": ["RELEASE"],
         "candidateKinds": [],
         "deps": [],
         "gates": [
           {
             "key": "wrong",
             "kind": "HUMAN_APPROVAL",
-            "outputKinds": [
-              "RELEASE"
-            ],
+            "outputKinds": ["RELEASE"],
             "candidateKinds": [],
-            "reviewerSlots": [
-              "ordinary"
-            ],
+            "reviewerSlots": ["ordinary"],
             "mode": "ALL"
           }
         ]

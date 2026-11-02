@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Prds } from './Prds';
@@ -35,7 +35,11 @@ const candidateRevision = {
   state: 'CANDIDATE',
   createdBy: 'agent-1',
   basisUnderstandingRevisionId: 'understanding-1',
-  deliveryScope: { participatingRoleIds: ['role-product'], requiredOutputKinds: ['PRD', 'IMPL'], excludedRoles: [] },
+  deliveryScope: {
+    participatingRoleIds: ['role-product'],
+    requiredOutputKinds: ['PRD', 'IMPL'],
+    excludedRoles: [],
+  },
   acceptance: [{ key: 'checkout-submit', text: '提交订单', verification: 'TEST' }],
   reviewRequestId: 'review-candidate',
 };
@@ -89,7 +93,9 @@ describe('Prds（Agent 候选查看、差异与评审）', () => {
   let mock: ReturnType<typeof mockFetch>;
 
   function mockCallsFind(path: string, method: string) {
-    return mock.mock.calls.find(([url, init]) => pathOf(String(url)) === path && methodOf(init ?? {}) === method);
+    return mock.mock.calls.find(
+      ([url, init]) => pathOf(String(url)) === path && methodOf(init ?? {}) === method,
+    );
   }
 
   beforeEach(() => {
@@ -106,7 +112,8 @@ describe('Prds（Agent 候选查看、差异与评审）', () => {
     mock = mockFetch((url, init) => {
       const path = pathOf(url);
       const method = methodOf(init ?? {});
-      if (path === '/api/v1/projects' && method === 'GET') return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
       if (path === '/api/v1/projects/p1/documents' && method === 'GET') {
         return { status: 200, body: envelope({ items: [documentDetail], nextCursor: null }) };
       }
@@ -124,15 +131,36 @@ describe('Prds（Agent 候选查看、差异与评审）', () => {
     mock = mockFetch((url, init) => {
       const path = pathOf(url);
       const method = methodOf(init ?? {});
-      if (path === '/api/v1/projects' && method === 'GET') return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
       if (path === '/api/v1/projects/p1/documents' && method === 'GET') {
         return { status: 200, body: envelope({ items: [documentDetail], nextCursor: null }) };
       }
       if (path === '/api/v1/document-revisions/rev-candidate/content' && method === 'GET') {
-        return { status: 200, body: envelope({ revisionId: 'rev-candidate', mimeType: 'text/markdown', encoding: 'base64', bodyBase64: utf8ToBase64('# Checkout v2\n- new'), byteLength: 18, sha256: 'sha256-candidate' }) };
+        return {
+          status: 200,
+          body: envelope({
+            revisionId: 'rev-candidate',
+            mimeType: 'text/markdown',
+            encoding: 'base64',
+            bodyBase64: utf8ToBase64('# Checkout v2\n- new'),
+            byteLength: 18,
+            sha256: 'sha256-candidate',
+          }),
+        };
       }
       if (path === '/api/v1/document-revisions/rev-pub/content' && method === 'GET') {
-        return { status: 200, body: envelope({ revisionId: 'rev-pub', mimeType: 'text/markdown', encoding: 'base64', bodyBase64: utf8ToBase64('# Checkout\n- old'), byteLength: 16, sha256: 'sha256-published' }) };
+        return {
+          status: 200,
+          body: envelope({
+            revisionId: 'rev-pub',
+            mimeType: 'text/markdown',
+            encoding: 'base64',
+            bodyBase64: utf8ToBase64('# Checkout\n- old'),
+            byteLength: 16,
+            sha256: 'sha256-published',
+          }),
+        };
       }
       return undefined;
     });
@@ -154,7 +182,8 @@ describe('Prds（Agent 候选查看、差异与评审）', () => {
     mock = mockFetch((url, init) => {
       const path = pathOf(url);
       const method = methodOf(init ?? {});
-      if (path === '/api/v1/projects' && method === 'GET') return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
       if (path === '/api/v1/projects/p1/documents' && method === 'GET') {
         return { status: 200, body: envelope({ items: [documentDetail], nextCursor: null }) };
       }
@@ -171,7 +200,8 @@ describe('Prds（Agent 候选查看、差异与评审）', () => {
     mock = mockFetch((url, init) => {
       const path = pathOf(url);
       const method = methodOf(init ?? {});
-      if (path === '/api/v1/projects' && method === 'GET') return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
       if (path === '/api/v1/projects/p1/documents' && method === 'GET') {
         return { status: 200, body: envelope({ items: [documentDetail], nextCursor: null }) };
       }
@@ -179,13 +209,25 @@ describe('Prds（Agent 候选查看、差异与评审）', () => {
       if (path === '/api/v1/auth/confirmation-tickets') {
         return {
           status: 201,
-          body: envelope({ ticketId: 'ticket-1', ticketSecret: 'secret-1', expiresAt: '2026-11-01T00:05:00.000Z', actionDigest: 'digest-withdraw' }),
+          body: envelope({
+            ticketId: 'ticket-1',
+            ticketSecret: 'secret-1',
+            expiresAt: '2026-11-01T00:05:00.000Z',
+            actionDigest: 'digest-withdraw',
+          }),
         };
       }
       if (path === '/api/v1/documents/doc-1/withdraw' && method === 'POST') {
         return {
           status: 409,
-          body: { error: { code: 'VERSION_CONFLICT', message: '文档版本已变化', details: { currentVersion: 3 }, requestId: 'req-409' } },
+          body: {
+            error: {
+              code: 'VERSION_CONFLICT',
+              message: '文档版本已变化',
+              details: { currentVersion: 3 },
+              requestId: 'req-409',
+            },
+          },
         };
       }
       return undefined;
@@ -198,12 +240,16 @@ describe('Prds（Agent 候选查看、差异与评审）', () => {
     const dialog = await screen.findByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText('撤销原因'), { target: { value: '内容有误' } });
     expect(await within(dialog).findByLabelText('确认密码')).toBeInTheDocument();
-    fireEvent.change(within(dialog).getByLabelText('确认密码'), { target: { value: 'secret-pass' } });
+    fireEvent.change(within(dialog).getByLabelText('确认密码'), {
+      target: { value: 'secret-pass' },
+    });
     fireEvent.click(within(dialog).getByRole('button', { name: '验证密码并签发票据' }));
     expect(await within(dialog).findByText(/票据已签发/)).toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole('button', { name: '撤销发布' }));
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent('[VERSION_CONFLICT] 文档版本已变化 · requestId req-409');
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      '[VERSION_CONFLICT] 文档版本已变化 · requestId req-409',
+    );
     expect(screen.queryByText(/发布已撤销/)).not.toBeInTheDocument();
 
     const withdrawCall = mockCallsFind('/api/v1/documents/doc-1/withdraw', 'POST');

@@ -4,7 +4,8 @@ import type { RepositoryEvidenceInput } from './v1-code-evidence-policy';
 export const V1_GITHUB_EVIDENCE_REPOSITORY = Symbol('V1_GITHUB_EVIDENCE_REPOSITORY');
 
 export type V1ReviewerKind = 'USER' | 'BOT';
-export type V1ReviewEvidenceState = 'APPROVED' | 'CHANGES_REQUESTED' | 'DISMISSED' | 'COMMENTED' | 'PENDING';
+export type V1ReviewEvidenceState =
+  'APPROVED' | 'CHANGES_REQUESTED' | 'DISMISSED' | 'COMMENTED' | 'PENDING';
 
 export type V1WebhookReceiptRecord = {
   id: string;
@@ -109,9 +110,16 @@ export type V1PersistIdempotencyInput = {
 };
 
 export interface V1GithubEvidenceRepository {
-  findReceiptByDelivery(source: 'GITHUB', deliveryId: string): Promise<V1WebhookReceiptRecord | null>;
+  findReceiptByDelivery(
+    source: 'GITHUB',
+    deliveryId: string,
+  ): Promise<V1WebhookReceiptRecord | null>;
   recordReceipt(input: V1RecordReceiptInput): Promise<V1WebhookReceiptRecord>;
-  recordReceiptProcessed(receiptId: string, status: string, errorMessage: string | null): Promise<void>;
+  recordReceiptProcessed(
+    receiptId: string,
+    status: string,
+    errorMessage: string | null,
+  ): Promise<void>;
   findEvidenceIdsByReceipt(receiptId: string): Promise<string[]>;
   findEvidenceByFingerprint(fingerprint: string): Promise<V1CodeReviewEvidenceRecord | null>;
   recordEvidence(input: V1RecordEvidenceInput): Promise<V1CodeReviewEvidenceRecord>;

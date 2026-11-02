@@ -1,5 +1,27 @@
-import { Body, Controller, Get, Headers, Inject, Param, Post, Req, UseGuards } from '@nestjs/common';
-import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, MaxLength, Min, ValidateNested } from 'class-validator';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Inject,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
 import { V1AuthGuard, type V1Request } from '../auth/v1-auth.guard';
@@ -53,7 +75,10 @@ class DeliverArtifactDto {
 
   @IsOptional() @IsString() @MaxLength(2000) summary?: string | null;
 
-  @IsArray() @ValidateNested({ each: true }) @Type(() => DeliverCheckDto) checks!: DeliverCheckDto[];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DeliverCheckDto)
+  checks!: DeliverCheckDto[];
 }
 
 class DeliverDto {
@@ -69,11 +94,15 @@ class DeliverDto {
 
   @IsArray() @IsUUID('4', { each: true }) candidateRevisionIds!: string[];
 
-  @IsArray() @ValidateNested({ each: true }) @Type(() => DeliverArtifactDto) items!: DeliverArtifactDto[];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DeliverArtifactDto)
+  items!: DeliverArtifactDto[];
 }
 
 function principalOf(request: V1Request) {
-  if (!request.v1Principal) throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
+  if (!request.v1Principal)
+    throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
   return request.v1Principal;
 }
 
@@ -107,7 +136,12 @@ export class V1TaskController {
    * 双认领单胜：并发第二次在事务内复核到未释放认领而拒绝。
    */
   @Post(':taskId/claims')
-  claim(@Req() request: V1Request, @Param('taskId') taskId: string, @Body() _body: ClaimDto, @Headers('idempotency-key') idempotencyKey: string) {
+  claim(
+    @Req() request: V1Request,
+    @Param('taskId') taskId: string,
+    @Body() _body: ClaimDto,
+    @Headers('idempotency-key') idempotencyKey: string,
+  ) {
     const principal = principalOf(request);
     const key = requireIdempotencyKey(idempotencyKey);
     return this.tasks.claim(principal, taskId, actionContext(request, key, {}));
@@ -126,7 +160,10 @@ export class V1TaskController {
       principal,
       taskId,
       dto.claimId,
-      actionContext(request, key, { claimId: dto.claimId, releaseReason: dto.releaseReason ?? null }),
+      actionContext(request, key, {
+        claimId: dto.claimId,
+        releaseReason: dto.releaseReason ?? null,
+      }),
       dto.releaseReason ?? null,
     );
   }

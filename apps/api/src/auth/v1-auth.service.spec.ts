@@ -13,40 +13,94 @@ const later = (ms: number) => new Date(now.getTime() + ms);
 const user = { id: 'user-1', isActive: true, authVersion: 3 };
 const CSRF_TOKEN = randomBytes(32).toString('base64url');
 
-function repository(overrides: Partial<V1AuthRepository> = {}): V1AuthRepository & { touched: string[] } {
+function repository(
+  overrides: Partial<V1AuthRepository> = {},
+): V1AuthRepository & { touched: string[] } {
   const session: V1SessionRecord = {
-    id: sessionId, userId: user.id, tokenHash: hashSecret(secret), csrfTokenHash: hashSecret(CSRF_TOKEN),
-    userAuthVersion: 3, expiresAt: later(60_000), idleExpiresAt: later(30_000), revokedAt: null, user,
+    id: sessionId,
+    userId: user.id,
+    tokenHash: hashSecret(secret),
+    csrfTokenHash: hashSecret(CSRF_TOKEN),
+    userAuthVersion: 3,
+    expiresAt: later(60_000),
+    idleExpiresAt: later(30_000),
+    revokedAt: null,
+    user,
   };
   const credential: V1CredentialRecord = {
-    id: credentialId, userId: user.id, projectId: 'project-1', roleId: 'role-1', name: 'cli', tokenHash: hashSecret(secret),
-    scopes: ['knowledge:read', 'knowledge:propose'], userAuthVersion: 3, expiresAt: later(60_000), revokedAt: null, user,
+    id: credentialId,
+    userId: user.id,
+    projectId: 'project-1',
+    roleId: 'role-1',
+    name: 'cli',
+    tokenHash: hashSecret(secret),
+    scopes: ['knowledge:read', 'knowledge:propose'],
+    userAuthVersion: 3,
+    expiresAt: later(60_000),
+    revokedAt: null,
+    user,
   };
   const touched: string[] = [];
   return {
     touched,
-    async findSession(id) { return id === sessionId ? session : null; },
-    async findCredential(id) { return id === credentialId ? credential : null; },
-    async touchSession(id) { touched.push(id); },
-    async findUserByEmail() { return null; },
-    async findUser() { return null; },
-    async createUser() { throw new Error('not used'); },
+    async findSession(id) {
+      return id === sessionId ? session : null;
+    },
+    async findCredential(id) {
+      return id === credentialId ? credential : null;
+    },
+    async touchSession(id) {
+      touched.push(id);
+    },
+    async findUserByEmail() {
+      return null;
+    },
+    async findUser() {
+      return null;
+    },
+    async createUser() {
+      throw new Error('not used');
+    },
     async createSession() {},
     async updateSessionCsrf() {},
     async revokeSession() {},
-    async listCredentials() { return []; },
-    async revokeCredential() { return false; },
-    async createCredential() { throw new Error('not used'); },
-    async createCliAuthorization() { throw new Error('not used'); },
-    async findCliAuthorizationById() { return null; },
-    async findCliAuthorizationByDeviceCodeHash() { return null; },
-    async findCliAuthorizationByUserCodeHash() { return null; },
+    async listCredentials() {
+      return [];
+    },
+    async revokeCredential() {
+      return false;
+    },
+    async createCredential() {
+      throw new Error('not used');
+    },
+    async createCliAuthorization() {
+      throw new Error('not used');
+    },
+    async findCliAuthorizationById() {
+      return null;
+    },
+    async findCliAuthorizationByDeviceCodeHash() {
+      return null;
+    },
+    async findCliAuthorizationByUserCodeHash() {
+      return null;
+    },
     async recordCliAuthorizationView() {},
-    async hasCliAuthorizationView() { return false; },
-    async approveCliAuthorization() { return null; },
-    async denyCliAuthorization() { return null; },
-    async markCliAuthorizationIssued() { return null; },
-    async bumpRateWindow() { return 1; },
+    async hasCliAuthorizationView() {
+      return false;
+    },
+    async approveCliAuthorization() {
+      return null;
+    },
+    async denyCliAuthorization() {
+      return null;
+    },
+    async markCliAuthorizationIssued() {
+      return null;
+    },
+    async bumpRateWindow() {
+      return 1;
+    },
     ...overrides,
   };
 }
@@ -66,21 +120,49 @@ describe('v1 auth service', () => {
 
   it('rejects a session whose secret does not match the stored hash', async () => {
     const service = new V1AuthService(repository());
-    await expect(service.authenticate({ ...base, sessionCookie: `wm_s1.${sessionId}.${randomBytes(32).toString('base64url')}` })).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
+    await expect(
+      service.authenticate({
+        ...base,
+        sessionCookie: `wm_s1.${sessionId}.${randomBytes(32).toString('base64url')}`,
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
   });
 
   it('rejects expired, revoked and auth-version-stale sessions', async () => {
-    const expired = repository({ findSession: async () => ({ ...(await repository().findSession(sessionId))!, idleExpiresAt: new Date(now.getTime() - 1) }) });
-    await expect(new V1AuthService(expired).authenticate({ ...base, sessionCookie })).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
-    const revoked = repository({ findSession: async () => ({ ...(await repository().findSession(sessionId))!, revokedAt: now }) });
-    await expect(new V1AuthService(revoked).authenticate({ ...base, sessionCookie })).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
-    const stale = repository({ findSession: async () => ({ ...(await repository().findSession(sessionId))!, userAuthVersion: 2 }) });
-    await expect(new V1AuthService(stale).authenticate({ ...base, sessionCookie })).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
+    const expired = repository({
+      findSession: async () => ({
+        ...(await repository().findSession(sessionId))!,
+        idleExpiresAt: new Date(now.getTime() - 1),
+      }),
+    });
+    await expect(
+      new V1AuthService(expired).authenticate({ ...base, sessionCookie }),
+    ).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
+    const revoked = repository({
+      findSession: async () => ({
+        ...(await repository().findSession(sessionId))!,
+        revokedAt: now,
+      }),
+    });
+    await expect(
+      new V1AuthService(revoked).authenticate({ ...base, sessionCookie }),
+    ).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
+    const stale = repository({
+      findSession: async () => ({
+        ...(await repository().findSession(sessionId))!,
+        userAuthVersion: 2,
+      }),
+    });
+    await expect(
+      new V1AuthService(stale).authenticate({ ...base, sessionCookie }),
+    ).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
   });
 
   it('rejects mixed agent bearer and human session credentials', async () => {
     const service = new V1AuthService(repository());
-    await expect(service.authenticate({ ...base, sessionCookie, authorization: agentBearer })).rejects.toMatchObject({ code: 'CREDENTIAL_CONFLICT' });
+    await expect(
+      service.authenticate({ ...base, sessionCookie, authorization: agentBearer }),
+    ).rejects.toMatchObject({ code: 'CREDENTIAL_CONFLICT' });
   });
 
   it('grants agent scopes only from the server-side credential record', async () => {
@@ -92,13 +174,28 @@ describe('v1 auth service', () => {
 
   it('rejects request bodies that assert identity or scopes', async () => {
     const service = new V1AuthService(repository());
-    await expect(service.authenticate({ ...base, authorization: agentBearer, body: { roleIds: ['role-9'], scopes: ['knowledge:publish'] } })).rejects.toMatchObject({ code: 'SELF_ASSERTED_IDENTITY' });
+    await expect(
+      service.authenticate({
+        ...base,
+        authorization: agentBearer,
+        body: { roleIds: ['role-9'], scopes: ['knowledge:publish'] },
+      }),
+    ).rejects.toMatchObject({ code: 'SELF_ASSERTED_IDENTITY' });
   });
 
   it('requires a matching origin and CSRF token for unsafe methods', async () => {
     const service = new V1AuthService(repository());
-    await expect(service.authenticate({ ...base, method: 'POST', sessionCookie, origin: 'https://evil.test' })).rejects.toMatchObject({ code: 'UNSAFE_ORIGIN' });
-    await expect(service.authenticate({ ...base, method: 'POST', sessionCookie, origin: 'https://workmesh.local' })).rejects.toMatchObject({ code: 'CSRF_FAILED' });
+    await expect(
+      service.authenticate({ ...base, method: 'POST', sessionCookie, origin: 'https://evil.test' }),
+    ).rejects.toMatchObject({ code: 'UNSAFE_ORIGIN' });
+    await expect(
+      service.authenticate({
+        ...base,
+        method: 'POST',
+        sessionCookie,
+        origin: 'https://workmesh.local',
+      }),
+    ).rejects.toMatchObject({ code: 'CSRF_FAILED' });
     // 与会话 csrfTokenHash 匹配的 token 才通过
     await expect(
       service.authenticate({

@@ -14,7 +14,11 @@ import {
   type V1SnapshotTaskState,
   type V1SnapshotView,
 } from './v1-snapshot.repository';
-import { requestDigestOf, type V1IdempotencyRepository, type V1OperationRecord } from '../common/v1-idempotency';
+import {
+  requestDigestOf,
+  type V1IdempotencyRepository,
+  type V1OperationRecord,
+} from '../common/v1-idempotency';
 
 const SHA = 'a'.repeat(64);
 const UNDERSTANDING_ID = '11111111-1111-4111-8111-111111111111';
@@ -61,7 +65,11 @@ function taskState(over: Partial<V1SnapshotTaskState> = {}): V1SnapshotTaskState
   };
 }
 
-function revision(revisionId: string, kind: V1SnapshotDocumentRef['documentKind'], requirementId: string | null): V1SnapshotDocumentRef {
+function revision(
+  revisionId: string,
+  kind: V1SnapshotDocumentRef['documentKind'],
+  requirementId: string | null,
+): V1SnapshotDocumentRef {
   return {
     revisionId,
     documentId: `doc-${revisionId}`,
@@ -150,10 +158,17 @@ class InMemoryAuthz {
   unreadableKnowledgeBaseIds: string[] = [];
   scopeToDeny?: string;
   async resolveProjectContext(_p: Principal, projectId: string) {
-    return { project: { id: projectId }, roleIds: ['role-1'], capabilities: [], scopes: [], isOwner: true };
+    return {
+      project: { id: projectId },
+      roleIds: ['role-1'],
+      capabilities: [],
+      scopes: [],
+      isOwner: true,
+    };
   }
   async requireScope(_p: Principal, _projectId: string, scope: string) {
-    if (scope === this.scopeToDeny) throw new WorkmeshError(V1_ERROR_CODES.FORBIDDEN, 'FORBIDDEN', { scope }, 403);
+    if (scope === this.scopeToDeny)
+      throw new WorkmeshError(V1_ERROR_CODES.FORBIDDEN, 'FORBIDDEN', { scope }, 403);
   }
   async resolveKnowledgeAccess(_p: Principal, knowledgeBaseId: string) {
     return { canRead: !this.unreadableKnowledgeBaseIds.includes(knowledgeBaseId) };
@@ -167,7 +182,11 @@ class InMemoryIdempotency implements V1IdempotencyRepository {
   }
 }
 
-function build(repo: InMemorySnapshotRepo, authz = new InMemoryAuthz(), idem = new InMemoryIdempotency()) {
+function build(
+  repo: InMemorySnapshotRepo,
+  authz = new InMemoryAuthz(),
+  idem = new InMemoryIdempotency(),
+) {
   const service = new V1SnapshotService(repo, authz as unknown as V1AuthorizationService, idem);
   return { service, repo, authz, idem };
 }
@@ -182,9 +201,14 @@ describe('V1SnapshotService.create', () => {
     const repo = new InMemorySnapshotRepo();
     repo.missing = true;
     const { service } = build(repo);
-    await expect(service.create(humanPrincipal(), 'task-1', { expectedVersion: 2, claimId: 'claim-1' }, snapshotContext())).rejects.toMatchObject(
-      { status: 404, code: V1_ERROR_CODES.RESOURCE_NOT_FOUND },
-    );
+    await expect(
+      service.create(
+        humanPrincipal(),
+        'task-1',
+        { expectedVersion: 2, claimId: 'claim-1' },
+        snapshotContext(),
+      ),
+    ).rejects.toMatchObject({ status: 404, code: V1_ERROR_CODES.RESOURCE_NOT_FOUND });
   });
 
   it('rejects without an active claim (409)', async () => {
@@ -192,27 +216,42 @@ describe('V1SnapshotService.create', () => {
     seedBaseline(repo);
     repo.task.currentClaim = null;
     const { service } = build(repo);
-    await expect(service.create(humanPrincipal(), 'task-1', { expectedVersion: 2, claimId: 'claim-1' }, snapshotContext())).rejects.toMatchObject(
-      { status: 409, code: V1_ERROR_CODES.CLAIM_INVALID },
-    );
+    await expect(
+      service.create(
+        humanPrincipal(),
+        'task-1',
+        { expectedVersion: 2, claimId: 'claim-1' },
+        snapshotContext(),
+      ),
+    ).rejects.toMatchObject({ status: 409, code: V1_ERROR_CODES.CLAIM_INVALID });
   });
 
   it('rejects stale task version (409)', async () => {
     const repo = new InMemorySnapshotRepo();
     seedBaseline(repo);
     const { service } = build(repo);
-    await expect(service.create(humanPrincipal(), 'task-1', { expectedVersion: 1, claimId: 'claim-1' }, snapshotContext())).rejects.toMatchObject(
-      { status: 409, code: V1_ERROR_CODES.VERSION_CONFLICT },
-    );
+    await expect(
+      service.create(
+        humanPrincipal(),
+        'task-1',
+        { expectedVersion: 1, claimId: 'claim-1' },
+        snapshotContext(),
+      ),
+    ).rejects.toMatchObject({ status: 409, code: V1_ERROR_CODES.VERSION_CONFLICT });
   });
 
   it('rejects missing PRD baseline for PUBLISHED_PRD steps (409)', async () => {
     const repo = new InMemorySnapshotRepo();
     repo.task.currentPrdRevisionId = null;
     const { service } = build(repo);
-    await expect(service.create(humanPrincipal(), 'task-1', { expectedVersion: 2, claimId: 'claim-1' }, snapshotContext())).rejects.toMatchObject(
-      { status: 409, code: V1_ERROR_CODES.BASELINE_STALE },
-    );
+    await expect(
+      service.create(
+        humanPrincipal(),
+        'task-1',
+        { expectedVersion: 2, claimId: 'claim-1' },
+        snapshotContext(),
+      ),
+    ).rejects.toMatchObject({ status: 409, code: V1_ERROR_CODES.BASELINE_STALE });
   });
 
   it('rejects candidates that are not readable (422 INPUT_UNAVAILABLE)', async () => {
@@ -225,7 +264,12 @@ describe('V1SnapshotService.create', () => {
     authz.unreadableKnowledgeBaseIds = ['kb-1'];
     const { service } = build(repo, authz);
     await expect(
-      service.create(humanPrincipal(), 'task-1', { expectedVersion: 2, claimId: 'claim-1', candidateRevisionIds: ['cand-1'] }, snapshotContext()),
+      service.create(
+        humanPrincipal(),
+        'task-1',
+        { expectedVersion: 2, claimId: 'claim-1', candidateRevisionIds: ['cand-1'] },
+        snapshotContext(),
+      ),
     ).rejects.toMatchObject({ status: 422, code: V1_ERROR_CODES.INPUT_UNAVAILABLE });
   });
 
@@ -243,9 +287,14 @@ describe('V1SnapshotService.create', () => {
       },
     ];
     const { service } = build(repo);
-    await expect(service.create(humanPrincipal(), 'task-1', { expectedVersion: 2, claimId: 'claim-1' }, snapshotContext())).rejects.toMatchObject(
-      { status: 422, code: V1_ERROR_CODES.INPUT_UNAVAILABLE },
-    );
+    await expect(
+      service.create(
+        humanPrincipal(),
+        'task-1',
+        { expectedVersion: 2, claimId: 'claim-1' },
+        snapshotContext(),
+      ),
+    ).rejects.toMatchObject({ status: 422, code: V1_ERROR_CODES.INPUT_UNAVAILABLE });
   });
 
   it('builds a deterministic, refId-sorted manifest and digest', async () => {
@@ -264,12 +313,29 @@ describe('V1SnapshotService.create', () => {
         },
       ];
       const resources: V1SnapshotRoleResource[] = [
-        { rolePackageResourceId: ROLE_RESOURCE_ID, refKey: 'z-last.md', sha256: SHA, byteLength: 1, mediaType: 'text/markdown' },
-        { rolePackageResourceId: 'rr-2', refKey: 'a-first.md', sha256: SHA, byteLength: 1, mediaType: 'text/markdown' },
+        {
+          rolePackageResourceId: ROLE_RESOURCE_ID,
+          refKey: 'z-last.md',
+          sha256: SHA,
+          byteLength: 1,
+          mediaType: 'text/markdown',
+        },
+        {
+          rolePackageResourceId: 'rr-2',
+          refKey: 'a-first.md',
+          sha256: SHA,
+          byteLength: 1,
+          mediaType: 'text/markdown',
+        },
       ];
       repo.roleResources = reverse ? [...resources].reverse() : resources;
       const { service } = build(repo);
-      return service.create(humanPrincipal(), 'task-1', { expectedVersion: 2, claimId: 'claim-1' }, snapshotContext());
+      return service.create(
+        humanPrincipal(),
+        'task-1',
+        { expectedVersion: 2, claimId: 'claim-1' },
+        snapshotContext(),
+      );
     };
 
     const first = await buildWithOrder(false);
@@ -294,7 +360,12 @@ describe('V1SnapshotService.create', () => {
     const repo = new InMemorySnapshotRepo();
     seedBaseline(repo);
     const body = snapshotContext();
-    const first = await build(repo).service.create(humanPrincipal(), 'task-1', { expectedVersion: 2, claimId: 'claim-1' }, body);
+    const first = await build(repo).service.create(
+      humanPrincipal(),
+      'task-1',
+      { expectedVersion: 2, claimId: 'claim-1' },
+      body,
+    );
     const idem = new InMemoryIdempotency();
     idem.op = {
       id: 'op-old',
@@ -332,7 +403,14 @@ describe('V1SnapshotService.create', () => {
       roleIds: ['role-1'],
       scopes: ['context:create'],
     };
-    await expect(service.create(agent, 'task-1', { expectedVersion: 2, claimId: 'claim-1' }, snapshotContext())).rejects.toMatchObject({
+    await expect(
+      service.create(
+        agent,
+        'task-1',
+        { expectedVersion: 2, claimId: 'claim-1' },
+        snapshotContext(),
+      ),
+    ).rejects.toMatchObject({
       status: 403,
       code: V1_ERROR_CODES.FORBIDDEN,
     });
@@ -408,7 +486,9 @@ describe('V1SnapshotService.getSnapshot / getResource', () => {
       bodyBytes: new Uint8Array([1, 2, 3]),
     });
     const { service } = build(repo);
-    await expect(service.getResource(humanPrincipal(), 'snap-1', 'knowledge:doc-knowledge')).rejects.toMatchObject({
+    await expect(
+      service.getResource(humanPrincipal(), 'snap-1', 'knowledge:doc-knowledge'),
+    ).rejects.toMatchObject({
       status: 503,
       code: V1_ERROR_CODES.CONTENT_UNAVAILABLE,
     });

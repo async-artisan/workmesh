@@ -42,7 +42,14 @@ import {
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [25, 100, 100];
 
-const PHASE_ORDER = ['DISCOVERY', 'DEFINITION', 'DELIVERY', 'ACCEPTANCE', 'RELEASED', 'ARCHIVED'] as const;
+const PHASE_ORDER = [
+  'DISCOVERY',
+  'DEFINITION',
+  'DELIVERY',
+  'ACCEPTANCE',
+  'RELEASED',
+  'ARCHIVED',
+] as const;
 type Phase = (typeof PHASE_ORDER)[number];
 
 /** 任务验收通过后，按步骤 kind 推进到的需求阶段。 */
@@ -65,24 +72,47 @@ function isRetryable(error: unknown): boolean {
   const code = (error as { code?: string })?.code;
   if (code === 'P2034') return true;
   const message = String((error as Error)?.message ?? '');
-  return message.includes('40001') || message.includes('40P01') || message.includes('could not serialize');
+  return (
+    message.includes('40001') ||
+    message.includes('40P01') ||
+    message.includes('could not serialize')
+  );
 }
 
 const REVIEW_SNAPSHOT_INCLUDE = {
   approvalSlots: true,
-  decisions: true,
+  decisions: {
+    select: {
+      id: true,
+      approvalSlotId: true,
+      decision: true,
+      subjectDigest: true,
+      comment: true,
+      createdByStampId: true,
+      createdAt: true,
+      createdByStamp: { select: { user: { select: { id: true, email: true } } } },
+    },
+  },
   documentRevision: {
     select: {
       id: true,
       sha256: true,
       document: {
-        select: { id: true, projectId: true, knowledgeBaseId: true, version: true, currentPublishedRevisionId: true },
+        select: {
+          id: true,
+          projectId: true,
+          knowledgeBaseId: true,
+          version: true,
+          currentPublishedRevisionId: true,
+        },
       },
     },
   },
 } satisfies Prisma.ReviewRequestInclude;
 
-type ReviewSnapshotRow = Prisma.ReviewRequestGetPayload<{ include: typeof REVIEW_SNAPSHOT_INCLUDE }>;
+type ReviewSnapshotRow = Prisma.ReviewRequestGetPayload<{
+  include: typeof REVIEW_SNAPSHOT_INCLUDE;
+}>;
 
 type DerivedReviewSlot = { slotKey: string; requiredUserId: string; requiredRoleId: string | null };
 
@@ -124,6 +154,7 @@ function toSnapshot(review: ReviewSnapshotRow): V1ReviewSnapshot {
       comment: decision.comment,
       createdById: decision.createdByStampId ?? '',
       createdAt: decision.createdAt,
+      actor: decision.createdByStamp?.user ?? null,
     })),
     subject:
       document && review.documentRevision
@@ -278,7 +309,9 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
     };
   }
 
-  async createReviewRequest(input: V1CreateReviewRequestInput): Promise<V1CreateReviewRequestResult> {
+  async createReviewRequest(
+    input: V1CreateReviewRequestInput,
+  ): Promise<V1CreateReviewRequestResult> {
     let attempt = 0;
     for (;;) {
       try {
@@ -303,16 +336,21 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
     const last = page[page.length - 1];
     return {
       items: page.map((row) => toSnapshot(row)),
-      nextCursor: hasMore && last ? encodeReviewCursor({ createdAt: last.createdAt, id: last.id }) : null,
+      nextCursor:
+        hasMore && last ? encodeReviewCursor({ createdAt: last.createdAt, id: last.id }) : null,
       hasMore,
     };
   }
 
-  private async runCreateReviewRequest(input: V1CreateReviewRequestInput): Promise<V1CreateReviewRequestResult> {
+  private async runCreateReviewRequest(
+    input: V1CreateReviewRequestInput,
+  ): Promise<V1CreateReviewRequestResult> {
     return this.prisma.$transaction(
       async (tx) => {
         // 1) 项目行锁定串行化同项目写；再共享锁用户行，保持与决定/撤销一致的锁顺序。
-        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.projectId}::uuid FOR UPDATE`);
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.projectId}::uuid FOR UPDATE`,
+        );
         await tx.$queryRaw(
           Prisma.sql`SELECT "id" FROM "workmesh_v1"."User" WHERE "id" = ${input.actor.userId}::uuid FOR SHARE`,
         );
@@ -348,12 +386,19 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
               409,
             );
           const refs =
-            typeof replay.resultRefs === 'object' && replay.resultRefs !== null && !Array.isArray(replay.resultRefs)
+            typeof replay.resultRefs === 'object' &&
+            replay.resultRefs !== null &&
+            !Array.isArray(replay.resultRefs)
               ? (replay.resultRefs as Record<string, unknown>)
               : {};
           const reviewId = typeof refs.reviewRequestId === 'string' ? refs.reviewRequestId : '';
           if (!reviewId)
-            throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REVIEW_NOT_FOUND', { reviewId }, 404);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+              'REVIEW_NOT_FOUND',
+              { reviewId },
+              404,
+            );
           return { review: await this.snapshotInTransaction(tx, reviewId), created: false };
         }
 
@@ -386,7 +431,11 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
               method: input.operation.method,
               route: input.operation.route,
               requestDigest: input.operation.requestDigest,
-              resultRefs: { reviewRequestId: existing.id, version: existing.version, created: false },
+              resultRefs: {
+                reviewRequestId: existing.id,
+                version: existing.version,
+                created: false,
+              },
               responseMetadata: { reviewKind: derived.kind },
             },
           });
@@ -489,7 +538,11 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
             version: true,
             archivedAt: true,
             knowledgeBase: {
-              select: { archivedAt: true, publicationApproverUserId: true, publicationApproverRoleId: true },
+              select: {
+                archivedAt: true,
+                publicationApproverUserId: true,
+                publicationApproverRoleId: true,
+              },
             },
           },
         },
@@ -513,7 +566,11 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
       throw new WorkmeshError(
         V1_ERROR_CODES.VERSION_CONFLICT,
         'VERSION_CONFLICT',
-        { documentId: document.id, expectedVersion: input.expectedVersion, currentVersion: document.version },
+        {
+          documentId: document.id,
+          expectedVersion: input.expectedVersion,
+          currentVersion: document.version,
+        },
         409,
       );
 
@@ -592,7 +649,11 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
       throw new WorkmeshError(
         V1_ERROR_CODES.VERSION_CONFLICT,
         'VERSION_CONFLICT',
-        { taskId: set.taskId, expectedVersion: input.expectedVersion, currentVersion: set.task.version },
+        {
+          taskId: set.taskId,
+          expectedVersion: input.expectedVersion,
+          currentVersion: set.task.version,
+        },
         409,
       );
 
@@ -667,30 +728,64 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
             approvalSlotId: true,
             decision: true,
             revocation: { select: { id: true } },
-            reviewRequest: { select: { id: true, status: true, version: true, taskId: true, documentRevisionId: true } },
+            reviewRequest: {
+              select: {
+                id: true,
+                status: true,
+                version: true,
+                taskId: true,
+                documentRevisionId: true,
+              },
+            },
           },
         });
         if (!decision)
-          throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REVIEW_DECISION_NOT_FOUND', { decisionId: input.decisionId }, 404);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'REVIEW_DECISION_NOT_FOUND',
+            { decisionId: input.decisionId },
+            404,
+          );
 
-        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${decision.projectId}::uuid FOR UPDATE`);
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${decision.projectId}::uuid FOR UPDATE`,
+        );
         await tx.$queryRaw(
           Prisma.sql`SELECT "id" FROM "workmesh_v1"."User" WHERE "id" = ${input.actorUserId}::uuid FOR SHARE`,
         );
 
         // 2) 事务内复核决定、父请求状态与版本，不接受事务外旧值。
         if (decision.decision !== 'APPROVE')
-          throw new WorkmeshError(V1_ERROR_CODES.VALIDATION_FAILED, 'REVOCATION_NOT_APPLICABLE', { decisionId: input.decisionId }, 422);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.VALIDATION_FAILED,
+            'REVOCATION_NOT_APPLICABLE',
+            { decisionId: input.decisionId },
+            422,
+          );
         if (decision.revocation)
-          throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_CONFLICT, 'DECISION_ALREADY_REVOKED', { decisionId: input.decisionId }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_CONFLICT,
+            'DECISION_ALREADY_REVOKED',
+            { decisionId: input.decisionId },
+            409,
+          );
         const review = decision.reviewRequest;
         if (review.status !== 'APPROVED' && review.status !== 'OPEN')
-          throw new WorkmeshError(V1_ERROR_CODES.REVIEW_CLOSED, 'REVIEW_CLOSED', { reviewId: review.id, status: review.status }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.REVIEW_CLOSED,
+            'REVIEW_CLOSED',
+            { reviewId: review.id, status: review.status },
+            409,
+          );
         if (review.version !== input.expectedVersion)
           throw new WorkmeshError(
             V1_ERROR_CODES.VERSION_CONFLICT,
             'VERSION_CONFLICT',
-            { reviewId: review.id, expectedVersion: input.expectedVersion, currentVersion: review.version },
+            {
+              reviewId: review.id,
+              expectedVersion: input.expectedVersion,
+              currentVersion: review.version,
+            },
             409,
           );
 
@@ -706,11 +801,24 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
               AND "expiresAt" > ${input.now}`,
         );
         if (consumed !== 1)
-          throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_USED, 'CONFIRMATION_CONSUME_CONFLICT', { ticketId: input.ticket.id }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CONFIRMATION_USED,
+            'CONFIRMATION_CONSUME_CONFLICT',
+            { ticketId: input.ticket.id },
+            409,
+          );
 
-        const actor = await tx.user.findUnique({ where: { id: input.actorUserId }, select: { id: true, authVersion: true } });
+        const actor = await tx.user.findUnique({
+          where: { id: input.actorUserId },
+          select: { id: true, authVersion: true },
+        });
         if (!actor)
-          throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'ACTOR_NOT_FOUND', { userId: input.actorUserId }, 404);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'ACTOR_NOT_FOUND',
+            { userId: input.actorUserId },
+            404,
+          );
 
         const stamp = await tx.principalStamp.create({
           data: {
@@ -751,12 +859,29 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
             select: { id: true, documentId: true },
           });
           if (!revision)
-            throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REVISION_NOT_FOUND', { revisionId: review.documentRevisionId }, 404);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+              'REVISION_NOT_FOUND',
+              { revisionId: review.documentRevisionId },
+              404,
+            );
 
           const ownPublication = await tx.documentPublication.findFirst({
-            where: { documentId: revision.documentId, revisionId: revision.id, kind: 'PUBLISH', reviewRequestId: review.id },
+            where: {
+              documentId: revision.documentId,
+              revisionId: revision.id,
+              kind: 'PUBLISH',
+              reviewRequestId: review.id,
+            },
             orderBy: { createdAt: 'desc' },
-            select: { id: true, revisionId: true, documentId: true, kind: true, reviewRequestId: true, previousPublicationId: true },
+            select: {
+              id: true,
+              revisionId: true,
+              documentId: true,
+              kind: true,
+              reviewRequestId: true,
+              previousPublicationId: true,
+            },
           });
           if (!ownPublication)
             throw new WorkmeshError(
@@ -768,10 +893,21 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
 
           const document = await tx.knowledgeDocument.findUnique({
             where: { id: revision.documentId },
-            select: { id: true, version: true, kind: true, requirementId: true, currentPublishedRevisionId: true },
+            select: {
+              id: true,
+              version: true,
+              kind: true,
+              requirementId: true,
+              currentPublishedRevisionId: true,
+            },
           });
           if (!document)
-            throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'DOCUMENT_NOT_FOUND', { documentId: revision.documentId }, 404);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+              'DOCUMENT_NOT_FOUND',
+              { documentId: revision.documentId },
+              404,
+            );
 
           if (document.currentPublishedRevisionId === revision.id) {
             const cleared = await tx.$executeRaw(
@@ -805,10 +941,18 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
 
             // 需求当前理解/PRD 指针同步失效并推进 generation，旧快照/认领立即过期；
             // 历史 phase 不回退，由当前 gate 状态另行表达。
-            if ((document.kind === 'UNDERSTANDING' || document.kind === 'PRD') && document.requirementId) {
+            if (
+              (document.kind === 'UNDERSTANDING' || document.kind === 'PRD') &&
+              document.requirementId
+            ) {
               const requirement = await tx.requirement.findUnique({
                 where: { id: document.requirementId },
-                select: { id: true, version: true, currentUnderstandingRevisionId: true, currentPrdRevisionId: true },
+                select: {
+                  id: true,
+                  version: true,
+                  currentUnderstandingRevisionId: true,
+                  currentPrdRevisionId: true,
+                },
               });
               if (!requirement)
                 throw new WorkmeshError(
@@ -881,7 +1025,12 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
               },
             });
             if (updated.count !== 1)
-              throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'TASK_VERSION_CONFLICT', { taskId: task.id }, 409);
+              throw new WorkmeshError(
+                V1_ERROR_CODES.VERSION_CONFLICT,
+                'TASK_VERSION_CONFLICT',
+                { taskId: task.id },
+                409,
+              );
 
             // 旧验收不再有效：同任务其它未决验收请求一并失效。
             await tx.reviewRequest.updateMany({
@@ -962,31 +1111,63 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
           where: { id: input.reviewId },
           include: { approvalSlots: true, decisions: true },
         });
-        if (!review) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REVIEW_NOT_FOUND', { reviewId: input.reviewId }, 404);
+        if (!review)
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'REVIEW_NOT_FOUND',
+            { reviewId: input.reviewId },
+            404,
+          );
 
-        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${review.projectId}::uuid FOR UPDATE`);
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${review.projectId}::uuid FOR UPDATE`,
+        );
         await tx.$queryRaw(
           Prisma.sql`SELECT "id" FROM "workmesh_v1"."User" WHERE "id" = ${input.actorUserId}::uuid FOR SHARE`,
         );
 
         // 2) 事务内重新读取状态、版本与 subject 摘要，不使用事务外读到的旧值。
         if (review.status !== 'OPEN')
-          throw new WorkmeshError(V1_ERROR_CODES.REVIEW_CLOSED, 'REVIEW_CLOSED', { reviewId: review.id }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.REVIEW_CLOSED,
+            'REVIEW_CLOSED',
+            { reviewId: review.id },
+            409,
+          );
         if (review.version !== input.expectedVersion)
           throw new WorkmeshError(
             V1_ERROR_CODES.VERSION_CONFLICT,
             'VERSION_CONFLICT',
-            { reviewId: review.id, expectedVersion: input.expectedVersion, currentVersion: review.version },
+            {
+              reviewId: review.id,
+              expectedVersion: input.expectedVersion,
+              currentVersion: review.version,
+            },
             409,
           );
         if (review.subjectDigest !== input.subjectDigest)
-          throw new WorkmeshError(V1_ERROR_CODES.REVISION_DIGEST_CHANGED, 'REVISION_DIGEST_CHANGED', { reviewId: review.id }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.REVISION_DIGEST_CHANGED,
+            'REVISION_DIGEST_CHANGED',
+            { reviewId: review.id },
+            409,
+          );
 
         const slot = review.approvalSlots.find((item) => item.id === input.slotId);
         if (!slot)
-          throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REVIEW_SLOT_NOT_FOUND', { slotId: input.slotId }, 404);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'REVIEW_SLOT_NOT_FOUND',
+            { slotId: input.slotId },
+            404,
+          );
         if (review.decisions.some((item) => item.approvalSlotId === input.slotId))
-          throw new WorkmeshError(V1_ERROR_CODES.REVIEW_SLOT_DECIDED, 'REVIEW_SLOT_DECIDED', { slotId: input.slotId }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.REVIEW_SLOT_DECIDED,
+            'REVIEW_SLOT_DECIDED',
+            { slotId: input.slotId },
+            409,
+          );
 
         // 3) 条件消费票据：要求影响行数恰为 1；并发两次消费只允许一次成功。
         const consumed = await tx.$executeRaw(
@@ -1000,7 +1181,12 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
               AND "expiresAt" > ${input.now}`,
         );
         if (consumed !== 1)
-          throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_USED, 'CONFIRMATION_CONSUME_CONFLICT', { ticketId: input.ticket.id }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CONFIRMATION_USED,
+            'CONFIRMATION_CONSUME_CONFLICT',
+            { ticketId: input.ticket.id },
+            409,
+          );
 
         // 4) 审计主体 stamp：HUMAN 必须绑定真实 WebSession，且不携带 Agent 凭据。
         const actor = await tx.user.findUnique({
@@ -1008,7 +1194,12 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
           select: { id: true, authVersion: true },
         });
         if (!actor)
-          throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'ACTOR_NOT_FOUND', { userId: input.actorUserId }, 404);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'ACTOR_NOT_FOUND',
+            { userId: input.actorUserId },
+            404,
+          );
         const stamp = await tx.principalStamp.create({
           data: {
             kind: 'HUMAN',
@@ -1052,7 +1243,10 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
         let taskState: V1TaskState | null = null;
         let requirementState: V1RequirementState | null = null;
 
-        if (allApproved && (review.kind === 'TASK_ACCEPTANCE' || review.kind === 'RELEASE_ACCEPTANCE')) {
+        if (
+          allApproved &&
+          (review.kind === 'TASK_ACCEPTANCE' || review.kind === 'RELEASE_ACCEPTANCE')
+        ) {
           // 工件验收：复核当前快照/代次/工件集与 IMPL 证据，随后把任务置 DONE，
           // 并按步骤 kind 推进需求阶段（RELEASE 需全部任务 DONE）。
           const accepted = await this.completeAcceptanceTask(tx, {
@@ -1089,9 +1283,19 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
             },
           });
           if (!revision)
-            throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REVISION_NOT_FOUND', { revisionId: review.documentRevisionId }, 404);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+              'REVISION_NOT_FOUND',
+              { revisionId: review.documentRevisionId },
+              404,
+            );
           if (revision.sha256 !== review.subjectDigest)
-            throw new WorkmeshError(V1_ERROR_CODES.REVISION_DIGEST_CHANGED, 'REVISION_DIGEST_CHANGED', { revisionId: revision.id }, 409);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.REVISION_DIGEST_CHANGED,
+              'REVISION_DIGEST_CHANGED',
+              { revisionId: revision.id },
+              409,
+            );
 
           const document = await tx.knowledgeDocument.findUnique({
             where: { id: revision.documentId },
@@ -1104,7 +1308,12 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
             },
           });
           if (!document)
-            throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'DOCUMENT_NOT_FOUND', { documentId: revision.documentId }, 404);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+              'DOCUMENT_NOT_FOUND',
+              { documentId: revision.documentId },
+              404,
+            );
 
           // 评审 kind 必须与文档 kind 精确对应：理解确认、PRD 发布、知识发布互不替代。
           const expectedKind =
@@ -1165,7 +1374,13 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
               );
             const requirement = await tx.requirement.findUnique({
               where: { id: document.requirementId },
-              select: { id: true, version: true, generation: true, phase: true, currentUnderstandingRevisionId: true },
+              select: {
+                id: true,
+                version: true,
+                generation: true,
+                phase: true,
+                currentUnderstandingRevisionId: true,
+              },
             });
             if (!requirement)
               throw new WorkmeshError(
@@ -1175,7 +1390,9 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
                 404,
               );
             if (document.kind === 'PRD') {
-              if (revision.basisUnderstandingRevisionId !== requirement.currentUnderstandingRevisionId)
+              if (
+                revision.basisUnderstandingRevisionId !== requirement.currentUnderstandingRevisionId
+              )
                 throw new WorkmeshError(
                   V1_ERROR_CODES.BASELINE_STALE,
                   'PRD_BASIS_STALE',
@@ -1187,7 +1404,11 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
                 );
             }
             const advanced = await tx.requirement.updateMany({
-              where: { id: requirement.id, version: requirement.version, generation: requirement.generation },
+              where: {
+                id: requirement.id,
+                version: requirement.version,
+                generation: requirement.generation,
+              },
               data: {
                 version: { increment: 1 },
                 generation: { increment: 1 },
@@ -1199,7 +1420,8 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
                   ? { currentUnderstandingRevisionId: revision.id }
                   : {
                       currentPrdRevisionId: revision.id,
-                      deliveryScope: (revision.deliveryScope ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+                      deliveryScope: (revision.deliveryScope ??
+                        Prisma.JsonNull) as Prisma.InputJsonValue,
                     }),
               },
             });
@@ -1229,7 +1451,10 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
           const rejected = input.decision === 'REJECT';
           await tx.reviewRequest.update({
             where: { id: review.id },
-            data: { status: rejected ? 'REJECTED' : 'CHANGES_REQUESTED', version: { increment: 1 } },
+            data: {
+              status: rejected ? 'REJECTED' : 'CHANGES_REQUESTED',
+              version: { increment: 1 },
+            },
           });
 
           // 返修：绑定任务进入新 generation 并回到 OPEN/ACTIVE，废止 claim/当前 set；
@@ -1256,8 +1481,10 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
         if (!subjectResult) {
           if (published && publicationId !== null && documentVersion !== null)
             subjectResult = { kind: 'PUBLISHED', publicationId, documentVersion };
-          else if (input.decision === 'REJECT') subjectResult = { kind: 'REJECTED', affectedTaskIds };
-          else if (input.decision === 'CHANGES_REQUESTED') subjectResult = { kind: 'REWORK', affectedTaskIds };
+          else if (input.decision === 'REJECT')
+            subjectResult = { kind: 'REJECTED', affectedTaskIds };
+          else if (input.decision === 'CHANGES_REQUESTED')
+            subjectResult = { kind: 'REWORK', affectedTaskIds };
           else
             subjectResult = {
               kind: 'RECORDED',
@@ -1303,7 +1530,9 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
               task: taskState,
               requirement: requirementState,
             },
-            responseMetadata: { reviewVersion: review.version + (published || input.decision !== 'APPROVE' ? 1 : 0) },
+            responseMetadata: {
+              reviewVersion: review.version + (published || input.decision !== 'APPROVE' ? 1 : 0),
+            },
           },
         });
 
@@ -1361,7 +1590,12 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
       },
     });
     if (!task)
-      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId: input.taskId }, 404);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'TASK_NOT_FOUND',
+        { taskId: input.taskId },
+        404,
+      );
 
     assertWorkflowInstanceActive(task.instance.retiredAt, {
       taskId: task.id,
@@ -1382,7 +1616,13 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
 
     const snapshot = await tx.contextSnapshot.findFirst({
       where: { id: set.snapshotId, projectId: input.projectId },
-      select: { id: true, taskId: true, taskGeneration: true, requirementId: true, requirementGeneration: true },
+      select: {
+        id: true,
+        taskId: true,
+        taskGeneration: true,
+        requirementId: true,
+        requirementGeneration: true,
+      },
     });
     if (!snapshot)
       throw new WorkmeshError(
@@ -1428,7 +1668,14 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
   private async completeTaskAndAdvancePhase(
     tx: V1TransactionClient,
     ctx: {
-      task: { id: string; version: number; generation: number; currentClaimId: string | null; workflowInstanceId: string; stepKey: string };
+      task: {
+        id: string;
+        version: number;
+        generation: number;
+        currentClaimId: string | null;
+        workflowInstanceId: string;
+        stepKey: string;
+      };
       snapshot: { id: string; requirementId: string };
       set: { id: string };
       input: { projectId: string; reviewId: string; now: Date };
@@ -1464,7 +1711,10 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
         select: { state: true, reviewerKind: true },
       });
       // 证据必须全部为 APPROVED 且非 Bot；任一 changes_requested/dismissed/pending 都拒绝。
-      if (evidence.length === 0 || evidence.some((item) => item.state !== 'APPROVED' || item.reviewerKind === 'BOT'))
+      if (
+        evidence.length === 0 ||
+        evidence.some((item) => item.state !== 'APPROVED' || item.reviewerKind === 'BOT')
+      )
         throw new WorkmeshError(
           V1_ERROR_CODES.CODE_EVIDENCE_MISSING,
           'CODE_REVIEW_EVIDENCE_MISSING',
@@ -1498,9 +1748,18 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
       stepKind: typeof step?.kind === 'string' ? step.kind : null,
       currentTaskId: ctx.task.id,
     });
-    const requirement = await this.readRequirementState(tx, ctx.input.projectId, ctx.snapshot.requirementId);
+    const requirement = await this.readRequirementState(
+      tx,
+      ctx.input.projectId,
+      ctx.snapshot.requirementId,
+    );
     return {
-      task: { id: ctx.task.id, version: ctx.task.version + 1, generation: ctx.task.generation, executionStatus: 'DONE' },
+      task: {
+        id: ctx.task.id,
+        version: ctx.task.version + 1,
+        generation: ctx.task.generation,
+        executionStatus: 'DONE',
+      },
       requirement,
     };
   }
@@ -1514,7 +1773,9 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
       where: { id: requirementId, projectId },
       select: { id: true, version: true, phase: true },
     });
-    return requirement ? { id: requirement.id, version: requirement.version, phase: requirement.phase } : null;
+    return requirement
+      ? { id: requirement.id, version: requirement.version, phase: requirement.phase }
+      : null;
   }
 
   private async advanceRequirementPhase(
@@ -1592,7 +1853,12 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
       select: { id: true, workflowInstanceId: true, stepKey: true },
     });
     if (!root)
-      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId: input.taskId }, 404);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'TASK_NOT_FOUND',
+        { taskId: input.taskId },
+        404,
+      );
 
     const instance = await tx.workflowInstance.findFirst({
       where: { id: root.workflowInstanceId, projectId: input.projectId },
@@ -1655,7 +1921,12 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
         },
       });
       if (updated.count !== 1)
-        throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'TASK_VERSION_CONFLICT', { taskId: task.id }, 409);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.VERSION_CONFLICT,
+          'TASK_VERSION_CONFLICT',
+          { taskId: task.id },
+          409,
+        );
 
       await tx.reviewRequest.updateMany({
         where: { status: 'OPEN', taskId: task.id, id: { not: input.reviewId } },
@@ -1676,7 +1947,12 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
       select: { id: true, version: true, currentClaimId: true },
     });
     if (!task)
-      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId: input.taskId }, 404);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'TASK_NOT_FOUND',
+        { taskId: input.taskId },
+        404,
+      );
 
     if (task.currentClaimId) {
       await tx.taskClaim.updateMany({
@@ -1686,19 +1962,38 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
     }
     const updated = await tx.task.updateMany({
       where: { id: task.id, version: task.version },
-      data: { version: { increment: 1 }, executionStatus: 'OPEN', workStatus: 'BLOCKED', currentClaimId: null },
+      data: {
+        version: { increment: 1 },
+        executionStatus: 'OPEN',
+        workStatus: 'BLOCKED',
+        currentClaimId: null,
+      },
     });
     if (updated.count !== 1)
-      throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'TASK_VERSION_CONFLICT', { taskId: task.id }, 409);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.VERSION_CONFLICT,
+        'TASK_VERSION_CONFLICT',
+        { taskId: task.id },
+        409,
+      );
     return [task.id];
   }
 
-  private async snapshotInTransaction(tx: V1TransactionClient, reviewId: string): Promise<V1ReviewSnapshot> {
+  private async snapshotInTransaction(
+    tx: V1TransactionClient,
+    reviewId: string,
+  ): Promise<V1ReviewSnapshot> {
     const review = await tx.reviewRequest.findUnique({
       where: { id: reviewId },
       include: REVIEW_SNAPSHOT_INCLUDE,
     });
-    if (!review) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REVIEW_NOT_FOUND', { reviewId }, 404);
+    if (!review)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'REVIEW_NOT_FOUND',
+        { reviewId },
+        404,
+      );
     return toSnapshot(review);
   }
 }

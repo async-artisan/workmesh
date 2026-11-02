@@ -27,17 +27,38 @@ export class V1AuthorizationPrismaRepository implements V1AuthorizationRepositor
     });
   }
 
-  async findActiveRoleAssignments(projectId: string, userId: string): Promise<V1RoleAssignmentRecord[]> {
+  async findActiveRoleAssignments(
+    projectId: string,
+    userId: string,
+  ): Promise<V1RoleAssignmentRecord[]> {
     return this.prisma.projectRoleAssignment.findMany({
       where: { projectId, userId },
-      select: { id: true, projectId: true, userId: true, roleId: true, version: true, revokedAt: true },
+      select: {
+        id: true,
+        projectId: true,
+        userId: true,
+        roleId: true,
+        version: true,
+        revokedAt: true,
+      },
     });
   }
 
-  async findRoleAssignment(projectId: string, userId: string, roleId: string): Promise<V1RoleAssignmentRecord | null> {
+  async findRoleAssignment(
+    projectId: string,
+    userId: string,
+    roleId: string,
+  ): Promise<V1RoleAssignmentRecord | null> {
     return this.prisma.projectRoleAssignment.findFirst({
       where: { projectId, userId, roleId },
-      select: { id: true, projectId: true, userId: true, roleId: true, version: true, revokedAt: true },
+      select: {
+        id: true,
+        projectId: true,
+        userId: true,
+        roleId: true,
+        version: true,
+        revokedAt: true,
+      },
     });
   }
 

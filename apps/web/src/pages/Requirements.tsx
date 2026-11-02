@@ -1,66 +1,64 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { formatApiError } from '../api/client';
 import {
   projectApi,
   requirementApi,
   workflowApi,
+  type MemberView,
   type RequirementView,
   type RoleView,
   type WorkflowDefinitionView,
 } from '../api/resources';
 import { ConfirmDialog } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
+import { WorkflowInstanceDialog } from '../components/WorkflowInstanceDialog';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { useAuthStore } from '../store/auth';
-
-interface StepShape {
-  key: string;
-  roleKey: string;
-}
-
-interface SlotShape {
-  key: string;
-  roleKey: string;
-}
+import { PHASE_LABELS, labelFor } from '../lib/labels';
 
 /**
  * 需求页只收集最小产品意图并展示服务端状态；PRD、知识和实现产物由本地 Agent 生成。
- * 创建需求和流程实例都是人类确认后的写操作，所有写入仍由服务端校验项目成员、scope 与版本。
+ * 流程实例只允许项目管理员初始化，且必须显式绑定责任人与审批人，不默认绑成当前用户。
  */
 export function Requirements() {
+  const navigate = useNavigate();
   const { projectId } = useProjectContext();
   const user = useAuthStore((state) => state.user);
   const [items, setItems] = useState<RequirementView[]>([]);
   const [roles, setRoles] = useState<RoleView[]>([]);
+  const [members, setMembers] = useState<MemberView[]>([]);
   const [definitions, setDefinitions] = useState<WorkflowDefinitionView[]>([]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [revisionId, setRevisionId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [workflowTarget, setWorkflowTarget] = useState<RequirementView | null>(null);
 
+  const currentMember = members.find((member) => member.id === user?.id);
+  const isAdmin = currentMember?.role === 'OWNER' || currentMember?.role === 'ADMIN';
+
   async function load() {
     if (!projectId) {
       setItems([]);
       setRoles([]);
+      setMembers([]);
       setDefinitions([]);
       return;
     }
     try {
-      const [page, roleList, definitionPage] = await Promise.all([
+      const [page, memberList, roleList, definitionPage] = await Promise.all([
         requirementApi.list(projectId),
+        projectApi.members(projectId),
         projectApi.roles(projectId),
         workflowApi.listDefinitions(projectId),
       ]);
       setItems(page.items);
+      setMembers(memberList);
       setRoles(roleList);
       setDefinitions(definitionPage.items);
-      // 默认选中第一个已发布修订，避免用户必须记住 UUID。
-      const published = definitionPage.items.find((item) => item.currentPublishedRevisionId);
-      setRevisionId((current) => current || published?.currentPublishedRevisionId || '');
       setError('');
     } catch (caught) {
       setError(formatApiError(caught));
@@ -95,62 +93,13 @@ export function Requirements() {
     }
   }
 
-  async function createWorkflow(requirement: RequirementView) {
-    if (!revisionId.trim() || !user) {
-      setError('请填写已发布的 workflow 修订 ID。');
-      return;
-    }
-    setBusy(true);
-    try {
-      const revision = await workflowApi.revision(revisionId.trim());
-      const definition = revision.definition;
-      const steps = Array.isArray(definition.steps) ? (definition.steps as StepShape[]) : [];
-      const slots = Array.isArray(definition.roleSlots)
-        ? (definition.roleSlots as SlotShape[])
-        : [];
-      const roleIdsByKey = new Map(
-        roles.filter((role) => role.isActive !== false).map((role) => [role.key, role.id]),
-      );
-      const stepBindings = steps.map((step) => {
-        const roleId = roleIdsByKey.get(step.roleKey);
-        if (!roleId)
-          throw new Error(`workflow 步骤 ${step.key} 的 roleKey ${step.roleKey} 未找到活动角色。`);
-        return { stepKey: step.key, roleId, responsibleUserId: user.id, repositoryIds: [] };
-      });
-      const roleSlotBindings = slots.map((slot) => {
-        const roleId = roleIdsByKey.get(slot.roleKey);
-        if (!roleId)
-          throw new Error(`审批槽 ${slot.key} 的 roleKey ${slot.roleKey} 未找到活动角色。`);
-        return { slotKey: slot.key, roleId, userId: user.id };
-      });
-      await workflowApi.createInstance(requirement.id, {
-        definitionRevisionId: revision.id,
-        expectedRequirementVersion: requirement.version,
-        stepBindings,
-        roleSlotBindings,
-      });
-      setNotice(`需求 ${requirement.code} 的流程实例已创建。`);
-      setError('');
-      await load();
-    } catch (caught) {
-      setError(formatApiError(caught));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const publishedDefinitions = definitions.filter(
-    (definition): definition is WorkflowDefinitionView & { currentPublishedRevisionId: string } =>
-      Boolean(definition.currentPublishedRevisionId),
-  );
-
   return (
     <section>
       <header className="page-head">
         <div>
           <h2>需求</h2>
           <p className="page-sub">
-            这里提交最小产品意图并查看状态；PRD、知识和实现产物由本地 Agent 生成后送入 Web 评审。
+            这里提交最小产品意图并查看状态；PRD、知识和实现产物由本地 Agent 生成后送入 Web 评审。流程实例由项目管理员初始化。
           </p>
         </div>
         <div className="page-actions">
@@ -185,31 +134,6 @@ export function Requirements() {
               onChange={(event) => setDescription(event.target.value)}
               aria-label="需求描述"
             />
-          </div>
-          <div className="field">
-            <span>已发布 workflow 修订</span>
-            {publishedDefinitions.length === 0 ? (
-              <p className="page-sub">
-                该项目还没有已发布的流程定义。先到「流程」页载入标准模板并发布，才能创建流程实例。
-              </p>
-            ) : (
-              <select
-                className="select"
-                aria-label="已发布 workflow 修订"
-                value={revisionId}
-                onChange={(event) => setRevisionId(event.target.value)}
-              >
-                {publishedDefinitions.map((definition) => (
-                  <option
-                    key={definition.workflowKey}
-                    value={definition.currentPublishedRevisionId ?? ''}
-                  >
-                    {definition.title}（{definition.workflowKey} · 第 {definition.currentRevision}{' '}
-                    版）
-                  </option>
-                ))}
-              </select>
-            )}
           </div>
         </div>
         <div className="toolbar">
@@ -254,15 +178,21 @@ export function Requirements() {
                     </span>
                   </td>
                   <td className="cell-num">v{item.version}</td>
-                  <td>{item.phase}</td>
+                  <td>{labelFor(PHASE_LABELS, item.phase)}</td>
                   <td className="col-actions">
-                    <button
-                      className="ghost"
-                      disabled={busy || !revisionId || !user}
-                      onClick={() => setWorkflowTarget(item)}
-                    >
-                      创建流程实例
-                    </button>
+                    <div className="cell-actions row-actions">
+                      <button
+                        className="ghost"
+                        onClick={() => navigate(`/requirements/${encodeURIComponent(item.code)}`)}
+                      >
+                        详情
+                      </button>
+                      {isAdmin && (
+                        <button className="ghost" onClick={() => setWorkflowTarget(item)}>
+                          初始化流程
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -288,25 +218,18 @@ export function Requirements() {
         onConfirm={() => void create()}
       />
 
-      <ConfirmDialog
+      <WorkflowInstanceDialog
         open={Boolean(workflowTarget)}
-        title="确认创建流程实例"
-        description={
-          workflowTarget
-            ? `需求 ${workflowTarget.code} 将绑定所选已发布 workflow 修订（${revisionId.slice(0, 8)}…），并按当前页面派生的角色和责任人创建实例。`
-            : ''
-        }
-        confirmLabel="确认创建流程"
-        busy={busy}
-        onCancel={() => {
-          if (!busy) setWorkflowTarget(null);
-        }}
-        onConfirm={() => {
-          if (workflowTarget) {
-            const target = workflowTarget;
-            setWorkflowTarget(null);
-            void createWorkflow(target);
-          }
+        requirement={workflowTarget}
+        definitions={definitions}
+        roles={roles}
+        members={members}
+        onClose={() => setWorkflowTarget(null)}
+        onCreated={(message) => {
+          setWorkflowTarget(null);
+          setNotice(message);
+          setError('');
+          void load();
         }}
       />
     </section>

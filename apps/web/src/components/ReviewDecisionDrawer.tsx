@@ -1,0 +1,24 @@
+import { ReviewDecision } from '../pages/ReviewDecision';
+import { Modal } from './Modal';
+
+/** 工作台签字/审批抽屉：复用决定页的证据与决定逻辑，避免两套权限与票据流程。 */
+export function ReviewDecisionDrawer({
+  reviewId,
+  onClose,
+}: {
+  reviewId: string | null;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      open={Boolean(reviewId)}
+      title="评审决定"
+      description="在抽屉里确认证据并签字；提交仍由服务端校验版本与一次性票据。"
+      variant="drawer"
+      size="lg"
+      onClose={onClose}
+    >
+      {reviewId && <ReviewDecision reviewId={reviewId} embedded />}
+    </Modal>
+  );
+}

@@ -47,14 +47,17 @@ export function compareRefId(left: string, right: string): number {
  * 组装确定性 manifest 并计算 digest；重复 refId、摘要非法或字长非法直接拒绝，
  * 不生成“部分可误用”的快照。
  */
-export async function assembleSnapshotManifest(input: Omit<V1SnapshotManifest, 'schemaVersion' | 'resources'> & {
-  resources: V1SnapshotManifestResource[];
-}): Promise<{ manifest: V1SnapshotManifest; manifestDigest: string }> {
+export async function assembleSnapshotManifest(
+  input: Omit<V1SnapshotManifest, 'schemaVersion' | 'resources'> & {
+    resources: V1SnapshotManifestResource[];
+  },
+): Promise<{ manifest: V1SnapshotManifest; manifestDigest: string }> {
   const seen = new Set<string>();
   for (const resource of input.resources) {
     if (seen.has(resource.refId)) throw new Error(`SNAPSHOT_REF_DUPLICATE:${resource.refId}`);
     seen.add(resource.refId);
-    if (!DIGEST.test(resource.sha256)) throw new Error(`SNAPSHOT_REF_DIGEST_INVALID:${resource.refId}`);
+    if (!DIGEST.test(resource.sha256))
+      throw new Error(`SNAPSHOT_REF_DIGEST_INVALID:${resource.refId}`);
     if (!Number.isSafeInteger(resource.byteLength) || resource.byteLength < 0)
       throw new Error(`SNAPSHOT_REF_LENGTH_INVALID:${resource.refId}`);
     if (!resource.mediaType) throw new Error(`SNAPSHOT_REF_MEDIA_TYPE_INVALID:${resource.refId}`);

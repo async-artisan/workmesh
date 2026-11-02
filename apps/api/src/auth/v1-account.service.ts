@@ -69,9 +69,15 @@ export class V1AccountService {
     now?: Date;
   }): Promise<V1SessionRecord> {
     if (!validateOrigin(input.origin, input.publicOrigin))
-      throw new WorkmeshError(V1_ERROR_CODES.UNSAFE_ORIGIN, '非安全方法要求精确匹配的 Origin', undefined, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.UNSAFE_ORIGIN,
+        '非安全方法要求精确匹配的 Origin',
+        undefined,
+        403,
+      );
     const parsed = input.sessionCookie ? parseCookie(input.sessionCookie) : null;
-    if (!parsed) throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, '缺少会话 Cookie', undefined, 401);
+    if (!parsed)
+      throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, '缺少会话 Cookie', undefined, 401);
     const session = await this.repository.findSession(parsed.sessionId);
     const now = input.now ?? new Date();
     if (!session || session.revokedAt || session.expiresAt <= now || session.idleExpiresAt <= now)
@@ -104,8 +110,7 @@ export class V1AccountService {
         equalSecret(parsed.secret, session.tokenHash) &&
         (session.userId === null || session.user)
       ) {
-        if (session.user && !session.user.isActive)
-          return this.createAnonymous(now);
+        if (session.user && !session.user.isActive) return this.createAnonymous(now);
         if (
           session.userId !== null &&
           session.user &&
@@ -144,7 +149,9 @@ export class V1AccountService {
     return this.createAnonymous(now);
   }
 
-  private async createAnonymous(now: Date): Promise<{ view: V1SessionView; cookies: V1CookiePayload }> {
+  private async createAnonymous(
+    now: Date,
+  ): Promise<{ view: V1SessionView; cookies: V1CookiePayload }> {
     const created = await this.createSession(null, null, now, ANONYMOUS_SESSION_TIMEOUT_MS);
     return {
       view: {
@@ -200,13 +207,28 @@ export class V1AccountService {
     const email = normalizeEmail(input.email);
     if (!EMAIL_RX.test(email))
       throw new WorkmeshError(V1_ERROR_CODES.INVALID_REQUEST, '邮箱格式无效', undefined, 400);
-    if (typeof input.password !== 'string' || input.password.length < 8 || input.password.length > 200)
-      throw new WorkmeshError(V1_ERROR_CODES.INVALID_REQUEST, '密码长度必须为 8–200', undefined, 400);
+    if (
+      typeof input.password !== 'string' ||
+      input.password.length < 8 ||
+      input.password.length > 200
+    )
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INVALID_REQUEST,
+        '密码长度必须为 8–200',
+        undefined,
+        400,
+      );
     if (input.name !== undefined && (input.name.length < 1 || input.name.length > 80))
-      throw new WorkmeshError(V1_ERROR_CODES.INVALID_REQUEST, '名称长度必须为 1–80', undefined, 400);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INVALID_REQUEST,
+        '名称长度必须为 1–80',
+        undefined,
+        400,
+      );
 
     const existing = await this.repository.findUserByEmail(email);
-    if (existing) throw new WorkmeshError(V1_ERROR_CODES.EMAIL_IN_USE, '该邮箱已注册', undefined, 409);
+    if (existing)
+      throw new WorkmeshError(V1_ERROR_CODES.EMAIL_IN_USE, '该邮箱已注册', undefined, 409);
 
     let user: V1UserRecord;
     try {
@@ -218,7 +240,12 @@ export class V1AccountService {
       throw new WorkmeshError(V1_ERROR_CODES.EMAIL_IN_USE, '该邮箱已注册', undefined, 409);
     }
     await this.repository.revokeSession(input.session.id, now);
-    const cookies = await this.createSession(user.id, user.authVersion, now, SESSION_ABSOLUTE_TIMEOUT_MS);
+    const cookies = await this.createSession(
+      user.id,
+      user.authVersion,
+      now,
+      SESSION_ABSOLUTE_TIMEOUT_MS,
+    );
     return { user, cookies };
   }
 
@@ -241,7 +268,12 @@ export class V1AccountService {
     if (!user || !matches || !user.isActive) throw authInvalid();
 
     await this.repository.revokeSession(input.session.id, now);
-    const cookies = await this.createSession(user.id, user.authVersion, now, SESSION_ABSOLUTE_TIMEOUT_MS);
+    const cookies = await this.createSession(
+      user.id,
+      user.authVersion,
+      now,
+      SESSION_ABSOLUTE_TIMEOUT_MS,
+    );
     return { user, cookies };
   }
 
@@ -249,7 +281,9 @@ export class V1AccountService {
     await this.repository.revokeSession(sessionId, now);
   }
 
-  async reauthenticate(input: V1PasswordAttemptInput & { password: string; now?: Date }): Promise<V1UserRecord> {
+  async reauthenticate(
+    input: V1PasswordAttemptInput & { password: string; now?: Date },
+  ): Promise<V1UserRecord> {
     const now = input.now ?? new Date();
     await this.consumeRate('password-verify-session', input.sessionId, 5, RATE_WINDOW_15M, now);
     const user = await this.repository.findUser(input.userId);
@@ -261,7 +295,13 @@ export class V1AccountService {
   async me(principal: Principal): Promise<Record<string, unknown>> {
     if (principal.kind === 'AGENT') {
       return {
-        principal: { kind: 'AGENT', agentCredentialId: principal.agentCredentialId ?? null, projectId: principal.projectId ?? null, roleIds: principal.roleIds ?? [], scopes: principal.scopes },
+        principal: {
+          kind: 'AGENT',
+          agentCredentialId: principal.agentCredentialId ?? null,
+          projectId: principal.projectId ?? null,
+          roleIds: principal.roleIds ?? [],
+          scopes: principal.scopes,
+        },
       };
     }
     const user = await this.repository.findUser(principal.userId);
@@ -271,7 +311,9 @@ export class V1AccountService {
     return {
       principal: { kind: 'HUMAN', userId: principal.userId, scopes: principal.scopes },
       user: { id: user.id, email: user.email, isActive: user.isActive },
-      session: session ? { expiresAt: session.expiresAt, idleExpiresAt: session.idleExpiresAt } : null,
+      session: session
+        ? { expiresAt: session.expiresAt, idleExpiresAt: session.idleExpiresAt }
+        : null,
     };
   }
 
@@ -293,12 +335,21 @@ export class V1AccountService {
    * 吊销凭据：HUMAN 保持原行为；AGENT 只可吊销自身凭据，且凭据必须属于其授权用户。
    * 任何越界尝试统一 404，不泄露他人凭据是否存在。
    */
-  async revokeCredential(principal: Principal, credentialId: string, now = new Date()): Promise<{ revoked: true }> {
+  async revokeCredential(
+    principal: Principal,
+    credentialId: string,
+    now = new Date(),
+  ): Promise<{ revoked: true }> {
     if (principal.kind === 'AGENT') {
       if (principal.agentCredentialId !== credentialId) throw credentialNotFound(credentialId);
       const credential = await this.repository.findCredential(credentialId);
-      if (!credential || credential.userId !== principal.userId) throw credentialNotFound(credentialId);
-      const selfRevoked = await this.repository.revokeCredential(credentialId, principal.userId, now);
+      if (!credential || credential.userId !== principal.userId)
+        throw credentialNotFound(credentialId);
+      const selfRevoked = await this.repository.revokeCredential(
+        credentialId,
+        principal.userId,
+        now,
+      );
       if (!selfRevoked) throw credentialNotFound(credentialId);
       return { revoked: true };
     }
@@ -315,7 +366,12 @@ export class V1AccountService {
     windowMs: number,
     now: Date,
   ): Promise<void> {
-    const attempts = await this.repository.bumpRateWindow({ kind, keyHash: hashSecret(key), now, windowMs });
+    const attempts = await this.repository.bumpRateWindow({
+      kind,
+      keyHash: hashSecret(key),
+      now,
+      windowMs,
+    });
     if (attempts > limit) {
       const retryAfterSeconds = Math.ceil(windowMs / 1000);
       throw new WorkmeshError(
@@ -334,7 +390,12 @@ function credentialNotFound(credentialId: string): WorkmeshError {
 
 export function requireHuman(principal: Principal): V1Principal {
   if (principal.kind !== 'HUMAN')
-    throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, '该动作仅允许人类会话', undefined, 403);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+      '该动作仅允许人类会话',
+      undefined,
+      403,
+    );
   return principal as V1Principal;
 }
 

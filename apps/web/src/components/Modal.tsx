@@ -119,6 +119,10 @@ interface ConfirmDialogProps {
   open: boolean;
   title: string;
   description: string;
+  /** 底部的补充说明；默认按“删除”场景提示不可恢复。 */
+  note?: string;
+  /** 确认按钮语气：删除用 danger，普通确认用 primary。 */
+  tone?: 'danger' | 'primary';
   confirmLabel?: string;
   busy?: boolean;
   onConfirm: () => void;
@@ -129,6 +133,8 @@ export function ConfirmDialog({
   open,
   title,
   description,
+  note = '删除后关联数据无法恢复。',
+  tone = 'danger',
   confirmLabel = '确认删除',
   busy = false,
   onConfirm,
@@ -146,13 +152,13 @@ export function ConfirmDialog({
           <button className="ghost" onClick={onCancel} disabled={busy}>
             取消
           </button>
-          <button className="danger" onClick={onConfirm} disabled={busy}>
+          <button className={tone} onClick={onConfirm} disabled={busy}>
             {busy ? '处理中…' : confirmLabel}
           </button>
         </>
       }
     >
-      <p className="modal-note">删除后关联数据无法恢复。</p>
+      <p className="modal-note">{note}</p>
     </Modal>
   );
 }

@@ -49,6 +49,14 @@ import { V1ReadyController } from './v1-ready.controller';
     V1BoardService,
     V1SnapshotService,
   ],
-  exports: [V1TaskService, V1ArtifactService, V1ChangeService, V1BoardService, V1SnapshotService, V1_IDEMPOTENCY_REPOSITORY],
+  exports: [
+    V1TaskService,
+    V1ReadyService,
+    V1ArtifactService,
+    V1ChangeService,
+    V1BoardService,
+    V1SnapshotService,
+    V1_IDEMPOTENCY_REPOSITORY,
+  ],
 })
 export class V1TaskModule {}

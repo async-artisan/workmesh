@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, Inject, Param, Post, Req, Res, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { ActionBinding, Principal } from '@workmesh/shared';
 import {
@@ -25,8 +36,7 @@ import {
 } from './v1-auth.dto';
 
 function principalOf(request: V1Request): Principal {
-  if (!request.v1Principal)
-    throw new Error('AUTHENTICATION_REQUIRED');
+  if (!request.v1Principal) throw new Error('AUTHENTICATION_REQUIRED');
   return request.v1Principal;
 }
 
@@ -51,7 +61,9 @@ function bindingOf(dto: ActionPreviewDto): ActionBinding {
     targetType: dto.targetType,
     targetId: dto.targetId,
     expectedVersion: dto.expectedVersion,
-    roleSlot: dto.roleSlot ? { roleId: dto.roleSlot.roleId, approvalSlotId: dto.roleSlot.approvalSlotId ?? null } : null,
+    roleSlot: dto.roleSlot
+      ? { roleId: dto.roleSlot.roleId, approvalSlotId: dto.roleSlot.approvalSlotId ?? null }
+      : null,
     payload: dto.payload,
   };
 }
@@ -88,7 +100,10 @@ export class V1AuthController {
     const session = await this.accounts.requireAnonymousSession({
       sessionCookie: readCookie(request, names.session),
       csrfCookie: readCookie(request, names.csrf),
-      csrfHeader: typeof request.headers['x-csrf-token'] === 'string' ? request.headers['x-csrf-token'] : undefined,
+      csrfHeader:
+        typeof request.headers['x-csrf-token'] === 'string'
+          ? request.headers['x-csrf-token']
+          : undefined,
       origin: typeof request.headers.origin === 'string' ? request.headers.origin : undefined,
       method: request.method,
       publicOrigin: publicOrigin(),
@@ -120,7 +135,10 @@ export class V1AuthController {
     const session = await this.accounts.requireAnonymousSession({
       sessionCookie: readCookie(request, names.session),
       csrfCookie: readCookie(request, names.csrf),
-      csrfHeader: typeof request.headers['x-csrf-token'] === 'string' ? request.headers['x-csrf-token'] : undefined,
+      csrfHeader:
+        typeof request.headers['x-csrf-token'] === 'string'
+          ? request.headers['x-csrf-token']
+          : undefined,
       origin: typeof request.headers.origin === 'string' ? request.headers.origin : undefined,
       method: request.method,
       publicOrigin: publicOrigin(),
@@ -146,7 +164,10 @@ export class V1AuthController {
     const session = await this.accounts.requireAnonymousSession({
       sessionCookie: readCookie(request, names.session),
       csrfCookie: readCookie(request, names.csrf),
-      csrfHeader: typeof request.headers['x-csrf-token'] === 'string' ? request.headers['x-csrf-token'] : undefined,
+      csrfHeader:
+        typeof request.headers['x-csrf-token'] === 'string'
+          ? request.headers['x-csrf-token']
+          : undefined,
       origin: typeof request.headers.origin === 'string' ? request.headers.origin : undefined,
       method: request.method,
       publicOrigin: publicOrigin(),
@@ -180,7 +201,11 @@ export class V1AuthController {
   }
 
   @Post('cli-authorizations')
-  createCliAuthorization(@Req() request: Request, @Body() dto: CreateCliAuthorizationDto, @Res({ passthrough: true }) response: Response) {
+  createCliAuthorization(
+    @Req() request: Request,
+    @Body() dto: CreateCliAuthorizationDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
     response.status(201);
     return this.cli.create({ ...dto, ip: emailOf(request) });
   }
@@ -239,7 +264,11 @@ export class V1AuthController {
     return result;
   }
 
-  private setCookies(response: Response, mode: ReturnType<typeof resolveCookieMode>, cookies: V1CookiePayload): void {
+  private setCookies(
+    response: Response,
+    mode: ReturnType<typeof resolveCookieMode>,
+    cookies: V1CookiePayload,
+  ): void {
     const names = cookieNames(mode);
     const now = new Date();
     const maxAge = Math.max(1, remainingSeconds(cookies.expiresAt, now));
@@ -273,7 +302,12 @@ function serializeCookie(
   value: string,
   options: { httpOnly: boolean; secure: boolean; sameSite: 'lax'; path: string; maxAge: number },
 ): string {
-  const parts = [`${name}=${encodeURIComponent(value)}`, `Path=${options.path}`, `Max-Age=${Math.floor(options.maxAge / 1000)}`, `SameSite=Lax`];
+  const parts = [
+    `${name}=${encodeURIComponent(value)}`,
+    `Path=${options.path}`,
+    `Max-Age=${Math.floor(options.maxAge / 1000)}`,
+    `SameSite=Lax`,
+  ];
   if (options.httpOnly) parts.push('HttpOnly');
   if (options.secure) parts.push('Secure');
   return parts.join('; ');

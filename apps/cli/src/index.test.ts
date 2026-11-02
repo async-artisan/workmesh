@@ -95,11 +95,7 @@ describe('CLI command surface', () => {
     ])
       expect(names).not.toContain(legacy);
     const auth = program.commands.find((command) => command.name() === 'auth');
-    expect(auth?.commands.map((command) => command.name())).toEqual([
-      'login',
-      'status',
-      'logout',
-    ]);
+    expect(auth?.commands.map((command) => command.name())).toEqual(['login', 'status', 'logout']);
     const roles = program.commands.find((command) => command.name() === 'roles');
     expect(roles?.commands.map((command) => command.name())).toEqual(['install']);
     const receipt = program.commands.find((command) => command.name() === 'receipt');

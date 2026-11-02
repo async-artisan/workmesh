@@ -19,20 +19,20 @@ WorkMesh 是面向本地 AI Agent 的证据驱动协作中枢。人类通过浏�
 
 ### 2.2 领域词汇
 
-| 术语 | 含义 |
-| --- | --- |
-| HUMAN | 浏览器 WebSession 主体，可执行需要人类批准的动作 |
-| AGENT | CLI 持有的受限 AgentCredential 主体 |
-| Project / ProjectRole | 工作空间与其业务角色 |
-| KnowledgeBase | 项目知识库，支持 PROJECT/RESTRICTED 可见性与 ACL |
-| DocumentRevision / Publication | 候选修订与已发布指针；发布和撤回是追加记录 |
-| WorkflowDefinition / Instance | 经校验并发布的 DAG 定义及其运行实例 |
-| RolePackageVersion | 角色 SOP、资源和 Agent 入口的不可变版本 |
-| TaskClaim | Agent 领取任务的代次，限制并发生产 |
-| ContextSnapshot | 绑定任务、需求、工作流和资源摘要的确定性输入 |
-| ArtifactSet | 任务交付物集合，包含托管字节或代码引用 |
-| ReviewRequest / Decision | 评审请求、审批槽位和人类决定 |
-| Code evidence | 由代码托管适配器标准化的提交级证据，当前实现 GitHub |
+| 术语                           | 含义                                                |
+| ------------------------------ | --------------------------------------------------- |
+| HUMAN                          | 浏览器 WebSession 主体，可执行需要人类批准的动作    |
+| AGENT                          | CLI 持有的受限 AgentCredential 主体                 |
+| Project / ProjectRole          | 工作空间与其业务角色                                |
+| KnowledgeBase                  | 项目知识库，支持 PROJECT/RESTRICTED 可见性与 ACL    |
+| DocumentRevision / Publication | 候选修订与已发布指针；发布和撤回是追加记录          |
+| WorkflowDefinition / Instance  | 经校验并发布的 DAG 定义及其运行实例                 |
+| RolePackageVersion             | 角色 SOP、资源和 Agent 入口的不可变版本             |
+| TaskClaim                      | Agent 领取任务的代次，限制并发生产                  |
+| ContextSnapshot                | 绑定任务、需求、工作流和资源摘要的确定性输入        |
+| ArtifactSet                    | 任务交付物集合，包含托管字节或代码引用              |
+| ReviewRequest / Decision       | 评审请求、审批槽位和人类决定                        |
+| Code evidence                  | 由代码托管适配器标准化的提交级证据，当前实现 GitHub |
 
 ## 3. Audience Guide / 读者导览
 
@@ -51,16 +51,16 @@ WorkMesh 是面向本地 AI Agent 的证据驱动协作中枢。人类通过浏�
 
 ## 5. Main Entry Points / 主要入口
 
-| 入口 | 文件/命令 | 职责 |
-| --- | --- | --- |
-| API bootstrap | [`apps/api/src/main.ts`](../../apps/api/src/main.ts) | 创建 Nest 应用、设置 `/api` 前缀、CORS、限流、安全响应头、ValidationPipe、Swagger 和端口 |
-| API composition | [`apps/api/src/app.module.ts`](../../apps/api/src/app.module.ts) | 注册 Prisma、Auth、Projects、Knowledge、Reviews、Tasks、Workflows、Integrations、OperationReceipt 模块及全局拦截器/过滤器 |
-| API probe | [`apps/api/src/app.controller.ts`](../../apps/api/src/app.controller.ts) | `/api/health`、`/api/metrics` |
-| Web bootstrap | [`apps/web/src/main.tsx`](../../apps/web/src/main.tsx) | StrictMode、BrowserRouter 和根组件挂载 |
-| Web shell | [`apps/web/src/App.tsx`](../../apps/web/src/App.tsx) | 会话 bootstrap、健康状态、导航、页面选择、ErrorBoundary、Toast 与过期会话处理 |
-| CLI entry | [`apps/cli/src/index.ts`](../../apps/cli/src/index.ts) | 构造 `workmesh` Commander 程序，注册 auth、roles、claim、context、candidate、deliver、review、receipt、changes 命令 |
-| Shared entry | [`packages/shared/src/index.ts`](../../packages/shared/src/index.ts) | 导出协议、错误、严格 JSON、摘要、schema、认证和工作流校验能力 |
-| Database schema | [`apps/api/prisma/schema.prisma`](../../apps/api/prisma/schema.prisma) | PostgreSQL datasource、枚举、模型、关系、索引和 `workmesh_v1` schema |
+| 入口            | 文件/命令                                                                | 职责                                                                                                                      |
+| --------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| API bootstrap   | [`apps/api/src/main.ts`](../../apps/api/src/main.ts)                     | 创建 Nest 应用、设置 `/api` 前缀、CORS、限流、安全响应头、ValidationPipe、Swagger 和端口                                  |
+| API composition | [`apps/api/src/app.module.ts`](../../apps/api/src/app.module.ts)         | 注册 Prisma、Auth、Projects、Knowledge、Reviews、Tasks、Workflows、Integrations、OperationReceipt 模块及全局拦截器/过滤器 |
+| API probe       | [`apps/api/src/app.controller.ts`](../../apps/api/src/app.controller.ts) | `/api/health`、`/api/metrics`                                                                                             |
+| Web bootstrap   | [`apps/web/src/main.tsx`](../../apps/web/src/main.tsx)                   | StrictMode、BrowserRouter 和根组件挂载                                                                                    |
+| Web shell       | [`apps/web/src/App.tsx`](../../apps/web/src/App.tsx)                     | 会话 bootstrap、健康状态、导航、页面选择、ErrorBoundary、Toast 与过期会话处理                                             |
+| CLI entry       | [`apps/cli/src/index.ts`](../../apps/cli/src/index.ts)                   | 构造 `workmesh` Commander 程序，注册 auth、roles、claim、context、candidate、deliver、review、receipt、changes 命令       |
+| Shared entry    | [`packages/shared/src/index.ts`](../../packages/shared/src/index.ts)     | 导出协议、错误、严格 JSON、摘要、schema、认证和工作流校验能力                                                             |
+| Database schema | [`apps/api/prisma/schema.prisma`](../../apps/api/prisma/schema.prisma)   | PostgreSQL datasource、枚举、模型、关系、索引和 `workmesh_v1` schema                                                      |
 
 ## 6. Major Components / 主要模块职责
 
@@ -68,17 +68,17 @@ WorkMesh 是面向本地 AI Agent 的证据驱动协作中枢。人类通过浏�
 
 API 遵循当前代码中的 `controller → domain service → repository → Prisma` 请求链。Controller 负责 DTO、路由和 HTTP 形状；Service 负责主体、项目成员、角色、版本、票据、事务和领域状态；Repository 抽象持久化并有 Prisma 实现；PrismaService 创建 v1 client。
 
-| 模块 | 目录 | 职责与代表文件 |
-| --- | --- | --- |
-| 认证与授权 | `apps/api/src/auth/` | WebSession + 双值 CSRF、Agent Bearer、设备授权 PKCE、scope、动作预览、一次性确认票据和认证持久化 |
-| 项目与角色 | `apps/api/src/projects/` | 项目生命周期、成员、项目业务角色、角色分配和项目访问上下文 |
-| 知识与发布 | `apps/api/src/knowledge/` | 知识库 ACL、文档/修订、候选版本、发布/撤回、已发布内容检索 |
-| 流程与角色包 | `apps/api/src/workflows/` | WorkflowDefinition 校验/发布、实例物化、RolePackageVersion 与资源读取 |
-| 任务与工件 | `apps/api/src/tasks/` | 任务 ready 查询、认领/释放、工作状态、ContextSnapshot、ArtifactSet、看板、变更收件人 |
-| 评审 | `apps/api/src/reviews/` | 评审请求、审批槽位、决定、撤销和发布/验收副作用 |
-| GitHub 集成 | `apps/api/src/integrations/` | Webhook HMAC 验签、GitHub adapter、代码证据准备与版本化使用票据 |
-| 公共基础设施 | `apps/api/src/common/` | request context、严格 JSON、响应 envelope、异常过滤、指标、幂等、操作收据 |
-| Prisma | `apps/api/src/prisma/` | PrismaModule/PrismaService 与数据库连接边界 |
+| 模块         | 目录                         | 职责与代表文件                                                                                   |
+| ------------ | ---------------------------- | ------------------------------------------------------------------------------------------------ |
+| 认证与授权   | `apps/api/src/auth/`         | WebSession + 双值 CSRF、Agent Bearer、设备授权 PKCE、scope、动作预览、一次性确认票据和认证持久化 |
+| 项目与角色   | `apps/api/src/projects/`     | 项目生命周期、成员、项目业务角色、角色分配和项目访问上下文                                       |
+| 知识与发布   | `apps/api/src/knowledge/`    | 知识库 ACL、文档/修订、候选版本、发布/撤回、已发布内容检索                                       |
+| 流程与角色包 | `apps/api/src/workflows/`    | WorkflowDefinition 校验/发布、实例物化、RolePackageVersion 与资源读取                            |
+| 任务与工件   | `apps/api/src/tasks/`        | 任务 ready 查询、认领/释放、工作状态、ContextSnapshot、ArtifactSet、看板、变更收件人             |
+| 评审         | `apps/api/src/reviews/`      | 评审请求、审批槽位、决定、撤销和发布/验收副作用                                                  |
+| GitHub 集成  | `apps/api/src/integrations/` | Webhook HMAC 验签、GitHub adapter、代码证据准备与版本化使用票据                                  |
+| 公共基础设施 | `apps/api/src/common/`       | request context、严格 JSON、响应 envelope、异常过滤、指标、幂等、操作收据                        |
+| Prisma       | `apps/api/src/prisma/`       | PrismaModule/PrismaService 与数据库连接边界                                                      |
 
 ### 6.2 Web 工作台
 
@@ -98,38 +98,38 @@ CLI 使用 Commander 构建单文件入口，配置写入用户 `~/.workmesh` �
 
 ### 7.1 认证、权限与确认
 
-| 符号 | 位置 | 作用 |
-| --- | --- | --- |
-| `V1AuthGuard.canActivate` | `apps/api/src/auth/v1-auth.guard.ts` | 从 WebSession Cookie 或 Agent Bearer 解析并注入主体 |
-| `V1AuthService.authenticate` | `apps/api/src/auth/v1-auth.service.ts` | 认证主流程，区分 HUMAN 与 AGENT |
-| `V1AuthorizationService.resolveProjectContext` | `apps/api/src/auth/v1-authorization.ts` | 每请求重新解析项目成员、角色和 scope |
-| `requireScope` / `resolveKnowledgeAccess` | 同上 | 强制权限和知识库 ACL |
-| `V1ActionService.preview` / `issueTicket` | `apps/api/src/auth/v1-action.service.ts` | 生成动作预览和绑定摘要的一次性票据 |
-| `V1ConfirmationService.verifyTicketBinding` | `apps/api/src/auth/v1-confirmation.ts` | 校验主体、会话、动作、目标、版本、payload 摘要与消费状态 |
-| `V1CliAuthorizationService.create/approve/poll` | `apps/api/src/auth/v1-cli-authorization.service.ts` | CLI 设备授权和 PKCE S256 流程 |
+| 符号                                            | 位置                                                | 作用                                                     |
+| ----------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------- |
+| `V1AuthGuard.canActivate`                       | `apps/api/src/auth/v1-auth.guard.ts`                | 从 WebSession Cookie 或 Agent Bearer 解析并注入主体      |
+| `V1AuthService.authenticate`                    | `apps/api/src/auth/v1-auth.service.ts`              | 认证主流程，区分 HUMAN 与 AGENT                          |
+| `V1AuthorizationService.resolveProjectContext`  | `apps/api/src/auth/v1-authorization.ts`             | 每请求重新解析项目成员、角色和 scope                     |
+| `requireScope` / `resolveKnowledgeAccess`       | 同上                                                | 强制权限和知识库 ACL                                     |
+| `V1ActionService.preview` / `issueTicket`       | `apps/api/src/auth/v1-action.service.ts`            | 生成动作预览和绑定摘要的一次性票据                       |
+| `V1ConfirmationService.verifyTicketBinding`     | `apps/api/src/auth/v1-confirmation.ts`              | 校验主体、会话、动作、目标、版本、payload 摘要与消费状态 |
+| `V1CliAuthorizationService.create/approve/poll` | `apps/api/src/auth/v1-cli-authorization.service.ts` | CLI 设备授权和 PKCE S256 流程                            |
 
 ### 7.2 流程、任务和评审
 
-| 符号 | 位置 | 作用 |
-| --- | --- | --- |
-| `validateWorkflowDefinition` | `packages/shared/src/workflow.ts` | 校验 schema/protocol、步骤 key、依赖、环路和 release step，并产生结构摘要 |
-| `compileWorkflowDefinition` | 同上 | 解析角色、审批槽、角色包锁和服务端 system gate，产生 canonical digest |
-| `V1WorkflowService.validate/publish/createInstance` | `apps/api/src/workflows/v1-workflow.service.ts` | 服务端校验、发布流程定义并为需求实例化步骤/任务 |
-| `V1RolePackageService` | `apps/api/src/workflows/v1-role-package.service.ts` | 注册/列出角色包版本并读取资源 |
-| `V1TaskService.claim/release/setWorkStatus` | `apps/api/src/tasks/v1-task.service.ts` | 按任务代次串行认领、释放和工作状态变更 |
-| `V1SnapshotService.create/getSnapshot/getResource` | `apps/api/src/tasks/v1-snapshot.service.ts` | 构造确定性上下文快照并按引用读取资源 |
-| `V1ArtifactService.deliver/getArtifactSet` | `apps/api/src/tasks/v1-artifact.service.ts` | 接收真实字节或完整代码引用，并复核基线 |
-| `V1ReviewService.requestReview/decide/revoke` | `apps/api/src/reviews/v1-review.service.ts` | 管理评审请求、决定、发布/验收效果及决定撤销 |
+| 符号                                                | 位置                                                | 作用                                                                      |
+| --------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------- |
+| `validateWorkflowDefinition`                        | `packages/shared/src/workflow.ts`                   | 校验 schema/protocol、步骤 key、依赖、环路和 release step，并产生结构摘要 |
+| `compileWorkflowDefinition`                         | 同上                                                | 解析角色、审批槽、角色包锁和服务端 system gate，产生 canonical digest     |
+| `V1WorkflowService.validate/publish/createInstance` | `apps/api/src/workflows/v1-workflow.service.ts`     | 服务端校验、发布流程定义并为需求实例化步骤/任务                           |
+| `V1RolePackageService`                              | `apps/api/src/workflows/v1-role-package.service.ts` | 注册/列出角色包版本并读取资源                                             |
+| `V1TaskService.claim/release/setWorkStatus`         | `apps/api/src/tasks/v1-task.service.ts`             | 按任务代次串行认领、释放和工作状态变更                                    |
+| `V1SnapshotService.create/getSnapshot/getResource`  | `apps/api/src/tasks/v1-snapshot.service.ts`         | 构造确定性上下文快照并按引用读取资源                                      |
+| `V1ArtifactService.deliver/getArtifactSet`          | `apps/api/src/tasks/v1-artifact.service.ts`         | 接收真实字节或完整代码引用，并复核基线                                    |
+| `V1ReviewService.requestReview/decide/revoke`       | `apps/api/src/reviews/v1-review.service.ts`         | 管理评审请求、决定、发布/验收效果及决定撤销                               |
 
 ### 7.3 代码证据与公共协议
 
-| 符号 | 位置 | 作用 |
-| --- | --- | --- |
-| `GithubCodeHostAdapter` | `apps/api/src/integrations/v1-code-host-adapter.ts` | 将 GitHub 提供者字段隔离在适配器边界 |
-| `V1GithubEvidenceService` | `apps/api/src/integrations/v1-github-evidence.service.ts` | Webhook、提交级证据准备、指纹和版本化使用票据 |
-| `canonicalJson` / `parseJsonStrict` | `packages/shared/src/{canonical-json,strict-json}.ts` | 生成稳定摘要并拒绝浮点、重复键、尾随内容和过深 JSON |
-| `sha256Bytes` | `packages/shared/src/bytes.ts` | 内容摘要，用于协议和证据绑定 |
-| `errorEnvelope` / `WorkmeshError` | `packages/shared/src/errors.ts` | 跨 API、Web、CLI 的统一错误形状 |
+| 符号                                | 位置                                                      | 作用                                                |
+| ----------------------------------- | --------------------------------------------------------- | --------------------------------------------------- |
+| `GithubCodeHostAdapter`             | `apps/api/src/integrations/v1-code-host-adapter.ts`       | 将 GitHub 提供者字段隔离在适配器边界                |
+| `V1GithubEvidenceService`           | `apps/api/src/integrations/v1-github-evidence.service.ts` | Webhook、提交级证据准备、指纹和版本化使用票据       |
+| `canonicalJson` / `parseJsonStrict` | `packages/shared/src/{canonical-json,strict-json}.ts`     | 生成稳定摘要并拒绝浮点、重复键、尾随内容和过深 JSON |
+| `sha256Bytes`                       | `packages/shared/src/bytes.ts`                            | 内容摘要，用于协议和证据绑定                        |
+| `errorEnvelope` / `WorkmeshError`   | `packages/shared/src/errors.ts`                           | 跨 API、Web、CLI 的统一错误形状                     |
 
 ## 8. Data and Control Flow / 数据模型与依赖关系
 
@@ -280,15 +280,15 @@ git diff --check
 
 ## 15. Suggested Architecture Improvements / 建议的架构改进
 
-| Category | Recommendation | Evidence | Senior developer rationale | Manager rationale | Effort | Risk | Priority |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Documentation/context | 统一并清理根 `.env.example` 与 `apps/api/.env.example`，只保留 v1 配置并链接 `docs/deployment.md` | 两份示例仍含 JWT/`DATABASE_URL`，部署文档只认可 `WORKMESH_V1_DATABASE_URL` | 降低错误配置和排障分支 | 缩短新成员上手时间，减少部署事故 | 小 | 低 | P0 |
-| Verification/guardrail | 在 CI 增加架构文档校验、契约测试和 `git diff --check` 门禁 | 已有 `scripts/test-contracts.mjs`、`scripts/verify.sh`，但工作树状态显示文档/代码易漂移 | 让协议与说明的偏差更早暴露 | 提高交付可预测性 | 小 | 低 | P1 |
-| Contract/schema | 为 API v1 生成或维护机器可检查的 OpenAPI/route contract snapshot | `docs/api.md` 是手写清单，Swagger 在运行时生成 | 防止 controller、Web、CLI 契约漂移 | 降低跨端联调成本 | 中 | 中 | P1 |
-| Verification/guardrail | 增加真实 PostgreSQL 的迁移、并发 CAS、不可变审计/发布触发器测试 | `phase-status.md` 明确真实 DB 并发与触发器仍 unverified | 覆盖内存仓储无法发现的约束问题 | 降低数据损坏和回滚风险 | 中 | 中 | P0 |
-| Security/data safety | 将 CLI 凭据文件存储接入系统钥匙串或明确部署基线 | CLI 当前支持用户 home 下 0600 文件，并明确不宣称同用户隔离 | 减少本地凭据泄露面 | 降低终端失陷后的凭据处置成本 | 中 | 中 | P1 |
-| Boundary/modularity | 为每个 API 领域补一份“controller/service/repository/事务边界”短 README 或目录索引 | 领域文件数量多，入口关系目前主要靠命名和本文恢复 | 降低跨模块修改时的误读 | 减少新人和 AI Agent 的定位时间 | 小 | 低 | P2 |
-| Documentation/context | 为图中低置信度关系补一份关系清单或 ADR，尤其是 Web 页面与 API resource 映射 | 当前可由 imports 推断大部分边，但真实浏览器链路未验证 | 让架构边有可审计来源 | 减少维护中的“看起来应该如此” | 小 | 低 | P2 |
+| Category               | Recommendation                                                                                    | Evidence                                                                                | Senior developer rationale         | Manager rationale                | Effort | Risk | Priority |
+| ---------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------- | -------------------------------- | ------ | ---- | -------- |
+| Documentation/context  | 统一并清理根 `.env.example` 与 `apps/api/.env.example`，只保留 v1 配置并链接 `docs/deployment.md` | 两份示例仍含 JWT/`DATABASE_URL`，部署文档只认可 `WORKMESH_V1_DATABASE_URL`              | 降低错误配置和排障分支             | 缩短新成员上手时间，减少部署事故 | 小     | 低   | P0       |
+| Verification/guardrail | 在 CI 增加架构文档校验、契约测试和 `git diff --check` 门禁                                        | 已有 `scripts/test-contracts.mjs`、`scripts/verify.sh`，但工作树状态显示文档/代码易漂移 | 让协议与说明的偏差更早暴露         | 提高交付可预测性                 | 小     | 低   | P1       |
+| Contract/schema        | 为 API v1 生成或维护机器可检查的 OpenAPI/route contract snapshot                                  | `docs/api.md` 是手写清单，Swagger 在运行时生成                                          | 防止 controller、Web、CLI 契约漂移 | 降低跨端联调成本                 | 中     | 中   | P1       |
+| Verification/guardrail | 增加真实 PostgreSQL 的迁移、并发 CAS、不可变审计/发布触发器测试                                   | `phase-status.md` 明确真实 DB 并发与触发器仍 unverified                                 | 覆盖内存仓储无法发现的约束问题     | 降低数据损坏和回滚风险           | 中     | 中   | P0       |
+| Security/data safety   | 将 CLI 凭据文件存储接入系统钥匙串或明确部署基线                                                   | CLI 当前支持用户 home 下 0600 文件，并明确不宣称同用户隔离                              | 减少本地凭据泄露面                 | 降低终端失陷后的凭据处置成本     | 中     | 中   | P1       |
+| Boundary/modularity    | 为每个 API 领域补一份“controller/service/repository/事务边界”短 README 或目录索引                 | 领域文件数量多，入口关系目前主要靠命名和本文恢复                                        | 降低跨模块修改时的误读             | 减少新人和 AI Agent 的定位时间   | 小     | 低   | P2       |
+| Documentation/context  | 为图中低置信度关系补一份关系清单或 ADR，尤其是 Web 页面与 API resource 映射                       | 当前可由 imports 推断大部分边，但真实浏览器链路未验证                                   | 让架构边有可审计来源               | 减少维护中的“看起来应该如此”     | 小     | 低   | P2       |
 
 ## 16. Glossary / 术语表
 
@@ -296,23 +296,22 @@ git diff --check
 
 ## 17. Appendix: Evidence Map / 附录：证据地图
 
-| 证据类型 | 文件/命令 | 支持的结论 | 置信度 |
-| --- | --- | --- | --- |
-| 产品定位 | `README.md` | WorkMesh 是本地 Agent 的证据驱动协作中枢，包含 API/Web/CLI/shared/ui | 高 |
-| 架构原则 | `docs/architecture.md` | controller→service→repository→Prisma、Principal、事务、追加式历史、GitHub adapter | 高 |
-| API 契约 | `docs/api.md`、`apps/api/src/knowledge/v1-knowledge-base.controller.ts` | `/api/v1` 路由、认证、幂等、版本和确认票据 | 高 |
-| API 组合 | `apps/api/src/app.module.ts`、`main.ts` | 模块、全局管道、拦截器、前缀、Swagger、CORS、限流 | 高 |
-| 数据 | `apps/api/prisma/schema.prisma` | PostgreSQL `workmesh_v1` schema、模型、枚举、关系 | 高 |
-| 前端 | `apps/web/src/App.tsx`、`apps/web/src/api/client.ts`、`apps/web/src/pages/Board.tsx`、`apps/web/vite.config.ts` | 浏览器会话、页面入口、API 客户端和开发代理 | 高 |
-| CLI | `apps/cli/src/index.ts`、`apps/cli/src/client.ts`、`apps/cli/src/auth.ts`、`apps/cli/src/config.ts` | 命令、设备授权、配置、重试和收据 | 高 |
-| 跨端契约 | `packages/shared/src/index.ts`、`packages/shared/src/strict-json.ts`、`scripts/test-contracts.mjs` | 严格 JSON、摘要、错误、角色包和流程校验 | 高 |
-| 运行部署 | `docs/deployment.md`、`scripts/test-integration.sh`、`scripts/verify.sh`、`package.json` | Node/pnpm/Postgres、迁移、构建、测试与部署步骤 | 高 |
-| 状态/缺口 | `docs/phase-status.md` | 真实 DB/浏览器/GitHub live 尚未验证 | 高 |
-| 工作树状态 | `git status --short --branch` | 当前分析基线不是 clean checkout | 高 |
+| 证据类型   | 文件/命令                                                                                                       | 支持的结论                                                                        | 置信度 |
+| ---------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------ |
+| 产品定位   | `README.md`                                                                                                     | WorkMesh 是本地 Agent 的证据驱动协作中枢，包含 API/Web/CLI/shared/ui              | 高     |
+| 架构原则   | `docs/architecture.md`                                                                                          | controller→service→repository→Prisma、Principal、事务、追加式历史、GitHub adapter | 高     |
+| API 契约   | `docs/api.md`、`apps/api/src/knowledge/v1-knowledge-base.controller.ts`                                         | `/api/v1` 路由、认证、幂等、版本和确认票据                                        | 高     |
+| API 组合   | `apps/api/src/app.module.ts`、`main.ts`                                                                         | 模块、全局管道、拦截器、前缀、Swagger、CORS、限流                                 | 高     |
+| 数据       | `apps/api/prisma/schema.prisma`                                                                                 | PostgreSQL `workmesh_v1` schema、模型、枚举、关系                                 | 高     |
+| 前端       | `apps/web/src/App.tsx`、`apps/web/src/api/client.ts`、`apps/web/src/pages/Board.tsx`、`apps/web/vite.config.ts` | 浏览器会话、页面入口、API 客户端和开发代理                                        | 高     |
+| CLI        | `apps/cli/src/index.ts`、`apps/cli/src/client.ts`、`apps/cli/src/auth.ts`、`apps/cli/src/config.ts`             | 命令、设备授权、配置、重试和收据                                                  | 高     |
+| 跨端契约   | `packages/shared/src/index.ts`、`packages/shared/src/strict-json.ts`、`scripts/test-contracts.mjs`              | 严格 JSON、摘要、错误、角色包和流程校验                                           | 高     |
+| 运行部署   | `docs/deployment.md`、`scripts/test-integration.sh`、`scripts/verify.sh`、`package.json`                        | Node/pnpm/Postgres、迁移、构建、测试与部署步骤                                    | 高     |
+| 状态/缺口  | `docs/phase-status.md`                                                                                          | 真实 DB/浏览器/GitHub live 尚未验证                                               | 高     |
+| 工作树状态 | `git status --short --branch`                                                                                   | 当前分析基线不是 clean checkout                                                   | 高     |
 
 ### 文档验证命令
 
 ```bash
 python /Users/qiujianjun/.codex/skills/repo-architecture-walkthrough/scripts/verify_architecture_docs.py
 ```
-

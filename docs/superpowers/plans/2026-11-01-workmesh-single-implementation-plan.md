@@ -10,15 +10,15 @@
 
 ## 1. 固定决定
 
-| 对象 | 本次决定 |
-| --- | --- |
-| HTTP 协议 | 保留 `/api/v1`，不提供旧 `/api` 业务接口兼容；这不禁止未来正常的协议演进。 |
-| 代码命名 | 正式模块不保留 `V1AuthService`、`V1TaskModule`、`v1-*.ts` 等用于新旧并行的名字；协议常量、历史文档和 migration 名称不机械改写。 |
-| 替换方式 | 在当前仓库整合已写好的新实现，同步切换调用方与测试；不从零重写，也不新增第三套适配业务层。 |
-| 认证 | HUMAN 仅来自 opaque WebSession；CLI 仅取得受限 AgentCredential。旧 HUMAN JWT、refresh、客户端自报身份和本地签字不再注册。 |
-| 数据访问 | 正式应用只使用一个目标 Prisma client 和一个生命周期受管的 PrismaService；历史数据读取仅存在于受控导入工具。 |
-| 数据存储 | 本计划默认保留 `workmesh_v1` 为正式目标 schema，保留旧数据作为可能的导入来源。名称不是兼容层，不为去掉“v1”冒险搬库。 |
-| 产品范围 | 继续完成原 T00–T08；Codeup T09 仍属后续，不新增 MCP server、中心 Agent 执行器或通用脚本引擎。 |
+| 对象      | 本次决定                                                                                                                        |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| HTTP 协议 | 保留 `/api/v1`，不提供旧 `/api` 业务接口兼容；这不禁止未来正常的协议演进。                                                      |
+| 代码命名  | 正式模块不保留 `V1AuthService`、`V1TaskModule`、`v1-*.ts` 等用于新旧并行的名字；协议常量、历史文档和 migration 名称不机械改写。 |
+| 替换方式  | 在当前仓库整合已写好的新实现，同步切换调用方与测试；不从零重写，也不新增第三套适配业务层。                                      |
+| 认证      | HUMAN 仅来自 opaque WebSession；CLI 仅取得受限 AgentCredential。旧 HUMAN JWT、refresh、客户端自报身份和本地签字不再注册。       |
+| 数据访问  | 正式应用只使用一个目标 Prisma client 和一个生命周期受管的 PrismaService；历史数据读取仅存在于受控导入工具。                     |
+| 数据存储  | 本计划默认保留 `workmesh_v1` 为正式目标 schema，保留旧数据作为可能的导入来源。名称不是兼容层，不为去掉“v1”冒险搬库。            |
+| 产品范围  | 继续完成原 T00–T08；Codeup T09 仍属后续，不新增 MCP server、中心 Agent 执行器或通用脚本引擎。                                   |
 
 “不兼容旧写法”允许移除旧源码和路由，不授权删除历史数据、改写已应用迁移或替用户选择生产切换方案。
 
@@ -36,19 +36,19 @@
 
 以下均为相对项目根的路径。表中目标文件是实施后的责任落点，不表示当前已存在。若正式文件混有用户修改，逐段整合，不用新文件整份覆盖。
 
-| 当前来源 | 正式归属 | 处理方式 |
-| --- | --- | --- |
-| `apps/api/src/auth/v1-auth.*`、`v1-policy.*`、`v1-cookie-policy.*`、`v1-credential-policy.*` | `auth/auth.service.ts`、`auth/auth.guard.ts`、`auth/session-policy.ts`、`auth/credential-policy.ts` | 合并为正式认证链，保留清晰的会话与 Agent 职责；删除旧 JWT 认证实现。 |
-| `auth/v1-authorization*`、`v1-confirmation*` | `auth/authorization.service.ts`、`auth/confirmation.service.ts` 及必要策略文件 | 保留唯一完整 Principal 授权与准确动作票据规则；补预览、密码核验、签发和管理入口。 |
-| `knowledge/v1-publication*`、旧 knowledge/source/prd 索引与发布逻辑 | `knowledge/publication.service.ts`、正式 knowledge controller；PRD 保留业务组织职责 | 正文与发布只有一个权威；不保留能独立批准的旧索引或旧 PRD 版本路径。 |
-| `reviews/v1-review*`、旧 `signoff/` | `reviews/review.*` | 正式决定统一从 ReviewRequest 进入；被替代的旧 signoff controller/service 移除。 |
-| `tasks/v1-task*`、`v1-artifact*`、旧 tasks/artifacts | `tasks/task.*`、`artifacts/artifact.*` | 按任务与交付职责合并，保留一个入口；不同时注册两个 tasks 模块。 |
-| `tasks/v1-change*`、`v1-board*`、旧 changes/board/trace | `changes/`、`board/`、`trace/` | 放回各自业务模块，统一当前权限、基线有效性和分页。 |
-| `integrations/v1-code-evidence-policy*`、旧 git integration | `integrations/` 的 GitHub adapter 与证据服务 | 保留厂商中立核心，新增真实 adapter，不把纯策略测试当 adapter 完成。 |
-| `common/v1-idempotency*`、`v1-test-database*` | `common/idempotency.*`、`common/test-database.*` | 统一幂等、事务与测试边界；测试库守卫不得进入普通业务请求逻辑。 |
-| `apps/api/prisma/v1/schema.prisma` 与目标 migrations | `apps/api/prisma/schema.prisma` 与正式 migrations 入口 | 先保护旧 schema/migration 来源，再切唯一生成入口；已应用历史不重写。 |
-| 各 `*.prisma-repository.ts` | 正式 PrismaService 与领域服务 | 不保留只转发 Prisma 调用的通用仓储包装；确有边界价值的适配器可保留，但不得各自创建 client 或复制授权。 |
-| CLI `v1-credential-store` 与旧 client/config/index | 正式 `credentials.ts`、`client.ts`、`config.ts`、分职责命令文件 | 浏览器授权、限定 scope、显式撤权；移除密码登录和 HUMAN refresh 逻辑。 |
+| 当前来源                                                                                     | 正式归属                                                                                            | 处理方式                                                                                               |
+| -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `apps/api/src/auth/v1-auth.*`、`v1-policy.*`、`v1-cookie-policy.*`、`v1-credential-policy.*` | `auth/auth.service.ts`、`auth/auth.guard.ts`、`auth/session-policy.ts`、`auth/credential-policy.ts` | 合并为正式认证链，保留清晰的会话与 Agent 职责；删除旧 JWT 认证实现。                                   |
+| `auth/v1-authorization*`、`v1-confirmation*`                                                 | `auth/authorization.service.ts`、`auth/confirmation.service.ts` 及必要策略文件                      | 保留唯一完整 Principal 授权与准确动作票据规则；补预览、密码核验、签发和管理入口。                      |
+| `knowledge/v1-publication*`、旧 knowledge/source/prd 索引与发布逻辑                          | `knowledge/publication.service.ts`、正式 knowledge controller；PRD 保留业务组织职责                 | 正文与发布只有一个权威；不保留能独立批准的旧索引或旧 PRD 版本路径。                                    |
+| `reviews/v1-review*`、旧 `signoff/`                                                          | `reviews/review.*`                                                                                  | 正式决定统一从 ReviewRequest 进入；被替代的旧 signoff controller/service 移除。                        |
+| `tasks/v1-task*`、`v1-artifact*`、旧 tasks/artifacts                                         | `tasks/task.*`、`artifacts/artifact.*`                                                              | 按任务与交付职责合并，保留一个入口；不同时注册两个 tasks 模块。                                        |
+| `tasks/v1-change*`、`v1-board*`、旧 changes/board/trace                                      | `changes/`、`board/`、`trace/`                                                                      | 放回各自业务模块，统一当前权限、基线有效性和分页。                                                     |
+| `integrations/v1-code-evidence-policy*`、旧 git integration                                  | `integrations/` 的 GitHub adapter 与证据服务                                                        | 保留厂商中立核心，新增真实 adapter，不把纯策略测试当 adapter 完成。                                    |
+| `common/v1-idempotency*`、`v1-test-database*`                                                | `common/idempotency.*`、`common/test-database.*`                                                    | 统一幂等、事务与测试边界；测试库守卫不得进入普通业务请求逻辑。                                         |
+| `apps/api/prisma/v1/schema.prisma` 与目标 migrations                                         | `apps/api/prisma/schema.prisma` 与正式 migrations 入口                                              | 先保护旧 schema/migration 来源，再切唯一生成入口；已应用历史不重写。                                   |
+| 各 `*.prisma-repository.ts`                                                                  | 正式 PrismaService 与领域服务                                                                       | 不保留只转发 Prisma 调用的通用仓储包装；确有边界价值的适配器可保留，但不得各自创建 client 或复制授权。 |
+| CLI `v1-credential-store` 与旧 client/config/index                                           | 正式 `credentials.ts`、`client.ts`、`config.ts`、分职责命令文件                                     | 浏览器授权、限定 scope、显式撤权；移除密码登录和 HUMAN refresh 逻辑。                                  |
 
 移动/整合某项时，同步处理对应 spec、imports、DI token、exports、模块注册、生成产物引用、文档示例及调用方。不能以残留 re-export、旧类别名或双路由完成“兼容”。
 
@@ -190,17 +190,17 @@ API全量单测、build和包脚本先排查隐式Prisma生成、环境文件和
 
 ## 7. 原任务与文档同步
 
-| 原任务 | 本计划承接 | 不得漏掉的剩余范围 |
-| --- | --- | --- |
-| T00 | S00、S01、S08 | 共享契约、双模块加载、构建依赖、HTTP envelope。 |
-| T01 | S01及各域数据模型 | 正式client、完整约束、历史保护、真实数据库验证。 |
-| T02 | S02、S06、S07 | 完整认证签发/撤销、管理入口、Web/CLI身份分离。 |
-| T03 | S03 | 理解/PRD/知识不同效应、流程与上下文，不仅知识发布。 |
-| T04 | S04 | 工件实际内容、并发门禁、变更与有效性。 |
-| T05 | S05 | 真实adapter与提交级证据，不止策略函数。 |
-| T06 | S06 | 真正可发行、可授权、带资源的CLI。 |
-| T07 | S07 | 真实用户页面和浏览器闭环。 |
-| T08 | S08 | 导入映射、恢复、CI及发布证据。 |
+| 原任务 | 本计划承接        | 不得漏掉的剩余范围                                  |
+| ------ | ----------------- | --------------------------------------------------- |
+| T00    | S00、S01、S08     | 共享契约、双模块加载、构建依赖、HTTP envelope。     |
+| T01    | S01及各域数据模型 | 正式client、完整约束、历史保护、真实数据库验证。    |
+| T02    | S02、S06、S07     | 完整认证签发/撤销、管理入口、Web/CLI身份分离。      |
+| T03    | S03               | 理解/PRD/知识不同效应、流程与上下文，不仅知识发布。 |
+| T04    | S04               | 工件实际内容、并发门禁、变更与有效性。              |
+| T05    | S05               | 真实adapter与提交级证据，不止策略函数。             |
+| T06    | S06               | 真正可发行、可授权、带资源的CLI。                   |
+| T07    | S07               | 真实用户页面和浏览器闭环。                          |
+| T08    | S08               | 导入映射、恢复、CI及发布证据。                      |
 
 实施每域时同步更新相应技术分册中的文件位置与旧代码替换说明；保留01–05的产品和协议语义。06仍保留T00–T08作为需求覆盖编号，以本计划S00–S08安排收敛次序。旧执行提示词不得继续指导“平行新增v1模块”；新会话从本计划及当前进度接续。
 

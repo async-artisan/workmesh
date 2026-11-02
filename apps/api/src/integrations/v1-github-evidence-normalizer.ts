@@ -1,4 +1,8 @@
-import { evaluateRepositoryEvidence, type RepositoryEvidenceInput, type ReviewEvidence } from './v1-code-evidence-policy';
+import {
+  evaluateRepositoryEvidence,
+  type RepositoryEvidenceInput,
+  type ReviewEvidence,
+} from './v1-code-evidence-policy';
 import {
   isRecord,
   parseGithubPullRequest,
@@ -7,7 +11,11 @@ import {
   payloadInvalid,
   repositoryStableKeyOf,
 } from './v1-github-payload';
-import type { NormalizedChangeRequest, NormalizedReview, RepositoryIdentity } from './v1-code-host-adapter';
+import type {
+  NormalizedChangeRequest,
+  NormalizedReview,
+  RepositoryIdentity,
+} from './v1-code-host-adapter';
 
 /** 提交级证据中与 GitHub 厂商语义相关的独立拒绝原因。 */
 export const GITHUB_EVIDENCE_REJECTION_REASONS = [
@@ -48,7 +56,11 @@ export function evaluateGithubChangeRequestEvidence(
   const reasons: string[] = [];
 
   if (options.signatureValid === false) reasons.push('SIGNATURE_INVALID');
-  if (options.expectedHeadSha !== undefined && options.expectedHeadSha !== null && options.expectedHeadSha !== headSha)
+  if (
+    options.expectedHeadSha !== undefined &&
+    options.expectedHeadSha !== null &&
+    options.expectedHeadSha !== headSha
+  )
     reasons.push('HEAD_CHANGED');
   if (
     options.artifactCommitSha !== undefined &&

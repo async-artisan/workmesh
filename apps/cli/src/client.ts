@@ -76,7 +76,11 @@ export class V1Client {
     return url.toString();
   }
 
-  async request<T>(method: string, path: string, options: RequestOptions = {}): Promise<V1Response<T>> {
+  async request<T>(
+    method: string,
+    path: string,
+    options: RequestOptions = {},
+  ): Promise<V1Response<T>> {
     const upper = method.toUpperCase();
     const readOnly = upper === 'GET' || upper === 'HEAD';
     if (!readOnly && options.idempotent !== false && !options.idempotencyKey)
@@ -87,8 +91,7 @@ export class V1Client {
     const deadline = this.now() + this.deadlineMs;
 
     for (let attempt = 1; ; attempt += 1) {
-      if (!readOnly && attempt > 1)
-        throw new CliError('INTERNAL_ERROR', '写操作不得自动重试');
+      if (!readOnly && attempt > 1) throw new CliError('INTERNAL_ERROR', '写操作不得自动重试');
       const remaining = deadline - this.now();
       if (remaining <= 0)
         throw new CliError('RETRY_EXHAUSTED', '请求超过总时限，结果未知', { exitCode: 7 });
@@ -109,7 +112,12 @@ export class V1Client {
         throw failure;
       }
 
-      if (!response.ok && readOnly && RETRYABLE_STATUS.has(response.status) && attempt < MAX_ATTEMPTS) {
+      if (
+        !response.ok &&
+        readOnly &&
+        RETRYABLE_STATUS.has(response.status) &&
+        attempt < MAX_ATTEMPTS
+      ) {
         await this.backoff(attempt, remaining, this.retryAfterMs(response));
         continue;
       }

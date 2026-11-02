@@ -30,8 +30,15 @@ class FakeEvidenceRepository implements V1GithubEvidenceRepository {
   readonly evidence: V1CodeReviewEvidenceRecord[] = [];
   receiptCreateCount = 0;
 
-  async findReceiptByDelivery(source: 'GITHUB', deliveryId: string): Promise<V1WebhookReceiptRecord | null> {
-    return this.receipts.find((receipt) => receipt.source === source && receipt.deliveryId === deliveryId) ?? null;
+  async findReceiptByDelivery(
+    source: 'GITHUB',
+    deliveryId: string,
+  ): Promise<V1WebhookReceiptRecord | null> {
+    return (
+      this.receipts.find(
+        (receipt) => receipt.source === source && receipt.deliveryId === deliveryId,
+      ) ?? null
+    );
   }
 
   async recordReceipt(input: V1RecordReceiptInput): Promise<V1WebhookReceiptRecord> {
@@ -53,7 +60,11 @@ class FakeEvidenceRepository implements V1GithubEvidenceRepository {
     return receipt;
   }
 
-  async recordReceiptProcessed(receiptId: string, status: string, errorMessage: string | null): Promise<void> {
+  async recordReceiptProcessed(
+    receiptId: string,
+    status: string,
+    errorMessage: string | null,
+  ): Promise<void> {
     const receipt = this.receipts.find((item) => item.id === receiptId);
     if (!receipt) throw new Error(`receipt not found: ${receiptId}`);
     receipt.status = status;
@@ -203,7 +214,10 @@ function context(idempotencyKey: string, operationId: string): V1WebhookReceiveC
   };
 }
 
-function serviceWith(repository: V1GithubEvidenceRepository, secret = SECRET): V1GithubEvidenceService {
+function serviceWith(
+  repository: V1GithubEvidenceRepository,
+  secret = SECRET,
+): V1GithubEvidenceService {
   return new V1GithubEvidenceService(
     repository,
     new V1AuthorizationService(authorizationRepository),
@@ -216,7 +230,12 @@ describe('v1 github evidence delivery idempotency', () => {
   it('accepts a valid server-side HMAC signature', async () => {
     const repository = new FakeEvidenceRepository();
     const service = serviceWith(repository);
-    const first = await service.receiveWebhook(principal, 'project-1', receiveInput(), context('key-1', 'op-1'));
+    const first = await service.receiveWebhook(
+      principal,
+      'project-1',
+      receiveInput(),
+      context('key-1', 'op-1'),
+    );
 
     expect(first).toMatchObject({ decision: 'VALID', replayed: false, signatureValid: true });
     expect(first.evidenceIds).toHaveLength(1);
@@ -228,8 +247,18 @@ describe('v1 github evidence delivery idempotency', () => {
     const service = serviceWith(repository);
     const input = receiveInput();
 
-    const first = await service.receiveWebhook(principal, 'project-1', input, context('key-1', 'op-1'));
-    const duplicate = await service.receiveWebhook(principal, 'project-1', input, context('key-2', 'op-2'));
+    const first = await service.receiveWebhook(
+      principal,
+      'project-1',
+      input,
+      context('key-1', 'op-1'),
+    );
+    const duplicate = await service.receiveWebhook(
+      principal,
+      'project-1',
+      input,
+      context('key-2', 'op-2'),
+    );
 
     expect(duplicate).toMatchObject({
       receiptId: first.receiptId,
@@ -251,7 +280,10 @@ describe('v1 github evidence delivery idempotency', () => {
       service.receiveWebhook(
         principal,
         'project-1',
-        receiveInput({ rawBody: differentBody, repositories: [repositoryEvidence({ changeRequestId: '987655' })] }),
+        receiveInput({
+          rawBody: differentBody,
+          repositories: [repositoryEvidence({ changeRequestId: '987655' })],
+        }),
         context('key-2', 'op-2'),
       ),
     ).rejects.toMatchObject({
@@ -314,7 +346,12 @@ describe('v1 github evidence delivery idempotency', () => {
       ],
     });
 
-    const result = await service.receiveWebhook(principal, 'project-1', input, context('key-1', 'op-1'));
+    const result = await service.receiveWebhook(
+      principal,
+      'project-1',
+      input,
+      context('key-1', 'op-1'),
+    );
     expect(result.decision).toBe('INVALID');
     expect(result.reasons).toContain('OTHER_USER_APPROVAL_REQUIRED');
   });

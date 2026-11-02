@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { V1_ERROR_CODES, WorkmeshError, type ActionBinding, type Principal } from '@workmesh/shared';
+import {
+  V1_ERROR_CODES,
+  WorkmeshError,
+  type ActionBinding,
+  type Principal,
+} from '@workmesh/shared';
 import {
   V1AuthorizationService,
   type V1AuthorizationRepository,
@@ -60,7 +65,14 @@ const other: Principal & { sessionId: string; authVersion: number } = {
   sessionId: 'sess-3',
   authVersion: 1,
 };
-const agent: Principal = { kind: 'AGENT', userId: OWNER_ID, agentCredentialId: 'cred-1', projectId: PROJECT_ID, roleIds: ['r-reviewer'], scopes: ['knowledge:read'] };
+const agent: Principal = {
+  kind: 'AGENT',
+  userId: OWNER_ID,
+  agentCredentialId: 'cred-1',
+  projectId: PROJECT_ID,
+  roleIds: ['r-reviewer'],
+  scopes: ['knowledge:read'],
+};
 
 type StoredKnowledgeBase = V1KnowledgeBaseView & { createdAt: Date };
 type StoredGrant = Omit<V1KnowledgeBaseGrantView, 'grantedAt' | 'revokedAt'> & {
@@ -69,8 +81,19 @@ type StoredGrant = Omit<V1KnowledgeBaseGrantView, 'grantedAt' | 'revokedAt'> & {
   grantedAt: Date;
   revokedAt: Date | null;
 };
-type StoredDocument = { id: string; currentPublishedRevisionId: string | null; archivedAt: Date | null; knowledgeBaseId: string };
-type StoredRevision = { id: string; documentId: string; title: string; bodyBytes: Uint8Array; sha256: string };
+type StoredDocument = {
+  id: string;
+  currentPublishedRevisionId: string | null;
+  archivedAt: Date | null;
+  knowledgeBaseId: string;
+};
+type StoredRevision = {
+  id: string;
+  documentId: string;
+  title: string;
+  bodyBytes: Uint8Array;
+  sha256: string;
+};
 
 class MemoryStore implements V1KnowledgeBaseRepository {
   projects = new Map<string, V1ProjectRecord>();
@@ -111,7 +134,11 @@ class MemoryStore implements V1KnowledgeBaseRepository {
     });
   }
 
-  seedGrant(input: Omit<StoredGrant, 'projectId' | 'grantedAt' | 'revokedAt' | 'version'> & { revoked?: boolean }): void {
+  seedGrant(
+    input: Omit<StoredGrant, 'projectId' | 'grantedAt' | 'revokedAt' | 'version'> & {
+      revoked?: boolean;
+    },
+  ): void {
     const id = input.id;
     this.grants.set(id, {
       ...input,
@@ -122,7 +149,11 @@ class MemoryStore implements V1KnowledgeBaseRepository {
     });
   }
 
-  seedDocument(input: { id: string; publishedRevisionId: string | null; archivedAt?: Date | null }): void {
+  seedDocument(input: {
+    id: string;
+    publishedRevisionId: string | null;
+    archivedAt?: Date | null;
+  }): void {
     this.documents.set(input.id, {
       id: input.id,
       currentPublishedRevisionId: input.publishedRevisionId,
@@ -131,12 +162,21 @@ class MemoryStore implements V1KnowledgeBaseRepository {
     });
   }
 
-  seedRevision(input: { id: string; documentId: string; title: string; body: string | Uint8Array; sha256?: string }): void {
+  seedRevision(input: {
+    id: string;
+    documentId: string;
+    title: string;
+    body: string | Uint8Array;
+    sha256?: string;
+  }): void {
     this.revisions.set(input.id, {
       id: input.id,
       documentId: input.documentId,
       title: input.title,
-      bodyBytes: typeof input.body === 'string' ? new Uint8Array(Buffer.from(input.body, 'utf8')) : input.body,
+      bodyBytes:
+        typeof input.body === 'string'
+          ? new Uint8Array(Buffer.from(input.body, 'utf8'))
+          : input.body,
       sha256: input.sha256 ?? 'a'.repeat(64),
     });
   }
@@ -161,12 +201,23 @@ class MemoryStore implements V1KnowledgeBaseRepository {
     return this.members.get(`${projectId}:${userId}`) ?? null;
   }
 
-  async findActiveRoleAssignments(projectId: string, userId: string): Promise<V1RoleAssignmentRecord[]> {
+  async findActiveRoleAssignments(
+    projectId: string,
+    userId: string,
+  ): Promise<V1RoleAssignmentRecord[]> {
     return this.assignments.get(`${projectId}:${userId}`) ?? [];
   }
 
-  async findRoleAssignment(projectId: string, userId: string, roleId: string): Promise<V1RoleAssignmentRecord | null> {
-    return (this.assignments.get(`${projectId}:${userId}`) ?? []).find((item) => item.roleId === roleId) ?? null;
+  async findRoleAssignment(
+    projectId: string,
+    userId: string,
+    roleId: string,
+  ): Promise<V1RoleAssignmentRecord | null> {
+    return (
+      (this.assignments.get(`${projectId}:${userId}`) ?? []).find(
+        (item) => item.roleId === roleId,
+      ) ?? null
+    );
   }
 
   async findKnowledgeBase(knowledgeBaseId: string): Promise<V1KnowledgeBaseView | null> {
@@ -190,7 +241,10 @@ class MemoryStore implements V1KnowledgeBaseRepository {
   private grantRows(knowledgeBaseId: string): StoredGrant[] {
     return [...this.grants.values()]
       .filter((grant) => grant.knowledgeBaseId === knowledgeBaseId)
-      .sort((left, right) => left.grantedAt.getTime() - right.grantedAt.getTime() || left.id.localeCompare(right.id));
+      .sort(
+        (left, right) =>
+          left.grantedAt.getTime() - right.grantedAt.getTime() || left.id.localeCompare(right.id),
+      );
   }
 
   private grantView(grant: StoredGrant): V1KnowledgeBaseGrantView {
@@ -214,8 +268,13 @@ class MemoryStore implements V1KnowledgeBaseRepository {
   ): Promise<{ items: V1KnowledgeBaseView[]; nextCursor: string | null; hasMore: boolean }> {
     const rows = [...this.knowledgeBases.values()]
       .filter((row) => row.projectId === projectId)
-      .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id));
-    const start = query.cursor ? Number(Buffer.from(query.cursor, 'base64url').toString('utf8')) : 0;
+      .sort(
+        (left, right) =>
+          left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id),
+      );
+    const start = query.cursor
+      ? Number(Buffer.from(query.cursor, 'base64url').toString('utf8'))
+      : 0;
     const page = rows.slice(start, start + query.limit);
     return {
       items: page.map(({ createdAt: _createdAt, ...view }) => view),
@@ -299,17 +358,20 @@ class MemoryStore implements V1KnowledgeBaseRepository {
       publicationApproverRoleId: null,
       archivedAt: null,
     };
-    this.operations.set(`${input.operation.projectScopeKey}|${input.operation.principalScopeKey}|${input.operation.key}`, {
-      id: input.operation.id,
-      projectScopeKey: input.operation.projectScopeKey,
-      principalScopeKey: input.operation.principalScopeKey,
-      key: input.operation.key,
-      method: input.operation.method,
-      route: input.operation.route,
-      requestDigest: input.operation.requestDigest,
-      resultRefs: { knowledgeBase: view },
-      committedAt: input.now,
-    });
+    this.operations.set(
+      `${input.operation.projectScopeKey}|${input.operation.principalScopeKey}|${input.operation.key}`,
+      {
+        id: input.operation.id,
+        projectScopeKey: input.operation.projectScopeKey,
+        principalScopeKey: input.operation.principalScopeKey,
+        key: input.operation.key,
+        method: input.operation.method,
+        route: input.operation.route,
+        requestDigest: input.operation.requestDigest,
+        resultRefs: { knowledgeBase: view },
+        committedAt: input.now,
+      },
+    );
     return view;
   }
 
@@ -341,7 +403,12 @@ class MemoryStore implements V1KnowledgeBaseRepository {
   }): Promise<V1KnowledgeBaseAccessView> {
     const row = this.knowledgeBases.get(input.knowledgeBaseId);
     if (!row)
-      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'KNOWLEDGE_BASE_NOT_FOUND', { knowledgeBaseId: input.knowledgeBaseId }, 404);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'KNOWLEDGE_BASE_NOT_FOUND',
+        { knowledgeBaseId: input.knowledgeBaseId },
+        404,
+      );
     if (row.version !== input.expectedVersion || row.authzVersion !== input.expectedAuthzVersion)
       throw new WorkmeshError(
         V1_ERROR_CODES.VERSION_CONFLICT,
@@ -382,7 +449,7 @@ class MemoryStore implements V1KnowledgeBaseRepository {
     row.version += 1;
     row.authzVersion += 1;
 
-    const grants = (await this.listAccessGrants(input.knowledgeBaseId));
+    const grants = await this.listAccessGrants(input.knowledgeBaseId);
     const view: V1KnowledgeBaseAccessView = {
       knowledgeBaseId: row.id,
       projectId: row.projectId,
@@ -398,17 +465,20 @@ class MemoryStore implements V1KnowledgeBaseRepository {
       targetId: row.id,
       details: { visibility: input.visibility, reason: input.reason },
     });
-    this.operations.set(`${input.operation.projectScopeKey}|${input.operation.principalScopeKey}|${input.operation.key}`, {
-      id: input.operation.id,
-      projectScopeKey: input.operation.projectScopeKey,
-      principalScopeKey: input.operation.principalScopeKey,
-      key: input.operation.key,
-      method: input.operation.method,
-      route: input.operation.route,
-      requestDigest: input.operation.requestDigest,
-      resultRefs: { access: view },
-      committedAt: input.now,
-    });
+    this.operations.set(
+      `${input.operation.projectScopeKey}|${input.operation.principalScopeKey}|${input.operation.key}`,
+      {
+        id: input.operation.id,
+        projectScopeKey: input.operation.projectScopeKey,
+        principalScopeKey: input.operation.principalScopeKey,
+        key: input.operation.key,
+        method: input.operation.method,
+        route: input.operation.route,
+        requestDigest: input.operation.requestDigest,
+        resultRefs: { access: view },
+        committedAt: input.now,
+      },
+    );
     return view;
   }
 
@@ -418,7 +488,13 @@ class MemoryStore implements V1KnowledgeBaseRepository {
     limit: number;
     cursor: string | null;
   }): Promise<{
-    items: Array<{ revisionId: string; documentId: string; title: string; excerpt: string; sha256: string }>;
+    items: Array<{
+      revisionId: string;
+      documentId: string;
+      title: string;
+      excerpt: string;
+      sha256: string;
+    }>;
     nextCursor: string | null;
     hasMore: boolean;
     truncated: boolean;
@@ -431,8 +507,16 @@ class MemoryStore implements V1KnowledgeBaseRepository {
           document.currentPublishedRevisionId !== null,
       )
       .sort((left, right) => left.id.localeCompare(right.id));
-    const start = input.cursor ? Number(Buffer.from(input.cursor, 'base64url').toString('utf8')) : 0;
-    const matches: Array<{ revisionId: string; documentId: string; title: string; excerpt: string; sha256: string }> = [];
+    const start = input.cursor
+      ? Number(Buffer.from(input.cursor, 'base64url').toString('utf8'))
+      : 0;
+    const matches: Array<{
+      revisionId: string;
+      documentId: string;
+      title: string;
+      excerpt: string;
+      sha256: string;
+    }> = [];
     for (const document of published) {
       const revision = this.revisions.get(document.currentPublishedRevisionId!);
       if (!revision || revision.documentId !== document.id) continue;
@@ -458,14 +542,26 @@ class MemoryStore implements V1KnowledgeBaseRepository {
     };
   }
 
-  async findProjectRoles(projectId: string, roleIds: readonly string[]): Promise<Array<{ id: string; projectId: string; isActive: boolean }>> {
-    return [...this.roles.values()].filter((role) => role.projectId === projectId && roleIds.includes(role.id));
+  async findProjectRoles(
+    projectId: string,
+    roleIds: readonly string[],
+  ): Promise<Array<{ id: string; projectId: string; isActive: boolean }>> {
+    return [...this.roles.values()].filter(
+      (role) => role.projectId === projectId && roleIds.includes(role.id),
+    );
   }
 
   // --- V1IdempotencyRepository ---
 
-  async findOperation(input: { projectScopeKey: string; principalScopeKey: string; key: string }): Promise<V1OperationRecord | null> {
-    return this.operations.get(`${input.projectScopeKey}|${input.principalScopeKey}|${input.key}`) ?? null;
+  async findOperation(input: {
+    projectScopeKey: string;
+    principalScopeKey: string;
+    key: string;
+  }): Promise<V1OperationRecord | null> {
+    return (
+      this.operations.get(`${input.projectScopeKey}|${input.principalScopeKey}|${input.key}`) ??
+      null
+    );
   }
 }
 
@@ -480,11 +576,18 @@ class MemoryAuthzRepository implements V1AuthorizationRepository {
     return this.store.findMember(projectId, userId);
   }
 
-  async findActiveRoleAssignments(projectId: string, userId: string): Promise<V1RoleAssignmentRecord[]> {
+  async findActiveRoleAssignments(
+    projectId: string,
+    userId: string,
+  ): Promise<V1RoleAssignmentRecord[]> {
     return this.store.findActiveRoleAssignments(projectId, userId);
   }
 
-  async findRoleAssignment(projectId: string, userId: string, roleId: string): Promise<V1RoleAssignmentRecord | null> {
+  async findRoleAssignment(
+    projectId: string,
+    userId: string,
+    roleId: string,
+  ): Promise<V1RoleAssignmentRecord | null> {
     return this.store.findRoleAssignment(projectId, userId, roleId);
   }
 
@@ -558,35 +661,122 @@ class MemoryConfirmationRepository implements V1ConfirmationRepository {
 
 function seedBase(store: MemoryStore): void {
   store.projects.set(PROJECT_ID, { id: PROJECT_ID, version: 1, archivedAt: null });
-  store.members.set(`${PROJECT_ID}:${OWNER_ID}`, { projectId: PROJECT_ID, userId: OWNER_ID, role: 'OWNER', version: 1, revokedAt: null });
-  store.members.set(`${PROJECT_ID}:${MEMBER_ID}`, { projectId: PROJECT_ID, userId: MEMBER_ID, role: 'MEMBER', version: 1, revokedAt: null });
-  store.members.set(`${PROJECT_ID}:${OTHER_ID}`, { projectId: PROJECT_ID, userId: OTHER_ID, role: 'MEMBER', version: 1, revokedAt: null });
+  store.members.set(`${PROJECT_ID}:${OWNER_ID}`, {
+    projectId: PROJECT_ID,
+    userId: OWNER_ID,
+    role: 'OWNER',
+    version: 1,
+    revokedAt: null,
+  });
+  store.members.set(`${PROJECT_ID}:${MEMBER_ID}`, {
+    projectId: PROJECT_ID,
+    userId: MEMBER_ID,
+    role: 'MEMBER',
+    version: 1,
+    revokedAt: null,
+  });
+  store.members.set(`${PROJECT_ID}:${OTHER_ID}`, {
+    projectId: PROJECT_ID,
+    userId: OTHER_ID,
+    role: 'MEMBER',
+    version: 1,
+    revokedAt: null,
+  });
   store.roles.set('r-product', { id: 'r-product', projectId: PROJECT_ID, isActive: true });
   store.roles.set('r-reviewer', { id: 'r-reviewer', projectId: PROJECT_ID, isActive: true });
   store.roles.set('r-inactive', { id: 'r-inactive', projectId: PROJECT_ID, isActive: false });
   store.assignments.set(`${PROJECT_ID}:${MEMBER_ID}`, [
-    { id: 'as-bob', projectId: PROJECT_ID, userId: MEMBER_ID, roleId: 'r-reviewer', version: 1, revokedAt: null },
+    {
+      id: 'as-bob',
+      projectId: PROJECT_ID,
+      userId: MEMBER_ID,
+      roleId: 'r-reviewer',
+      version: 1,
+      revokedAt: null,
+    },
   ]);
   store.assignments.set(`${PROJECT_ID}:${OWNER_ID}`, [
-    { id: 'as-alice', projectId: PROJECT_ID, userId: OWNER_ID, roleId: 'r-product', version: 1, revokedAt: null },
+    {
+      id: 'as-alice',
+      projectId: PROJECT_ID,
+      userId: OWNER_ID,
+      roleId: 'r-product',
+      version: 1,
+      revokedAt: null,
+    },
   ]);
 
-  store.seedKnowledgeBase({ id: 'kb-project', key: 'project-knowledge', name: '项目知识', visibility: 'PROJECT' });
-  store.seedKnowledgeBase({ id: 'kb-restricted', key: 'restricted', name: '受限知识', visibility: 'RESTRICTED' });
-  store.seedKnowledgeBase({ id: 'kb-private', key: 'private', name: '私库', visibility: 'RESTRICTED' });
-  store.seedGrant({ id: 'g-owner', knowledgeBaseId: 'kb-project', subjectKind: 'USER', subjectUserId: OWNER_ID, subjectRoleId: null, permissions: ['READ', 'PROPOSE', 'PUBLISH', 'REVOKE'] });
-  store.seedGrant({ id: 'g-old-revoked', knowledgeBaseId: 'kb-project', subjectKind: 'USER', subjectUserId: OTHER_ID, subjectRoleId: null, permissions: ['READ'], revoked: true });
-  store.seedGrant({ id: 'g-bob', knowledgeBaseId: 'kb-restricted', subjectKind: 'USER', subjectUserId: MEMBER_ID, subjectRoleId: null, permissions: ['READ', 'PROPOSE'] });
+  store.seedKnowledgeBase({
+    id: 'kb-project',
+    key: 'project-knowledge',
+    name: '项目知识',
+    visibility: 'PROJECT',
+  });
+  store.seedKnowledgeBase({
+    id: 'kb-restricted',
+    key: 'restricted',
+    name: '受限知识',
+    visibility: 'RESTRICTED',
+  });
+  store.seedKnowledgeBase({
+    id: 'kb-private',
+    key: 'private',
+    name: '私库',
+    visibility: 'RESTRICTED',
+  });
+  store.seedGrant({
+    id: 'g-owner',
+    knowledgeBaseId: 'kb-project',
+    subjectKind: 'USER',
+    subjectUserId: OWNER_ID,
+    subjectRoleId: null,
+    permissions: ['READ', 'PROPOSE', 'PUBLISH', 'REVOKE'],
+  });
+  store.seedGrant({
+    id: 'g-old-revoked',
+    knowledgeBaseId: 'kb-project',
+    subjectKind: 'USER',
+    subjectUserId: OTHER_ID,
+    subjectRoleId: null,
+    permissions: ['READ'],
+    revoked: true,
+  });
+  store.seedGrant({
+    id: 'g-bob',
+    knowledgeBaseId: 'kb-restricted',
+    subjectKind: 'USER',
+    subjectUserId: MEMBER_ID,
+    subjectRoleId: null,
+    permissions: ['READ', 'PROPOSE'],
+  });
 
   store.seedDocument({ id: 'doc-published', publishedRevisionId: 'rev-published' });
   store.seedDocument({ id: 'doc-candidate', publishedRevisionId: null });
   store.seedDocument({ id: 'doc-other', publishedRevisionId: 'rev-other' });
-  store.seedRevision({ id: 'rev-published', documentId: 'doc-published', title: 'Release Notes', body: 'The release ships on Friday.' });
-  store.seedRevision({ id: 'rev-candidate', documentId: 'doc-candidate', title: 'Release draft', body: 'Only candidates mention release.' });
-  store.seedRevision({ id: 'rev-other', documentId: 'doc-other', title: 'Handbook', body: 'Nothing to see here.' });
+  store.seedRevision({
+    id: 'rev-published',
+    documentId: 'doc-published',
+    title: 'Release Notes',
+    body: 'The release ships on Friday.',
+  });
+  store.seedRevision({
+    id: 'rev-candidate',
+    documentId: 'doc-candidate',
+    title: 'Release draft',
+    body: 'Only candidates mention release.',
+  });
+  store.seedRevision({
+    id: 'rev-other',
+    documentId: 'doc-other',
+    title: 'Handbook',
+    body: 'Nothing to see here.',
+  });
 }
 
-function context(body: Record<string, unknown>, overrides: Partial<V1KnowledgeActionContext> = {}): V1KnowledgeActionContext {
+function context(
+  body: Record<string, unknown>,
+  overrides: Partial<V1KnowledgeActionContext> = {},
+): V1KnowledgeActionContext {
   return {
     idempotencyKey: '11111111-1111-4111-8111-111111111111',
     method: 'POST',
@@ -599,7 +789,10 @@ function context(body: Record<string, unknown>, overrides: Partial<V1KnowledgeAc
   };
 }
 
-function replaceContext(body: Record<string, unknown>, overrides: Partial<V1KnowledgeReplaceContext> = {}): V1KnowledgeReplaceContext {
+function replaceContext(
+  body: Record<string, unknown>,
+  overrides: Partial<V1KnowledgeReplaceContext> = {},
+): V1KnowledgeReplaceContext {
   return {
     idempotencyKey: '22222222-2222-4222-8222-222222222222',
     method: 'PUT',
@@ -655,7 +848,10 @@ function bindingOf(input: V1ReplaceKnowledgeAccessInput): ActionBinding {
   };
 }
 
-function ticketFor(binding: ActionBinding, overrides: Partial<V1TicketRecord> = {}): V1TicketRecord {
+function ticketFor(
+  binding: ActionBinding,
+  overrides: Partial<V1TicketRecord> = {},
+): V1TicketRecord {
   return {
     id: '33333333-3333-4333-8333-333333333333',
     secretHash: hashTicketSecret(SECRET),
@@ -687,7 +883,12 @@ const validReplaceInput: V1ReplaceKnowledgeAccessInput = {
   publicationApproverRoleId: 'r-product',
   grants: [
     { subjectKind: 'USER', subjectUserId: MEMBER_ID, subjectRoleId: null, permissions: ['READ'] },
-    { subjectKind: 'ROLE', subjectUserId: null, subjectRoleId: 'r-product', permissions: ['READ', 'PROPOSE'] },
+    {
+      subjectKind: 'ROLE',
+      subjectUserId: null,
+      subjectRoleId: 'r-product',
+      permissions: ['READ', 'PROPOSE'],
+    },
   ],
   reason: '调整可见范围',
   confirmation: { ticketId: TICKET_ID, ticketSecret: SECRET },
@@ -703,7 +904,12 @@ describe('V1KnowledgeBaseService', () => {
     confirmations = new MemoryConfirmationRepository();
     seedBase(store);
     const authorization = new V1AuthorizationService(new MemoryAuthzRepository(store));
-    service = new V1KnowledgeBaseService(store, authorization, confirmations, new MemoryIdempotencyRepository(store));
+    service = new V1KnowledgeBaseService(
+      store,
+      authorization,
+      confirmations,
+      new MemoryIdempotencyRepository(store),
+    );
   });
 
   it('HUMAN OWNER 创建 KB 并显式授予创建者全部内容权限，同时写审计与幂等结果', async () => {
@@ -732,16 +938,32 @@ describe('V1KnowledgeBaseService', () => {
       revokedAt: null,
     });
     expect(store.audits.some((audit) => audit.action === 'KNOWLEDGE_BASE_CREATE')).toBe(true);
-    expect(await store.findOperation({ projectScopeKey: 'project:p1', principalScopeKey: 'user:alice', key: context({}).idempotencyKey })).not.toBeNull();
+    expect(
+      await store.findOperation({
+        projectScopeKey: 'project:p1',
+        principalScopeKey: 'user:alice',
+        key: context({}).idempotencyKey,
+      }),
+    ).not.toBeNull();
   });
 
   it('非管理者创建返回 404，Agent 返回 403，重复 key 返回 409', async () => {
     await expect(
-      service.createKnowledgeBase(member, PROJECT_ID, { key: 'forbidden', name: 'x', visibility: 'PROJECT' }, context({})),
+      service.createKnowledgeBase(
+        member,
+        PROJECT_ID,
+        { key: 'forbidden', name: 'x', visibility: 'PROJECT' },
+        context({}),
+      ),
     ).rejects.toMatchObject({ code: V1_ERROR_CODES.RESOURCE_NOT_FOUND, status: 404 });
 
     await expect(
-      service.createKnowledgeBase(agent, PROJECT_ID, { key: 'agent', name: 'x', visibility: 'PROJECT' }, context({})),
+      service.createKnowledgeBase(
+        agent,
+        PROJECT_ID,
+        { key: 'agent', name: 'x', visibility: 'PROJECT' },
+        context({}),
+      ),
     ).rejects.toMatchObject({ code: V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, status: 403 });
 
     await expect(
@@ -756,7 +978,12 @@ describe('V1KnowledgeBaseService', () => {
 
   it('同 Idempotency-Key 合法重放返回原结果且不重复创建', async () => {
     const body = { key: 'replay-key', name: '重放', visibility: 'PROJECT' };
-    const first = await service.createKnowledgeBase(owner, PROJECT_ID, { key: 'replay-key', name: '重放', visibility: 'PROJECT' }, context(body));
+    const first = await service.createKnowledgeBase(
+      owner,
+      PROJECT_ID,
+      { key: 'replay-key', name: '重放', visibility: 'PROJECT' },
+      context(body),
+    );
     const auditsAfterFirst = store.audits.length;
     const second = await service.createKnowledgeBase(
       owner,
@@ -776,7 +1003,11 @@ describe('V1KnowledgeBaseService', () => {
     expect(otherPage.items.map((item) => item.id)).toEqual(['kb-project']);
 
     const ownerPage = await service.listKnowledgeBases(owner, PROJECT_ID, {});
-    expect(ownerPage.items.map((item) => item.id)).toEqual(['kb-project', 'kb-restricted', 'kb-private']);
+    expect(ownerPage.items.map((item) => item.id)).toEqual([
+      'kb-project',
+      'kb-restricted',
+      'kb-private',
+    ]);
   });
 
   it('列表分页 cursor 稳定且不重复', async () => {
@@ -785,7 +1016,10 @@ describe('V1KnowledgeBaseService', () => {
     expect(first.hasMore).toBe(true);
     expect(first.nextCursor).not.toBeNull();
 
-    const second = await service.listKnowledgeBases(owner, PROJECT_ID, { limit: 2, cursor: first.nextCursor });
+    const second = await service.listKnowledgeBases(owner, PROJECT_ID, {
+      limit: 2,
+      cursor: first.nextCursor,
+    });
     expect(second.items.map((item) => item.id)).toEqual(['kb-private']);
     expect(second.hasMore).toBe(false);
     expect(second.nextCursor).toBeNull();
@@ -828,9 +1062,16 @@ describe('V1KnowledgeBaseService', () => {
     ).rejects.toMatchObject({ code: V1_ERROR_CODES.VERSION_CONFLICT, status: 409 });
 
     const staleAuthz = { ...validReplaceInput, expectedAuthzVersion: 9 };
-    confirmations.seed(ticketFor(bindingOf(staleAuthz), { actionDigest: actionDigestOf(bindingOf(staleAuthz)) }));
+    confirmations.seed(
+      ticketFor(bindingOf(staleAuthz), { actionDigest: actionDigestOf(bindingOf(staleAuthz)) }),
+    );
     await expect(
-      service.replaceAccess(owner, 'kb-restricted', staleAuthz, replaceContext(replaceBody(staleAuthz))),
+      service.replaceAccess(
+        owner,
+        'kb-restricted',
+        staleAuthz,
+        replaceContext(replaceBody(staleAuthz)),
+      ),
     ).rejects.toMatchObject({ code: V1_ERROR_CODES.VERSION_CONFLICT, status: 409 });
   });
 
@@ -838,37 +1079,102 @@ describe('V1KnowledgeBaseService', () => {
     const base = { ...validReplaceInput };
     const invalidInputs: Array<{ input: V1ReplaceKnowledgeAccessInput; reason: string }> = [
       {
-        input: { ...base, grants: [{ subjectKind: 'USER', subjectUserId: MEMBER_ID, subjectRoleId: 'r-product', permissions: ['READ'] }] },
+        input: {
+          ...base,
+          grants: [
+            {
+              subjectKind: 'USER',
+              subjectUserId: MEMBER_ID,
+              subjectRoleId: 'r-product',
+              permissions: ['READ'],
+            },
+          ],
+        },
         reason: 'USER 不得带 role',
       },
       {
-        input: { ...base, grants: [{ subjectKind: 'ROLE', subjectUserId: MEMBER_ID, subjectRoleId: 'r-product', permissions: ['READ'] }] },
+        input: {
+          ...base,
+          grants: [
+            {
+              subjectKind: 'ROLE',
+              subjectUserId: MEMBER_ID,
+              subjectRoleId: 'r-product',
+              permissions: ['READ'],
+            },
+          ],
+        },
         reason: 'ROLE 不得带 user',
       },
       {
         input: {
           ...base,
           grants: [
-            { subjectKind: 'USER', subjectUserId: MEMBER_ID, subjectRoleId: null, permissions: ['READ'] },
-            { subjectKind: 'USER', subjectUserId: MEMBER_ID, subjectRoleId: null, permissions: ['PROPOSE'] },
+            {
+              subjectKind: 'USER',
+              subjectUserId: MEMBER_ID,
+              subjectRoleId: null,
+              permissions: ['READ'],
+            },
+            {
+              subjectKind: 'USER',
+              subjectUserId: MEMBER_ID,
+              subjectRoleId: null,
+              permissions: ['PROPOSE'],
+            },
           ],
         },
         reason: '重复用户主体',
       },
       {
-        input: { ...base, grants: [{ subjectKind: 'USER', subjectUserId: MEMBER_ID, subjectRoleId: null, permissions: [] }] },
+        input: {
+          ...base,
+          grants: [
+            { subjectKind: 'USER', subjectUserId: MEMBER_ID, subjectRoleId: null, permissions: [] },
+          ],
+        },
         reason: '空权限',
       },
       {
-        input: { ...base, grants: [{ subjectKind: 'USER', subjectUserId: MEMBER_ID, subjectRoleId: null, permissions: ['READ', 'READ'] }] },
+        input: {
+          ...base,
+          grants: [
+            {
+              subjectKind: 'USER',
+              subjectUserId: MEMBER_ID,
+              subjectRoleId: null,
+              permissions: ['READ', 'READ'],
+            },
+          ],
+        },
         reason: '重复权限',
       },
       {
-        input: { ...base, grants: [{ subjectKind: 'USER', subjectUserId: MEMBER_ID, subjectRoleId: null, permissions: ['WRITE'] }] },
+        input: {
+          ...base,
+          grants: [
+            {
+              subjectKind: 'USER',
+              subjectUserId: MEMBER_ID,
+              subjectRoleId: null,
+              permissions: ['WRITE'],
+            },
+          ],
+        },
         reason: '未知权限',
       },
       {
-        input: { ...base, grants: [{ subjectKind: 'ROLE', subjectUserId: null, subjectRoleId: 'r-inactive', permissions: ['READ'] }] },
+        input: {
+          ...base,
+          grants: [
+            {
+              subjectKind: 'ROLE',
+              subjectUserId: null,
+              subjectRoleId: 'r-inactive',
+              permissions: ['READ'],
+            },
+          ],
+        },
         reason: '非活动角色',
       },
     ];
@@ -885,13 +1191,23 @@ describe('V1KnowledgeBaseService', () => {
     const strangerApprover = { ...validReplaceInput, publicationApproverUserId: 'stranger' };
     confirmations.seed(ticketFor(bindingOf(strangerApprover)));
     await expect(
-      service.replaceAccess(owner, 'kb-restricted', strangerApprover, replaceContext(replaceBody(strangerApprover))),
+      service.replaceAccess(
+        owner,
+        'kb-restricted',
+        strangerApprover,
+        replaceContext(replaceBody(strangerApprover)),
+      ),
     ).rejects.toMatchObject({ code: V1_ERROR_CODES.INVALID_GRANT, status: 422 });
 
     const inactiveApproverRole = { ...validReplaceInput, publicationApproverRoleId: 'r-inactive' };
     confirmations.seed(ticketFor(bindingOf(inactiveApproverRole)));
     await expect(
-      service.replaceAccess(owner, 'kb-restricted', inactiveApproverRole, replaceContext(replaceBody(inactiveApproverRole))),
+      service.replaceAccess(
+        owner,
+        'kb-restricted',
+        inactiveApproverRole,
+        replaceContext(replaceBody(inactiveApproverRole)),
+      ),
     ).rejects.toMatchObject({ code: V1_ERROR_CODES.INVALID_GRANT, status: 422 });
   });
 
@@ -920,7 +1236,11 @@ describe('V1KnowledgeBaseService', () => {
     expect(activeGrants).toHaveLength(input.grants.length);
     expect(store.audits.some((audit) => audit.action === 'KB_ACCESS_REPLACE')).toBe(true);
     expect(
-      await store.findOperation({ projectScopeKey: 'project:p1', principalScopeKey: 'user:alice', key: '22222222-2222-4222-8222-222222222222' }),
+      await store.findOperation({
+        projectScopeKey: 'project:p1',
+        principalScopeKey: 'user:alice',
+        key: '22222222-2222-4222-8222-222222222222',
+      }),
     ).not.toBeNull();
   });
 
@@ -947,14 +1267,31 @@ describe('V1KnowledgeBaseService', () => {
 
   it('搜索分页 cursor 稳定且只返回发布版', async () => {
     store.seedDocument({ id: 'doc-published-2', publishedRevisionId: 'rev-published-2' });
-    store.seedRevision({ id: 'rev-published-2', documentId: 'doc-published-2', title: 'Second release', body: 'more release' });
+    store.seedRevision({
+      id: 'rev-published-2',
+      documentId: 'doc-published-2',
+      title: 'Second release',
+      body: 'more release',
+    });
     store.seedDocument({ id: 'doc-published-3', publishedRevisionId: 'rev-published-3' });
-    store.seedRevision({ id: 'rev-published-3', documentId: 'doc-published-3', title: 'Third release', body: 'again' });
+    store.seedRevision({
+      id: 'rev-published-3',
+      documentId: 'doc-published-3',
+      title: 'Third release',
+      body: 'again',
+    });
 
     const first = await service.search(owner, 'kb-project', { q: 'release', limit: 2 });
-    expect(first.items.map((item) => item.documentId)).toEqual(['doc-published', 'doc-published-2']);
+    expect(first.items.map((item) => item.documentId)).toEqual([
+      'doc-published',
+      'doc-published-2',
+    ]);
     expect(first.hasMore).toBe(true);
-    const second = await service.search(owner, 'kb-project', { q: 'release', limit: 2, cursor: first.nextCursor });
+    const second = await service.search(owner, 'kb-project', {
+      q: 'release',
+      limit: 2,
+      cursor: first.nextCursor,
+    });
     expect(second.items.map((item) => item.documentId)).toEqual(['doc-published-3']);
     expect(second.hasMore).toBe(false);
   });

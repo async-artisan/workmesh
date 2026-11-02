@@ -30,7 +30,13 @@ describe('ready repository retired-instance filter', () => {
   it('excludes tasks from retired workflow instances in the SQL filter', async () => {
     const { repository, args } = repositoryWith([]);
 
-    await repository.listCandidates({ projectId: 'project-1', roleId: null, ownership: OWNERSHIP, after: null, take: 10 });
+    await repository.listCandidates({
+      projectId: 'project-1',
+      roleId: null,
+      ownership: OWNERSHIP,
+      after: null,
+      take: 10,
+    });
 
     const where = args()?.where ?? {};
     expect(where).toMatchObject({

@@ -27,11 +27,18 @@ import {
   type V1ConfirmationRepository,
   type V1TicketRecord,
 } from '../src/auth/v1-confirmation';
-import { V1_IDEMPOTENCY_REPOSITORY, type V1IdempotencyRepository, type V1OperationRecord } from '../src/common/v1-idempotency';
+import {
+  V1_IDEMPOTENCY_REPOSITORY,
+  type V1IdempotencyRepository,
+  type V1OperationRecord,
+} from '../src/common/v1-idempotency';
 
 import { ProjectsController } from '../src/projects/projects.controller';
 import { ProjectsService } from '../src/projects/projects.service';
-import { PROJECT_ROLE_REPOSITORY, type ProjectRoleRepository } from '../src/projects/project-role.repository';
+import {
+  PROJECT_ROLE_REPOSITORY,
+  type ProjectRoleRepository,
+} from '../src/projects/project-role.repository';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { RequirementsController } from '../src/projects/requirements.controller';
 import { RequirementsService } from '../src/projects/requirements.service';
@@ -129,8 +136,14 @@ function sha256Hex(value: string | Uint8Array): string {
 // 共享内存存储：Prisma 替身与授权仓储读写同一份成员/项目数据，保证 HTTP 链路状态连贯。
 // ---------------------------------------------------------------------------
 class ChainStore {
-  projects = new Map<string, { id: string; key: string; version: number; archivedAt: Date | null }>();
-  members = new Map<string, { projectId: string; userId: string; role: string; version: number; revokedAt: Date | null }>();
+  projects = new Map<
+    string,
+    { id: string; key: string; version: number; archivedAt: Date | null }
+  >();
+  members = new Map<
+    string,
+    { projectId: string; userId: string; role: string; version: number; revokedAt: Date | null }
+  >();
   users = new Map<string, { id: string; email: string }>();
   requirements = new Map<string, Record<string, unknown>>();
   tasks = new Map<string, V1TaskSnapshot>();
@@ -181,7 +194,11 @@ const prismaFake = {
     },
   },
   projectMember: {
-    async findUnique({ where }: { where: { projectId_userId: { projectId: string; userId: string } } }) {
+    async findUnique({
+      where,
+    }: {
+      where: { projectId_userId: { projectId: string; userId: string } };
+    }) {
       return store.memberOf(where.projectId_userId.projectId, where.projectId_userId.userId);
     },
     async create({ data }: { data: { projectId: string; userId: string; role: string } }) {
@@ -196,9 +213,20 @@ const prismaFake = {
       where: { projectId_userId: { projectId: string; userId: string } };
       data: { role: string; revokedAt: null; version: { increment: number } };
     }) {
-      const current = store.memberOf(where.projectId_userId.projectId, where.projectId_userId.userId)!;
-      const saved = { ...current, role: data.role, revokedAt: data.revokedAt, version: current.version + 1 };
-      store.members.set(`${where.projectId_userId.projectId}:${where.projectId_userId.userId}`, saved);
+      const current = store.memberOf(
+        where.projectId_userId.projectId,
+        where.projectId_userId.userId,
+      )!;
+      const saved = {
+        ...current,
+        role: data.role,
+        revokedAt: data.revokedAt,
+        version: current.version + 1,
+      };
+      store.members.set(
+        `${where.projectId_userId.projectId}:${where.projectId_userId.userId}`,
+        saved,
+      );
       return saved;
     },
   },
@@ -281,17 +309,28 @@ const authRepo = {
 class ChainAuthzRepo implements V1AuthorizationRepository {
   async findProject(projectId: string): Promise<V1ProjectRecord | null> {
     const project = store.projects.get(projectId);
-    return project ? { id: project.id, version: project.version, archivedAt: project.archivedAt } : null;
+    return project
+      ? { id: project.id, version: project.version, archivedAt: project.archivedAt }
+      : null;
   }
   async findMember(projectId: string, userId: string): Promise<V1MemberRecord | null> {
     const member = store.memberOf(projectId, userId);
     return member ? { ...member, role: member.role as V1MemberRecord['role'] } : null;
   }
-  async findActiveRoleAssignments(projectId: string, userId: string): Promise<V1RoleAssignmentRecord[]> {
+  async findActiveRoleAssignments(
+    projectId: string,
+    userId: string,
+  ): Promise<V1RoleAssignmentRecord[]> {
     if (userId !== MEMBER) return [];
-    return [{ id: 'ra-chain', projectId, userId, roleId: ROLE_BACKEND, version: 1, revokedAt: null }];
+    return [
+      { id: 'ra-chain', projectId, userId, roleId: ROLE_BACKEND, version: 1, revokedAt: null },
+    ];
   }
-  async findRoleAssignment(projectId: string, userId: string, roleId: string): Promise<V1RoleAssignmentRecord | null> {
+  async findRoleAssignment(
+    projectId: string,
+    userId: string,
+    roleId: string,
+  ): Promise<V1RoleAssignmentRecord | null> {
     if (userId !== MEMBER || roleId !== ROLE_BACKEND) return null;
     return { id: 'ra-chain', projectId, userId, roleId, version: 1, revokedAt: null };
   }
@@ -441,14 +480,20 @@ class ChainTaskRepo implements V1TaskRepository {
     const next: V1TaskSnapshot = {
       ...task,
       version: task.version + 1,
-      currentClaim: task.currentClaim ? { ...task.currentClaim, releasedAt: input.now.toISOString() } : null,
+      currentClaim: task.currentClaim
+        ? { ...task.currentClaim, releasedAt: input.now.toISOString() }
+        : null,
     };
     store.tasks.set(task.id, next);
     return next;
   }
   async setWorkStatus(input: V1SetWorkStatusInput): Promise<V1TaskSnapshot> {
     const task = store.tasks.get(input.taskId)!;
-    const next: V1TaskSnapshot = { ...task, version: task.version + 1, workStatus: input.workStatus };
+    const next: V1TaskSnapshot = {
+      ...task,
+      version: task.version + 1,
+      workStatus: input.workStatus,
+    };
     store.tasks.set(task.id, next);
     return next;
   }
@@ -461,7 +506,9 @@ class ChainArtifactRepo implements V1ArtifactRepository {
       taskId: input.taskId,
       taskGeneration: input.expectedVersion,
       snapshotId: input.snapshotId,
-      manifestDigest: await sha256Bytes(new TextEncoder().encode(canonicalJson({ items: input.items.length }))),
+      manifestDigest: await sha256Bytes(
+        new TextEncoder().encode(canonicalJson({ items: input.items.length })),
+      ),
       workflowDefinitionRevisionId: input.workflowDefinitionRevisionId,
       localRunId: input.localRunId,
       candidateRevisionIds: input.candidateRevisionIds,
@@ -611,10 +658,23 @@ describe('v1 HTTP business chain (real Nest routes + real V1AuthGuard)', () => {
       confirmationRepo,
       idempotencyRepo,
     );
-    const requirementsService = new RequirementsService(prismaFake as unknown as PrismaService, authzService);
-    const workflowService = new V1WorkflowService(workflowRepo, authzService, confirmationRepo, idempotencyRepo);
+    const requirementsService = new RequirementsService(
+      prismaFake as unknown as PrismaService,
+      authzService,
+    );
+    const workflowService = new V1WorkflowService(
+      workflowRepo,
+      authzService,
+      confirmationRepo,
+      idempotencyRepo,
+    );
     const taskService = new V1TaskService(taskRepo, authzService, idempotencyRepo);
-    const artifactService = new V1ArtifactService(artifactRepo, taskRepo, authzService, idempotencyRepo);
+    const artifactService = new V1ArtifactService(
+      artifactRepo,
+      taskRepo,
+      authzService,
+      idempotencyRepo,
+    );
     const reviewService = new V1ReviewService(
       reviewRepo as unknown as V1ReviewRepository,
       authzService,
@@ -655,16 +715,24 @@ describe('v1 HTTP business chain (real Nest routes + real V1AuthGuard)', () => {
 
     const app = moduleRef.createNestApplication({ rawBody: true });
     app.setGlobalPrefix('api');
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+    );
     app.useGlobalFilters(new HttpExceptionFilter());
     app.useGlobalInterceptors(new ResponseInterceptor(), new StrictJsonInterceptor());
-    app.use((req: { requestId?: string }, res: { setHeader: (n: string, v: string) => void }, next: () => void) => {
-      const id = randomUUID();
-      req.requestId = id;
-      res.setHeader('X-Request-Id', id);
-      res.setHeader('Cache-Control', 'no-store');
-      next();
-    });
+    app.use(
+      (
+        req: { requestId?: string },
+        res: { setHeader: (n: string, v: string) => void },
+        next: () => void,
+      ) => {
+        const id = randomUUID();
+        req.requestId = id;
+        res.setHeader('X-Request-Id', id);
+        res.setHeader('Cache-Control', 'no-store');
+        next();
+      },
+    );
     await app.init();
     server = app.getHttpServer();
     appRef = app as unknown as { close: () => Promise<void> };
@@ -716,7 +784,12 @@ describe('v1 HTTP business chain (real Nest routes + real V1AuthGuard)', () => {
         definitionRevisionId: DEFINITION_REVISION_ID,
         expectedRequirementVersion: 1,
         stepBindings: [
-          { stepKey: 'impl', roleId: ROLE_BACKEND, responsibleUserId: MEMBER, repositoryIds: [REPO_ID] },
+          {
+            stepKey: 'impl',
+            roleId: ROLE_BACKEND,
+            responsibleUserId: MEMBER,
+            repositoryIds: [REPO_ID],
+          },
         ],
         roleSlotBindings: [],
       });
@@ -780,7 +853,12 @@ describe('v1 HTTP business chain (real Nest routes + real V1AuthGuard)', () => {
       targetId: reviewRequestId,
       expectedVersion: review.version,
       roleSlot: null,
-      payload: { slotId: SLOT_ID, decision: 'APPROVE', subjectDigest: review.subjectDigest, comment: null },
+      payload: {
+        slotId: SLOT_ID,
+        decision: 'APPROVE',
+        subjectDigest: review.subjectDigest,
+        comment: null,
+      },
     };
     confirmationRepo.seed({
       id: TICKET_ID,

@@ -1,6 +1,28 @@
-import { Body, Controller, Get, Headers, Inject, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Inject,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsArray, IsInt, IsObject, IsOptional, IsString, IsUUID, Matches, MaxLength, Min, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsInt,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { V1_ERROR_CODES, WorkmeshError, type Confirmation } from '@workmesh/shared';
 import { V1AuthGuard, type V1Request } from '../auth/v1-auth.guard';
 import { requireIdempotencyKey } from '../common/v1-idempotency';
@@ -25,7 +47,10 @@ class RegisterRolePackageDto {
 
   @IsObject() manifest!: Record<string, unknown>;
 
-  @IsArray() @ValidateNested({ each: true }) @Type(() => ResourceUploadDto) resources!: ResourceUploadDto[];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ResourceUploadDto)
+  resources!: ResourceUploadDto[];
 
   @ValidateNested() @Type(() => ConfirmationDto) confirmation!: ConfirmationDto;
 }
@@ -37,7 +62,8 @@ class ListRolePackagesQueryDto {
 }
 
 function principalOf(request: V1Request) {
-  if (!request.v1Principal) throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
+  if (!request.v1Principal)
+    throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
   return request.v1Principal;
 }
 
@@ -54,8 +80,15 @@ export class V1RolePackageController {
   constructor(@Inject(V1RolePackageService) private readonly packages: V1RolePackageService) {}
 
   @Get()
-  list(@Req() request: V1Request, @Param('projectId') projectId: string, @Query() query: ListRolePackagesQueryDto) {
-    return this.packages.list(principalOf(request), projectId, { limit: query.limit, cursor: query.cursor ?? null });
+  list(
+    @Req() request: V1Request,
+    @Param('projectId') projectId: string,
+    @Query() query: ListRolePackagesQueryDto,
+  ) {
+    return this.packages.list(principalOf(request), projectId, {
+      limit: query.limit,
+      cursor: query.cursor ?? null,
+    });
   }
 
   @Post()
@@ -67,7 +100,12 @@ export class V1RolePackageController {
   ) {
     const principal = principalOf(request);
     if (!principal.sessionId)
-      throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, 'HUMAN_SESSION_REQUIRED', undefined, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+        'HUMAN_SESSION_REQUIRED',
+        undefined,
+        403,
+      );
     return this.packages.register(
       principal,
       projectId,
@@ -87,7 +125,10 @@ export class V1RolePackageController {
         body: {
           expectedVersion: dto.expectedVersion,
           manifest: dto.manifest,
-          resources: dto.resources.map((resource) => ({ resourceId: resource.resourceId, bodyBase64: resource.bodyBase64 })),
+          resources: dto.resources.map((resource) => ({
+            resourceId: resource.resourceId,
+            bodyBase64: resource.bodyBase64,
+          })),
         },
         operationId: crypto.randomUUID(),
         now: new Date(),

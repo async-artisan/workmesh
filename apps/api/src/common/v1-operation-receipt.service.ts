@@ -28,11 +28,21 @@ export type V1OperationReceiptView = {
 const OPERATION_KEY_MAX = 200;
 
 function invalidOperationKey(operationKey: string): WorkmeshError {
-  return new WorkmeshError(V1_ERROR_CODES.INVALID_REQUEST, 'INVALID_OPERATION_KEY', { operationKey }, 400);
+  return new WorkmeshError(
+    V1_ERROR_CODES.INVALID_REQUEST,
+    'INVALID_OPERATION_KEY',
+    { operationKey },
+    400,
+  );
 }
 
 function operationNotFound(): WorkmeshError {
-  return new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'OPERATION_NOT_FOUND', undefined, 404);
+  return new WorkmeshError(
+    V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+    'OPERATION_NOT_FOUND',
+    undefined,
+    404,
+  );
 }
 
 /**
@@ -45,18 +55,27 @@ function operationNotFound(): WorkmeshError {
 @Injectable()
 export class V1OperationReceiptService {
   constructor(
-    @Inject(V1_OPERATION_RECEIPT_REPOSITORY) private readonly repository: V1OperationReceiptRepository,
+    @Inject(V1_OPERATION_RECEIPT_REPOSITORY)
+    private readonly repository: V1OperationReceiptRepository,
     @Inject(V1AuthorizationService) private readonly authorization: V1AuthorizationService,
   ) {}
 
-  async getReceipt(principal: Principal, operationKey: string, projectId: string | null): Promise<V1OperationReceiptView> {
-    if (operationKey.length === 0 || operationKey.length > OPERATION_KEY_MAX) throw invalidOperationKey(operationKey);
+  async getReceipt(
+    principal: Principal,
+    operationKey: string,
+    projectId: string | null,
+  ): Promise<V1OperationReceiptView> {
+    if (operationKey.length === 0 || operationKey.length > OPERATION_KEY_MAX)
+      throw invalidOperationKey(operationKey);
 
     const expectedProjectId = projectId ?? null;
     const scopeKey = projectId ? projectScopeKey(projectId) : accountScopeKey(principal.userId);
     if (projectId) await this.authorization.resolveProjectContext(principal, projectId);
 
-    const records = await this.repository.findOperations({ projectScopeKey: scopeKey, key: operationKey });
+    const records = await this.repository.findOperations({
+      projectScopeKey: scopeKey,
+      key: operationKey,
+    });
     const record = await this.selectRecord(principal, records);
     if (!record || !record.committedAt) throw operationNotFound();
     if (record.projectId !== expectedProjectId) throw operationNotFound();

@@ -20,6 +20,9 @@ export type V1OperationReceiptRecord = {
 
 export interface V1OperationReceiptRepository {
   /** 同 scope 同 key 的所有主体记录：主体精确匹配优先，其次才判断 Agent 授权用户。 */
-  findOperations(input: { projectScopeKey: string; key: string }): Promise<V1OperationReceiptRecord[]>;
+  findOperations(input: {
+    projectScopeKey: string;
+    key: string;
+  }): Promise<V1OperationReceiptRecord[]>;
   findAgentCredentialOwner(credentialId: string): Promise<string | null>;
 }

@@ -35,18 +35,18 @@ API Swagger 保持当前锁定工具可生成的 OpenAPI 3.0，不假定它能�
 
 ### 2.3 固定错误分类
 
-| HTTP | code（v1公共分类） | 客户端动作 |
-| --- | --- | --- |
-| 400 | INVALID_REQUEST、CREDENTIAL_CONFLICT、INVALID_CURSOR | 修正请求；不能通过换凭据类别或忽略字段绕过。 |
-| 401 | AUTH_REQUIRED、AUTH_INVALID、SESSION_EXPIRED、CREDENTIAL_REVOKED | Web重新登录；CLI重新授权，不自动刷新为HUMAN。 |
-| 403 | FORBIDDEN、SCOPE_DENIED、HUMAN_SESSION_REQUIRED、CSRF_REJECTED、ORIGIN_REJECTED | 显示需谁处理；不自动扩大scope。 |
-| 404 | RESOURCE_NOT_FOUND | 不显示不存在对象或他人数据的细节。 |
-| 409 | VERSION_CONFLICT、ACTION_CHANGED、IDEMPOTENCY_CONFLICT、CONFIRMATION_USED、CLAIM_CONFLICT、CLAIM_INVALID、BASELINE_STALE、REVIEW_CLOSED、RESOURCE_CONFLICT、WORK_STATUS_CONFLICT、LAST_OWNER_REQUIRED、PROVIDER_UNAVAILABLE、WEBHOOK_REPLAY_CONFLICT | 读取当前状态与差异，交互确认后形成新操作；不盲重试旧业务意图。 |
-| 410 | AUTHORIZATION_EXPIRED、CONFIRMATION_EXPIRED | 重新开始对应授权／确认，不延长原票据。 |
-| 413 | PAYLOAD_TOO_LARGE | 缩小范围；不默默截断。 |
-| 422 | VALIDATION_FAILED、WORKFLOW_INVALID、ROLE_INACTIVE、MEMBER_INACTIVE、INVALID_GRANT、UNSUPPORTED_SCOPE、INVALID_SECRET_REFERENCE、PROVIDER_UNSUPPORTED、ARTIFACT_INVALID、INPUT_UNAVAILABLE、REVIEW_PRECONDITION_FAILED | 展示结构化details及需要补充的资料，不判定已完成。 |
-| 429 | RATE_LIMITED、AUTHORIZATION_SLOW_DOWN | 遵守Retry-After；不并行扩大重试。 |
-| 503 | TRANSACTION_RETRY_EXHAUSTED、PROVIDER_VERIFICATION_UNAVAILABLE、CONTENT_UNAVAILABLE | 明确可重试与未完成范围；保留本地草稿及operation key。 |
+| HTTP | code（v1公共分类）                                                                                                                                                                                                                                   | 客户端动作                                                     |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| 400  | INVALID_REQUEST、CREDENTIAL_CONFLICT、INVALID_CURSOR                                                                                                                                                                                                 | 修正请求；不能通过换凭据类别或忽略字段绕过。                   |
+| 401  | AUTH_REQUIRED、AUTH_INVALID、SESSION_EXPIRED、CREDENTIAL_REVOKED                                                                                                                                                                                     | Web重新登录；CLI重新授权，不自动刷新为HUMAN。                  |
+| 403  | FORBIDDEN、SCOPE_DENIED、HUMAN_SESSION_REQUIRED、CSRF_REJECTED、ORIGIN_REJECTED                                                                                                                                                                      | 显示需谁处理；不自动扩大scope。                                |
+| 404  | RESOURCE_NOT_FOUND                                                                                                                                                                                                                                   | 不显示不存在对象或他人数据的细节。                             |
+| 409  | VERSION_CONFLICT、ACTION_CHANGED、IDEMPOTENCY_CONFLICT、CONFIRMATION_USED、CLAIM_CONFLICT、CLAIM_INVALID、BASELINE_STALE、REVIEW_CLOSED、RESOURCE_CONFLICT、WORK_STATUS_CONFLICT、LAST_OWNER_REQUIRED、PROVIDER_UNAVAILABLE、WEBHOOK_REPLAY_CONFLICT | 读取当前状态与差异，交互确认后形成新操作；不盲重试旧业务意图。 |
+| 410  | AUTHORIZATION_EXPIRED、CONFIRMATION_EXPIRED                                                                                                                                                                                                          | 重新开始对应授权／确认，不延长原票据。                         |
+| 413  | PAYLOAD_TOO_LARGE                                                                                                                                                                                                                                    | 缩小范围；不默默截断。                                         |
+| 422  | VALIDATION_FAILED、WORKFLOW_INVALID、ROLE_INACTIVE、MEMBER_INACTIVE、INVALID_GRANT、UNSUPPORTED_SCOPE、INVALID_SECRET_REFERENCE、PROVIDER_UNSUPPORTED、ARTIFACT_INVALID、INPUT_UNAVAILABLE、REVIEW_PRECONDITION_FAILED                               | 展示结构化details及需要补充的资料，不判定已完成。              |
+| 429  | RATE_LIMITED、AUTHORIZATION_SLOW_DOWN                                                                                                                                                                                                                | 遵守Retry-After；不并行扩大重试。                              |
+| 503  | TRANSACTION_RETRY_EXHAUSTED、PROVIDER_VERIFICATION_UNAVAILABLE、CONTENT_UNAVAILABLE                                                                                                                                                                  | 明确可重试与未完成范围；保留本地草稿及operation key。          |
 
 03的工作流语义细分code保存在 `details.issues:[{path,code,message}]`，外层422 WORKFLOW_INVALID；不凭一个HTTP非200替代精确错误测试。01认证的专用code与04外部取证原因仍保留。message供人读，脚本只依据code；details不得含秘密、原始正文、上游完整响应或无权对象信息。
 
@@ -78,18 +78,18 @@ Webhook按04的连接＋delivery ID管理，不使用Agent Idempotency-Key。`GE
 
 以下 View 包含公共字段；不得直接序列化Prisma全表，尤其不自动展开password、tokenHash、受限正文或原始外部payload。
 
-| View | data结构 |
-| --- | --- |
-| ProjectView | `{id,organizationId,key,name,description,version,defaultKnowledgeBaseId,archivedAt}` |
-| RequirementView | `{id,projectId,seq,code,title,version,generation,phase,workStatus,currentUnderstandingRevisionId,currentPrdRevisionId,activeWorkflowInstanceId,deliveryScope,inputValidity,gateSummary}` |
-| DocumentView | `{id,projectId,knowledgeBaseId,requirementId,kind,version,currentPublishedRevisionId,archivedAt}`；知识库READ检查通过后才返回标题与修订列表。 |
-| RevisionView | `{id,documentId,seq,title,mimeType,byteLength,sha256,sourceRef,createdAt,status:'CANDIDATE'\|'PUBLISHED'\|'WITHDRAWN'}`；status是发布记录投影，revision正文自身不可变。 |
-| TaskView | `{id,projectId,requirementId,workflowInstanceId,workflowStepKey,code,title,roleId,version,generation,executionStatus,workStatus,responsibleUserId,currentClaimId,currentSnapshotId,currentArtifactSetId,inputValidity,blockedReasons,gateSummary}` |
-| ClaimView | `{id,taskId,taskGeneration,claimedBy:{kind,userId,agentCredentialId},claimedAt,releasedAt}`；不含凭据。 |
-| SnapshotView | `{id,taskId,taskGeneration,requirementGeneration,manifest,manifestDigest,createdAt}`，manifest为02唯一schema。 |
-| ArtifactSetView | `{id,taskId,taskGeneration,snapshotId,manifestDigest,workflowDefinitionRevisionId,localRunId,items,candidateRevisionIds,createdAt}`，每项分开标记校验来源。 |
-| ReviewView | `{id,projectId,kind,subject,taskId,version,status,subjectDigest,slots,preparedCodeEvidence,decisions,createdAt}`，slots及决定按当前权限过滤。 |
-| ChangeView | `{id,projectId,requirementId,generation,source,changedFields,targets,createdAt,recipients}`；不得把无权知识标题或路径带入targets。 |
+| View            | data结构                                                                                                                                                                                                                                           |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ProjectView     | `{id,organizationId,key,name,description,version,defaultKnowledgeBaseId,archivedAt}`                                                                                                                                                               |
+| RequirementView | `{id,projectId,seq,code,title,version,generation,phase,workStatus,currentUnderstandingRevisionId,currentPrdRevisionId,activeWorkflowInstanceId,deliveryScope,inputValidity,gateSummary}`                                                           |
+| DocumentView    | `{id,projectId,knowledgeBaseId,requirementId,kind,version,currentPublishedRevisionId,archivedAt}`；知识库READ检查通过后才返回标题与修订列表。                                                                                                      |
+| RevisionView    | `{id,documentId,seq,title,mimeType,byteLength,sha256,sourceRef,createdAt,status:'CANDIDATE'\|'PUBLISHED'\|'WITHDRAWN'}`；status是发布记录投影，revision正文自身不可变。                                                                            |
+| TaskView        | `{id,projectId,requirementId,workflowInstanceId,workflowStepKey,code,title,roleId,version,generation,executionStatus,workStatus,responsibleUserId,currentClaimId,currentSnapshotId,currentArtifactSetId,inputValidity,blockedReasons,gateSummary}` |
+| ClaimView       | `{id,taskId,taskGeneration,claimedBy:{kind,userId,agentCredentialId},claimedAt,releasedAt}`；不含凭据。                                                                                                                                            |
+| SnapshotView    | `{id,taskId,taskGeneration,requirementGeneration,manifest,manifestDigest,createdAt}`，manifest为02唯一schema。                                                                                                                                     |
+| ArtifactSetView | `{id,taskId,taskGeneration,snapshotId,manifestDigest,workflowDefinitionRevisionId,localRunId,items,candidateRevisionIds,createdAt}`，每项分开标记校验来源。                                                                                        |
+| ReviewView      | `{id,projectId,kind,subject,taskId,version,status,subjectDigest,slots,preparedCodeEvidence,decisions,createdAt}`，slots及决定按当前权限过滤。                                                                                                      |
+| ChangeView      | `{id,projectId,requirementId,generation,source,changedFields,targets,createdAt,recipients}`；不得把无权知识标题或路径带入targets。                                                                                                                 |
 
 `inputValidity`、gateSummary和blockedReasons为02计算结果，不是客户端可写字段。列表统一 `data:{items:T[],nextCursor:string|null,hasMore:boolean}`；limit默认20最大100，cursor为base64url编码的schemaVersion与确定排序键，严格解析并绑定project/filter摘要；变过滤条件后旧cursor返回400。不返回跨权限总量。成员／角色特殊排序遵循01。
 
@@ -97,33 +97,33 @@ Webhook按04的连接＋delivery ID管理，不使用Agent Idempotency-Key。`GE
 
 01中成员、角色、ACL、凭据及认证route不在此重复；以下业务route的HUMAN写同样要Origin/CSRF，标注确认的动作还需01票据。
 
-| 方法／路径 | request或query | 响应与授权 |
-| --- | --- | --- |
-| GET `/projects` | `{limit?,cursor?}` | 当前用户可见ProjectView分页；Agent只能读自己项目。 |
-| POST `/projects` | `{name(1..120),key,description?(<=2000)}` | HUMAN；创建organization下项目、OWNER关系、六个初始ProjectRole、创建者角色assignment、一个默认PROJECT KB及创建者显式全部内容grant，单事务201 ProjectView；项目key组织内唯一。 |
-| GET `/projects/:p` | 无 | 当前成员或该项目 `project:read` Agent；ProjectView。 |
-| PATCH `/projects/:p` | `{expectedVersion,name?,description?,confirmation}` | HUMAN管理者＋PROJECT_UPDATE票据；不接受key、status、repositoryUrl；ProjectView。 |
-| POST `/projects/:p/archive` | `{expectedVersion,reason,confirmation}` | HUMAN OWNER；归档阻止新业务写入但保留合法历史读取，不物理删除；ProjectView。 |
-| POST `/projects/:p/requirements` | `{title(1..200),description?(<=10000)}` | 当前业务角色HUMAN或 `requirement:propose` Agent；201 RequirementView，原子分配项目序号。 |
-| GET `/projects/:p/requirements` | `{phase?,workStatus?,limit?,cursor?}` | `requirement:read`；权限内分页。 |
-| GET `/requirements/:id` | 无 | `requirement:read`；RequirementView。 |
-| PATCH `/requirements/:id` | `{expectedVersion,title?,description?}` | 责任人或项目管理者；Agent仅本角色被分配的产品候选范围；返回view。不得接收phase/status/generation/acceptanceCriteria，正式规则和验收写入候选修订再评审。 |
-| POST `/requirements/:id/archive` | `{expectedVersion,reason,confirmation}` | HUMAN OWNER/ADMIN；ARCHIVED，不删除产物；view。 |
-| POST `/projects/:p/knowledge-bases` | `{key,name,visibility:'PROJECT'\|'RESTRICTED'}` | HUMAN OWNER/ADMIN；创建者显式grant+默认publicationApprover，201 KB View；其他成员不自动获PROPOSE/PUBLISH。 |
-| GET `/projects/:p/knowledge-bindings` | 无 | 当前项目读取；仅返回当前可读文档引用，不泄露私库标题。 |
-| PUT `/projects/:p/knowledge-bindings` | `{expectedVersion:Project.version,bindings:[{documentId,roleId:null或UUID,required:boolean}],reason,confirmation}` | HUMAN OWNER/ADMIN＋PROJECT_KNOWLEDGE_BINDINGS票据，且每文档当前READ；替换绑定、递增knowledgeBindingsVersion并废止受影响任务快照，返回`{bindings,knowledgeBindingsVersion,projectVersion}`。 |
-| GET `/projects/:p/knowledge-bases` | `{limit?,cursor?}` | 当前KB READ筛选后分页；管理者可从ACL管理接口读取无正文的管理ID，不在普通列表暴露受限标题。 |
-| POST `/knowledge-bases/:kb/documents` | `{kind:'UNDERSTANDING'\|'DECISION'\|'PRD'\|'KNOWLEDGE',requirementId?}` | 当前KB PROPOSE，Agent还需requirement:propose或knowledge:propose；UNDERSTANDING/PRD必须同项目requirementId；201 DocumentView。 |
-| GET `/knowledge-bases/:kb/documents` | `{kind?,limit?,cursor?}` | KB READ；DocumentView分页；候选仅作者、明确评审者或当前PROPOSE/PUBLISH主体可见。 |
-| POST `/documents/:id/revisions` | `{expectedVersion,title,bodyBase64,mimeType,sourceRef?,basisUnderstandingRevisionId?,deliveryScope?,acceptance?:[{key,text,verification}]}` | KB PROPOSE及类型scope；201 `{document:DocumentView,revision:RevisionView}`；服务器算SHA；PRD必须含当前确认理解、deliveryScope和至少一条02验收条款，verification仅TEST/INSPECTION/DEMO。 |
-| GET `/documents/:id/revisions` | `{limit?,cursor?}` | 当前KB READ及候选可见性；revision分页。 |
-| GET `/documents/:id/revisions/:rid` | 无 | RevisionView；rid必须属于该doc及同项目，不能枚举别库。 |
-| GET `/document-revisions/:rid/content` | 无 | 当前KB READ及候选可见性，data=`{revisionId,mimeType,encoding:'base64',bodyBase64,byteLength,sha256}`；`Cache-Control:no-store`。 |
-| POST `/documents/:id/restore` | `{expectedVersion,sourceRevisionId,title?}` | KB PROPOSE；按历史原文产生新候选revision，不改变发布指针；201。 |
-| POST `/documents/:id/withdraw` | `{expectedVersion,revisionId,reason,confirmation}` | HUMAN当前KB REVOKE；清当前发布指针时不自动回退旧版，追加withdraw及变更；DocumentView。 |
-| GET `/knowledge-bases/:kb/search` | `{q(1..500),limit?,cursor?}` | KB READ，仅当前可用发布版；data=`{items:[{revisionId,documentId,title,excerpt,sha256}],nextCursor,hasMore,truncated}`；v1采用本地关键词检索，外部embedding非必需。 |
-| GET `/projects/:p/model-policy` | 无 | 管理者得完整配置，普通成员只得到是否允许当前资料处理；无秘密。 |
-| PUT `/projects/:p/model-policy` | `{expectedVersion:Project.version,mode:'DENY_ALL'\|'ALLOWLIST',providerRefs:string[],reason,confirmation}` | HUMAN OWNER/ADMIN二验；providerRefs只可来自部署批准注册表，变更带AuditEvent；data=`{mode,providerRefs,version,projectVersion}`。 |
+| 方法／路径                             | request或query                                                                                                                              | 响应与授权                                                                                                                                                                                  |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET `/projects`                        | `{limit?,cursor?}`                                                                                                                          | 当前用户可见ProjectView分页；Agent只能读自己项目。                                                                                                                                          |
+| POST `/projects`                       | `{name(1..120),key,description?(<=2000)}`                                                                                                   | HUMAN；创建organization下项目、OWNER关系、六个初始ProjectRole、创建者角色assignment、一个默认PROJECT KB及创建者显式全部内容grant，单事务201 ProjectView；项目key组织内唯一。                |
+| GET `/projects/:p`                     | 无                                                                                                                                          | 当前成员或该项目 `project:read` Agent；ProjectView。                                                                                                                                        |
+| PATCH `/projects/:p`                   | `{expectedVersion,name?,description?,confirmation}`                                                                                         | HUMAN管理者＋PROJECT_UPDATE票据；不接受key、status、repositoryUrl；ProjectView。                                                                                                            |
+| POST `/projects/:p/archive`            | `{expectedVersion,reason,confirmation}`                                                                                                     | HUMAN OWNER；归档阻止新业务写入但保留合法历史读取，不物理删除；ProjectView。                                                                                                                |
+| POST `/projects/:p/requirements`       | `{title(1..200),description?(<=10000)}`                                                                                                     | 当前业务角色HUMAN或 `requirement:propose` Agent；201 RequirementView，原子分配项目序号。                                                                                                    |
+| GET `/projects/:p/requirements`        | `{phase?,workStatus?,limit?,cursor?}`                                                                                                       | `requirement:read`；权限内分页。                                                                                                                                                            |
+| GET `/requirements/:id`                | 无                                                                                                                                          | `requirement:read`；RequirementView。                                                                                                                                                       |
+| PATCH `/requirements/:id`              | `{expectedVersion,title?,description?}`                                                                                                     | 责任人或项目管理者；Agent仅本角色被分配的产品候选范围；返回view。不得接收phase/status/generation/acceptanceCriteria，正式规则和验收写入候选修订再评审。                                     |
+| POST `/requirements/:id/archive`       | `{expectedVersion,reason,confirmation}`                                                                                                     | HUMAN OWNER/ADMIN；ARCHIVED，不删除产物；view。                                                                                                                                             |
+| POST `/projects/:p/knowledge-bases`    | `{key,name,visibility:'PROJECT'\|'RESTRICTED'}`                                                                                             | HUMAN OWNER/ADMIN；创建者显式grant+默认publicationApprover，201 KB View；其他成员不自动获PROPOSE/PUBLISH。                                                                                  |
+| GET `/projects/:p/knowledge-bindings`  | 无                                                                                                                                          | 当前项目读取；仅返回当前可读文档引用，不泄露私库标题。                                                                                                                                      |
+| PUT `/projects/:p/knowledge-bindings`  | `{expectedVersion:Project.version,bindings:[{documentId,roleId:null或UUID,required:boolean}],reason,confirmation}`                          | HUMAN OWNER/ADMIN＋PROJECT_KNOWLEDGE_BINDINGS票据，且每文档当前READ；替换绑定、递增knowledgeBindingsVersion并废止受影响任务快照，返回`{bindings,knowledgeBindingsVersion,projectVersion}`。 |
+| GET `/projects/:p/knowledge-bases`     | `{limit?,cursor?}`                                                                                                                          | 当前KB READ筛选后分页；管理者可从ACL管理接口读取无正文的管理ID，不在普通列表暴露受限标题。                                                                                                  |
+| POST `/knowledge-bases/:kb/documents`  | `{kind:'UNDERSTANDING'\|'DECISION'\|'PRD'\|'KNOWLEDGE',requirementId?}`                                                                     | 当前KB PROPOSE，Agent还需requirement:propose或knowledge:propose；UNDERSTANDING/PRD必须同项目requirementId；201 DocumentView。                                                               |
+| GET `/knowledge-bases/:kb/documents`   | `{kind?,limit?,cursor?}`                                                                                                                    | KB READ；DocumentView分页；候选仅作者、明确评审者或当前PROPOSE/PUBLISH主体可见。                                                                                                            |
+| POST `/documents/:id/revisions`        | `{expectedVersion,title,bodyBase64,mimeType,sourceRef?,basisUnderstandingRevisionId?,deliveryScope?,acceptance?:[{key,text,verification}]}` | KB PROPOSE及类型scope；201 `{document:DocumentView,revision:RevisionView}`；服务器算SHA；PRD必须含当前确认理解、deliveryScope和至少一条02验收条款，verification仅TEST/INSPECTION/DEMO。     |
+| GET `/documents/:id/revisions`         | `{limit?,cursor?}`                                                                                                                          | 当前KB READ及候选可见性；revision分页。                                                                                                                                                     |
+| GET `/documents/:id/revisions/:rid`    | 无                                                                                                                                          | RevisionView；rid必须属于该doc及同项目，不能枚举别库。                                                                                                                                      |
+| GET `/document-revisions/:rid/content` | 无                                                                                                                                          | 当前KB READ及候选可见性，data=`{revisionId,mimeType,encoding:'base64',bodyBase64,byteLength,sha256}`；`Cache-Control:no-store`。                                                            |
+| POST `/documents/:id/restore`          | `{expectedVersion,sourceRevisionId,title?}`                                                                                                 | KB PROPOSE；按历史原文产生新候选revision，不改变发布指针；201。                                                                                                                             |
+| POST `/documents/:id/withdraw`         | `{expectedVersion,revisionId,reason,confirmation}`                                                                                          | HUMAN当前KB REVOKE；清当前发布指针时不自动回退旧版，追加withdraw及变更；DocumentView。                                                                                                      |
+| GET `/knowledge-bases/:kb/search`      | `{q(1..500),limit?,cursor?}`                                                                                                                | KB READ，仅当前可用发布版；data=`{items:[{revisionId,documentId,title,excerpt,sha256}],nextCursor,hasMore,truncated}`；v1采用本地关键词检索，外部embedding非必需。                          |
+| GET `/projects/:p/model-policy`        | 无                                                                                                                                          | 管理者得完整配置，普通成员只得到是否允许当前资料处理；无秘密。                                                                                                                              |
+| PUT `/projects/:p/model-policy`        | `{expectedVersion:Project.version,mode:'DENY_ALL'\|'ALLOWLIST',providerRefs:string[],reason,confirmation}`                                  | HUMAN OWNER/ADMIN二验；providerRefs只可来自部署批准注册表，变更带AuditEvent；data=`{mode,providerRefs,version,projectVersion}`。                                                            |
 
 v1正文支持Markdown UTF-8；已有PDF／TXT按06保留原文件及解析文本候选，不自动取得发布资格。整库导入只能显式选定文件并产生候选，禁止CLI扫描目录后自动批准或缺席即删。知识索引、切片和摘要的当前授权与撤销检查不能等待后台重建。
 
@@ -141,41 +141,41 @@ v1正文支持Markdown UTF-8；已有PDF／TXT按06保留原文件及解析文�
 
 manifest严格按03验证；resources中的每项必须精确对应声明的resourceId，服务端核原始bytes长度及hash，拒绝缺件、多件、重复路径、绝对路径、点段、symlink或未知字段。单资源4MiB、总原始bytes10MiB、请求16MiB，文件不写入任意主机路径，不自动执行AUXILIARY_SCRIPT。项目包不得与内置packageId同名shadow；所有项目成员可读这些项目流程资料，因此受限知识正文不得嵌入包中，只通过快照的KB授权引用。
 
-| 方法／路径 | 请求与权限 | data |
-| --- | --- | --- |
-| GET `/projects/:p/role-packages` | 当前workflow:read；含可见内置与本项目版本。 | `{items:[{id,packageId,version,roleKey,manifestDigest,scope:'BUILTIN'\|'PROJECT'}],nextCursor,hasMore}`。 |
-| POST `/projects/:p/role-packages` | HUMAN OWNER/ADMIN＋ROLE_PACKAGE_PUBLISH票据；`{expectedVersion:Project.version,manifest,resources:[{resourceId,bodyBase64}],confirmation}`。 | `{packageVersionId,packageId,version,manifestDigest,projectVersion}`，201；同version同digest合法重试不重复，不同digest409。 |
-| GET `/projects/:p/role-packages/:packageId/versions/:version` | 当前workflow:read，project私有包不跨项目返回。 | `{packageVersionId,manifest,manifestDigest}`。 |
-| GET `/projects/:p/role-packages/:packageId/versions/:version/resources/:resourceId` | 同上；只返回登记的资源。 | `{resourceId,encoding:'base64',bodyBase64,byteLength,sha256,mediaType}`。 |
+| 方法／路径                                                                          | 请求与权限                                                                                                                                   | data                                                                                                                        |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| GET `/projects/:p/role-packages`                                                    | 当前workflow:read；含可见内置与本项目版本。                                                                                                  | `{items:[{id,packageId,version,roleKey,manifestDigest,scope:'BUILTIN'\|'PROJECT'}],nextCursor,hasMore}`。                   |
+| POST `/projects/:p/role-packages`                                                   | HUMAN OWNER/ADMIN＋ROLE_PACKAGE_PUBLISH票据；`{expectedVersion:Project.version,manifest,resources:[{resourceId,bodyBase64}],confirmation}`。 | `{packageVersionId,packageId,version,manifestDigest,projectVersion}`，201；同version同digest合法重试不重复，不同digest409。 |
+| GET `/projects/:p/role-packages/:packageId/versions/:version`                       | 当前workflow:read，project私有包不跨项目返回。                                                                                               | `{packageVersionId,manifest,manifestDigest}`。                                                                              |
+| GET `/projects/:p/role-packages/:packageId/versions/:version/resources/:resourceId` | 同上；只返回登记的资源。                                                                                                                     | `{resourceId,encoding:'base64',bodyBase64,byteLength,sha256,mediaType}`。                                                   |
 
 ### 6.2 实例、任务和上下文
 
 流程定义发布的body精确为 `{expectedVersion:Project.version,expectedCurrentRevision:number,definition:WorkflowDefinition,packageLocks:[{roleKey,packageId,version,packageDigest}],confirmation}`。首次expectedCurrentRevision为0，仅表示不存在已发布修订；它不是对象CAS版本，expectedVersion仍须>=1。之后必须等于该workflowKey当前revision。服务端编译03的角色、包与系统门禁后生成compiledDigest并纳入01 ActionBinding，客户端不能自报系统门槛。
 
-| 方法／路径 | request／query | data与权限 |
-| --- | --- | --- |
-| GET `/projects/:p/workflow-definitions` | `{limit?,cursor?}` | workflow:read；`{items:[{workflowKey,title,version,currentPublishedRevisionId}],nextCursor,hasMore}`。 |
-| POST `/projects/:p/workflow-definitions/validate` | `{definition,packageLocks}` | workflow:propose或HUMAN项目管理者；只校验无写入，200 `{valid,issues:[{path,code,message}],compiledDigest:string\|null}`；非法结构仍400，合法结构业务问题valid=false。 |
-| POST `/projects/:p/workflow-definitions/:workflowKey/publish` | 本节准确发布body，path key必须等于definition.workflowKey。 | HUMAN OWNER/ADMIN＋WORKFLOW_CONFIG_PUBLISH票据；追加不可变revision和CAS发布指针、Project.version，201 `{definitionRevisionId,revision,digest,projectVersion}`。 |
-| GET `/workflow-definition-revisions/:rid` | 无 | 当前workflow:read；`{id,projectId,workflowKey,revision,digest,definition,compiledRules}`。 |
+| 方法／路径                                                    | request／query                                             | data与权限                                                                                                                                                            |
+| ------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET `/projects/:p/workflow-definitions`                       | `{limit?,cursor?}`                                         | workflow:read；`{items:[{workflowKey,title,version,currentPublishedRevisionId}],nextCursor,hasMore}`。                                                                |
+| POST `/projects/:p/workflow-definitions/validate`             | `{definition,packageLocks}`                                | workflow:propose或HUMAN项目管理者；只校验无写入，200 `{valid,issues:[{path,code,message}],compiledDigest:string\|null}`；非法结构仍400，合法结构业务问题valid=false。 |
+| POST `/projects/:p/workflow-definitions/:workflowKey/publish` | 本节准确发布body，path key必须等于definition.workflowKey。 | HUMAN OWNER/ADMIN＋WORKFLOW_CONFIG_PUBLISH票据；追加不可变revision和CAS发布指针、Project.version，201 `{definitionRevisionId,revision,digest,projectVersion}`。       |
+| GET `/workflow-definition-revisions/:rid`                     | 无                                                         | 当前workflow:read；`{id,projectId,workflowKey,revision,digest,definition,compiledRules}`。                                                                            |
 
-| 方法／路径 | request | 响应与权限 |
-| --- | --- | --- |
-| POST `/requirements/:id/workflow-instances` | `{definitionRevisionId,expectedRequirementVersion,stepBindings:[{stepKey,roleId,responsibleUserId,repositoryIds:UUID[]}],roleSlotBindings:[{slotKey,roleId,userId}],confirmation}` | HUMAN OWNER/ADMIN；准确绑定全部step/slot；IMPL步骤必须声明非空代码仓库范围并校验同项目；201 `{instance,tasks,requirementVersion}`，不要求先有PRD发布版。 |
-| GET `/workflow-instances/:id` | 无 | 当前项目workflow:read；实例及准确绑定，不返回无权产物正文。 |
-| POST `/workflow-instances/:id/upgrade` | `{expectedVersion,definitionRevisionId,stepBindings,roleSlotBindings,reason,confirmation}` | HUMAN OWNER/ADMIN；明示升级影响、版本切换和旧claim失效；`{instance,affectedTaskIds}`。 |
-| GET `/projects/:p/tasks/ready` | `{roleId?,limit?,cursor?}` | task:read；Agent固定本凭据role，无任意改角色；先SQL项目与责任范围过滤，再评估02依赖门槛；TaskView分页。 |
-| GET `/requirements/:id/tasks` | `{limit?,cursor?}` | task:read；需求任务分页。 |
-| GET `/tasks/:id` | 无 | task:read；TaskView。 |
-| POST `/tasks/:id/claim` | `{expectedVersion}` | 当前任务责任人或其单角色Agent＋task:claim；一次claim写主体并推进版本；data=`{task,claim}`。 |
-| POST `/tasks/:id/release` | `{expectedVersion,claimId,reason,force:false}`，管理员可`force:true,confirmation` | 本claim主体＋task:release；force仅HUMAN OWNER/ADMIN票据；`{task,releasedClaimId}`。 |
-| POST `/tasks/:id/work-status` | `{expectedVersion,action:'BLOCK'\|'UNBLOCK'\|'PAUSE'\|'RESUME'\|'CANCEL',reason,blockedByUserId?,resumeCondition?}` | 当前claim＋clarification:write Agent仅可BLOCK；UNBLOCK/PAUSE/RESUME/CANCEL只允许02规定的责任HUMAN或管理者，不能借action写DONE；返回TaskView。 |
-| POST `/requirements/:id/work-status` | `{expectedVersion,action:'BLOCK'\|'UNBLOCK'\|'PAUSE'\|'RESUME'\|'CANCEL',reason,resumeCondition?}` | HUMAN责任人/管理者；按02传播限定允许的写入；RequirementView。 |
-| POST `/tasks/:id/context-snapshots` | `{expectedVersion,claimId,candidateRevisionIds?:UUID[]}` | 当前claim＋context:create；候选只对PRODUCT/NONE可显式选取；201 `{snapshot,taskVersion}`；快照创建不推进旧业务阶段。 |
-| GET `/context-snapshots/:sid` | 无 | 当前context:read；SnapshotView，任何必需引用已失权则整个读取拒绝，不返回部分可误用manifest。 |
-| GET `/context-snapshots/:sid/resources/:refId` | 无 | 当前正文／资源授权；data=`{refId,encoding:'base64',bodyBase64,byteLength,sha256}`，不能从manifest提供任意file路径让服务器读取。 |
-| POST `/requirements/:id/clarifications` | `{expectedVersion,taskId?,question,impact,assignedUserId,dependencyIds:UUID[],resumeCondition}` | clarification:write且项目责任范围匹配；question/impact/resumeCondition分别1..2000字，依赖最多32且同需求、无环；201 `{clarification,requirementVersion}`。 |
-| POST `/clarifications/:cid/responses` | `{expectedVersion,answer,resolution:'PROPOSED'\|'CONFIRMED'\|'DEFERRED',resolutionRefs:[{revisionId,purpose:'RULE'\|'ACCEPTANCE'\|'UNKNOWN',lineStart,lineEnd}]}` | Agent＋clarification:write仅可PROPOSED，不关闭正式阻塞；指定回答HUMAN可CONFIRMED／DEFERRED。REF最多32、同项目且当前可读、行范围真实存在；CONFIRMED须至少一处RULE或ACCEPTANCE落点，DEFERRED保留未决。data=`{clarification,version}`。 |
+| 方法／路径                                     | request                                                                                                                                                                            | 响应与权限                                                                                                                                                                                                                           |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| POST `/requirements/:id/workflow-instances`    | `{definitionRevisionId,expectedRequirementVersion,stepBindings:[{stepKey,roleId,responsibleUserId,repositoryIds:UUID[]}],roleSlotBindings:[{slotKey,roleId,userId}],confirmation}` | HUMAN OWNER/ADMIN；准确绑定全部step/slot；IMPL步骤必须声明非空代码仓库范围并校验同项目；201 `{instance,tasks,requirementVersion}`，不要求先有PRD发布版。                                                                             |
+| GET `/workflow-instances/:id`                  | 无                                                                                                                                                                                 | 当前项目workflow:read；实例及准确绑定，不返回无权产物正文。                                                                                                                                                                          |
+| POST `/workflow-instances/:id/upgrade`         | `{expectedVersion,definitionRevisionId,stepBindings,roleSlotBindings,reason,confirmation}`                                                                                         | HUMAN OWNER/ADMIN；明示升级影响、版本切换和旧claim失效；`{instance,affectedTaskIds}`。                                                                                                                                               |
+| GET `/projects/:p/tasks/ready`                 | `{roleId?,limit?,cursor?}`                                                                                                                                                         | task:read；Agent固定本凭据role，无任意改角色；先SQL项目与责任范围过滤，再评估02依赖门槛；TaskView分页。                                                                                                                              |
+| GET `/requirements/:id/tasks`                  | `{limit?,cursor?}`                                                                                                                                                                 | task:read；需求任务分页。                                                                                                                                                                                                            |
+| GET `/tasks/:id`                               | 无                                                                                                                                                                                 | task:read；TaskView。                                                                                                                                                                                                                |
+| POST `/tasks/:id/claim`                        | `{expectedVersion}`                                                                                                                                                                | 当前任务责任人或其单角色Agent＋task:claim；一次claim写主体并推进版本；data=`{task,claim}`。                                                                                                                                          |
+| POST `/tasks/:id/release`                      | `{expectedVersion,claimId,reason,force:false}`，管理员可`force:true,confirmation`                                                                                                  | 本claim主体＋task:release；force仅HUMAN OWNER/ADMIN票据；`{task,releasedClaimId}`。                                                                                                                                                  |
+| POST `/tasks/:id/work-status`                  | `{expectedVersion,action:'BLOCK'\|'UNBLOCK'\|'PAUSE'\|'RESUME'\|'CANCEL',reason,blockedByUserId?,resumeCondition?}`                                                                | 当前claim＋clarification:write Agent仅可BLOCK；UNBLOCK/PAUSE/RESUME/CANCEL只允许02规定的责任HUMAN或管理者，不能借action写DONE；返回TaskView。                                                                                        |
+| POST `/requirements/:id/work-status`           | `{expectedVersion,action:'BLOCK'\|'UNBLOCK'\|'PAUSE'\|'RESUME'\|'CANCEL',reason,resumeCondition?}`                                                                                 | HUMAN责任人/管理者；按02传播限定允许的写入；RequirementView。                                                                                                                                                                        |
+| POST `/tasks/:id/context-snapshots`            | `{expectedVersion,claimId,candidateRevisionIds?:UUID[]}`                                                                                                                           | 当前claim＋context:create；候选只对PRODUCT/NONE可显式选取；201 `{snapshot,taskVersion}`；快照创建不推进旧业务阶段。                                                                                                                  |
+| GET `/context-snapshots/:sid`                  | 无                                                                                                                                                                                 | 当前context:read；SnapshotView，任何必需引用已失权则整个读取拒绝，不返回部分可误用manifest。                                                                                                                                         |
+| GET `/context-snapshots/:sid/resources/:refId` | 无                                                                                                                                                                                 | 当前正文／资源授权；data=`{refId,encoding:'base64',bodyBase64,byteLength,sha256}`，不能从manifest提供任意file路径让服务器读取。                                                                                                      |
+| POST `/requirements/:id/clarifications`        | `{expectedVersion,taskId?,question,impact,assignedUserId,dependencyIds:UUID[],resumeCondition}`                                                                                    | clarification:write且项目责任范围匹配；question/impact/resumeCondition分别1..2000字，依赖最多32且同需求、无环；201 `{clarification,requirementVersion}`。                                                                            |
+| POST `/clarifications/:cid/responses`          | `{expectedVersion,answer,resolution:'PROPOSED'\|'CONFIRMED'\|'DEFERRED',resolutionRefs:[{revisionId,purpose:'RULE'\|'ACCEPTANCE'\|'UNKNOWN',lineStart,lineEnd}]}`                  | Agent＋clarification:write仅可PROPOSED，不关闭正式阻塞；指定回答HUMAN可CONFIRMED／DEFERRED。REF最多32、同项目且当前可读、行范围真实存在；CONFIRMED须至少一处RULE或ACCEPTANCE落点，DEFERRED保留未决。data=`{clarification,version}`。 |
 
 没有 `PATCH /tasks/:id/status`，没有 `PATCH Requirement.status`，也不提供直接更新snapshot内容的入口。重开和返工由02的评审决定／基线变更／显式动作触发，不能用任意字符串目标状态替代有权限动作。
 
@@ -196,9 +196,9 @@ type DeliverArtifactSet = {
   localRunId: string;
   candidateRevisionIds: string[];
   items: Array<{
-    kind: 'PRD'|'DESIGN'|'IMPL'|'CASES'|'RELEASE';
+    kind: 'PRD' | 'DESIGN' | 'IMPL' | 'CASES' | 'RELEASE';
     schemaVersion: '1.0';
-    storage: 'HOSTED'|'GIT_REF';
+    storage: 'HOSTED' | 'GIT_REF';
     mediaType: string;
     sha256: string;
     byteLength: number;
@@ -207,7 +207,7 @@ type DeliverArtifactSet = {
     commitSha?: string;
     repoPath?: string;
     summary?: string;
-    checks: Array<{code:string,passed:boolean,message?:string}>;
+    checks: Array<{ code: string; passed: boolean; message?: string }>;
   }>;
 };
 ```
@@ -218,20 +218,20 @@ type DeliverArtifactSet = {
 
 ### 7.2 评审与变更接口
 
-| 方法／路径 | request／query | 响应与语义 |
-| --- | --- | --- |
-| GET `/tasks/:id/artifact-sets` | `{limit?,cursor?}` | task:read，ArtifactSetView分页；正文另需原资源权限。 |
-| POST `/review-requests` | `{subject:{kind:'DOCUMENT_REVISION'\|'TASK_ARTIFACT_SET',id},expectedVersion,taskId?}` | review:request；kind和slots服务端派生，不接受approved或任意slot。未给taskId且候选属于唯一当前Task产物时自动关联；多于一个需明确taskId，无当前产物则按独立候选。201 ReviewView。 |
-| GET `/review-requests/:rid` | 无 | review:read及subject当前访问权，ReviewView。 |
-| POST `/review-requests/:rid/prepare-code-evidence` | `{expectedVersion}` | 本请求提交者HUMAN、当前slot审批HUMAN，或仍有任务claim的task:deliver Agent；04外部核验后短事务CAS绑定证据并递增ReviewRequest.version，响应ReviewView。非IMPL返回422。 |
-| POST `/review-requests/:rid/decisions` | `{slotId,decision:'APPROVE'\|'CHANGES_REQUESTED'\|'REJECT',expectedVersion,comment?,confirmation}` | 仅当前slot资格HUMAN；有准确版本的票据；最后ALL批准同事务完成02发布／验收效应，响应`{review,subjectResult,task?,requirement?}`。 |
-| POST `/review-decisions/:did/revoke` | `{expectedVersion:所属ReviewRequest.version,reason,confirmation}` | 02撤销资格＋01二验；决定没有可变version，normalizer绑定父request版本；追加撤销，不删旧决定，响应`{revocation,affectedTaskIds}`。 |
-| GET `/projects/:p/review-requests` | `{assignedToMe?:boolean,status?,limit?,cursor?}` | 当前review:read，Agent仅本角色关联请求；ReviewView分页，Web待办依据实际slot指派。 |
-| GET `/projects/:p/changes` | `{pending?:boolean,roleId?,limit?,cursor?}` | change:read；SQL先过滤recipient与权限，按(createdAt,id)升序分页，不跨过遗漏未确认项。 |
-| POST `/change-recipients/:recipientId/ack` | `{expectedVersion}` | 精确收件用户＋该角色change:ack；幂等，不恢复旧审批；`{recipientId,eventId,roleId,ackedAt}`。 |
-| POST `/change-recipients/:recipientId/reassign` | `{expectedVersion,userId,roleId,reason,confirmation}` | HUMAN管理者，目标具备当前角色和访问权；追加转派记录，原确认不冒充新人的处理；`{oldRecipient,newRecipient}`。 |
-| GET `/projects/:p/board` | 无 | 当前项目read，聚合阶段、工作情况、输入有效性和门禁，不把曾有签字标为当前有效。 |
-| GET `/projects/:p/trace` | `{requirementId?,limit?,cursor?}` | 当前可见范围内的限定类型关系图；按仓库、项目、端点和linkType校验，不能查到别项目资源。 |
+| 方法／路径                                         | request／query                                                                                     | 响应与语义                                                                                                                                                                      |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET `/tasks/:id/artifact-sets`                     | `{limit?,cursor?}`                                                                                 | task:read，ArtifactSetView分页；正文另需原资源权限。                                                                                                                            |
+| POST `/review-requests`                            | `{subject:{kind:'DOCUMENT_REVISION'\|'TASK_ARTIFACT_SET',id},expectedVersion,taskId?}`             | review:request；kind和slots服务端派生，不接受approved或任意slot。未给taskId且候选属于唯一当前Task产物时自动关联；多于一个需明确taskId，无当前产物则按独立候选。201 ReviewView。 |
+| GET `/review-requests/:rid`                        | 无                                                                                                 | review:read及subject当前访问权，ReviewView。                                                                                                                                    |
+| POST `/review-requests/:rid/prepare-code-evidence` | `{expectedVersion}`                                                                                | 本请求提交者HUMAN、当前slot审批HUMAN，或仍有任务claim的task:deliver Agent；04外部核验后短事务CAS绑定证据并递增ReviewRequest.version，响应ReviewView。非IMPL返回422。            |
+| POST `/review-requests/:rid/decisions`             | `{slotId,decision:'APPROVE'\|'CHANGES_REQUESTED'\|'REJECT',expectedVersion,comment?,confirmation}` | 仅当前slot资格HUMAN；有准确版本的票据；最后ALL批准同事务完成02发布／验收效应，响应`{review,subjectResult,task?,requirement?}`。                                                 |
+| POST `/review-decisions/:did/revoke`               | `{expectedVersion:所属ReviewRequest.version,reason,confirmation}`                                  | 02撤销资格＋01二验；决定没有可变version，normalizer绑定父request版本；追加撤销，不删旧决定，响应`{revocation,affectedTaskIds}`。                                                |
+| GET `/projects/:p/review-requests`                 | `{assignedToMe?:boolean,status?,limit?,cursor?}`                                                   | 当前review:read，Agent仅本角色关联请求；ReviewView分页，Web待办依据实际slot指派。                                                                                               |
+| GET `/projects/:p/changes`                         | `{pending?:boolean,roleId?,limit?,cursor?}`                                                        | change:read；SQL先过滤recipient与权限，按(createdAt,id)升序分页，不跨过遗漏未确认项。                                                                                           |
+| POST `/change-recipients/:recipientId/ack`         | `{expectedVersion}`                                                                                | 精确收件用户＋该角色change:ack；幂等，不恢复旧审批；`{recipientId,eventId,roleId,ackedAt}`。                                                                                    |
+| POST `/change-recipients/:recipientId/reassign`    | `{expectedVersion,userId,roleId,reason,confirmation}`                                              | HUMAN管理者，目标具备当前角色和访问权；追加转派记录，原确认不冒充新人的处理；`{oldRecipient,newRecipient}`。                                                                    |
+| GET `/projects/:p/board`                           | 无                                                                                                 | 当前项目read，聚合阶段、工作情况、输入有效性和门禁，不把曾有签字标为当前有效。                                                                                                  |
+| GET `/projects/:p/trace`                           | `{requirementId?,limit?,cursor?}`                                                                  | 当前可见范围内的限定类型关系图；按仓库、项目、端点和linkType校验，不能查到别项目资源。                                                                                          |
 
 ReviewRequest.kind精确为 UNDERSTANDING_CONFIRM、PRD_PUBLICATION、KNOWLEDGE_PUBLICATION、TASK_ACCEPTANCE、RELEASE_ACCEPTANCE。两种publication按钮必须明确“批准并发布”。先准备代码证据再preview／二验，prepared evidence过期须刷新并重新确认，不能在最终事务里悄悄换一份证据。
 

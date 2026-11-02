@@ -209,7 +209,9 @@ export function Roles() {
                         <button
                           key={role.id}
                           className="ghost"
-                          onClick={() => setGrantTarget({ member, role, revoke: false, reason: '' })}
+                          onClick={() =>
+                            setGrantTarget({ member, role, revoke: false, reason: '' })
+                          }
                         >
                           授予 {role.title}
                         </button>
@@ -281,13 +283,17 @@ export function Roles() {
                   <td className="cell-num">v{access.authzVersion}</td>
                   <td className="cell-mono">
                     {access.publicationApproverUserId ?? '—'}
-                    {access.publicationApproverRoleId ? ` / ${access.publicationApproverRoleId}` : ''}
+                    {access.publicationApproverRoleId
+                      ? ` / ${access.publicationApproverRoleId}`
+                      : ''}
                   </td>
                   <td>{access.grants.length} 条</td>
                 </tr>
                 {access.grants.map((grant) => (
                   <tr key={grant.id}>
-                    <td>{grant.subjectKind === 'USER' ? grant.subjectUserId : grant.subjectRoleId}</td>
+                    <td>
+                      {grant.subjectKind === 'USER' ? grant.subjectUserId : grant.subjectRoleId}
+                    </td>
                     <td>{grant.permissions.join('、')}</td>
                     <td className="cell-num">v{grant.version}</td>
                     <td className="cell-mono">{grant.revokedAt ? '已撤销' : '有效'}</td>
@@ -378,7 +384,10 @@ export function Roles() {
                 value={aclForm.visibility}
                 aria-label="知识库可见性"
                 onChange={(event) =>
-                  setAclForm({ ...aclForm, visibility: event.target.value as 'PROJECT' | 'RESTRICTED' })
+                  setAclForm({
+                    ...aclForm,
+                    visibility: event.target.value as 'PROJECT' | 'RESTRICTED',
+                  })
                 }
               >
                 <option value="PROJECT">项目可见</option>
@@ -445,7 +454,9 @@ export function Roles() {
                   </button>
                 </div>
               ))}
-              {aclForm.grants.length === 0 && <small>当前集合为空；授权将整体移除既有 grant。</small>}
+              {aclForm.grants.length === 0 && (
+                <small>当前集合为空；授权将整体移除既有 grant。</small>
+              )}
             </div>
             <div className="field">
               <span>原因（必填）</span>

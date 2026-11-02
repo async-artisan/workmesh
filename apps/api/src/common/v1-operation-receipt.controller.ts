@@ -4,14 +4,17 @@ import { V1AuthGuard, type V1Request } from '../auth/v1-auth.guard';
 import { V1OperationReceiptService } from './v1-operation-receipt.service';
 
 function principalOf(request: V1Request) {
-  if (!request.v1Principal) throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
+  if (!request.v1Principal)
+    throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
   return request.v1Principal;
 }
 
 @UseGuards(V1AuthGuard)
 @Controller('v1/operation-receipts')
 export class V1OperationReceiptController {
-  constructor(@Inject(V1OperationReceiptService) private readonly receipts: V1OperationReceiptService) {}
+  constructor(
+    @Inject(V1OperationReceiptService) private readonly receipts: V1OperationReceiptService,
+  ) {}
 
   @Get(':operationKey')
   get(

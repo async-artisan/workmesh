@@ -77,7 +77,11 @@ export interface ProjectRoleRepository {
   findManager(projectId: string, userId: string): Promise<ProjectMemberRecord | null>;
   findTargetMember(projectId: string, userId: string): Promise<ProjectMemberProfile | null>;
   findRole(projectId: string, roleId: string): Promise<ProjectRoleRecord | null>;
-  findAssignment(projectId: string, userId: string, roleId: string): Promise<ProjectRoleAssignmentRecord | null>;
+  findAssignment(
+    projectId: string,
+    userId: string,
+    roleId: string,
+  ): Promise<ProjectRoleAssignmentRecord | null>;
   assign(input: ProjectRoleChangeInput): Promise<ProjectRoleMutationView>;
   revoke(input: ProjectRoleChangeInput): Promise<ProjectRoleMutationView>;
 }

@@ -222,4 +222,3 @@ flowchart LR
 - Redis 以虚线表示可选缓存；`docs/deployment.md` 明确未设置时直通且不影响正确性。
 - Web 页面与 API resource 的细粒度映射只在页面和 `src/api/resources.ts` 中分散体现，未做浏览器 E2E，因此图中保持容器级关系。
 - GitHub live runner 当前明确未实现，不能从适配器存在推断线上 GitHub 已验证。
-

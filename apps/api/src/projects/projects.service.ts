@@ -8,7 +8,11 @@ import {
   type Confirmation,
 } from '@workmesh/shared';
 import type { V1Principal } from '../auth/v1-policy';
-import { verifyTicketBinding, V1_CONFIRMATION_REPOSITORY, type V1ConfirmationRepository } from '../auth/v1-confirmation';
+import {
+  verifyTicketBinding,
+  V1_CONFIRMATION_REPOSITORY,
+  type V1ConfirmationRepository,
+} from '../auth/v1-confirmation';
 import {
   assertReplayable,
   requestDigestOf,
@@ -59,7 +63,9 @@ export type ProjectRoleChangeRequest = {
 };
 
 function recordOf(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function resourceNotFound(message: string, details: Record<string, unknown>): WorkmeshError {
@@ -82,10 +88,16 @@ export class ProjectsService {
     });
     if (projects.length === 0) return [];
     const knowledgeBases = await this.prisma.knowledgeBase.findMany({
-      where: { projectId: { in: projects.map((project) => project.id) }, key: DEFAULT_KNOWLEDGE_BASE_KEY, archivedAt: null },
+      where: {
+        projectId: { in: projects.map((project) => project.id) },
+        key: DEFAULT_KNOWLEDGE_BASE_KEY,
+        archivedAt: null,
+      },
       select: { id: true, projectId: true },
     });
-    const defaultKnowledgeBaseIds = new Map(knowledgeBases.map((item) => [item.projectId, item.id]));
+    const defaultKnowledgeBaseIds = new Map(
+      knowledgeBases.map((item) => [item.projectId, item.id]),
+    );
     return projects.map((project) => ({
       ...project,
       defaultKnowledgeBaseId: defaultKnowledgeBaseIds.get(project.id) ?? null,
@@ -99,7 +111,12 @@ export class ProjectsService {
   async create(userId: string, dto: CreateProjectDto) {
     return this.prisma.$transaction(async (tx) => {
       const project = await tx.project.create({
-        data: { name: dto.name, key: dto.key, description: dto.description ?? null, createdById: userId },
+        data: {
+          name: dto.name,
+          key: dto.key,
+          description: dto.description ?? null,
+          createdById: userId,
+        },
       });
       const roles = await Promise.all(
         DEFAULT_PROJECT_ROLES.map((role) =>
@@ -158,7 +175,8 @@ export class ProjectsService {
    */
   async addMemberByEmail(userId: string, projectId: string, email: string) {
     const member = await this.membership(userId, projectId, true);
-    if (member.role !== 'OWNER' && member.role !== 'ADMIN') throw new NotFoundException('项目不存在');
+    if (member.role !== 'OWNER' && member.role !== 'ADMIN')
+      throw new NotFoundException('项目不存在');
 
     const normalized = email.trim().toLowerCase();
     const target = await this.prisma.user.findUnique({
@@ -171,7 +189,13 @@ export class ProjectsService {
       where: { projectId_userId: { projectId, userId: target.id } },
     });
     if (existing && !existing.revokedAt) {
-      return { id: target.id, name: target.email, email: target.email, role: existing.role, version: existing.version };
+      return {
+        id: target.id,
+        name: target.email,
+        email: target.email,
+        role: existing.role,
+        version: existing.version,
+      };
     }
 
     const saved = existing
@@ -182,7 +206,13 @@ export class ProjectsService {
       : await this.prisma.projectMember.create({
           data: { projectId, userId: target.id, role: 'MEMBER' },
         });
-    return { id: target.id, name: target.email, email: target.email, role: saved.role, version: saved.version };
+    return {
+      id: target.id,
+      name: target.email,
+      email: target.email,
+      role: saved.role,
+      version: saved.version,
+    };
   }
 
   async roles(userId: string, projectId: string) {
@@ -198,15 +228,13 @@ export class ProjectsService {
       where: { projectId_userId: { projectId, userId } },
     });
     if (!member || member.revokedAt) throw new NotFoundException('项目不存在');
-    if (manageOnly && member.role === 'MEMBER')
-      throw new NotFoundException('项目不存在');
+    if (manageOnly && member.role === 'MEMBER') throw new NotFoundException('项目不存在');
     return member;
   }
 
   async update(userId: string, projectId: string, dto: UpdateProjectDto) {
     const member = await this.membership(userId, projectId, true);
-    if (member.role !== 'OWNER')
-      throw new NotFoundException('项目不存在');
+    if (member.role !== 'OWNER') throw new NotFoundException('项目不存在');
     const project = await this.prisma.project.update({
       where: { id: projectId },
       data: {
@@ -220,8 +248,7 @@ export class ProjectsService {
 
   async archive(userId: string, projectId: string, now = new Date()) {
     const member = await this.membership(userId, projectId, true);
-    if (member.role !== 'OWNER')
-      throw new NotFoundException('项目不存在');
+    if (member.role !== 'OWNER') throw new NotFoundException('项目不存在');
     const project = await this.prisma.project.update({
       where: { id: projectId },
       data: { archivedAt: now, version: { increment: 1 } },
@@ -253,22 +280,27 @@ export class ProjectsService {
 
     await this.requireTargetMember(projectId, userId, input.expectedVersion);
     await this.requireRole(projectId, roleId, true);
-    const ticket = await this.requireTicket(
-      input.confirmation,
-      principal,
-      context,
-      {
-        action: PROJECT_ROLE_ASSIGN,
-        projectId,
-        targetType: PROJECT_MEMBER_TARGET,
-        targetId: userId,
-        expectedVersion: input.expectedVersion,
-        roleSlot: null,
-        payload: { userId, roleId, reason: input.reason },
-      },
-    );
+    const ticket = await this.requireTicket(input.confirmation, principal, context, {
+      action: PROJECT_ROLE_ASSIGN,
+      projectId,
+      targetType: PROJECT_MEMBER_TARGET,
+      targetId: userId,
+      expectedVersion: input.expectedVersion,
+      roleSlot: null,
+      payload: { userId, roleId, reason: input.reason },
+    });
     return this.roleRepository.assign(
-      this.mutationInput(principal, projectId, userId, roleId, input, context, ticket.id, ticket.secretHash, replay.requestDigest),
+      this.mutationInput(
+        principal,
+        projectId,
+        userId,
+        roleId,
+        input,
+        context,
+        ticket.id,
+        ticket.secretHash,
+        replay.requestDigest,
+      ),
     );
   }
 
@@ -288,28 +320,41 @@ export class ProjectsService {
     await this.requireTargetMember(projectId, userId, input.expectedVersion);
     await this.requireRole(projectId, roleId, false);
     await this.requireAssignment(projectId, userId, roleId);
-    const ticket = await this.requireTicket(
-      input.confirmation,
-      principal,
-      context,
-      {
-        action: PROJECT_ROLE_UNASSIGN,
-        projectId,
-        targetType: PROJECT_MEMBER_TARGET,
-        targetId: userId,
-        expectedVersion: input.expectedVersion,
-        roleSlot: null,
-        payload: { userId, roleId, reason: input.reason },
-      },
-    );
+    const ticket = await this.requireTicket(input.confirmation, principal, context, {
+      action: PROJECT_ROLE_UNASSIGN,
+      projectId,
+      targetType: PROJECT_MEMBER_TARGET,
+      targetId: userId,
+      expectedVersion: input.expectedVersion,
+      roleSlot: null,
+      payload: { userId, roleId, reason: input.reason },
+    });
     return this.roleRepository.revoke(
-      this.mutationInput(principal, projectId, userId, roleId, input, context, ticket.id, ticket.secretHash, replay.requestDigest),
+      this.mutationInput(
+        principal,
+        projectId,
+        userId,
+        roleId,
+        input,
+        context,
+        ticket.id,
+        ticket.secretHash,
+        replay.requestDigest,
+      ),
     );
   }
 
-  private async requireHumanSession(principal: V1Principal, context: ProjectRoleChangeContext): Promise<void> {
+  private async requireHumanSession(
+    principal: V1Principal,
+    context: ProjectRoleChangeContext,
+  ): Promise<void> {
     if (principal.kind !== 'HUMAN' || !principal.sessionId || !context.webSessionId)
-      throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, 'HUMAN_SESSION_REQUIRED', undefined, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+        'HUMAN_SESSION_REQUIRED',
+        undefined,
+        403,
+      );
   }
 
   /** 非 OWNER/ADMIN 一律按项目不存在处理，不泄露项目或成员存在性。 */
@@ -336,13 +381,21 @@ export class ProjectsService {
       );
   }
 
-  private async requireRole(projectId: string, roleId: string, mustBeActive: boolean): Promise<void> {
+  private async requireRole(
+    projectId: string,
+    roleId: string,
+    mustBeActive: boolean,
+  ): Promise<void> {
     const role = await this.roleRepository.findRole(projectId, roleId);
     if (!role || (mustBeActive && !role.isActive))
       throw resourceNotFound('PROJECT_ROLE_NOT_FOUND', { projectId, roleId });
   }
 
-  private async requireAssignment(projectId: string, userId: string, roleId: string): Promise<void> {
+  private async requireAssignment(
+    projectId: string,
+    userId: string,
+    roleId: string,
+  ): Promise<void> {
     const assignment = await this.roleRepository.findAssignment(projectId, userId, roleId);
     if (!assignment || assignment.revokedAt)
       throw resourceNotFound('ASSIGNMENT_NOT_FOUND', { projectId, userId, roleId });
@@ -380,14 +433,22 @@ export class ProjectsService {
     projectId: string,
     context: ProjectRoleChangeContext,
   ): Promise<{ requestDigest: string; result: ProjectRoleMutationView | null }> {
-    const requestDigest = requestDigestOf({ method: context.method, route: context.route, body: context.body });
+    const requestDigest = requestDigestOf({
+      method: context.method,
+      route: context.route,
+      body: context.body,
+    });
     const record = await this.operations.findOperation({
       projectScopeKey: projectScopeKey(projectId),
       principalScopeKey: principalScopeKey(principal),
       key: context.idempotencyKey,
     });
     if (!record) return { requestDigest, result: null };
-    assertReplayable(record, { method: context.method, route: context.route, digest: requestDigest });
+    assertReplayable(record, {
+      method: context.method,
+      route: context.route,
+      digest: requestDigest,
+    });
     return { requestDigest, result: this.replayView(record) };
   }
 

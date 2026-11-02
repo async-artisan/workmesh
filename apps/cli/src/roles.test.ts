@@ -17,7 +17,12 @@ type PackageFixture = {
 };
 
 async function makePackage(
-  overrides: { version?: string; minCliVersion?: string; resourcePath?: string; content?: string } = {},
+  overrides: {
+    version?: string;
+    minCliVersion?: string;
+    resourcePath?: string;
+    content?: string;
+  } = {},
 ): Promise<PackageFixture> {
   const packageDir = await mkdtemp(join(tmpdir(), 'wm-pkg-'));
   const workspaceDir = await mkdtemp(join(tmpdir(), 'wm-ws-'));
@@ -72,7 +77,14 @@ describe('roles install', () => {
     });
     expect(result.roleKey).toBe('backend');
     expect(result.reused).toBe(false);
-    const installed = join(fixture.workspaceDir, '.workmesh', 'packages', 'backend-role', '1.0.0', 'AGENTS.md');
+    const installed = join(
+      fixture.workspaceDir,
+      '.workmesh',
+      'packages',
+      'backend-role',
+      '1.0.0',
+      'AGENTS.md',
+    );
     expect(await readFile(installed, 'utf8')).toBe(AGENTS);
     const lock = JSON.parse(await readFile(lockPath(fixture.workspaceDir), 'utf8')) as {
       packageLocks: Array<{ packageId: string; version: string; packageDigest: string }>;
@@ -127,7 +139,14 @@ describe('roles install', () => {
       projectId: PROJECT,
       api: API,
     });
-    const installed = join(fixture.workspaceDir, '.workmesh', 'packages', 'backend-role', '1.0.0', 'AGENTS.md');
+    const installed = join(
+      fixture.workspaceDir,
+      '.workmesh',
+      'packages',
+      'backend-role',
+      '1.0.0',
+      'AGENTS.md',
+    );
     const before = await stat(installed);
     const second = await installRolePackage({
       packageDir: fixture.packageDir,
@@ -146,7 +165,14 @@ describe('roles install', () => {
       projectId: PROJECT,
       api: API,
     });
-    const installed = join(fixture.workspaceDir, '.workmesh', 'packages', 'backend-role', '1.0.0', 'AGENTS.md');
+    const installed = join(
+      fixture.workspaceDir,
+      '.workmesh',
+      'packages',
+      'backend-role',
+      '1.0.0',
+      'AGENTS.md',
+    );
     await writeFile(installed, '本地人工改动', 'utf8');
     await expect(
       installRolePackage({ packageDir: fixture.packageDir, workspaceDir: fixture.workspaceDir }),

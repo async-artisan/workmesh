@@ -25,7 +25,11 @@ function isRetryable(error: unknown): boolean {
   const code = (error as { code?: string })?.code;
   if (code === 'P2034') return true;
   const message = String((error as Error)?.message ?? '');
-  return message.includes('40001') || message.includes('40P01') || message.includes('could not serialize');
+  return (
+    message.includes('40001') ||
+    message.includes('40P01') ||
+    message.includes('could not serialize')
+  );
 }
 
 function encodeCursor(value: string): string {
@@ -55,7 +59,9 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
       where: { projectId },
       orderBy: { workflowKey: 'asc' },
       take: query.limit + 1,
-      ...(key ? { cursor: { projectId_workflowKey: { projectId, workflowKey: key } }, skip: 1 } : {}),
+      ...(key
+        ? { cursor: { projectId_workflowKey: { projectId, workflowKey: key } }, skip: 1 }
+        : {}),
     });
     const page = rows.slice(0, query.limit);
     const revisions = await this.revisionNumbers(page);
@@ -64,13 +70,21 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
       title: this.titleOf(row.currentRevisionId ? revisions.get(row.currentRevisionId) : undefined),
       version: row.version,
       currentPublishedRevisionId: row.currentRevisionId,
-      currentRevision: row.currentRevisionId ? revisions.get(row.currentRevisionId)?.revision ?? 0 : 0,
+      currentRevision: row.currentRevisionId
+        ? (revisions.get(row.currentRevisionId)?.revision ?? 0)
+        : 0,
     }));
     const last = page.at(-1);
-    return { items, nextCursor: rows.length > query.limit && last ? encodeCursor(last.workflowKey) : null };
+    return {
+      items,
+      nextCursor: rows.length > query.limit && last ? encodeCursor(last.workflowKey) : null,
+    };
   }
 
-  async findDefinition(projectId: string, workflowKey: string): Promise<(V1WorkflowDefinitionView & { id: string }) | null> {
+  async findDefinition(
+    projectId: string,
+    workflowKey: string,
+  ): Promise<(V1WorkflowDefinitionView & { id: string }) | null> {
     const row = await this.prisma.workflowDefinition.findUnique({
       where: { projectId_workflowKey: { projectId, workflowKey } },
     });
@@ -114,7 +128,11 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
     });
   }
 
-  async findPackageVersion(projectId: string, packageId: string, version: string): Promise<V1PackageVersionRecord | null> {
+  async findPackageVersion(
+    projectId: string,
+    packageId: string,
+    version: string,
+  ): Promise<V1PackageVersionRecord | null> {
     const row = await this.prisma.rolePackageVersion.findFirst({
       where: {
         packageId,
@@ -136,7 +154,13 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
   async findRequirement(requirementId: string): Promise<V1RequirementWorkflowView | null> {
     const row = await this.prisma.requirement.findUnique({
       where: { id: requirementId },
-      select: { id: true, projectId: true, version: true, currentPrdRevisionId: true, deliveryScope: true },
+      select: {
+        id: true,
+        projectId: true,
+        version: true,
+        currentPrdRevisionId: true,
+        deliveryScope: true,
+      },
     });
     if (!row) return null;
     return { ...row, deliveryScope: row.deliveryScope as unknown };
@@ -158,7 +182,11 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
     return Boolean(row);
   }
 
-  async findPublishOperation(input: { projectScopeKey: string; principalScopeKey: string; key: string }) {
+  async findPublishOperation(input: {
+    projectScopeKey: string;
+    principalScopeKey: string;
+    key: string;
+  }) {
     const record = await this.prisma.idempotentOperation.findUnique({
       where: {
         projectScopeKey_principalScopeKey_key: {
@@ -198,11 +226,21 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
   private async runPublish(input: V1PublishDefinitionInput): Promise<V1PublishDefinitionResult> {
     return this.prisma.$transaction(
       async (tx) => {
-        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.projectId}::uuid FOR UPDATE`);
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.projectId}::uuid FOR UPDATE`,
+        );
 
-        const project = await tx.project.findUnique({ where: { id: input.projectId }, select: { version: true } });
+        const project = await tx.project.findUnique({
+          where: { id: input.projectId },
+          select: { version: true },
+        });
         if (!project)
-          throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'PROJECT_NOT_FOUND', { projectId: input.projectId }, 404);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'PROJECT_NOT_FOUND',
+            { projectId: input.projectId },
+            404,
+          );
         if (project.version !== input.expectedProjectVersion)
           throw new WorkmeshError(
             V1_ERROR_CODES.VERSION_CONFLICT,
@@ -212,7 +250,9 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
           );
 
         const existing = await tx.workflowDefinition.findUnique({
-          where: { projectId_workflowKey: { projectId: input.projectId, workflowKey: input.workflowKey } },
+          where: {
+            projectId_workflowKey: { projectId: input.projectId, workflowKey: input.workflowKey },
+          },
         });
         let currentRevision = 0;
         if (existing?.currentRevisionId) {
@@ -257,14 +297,24 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
           data: { currentRevisionId: revision.id, version: { increment: 1 } },
         });
         if (pointed.count !== 1)
-          throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'WORKFLOW_POINTER_CONFLICT', { workflowKey: input.workflowKey }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.VERSION_CONFLICT,
+            'WORKFLOW_POINTER_CONFLICT',
+            { workflowKey: input.workflowKey },
+            409,
+          );
 
         const bumped = await tx.project.updateMany({
           where: { id: input.projectId, version: input.expectedProjectVersion },
           data: { version: { increment: 1 } },
         });
         if (bumped.count !== 1)
-          throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'PROJECT_VERSION_CONFLICT', { projectId: input.projectId }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.VERSION_CONFLICT,
+            'PROJECT_VERSION_CONFLICT',
+            { projectId: input.projectId },
+            409,
+          );
 
         const consumed = await tx.$executeRaw(
           Prisma.sql`UPDATE "workmesh_v1"."ConfirmationTicket"
@@ -277,7 +327,12 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
               AND "expiresAt" > ${input.now}`,
         );
         if (consumed !== 1)
-          throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_USED, 'CONFIRMATION_CONSUME_CONFLICT', { ticketId: input.ticket.id }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CONFIRMATION_USED,
+            'CONFIRMATION_CONSUME_CONFLICT',
+            { ticketId: input.ticket.id },
+            409,
+          );
 
         await tx.auditEvent.create({
           data: {
@@ -338,7 +393,9 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
   private async runCreateInstance(input: V1CreateInstanceInput): Promise<V1CreateInstanceResult> {
     return this.prisma.$transaction(
       async (tx) => {
-        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.projectId}::uuid FOR UPDATE`);
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.projectId}::uuid FOR UPDATE`,
+        );
         await tx.$queryRaw(
           Prisma.sql`SELECT "id" FROM "workmesh_v1"."Requirement" WHERE "id" = ${input.requirementId}::uuid FOR UPDATE`,
         );
@@ -347,12 +404,20 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
           select: { version: true, projectId: true },
         });
         if (!requirement)
-          throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REQUIREMENT_NOT_FOUND', { requirementId: input.requirementId }, 404);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'REQUIREMENT_NOT_FOUND',
+            { requirementId: input.requirementId },
+            404,
+          );
         if (requirement.version !== input.expectedRequirementVersion)
           throw new WorkmeshError(
             V1_ERROR_CODES.VERSION_CONFLICT,
             'REQUIREMENT_VERSION_CONFLICT',
-            { expectedVersion: input.expectedRequirementVersion, currentVersion: requirement.version },
+            {
+              expectedVersion: input.expectedRequirementVersion,
+              currentVersion: requirement.version,
+            },
             409,
           );
 
@@ -394,7 +459,12 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
           data: { version: { increment: 1 } },
         });
         if (bumped.count !== 1)
-          throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'REQUIREMENT_VERSION_CONFLICT', { requirementId: input.requirementId }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.VERSION_CONFLICT,
+            'REQUIREMENT_VERSION_CONFLICT',
+            { requirementId: input.requirementId },
+            409,
+          );
 
         await tx.auditEvent.create({
           data: {
@@ -404,7 +474,10 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
             targetId: instance.id,
             targetVersion: instance.version,
             outcome: 'SUCCESS',
-            details: { requirementId: input.requirementId, definitionRevisionId: input.definitionRevisionId },
+            details: {
+              requirementId: input.requirementId,
+              definitionRevisionId: input.definitionRevisionId,
+            },
           },
         });
 
@@ -418,7 +491,10 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
             method: input.operation.method,
             route: input.operation.route,
             requestDigest: input.operation.requestDigest,
-            resultRefs: { instanceId: instance.id, requirementVersion: input.expectedRequirementVersion + 1 },
+            resultRefs: {
+              instanceId: instance.id,
+              requirementVersion: input.expectedRequirementVersion + 1,
+            },
             responseMetadata: { requirementId: input.requirementId },
           },
         });
@@ -442,7 +518,8 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
               generation: task.generation,
               version: task.version,
               repositoryIds:
-                input.stepBindings.find((binding) => binding.stepKey === task.stepKey)?.repositoryIds ?? [],
+                input.stepBindings.find((binding) => binding.stepKey === task.stepKey)
+                  ?.repositoryIds ?? [],
             })),
           },
           requirementVersion: input.expectedRequirementVersion + 1,
@@ -478,7 +555,9 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
         workStatus: task.workStatus,
         generation: task.generation,
         version: task.version,
-        repositoryIds: bindings.stepBindings?.find((binding) => binding.stepKey === task.stepKey)?.repositoryIds ?? [],
+        repositoryIds:
+          bindings.stepBindings?.find((binding) => binding.stepKey === task.stepKey)
+            ?.repositoryIds ?? [],
       })),
     };
   }
@@ -495,7 +574,10 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
     const map = new Map<string, { revision: number; title: string }>();
     for (const revision of revisions) {
       const title = (revision.definition as { title?: unknown })?.title;
-      map.set(revision.id, { revision: revision.revision, title: typeof title === 'string' ? title : '' });
+      map.set(revision.id, {
+        revision: revision.revision,
+        title: typeof title === 'string' ? title : '',
+      });
     }
     return map;
   }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { projectApi, type ProjectView } from '../api/resources';
+import { projectApi, workbenchApi, type ProjectView } from '../api/resources';
 import { formatApiError } from '../api/client';
 import { ConfirmDialog, Modal } from '../components/Modal';
 import { invalidateProjects } from '../store/project';
@@ -18,6 +18,7 @@ export function Projects() {
   const [error, setError] = useState('');
   const [modalError, setModalError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [todoCounts, setTodoCounts] = useState<Record<string, number>>({});
 
   async function load() {
     try {
@@ -30,6 +31,22 @@ export function Projects() {
 
   useEffect(() => {
     void load();
+  }, []);
+
+  useEffect(() => {
+    workbenchApi
+      .get()
+      .then((snapshot) => {
+        const counts: Record<string, number> = {};
+        const add = (projectId: string) => {
+          counts[projectId] = (counts[projectId] ?? 0) + 1;
+        };
+        for (const review of snapshot.reviews) add(review.projectId);
+        for (const change of snapshot.changes) add(change.projectId);
+        for (const task of snapshot.readyTasks) add(task.projectId);
+        setTodoCounts(counts);
+      })
+      .catch(() => setTodoCounts({}));
   }, []);
 
   async function create() {
@@ -108,6 +125,7 @@ export function Projects() {
                 <th>Key</th>
                 <th>描述</th>
                 <th>版本</th>
+                <th>待办</th>
                 <th className="col-actions">操作</th>
               </tr>
             </thead>
@@ -126,6 +144,15 @@ export function Projects() {
                     </span>
                   </td>
                   <td className="cell-num">v{project.version}</td>
+                  <td className="cell-num">
+                    <button
+                      className="link-btn"
+                      aria-label={`查看 ${project.name} 的待办`}
+                      onClick={() => navigate(`/?project=${encodeURIComponent(project.id)}`)}
+                    >
+                      {todoCounts[project.id] ?? 0}
+                    </button>
+                  </td>
                   <td className="col-actions">
                     <div className="cell-actions row-actions">
                       <button className="ghost" onClick={() => navigate('/roles')}>
@@ -143,7 +170,7 @@ export function Projects() {
               ))}
               {projects.length === 0 && (
                 <tr className="table-empty">
-                  <td colSpan={5}>还没有可访问的项目，点右上角「新建项目」创建。</td>
+                  <td colSpan={6}>还没有可访问的项目，点右上角「新建项目」创建。</td>
                 </tr>
               )}
             </tbody>
@@ -206,7 +233,9 @@ export function Projects() {
       <ConfirmDialog
         open={Boolean(pendingArchive)}
         title="归档项目"
-        description={pendingArchive ? `「${pendingArchive.name}」归档后停止新业务写入，历史仍可读取。` : ''}
+        description={
+          pendingArchive ? `「${pendingArchive.name}」归档后停止新业务写入，历史仍可读取。` : ''
+        }
         confirmLabel="归档"
         busy={busy}
         onCancel={() => setPendingArchive(null)}

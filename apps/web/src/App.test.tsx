@@ -59,7 +59,9 @@ describe('App（cookie WebSession 引导）', () => {
     expect(screen.getAllByRole('button', { name: '设备授权' }).length).toBeGreaterThan(0);
     await waitFor(() => expect(screen.getByText('API 已连接')).toBeInTheDocument());
 
-    const sessionCall = mock.mock.calls.find(([url]) => pathOf(String(url)) === '/api/v1/auth/session');
+    const sessionCall = mock.mock.calls.find(
+      ([url]) => pathOf(String(url)) === '/api/v1/auth/session',
+    );
     expect(sessionCall?.[1]?.credentials).toBe('include');
     expect(getCsrfToken()).toBe('csrf-1');
 
@@ -69,9 +71,13 @@ describe('App（cookie WebSession 引导）', () => {
     fireEvent.click(screen.getByRole('button', { name: /账号菜单：user@example.com/ }));
     fireEvent.click(await screen.findByRole('menuitem', { name: '退出登录' }));
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: '登录工作台' })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: '登录工作台' })).toBeInTheDocument(),
+    );
 
-    const logoutCall = mock.mock.calls.find(([url]) => pathOf(String(url)) === '/api/v1/auth/logout');
+    const logoutCall = mock.mock.calls.find(
+      ([url]) => pathOf(String(url)) === '/api/v1/auth/logout',
+    );
     expect(methodOf(logoutCall?.[1] ?? {})).toBe('POST');
     expect(headersOf(logoutCall?.[1] ?? {})['X-CSRF-Token']).toBe('csrf-1');
     expect(getCsrfToken()).toBe('');

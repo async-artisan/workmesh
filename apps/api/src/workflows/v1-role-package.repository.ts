@@ -65,8 +65,15 @@ export interface V1RolePackageRepository {
     query: { limit: number; cursor: string | null },
   ): Promise<{ items: V1RolePackageListItem[]; nextCursor: string | null }>;
   /** 只返回内置包或本项目的私有包，不跨项目暴露同名私有包。 */
-  findVersion(projectId: string, packageId: string, version: string): Promise<V1RolePackageDetail | null>;
-  findResource(packageVersionId: string, resourceId: string): Promise<V1RolePackageResourceView | null>;
+  findVersion(
+    projectId: string,
+    packageId: string,
+    version: string,
+  ): Promise<V1RolePackageDetail | null>;
+  findResource(
+    packageVersionId: string,
+    resourceId: string,
+  ): Promise<V1RolePackageResourceView | null>;
   hasBuiltin(packageId: string): Promise<boolean>;
   projectRoleKeys(projectId: string): Promise<string[]>;
   findProject(projectId: string): Promise<{ id: string; version: number } | null>;

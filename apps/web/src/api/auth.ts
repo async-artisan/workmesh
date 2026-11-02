@@ -104,10 +104,15 @@ export const authApi = {
     expiresInDays: number;
   }) => {
     const { authorizationId, ...body } = input;
-    return apiRequest<{ authorizationId: string; status: string; version: number; expiresAt: string }>(
-      `/auth/cli-authorizations/${encodeURIComponent(authorizationId)}/approve`,
-      { method: 'POST', body },
-    );
+    return apiRequest<{
+      authorizationId: string;
+      status: string;
+      version: number;
+      expiresAt: string;
+    }>(`/auth/cli-authorizations/${encodeURIComponent(authorizationId)}/approve`, {
+      method: 'POST',
+      body,
+    });
   },
   cliDeny: (authorizationId: string, expectedVersion: number) =>
     apiRequest<{ authorizationId: string; status: string; version: number }>(

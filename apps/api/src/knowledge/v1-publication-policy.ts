@@ -21,7 +21,10 @@ export function canProposeKnowledge(access: V1KnowledgeAccess): boolean {
   return canReadKnowledge(access) && access.canPropose;
 }
 
-export function canPublishKnowledge(access: V1KnowledgeAccess, principalKind: 'HUMAN' | 'AGENT'): boolean {
+export function canPublishKnowledge(
+  access: V1KnowledgeAccess,
+  principalKind: 'HUMAN' | 'AGENT',
+): boolean {
   return principalKind === 'HUMAN' && canReadKnowledge(access) && access.canPublish;
 }
 
@@ -41,9 +44,17 @@ export function visibleRevisionState(
   return authorOrReviewer || hasProposeOrPublish ? state : null;
 }
 
-export function assertVisibleRevision(state: RevisionState | null, revisionId: string): RevisionState {
+export function assertVisibleRevision(
+  state: RevisionState | null,
+  revisionId: string,
+): RevisionState {
   if (!state)
-    throw new WorkmeshError(V1_ERROR_CODES.KNOWLEDGE_ACCESS_DENIED, 'KNOWLEDGE_ACCESS_DENIED', { revisionId }, 404);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.KNOWLEDGE_ACCESS_DENIED,
+      'KNOWLEDGE_ACCESS_DENIED',
+      { revisionId },
+      404,
+    );
   return state;
 }
 
@@ -52,7 +63,10 @@ export function assertVisibleRevision(state: RevisionState | null, revisionId: s
  * UNDERSTANDING/PRD 及绑定 requirement 的 DECISION 要求 requirement:propose；
  * KNOWLEDGE 及无 requirement 的 DECISION 要求 knowledge:propose；两者都同时要求 KB PROPOSE。
  */
-export function requiredProposeScope(kind: DocumentKind, hasRequirement: boolean): 'requirement:propose' | 'knowledge:propose' {
+export function requiredProposeScope(
+  kind: DocumentKind,
+  hasRequirement: boolean,
+): 'requirement:propose' | 'knowledge:propose' {
   if (kind === 'UNDERSTANDING' || kind === 'PRD') return 'requirement:propose';
   if (kind === 'DECISION' && hasRequirement) return 'requirement:propose';
   return 'knowledge:propose';
@@ -65,7 +79,12 @@ export function assertProposeScopes(input: {
 }): void {
   if (input.principalKind !== 'AGENT') return;
   if (!input.scopes.includes(input.required))
-    throw new WorkmeshError(V1_ERROR_CODES.SCOPE_DENIED, 'SCOPE_DENIED', { scope: input.required }, 403);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.SCOPE_DENIED,
+      'SCOPE_DENIED',
+      { scope: input.required },
+      403,
+    );
 }
 
 export type V1AcceptanceVerification = 'TEST' | 'INSPECTION' | 'DEMO';
@@ -90,7 +109,9 @@ function invalid(message: string, details?: Record<string, unknown>): WorkmeshEr
   return new WorkmeshError(V1_ERROR_CODES.INVALID_REQUEST, message, details, 422);
 }
 
-export function reviewKindForDocument(kind: DocumentKind): 'UNDERSTANDING_CONFIRM' | 'PRD_PUBLICATION' | 'KNOWLEDGE_PUBLICATION' {
+export function reviewKindForDocument(
+  kind: DocumentKind,
+): 'UNDERSTANDING_CONFIRM' | 'PRD_PUBLICATION' | 'KNOWLEDGE_PUBLICATION' {
   if (kind === 'UNDERSTANDING') return 'UNDERSTANDING_CONFIRM';
   if (kind === 'PRD') return 'PRD_PUBLICATION';
   return 'KNOWLEDGE_PUBLICATION';
@@ -100,8 +121,12 @@ export function reviewKindForDocument(kind: DocumentKind): 'UNDERSTANDING_CONFIR
  * deliveryScope 规范化：角色去重、产物去重并排序、排除角色不得同时也是参与角色。
  * 交付范围必须包含 IMPL，不能借自定义范围删掉实现产出（02 §2 工作流编译规则）。
  */
-export function normalizeDeliveryScope(input: unknown, knownRoleIds: readonly string[]): V1DeliveryScope {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid('deliveryScope 必须是对象');
+export function normalizeDeliveryScope(
+  input: unknown,
+  knownRoleIds: readonly string[],
+): V1DeliveryScope {
+  if (!input || typeof input !== 'object' || Array.isArray(input))
+    throw invalid('deliveryScope 必须是对象');
   const raw = input as Record<string, unknown>;
   const participating = raw.participatingRoleIds;
   const outputs = raw.requiredOutputKinds;
@@ -114,7 +139,8 @@ export function normalizeDeliveryScope(input: unknown, knownRoleIds: readonly st
 
   const roleIds = new Set<string>();
   for (const roleId of participating) {
-    if (typeof roleId !== 'string' || !roleId) throw invalid('deliveryScope.participatingRoleIds 必须是 roleId 数组');
+    if (typeof roleId !== 'string' || !roleId)
+      throw invalid('deliveryScope.participatingRoleIds 必须是 roleId 数组');
     if (!knownRoleIds.includes(roleId)) throw invalid('deliveryScope 含未知项目角色', { roleId });
     roleIds.add(roleId);
   }
@@ -132,7 +158,8 @@ export function normalizeDeliveryScope(input: unknown, knownRoleIds: readonly st
     if (!entry || typeof entry !== 'object' || Array.isArray(entry))
       throw invalid('deliveryScope.excludedRoles 项必须是 {roleId, reason}');
     const { roleId, reason } = entry as { roleId?: unknown; reason?: unknown };
-    if (typeof roleId !== 'string' || !roleId) throw invalid('deliveryScope.excludedRoles 缺少 roleId');
+    if (typeof roleId !== 'string' || !roleId)
+      throw invalid('deliveryScope.excludedRoles 缺少 roleId');
     if (!knownRoleIds.includes(roleId)) throw invalid('deliveryScope 排除未知项目角色', { roleId });
     if (roleIds.has(roleId)) throw invalid('deliveryScope 排除角色不得同时参与', { roleId });
     if (typeof reason !== 'string' || reason.trim().length === 0 || reason.length > 200)
@@ -156,17 +183,29 @@ export function normalizeAcceptance(input: unknown): V1AcceptanceItem[] {
   const keys = new Set<string>();
   const normalized: V1AcceptanceItem[] = [];
   for (const entry of input) {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw invalid('验收条款项必须是对象');
-    const { key, text, verification } = entry as { key?: unknown; text?: unknown; verification?: unknown };
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry))
+      throw invalid('验收条款项必须是对象');
+    const { key, text, verification } = entry as {
+      key?: unknown;
+      text?: unknown;
+      verification?: unknown;
+    };
     if (typeof key !== 'string' || !ACCEPTANCE_KEY.test(key))
       throw invalid('验收条款 key 必须匹配 [a-z][a-z0-9-]{1,63}', { key });
     if (keys.has(key)) throw invalid('验收条款 key 必须唯一', { key });
     if (typeof text !== 'string' || text.trim().length === 0 || text.length > 2000)
       throw invalid('验收条款 text 长度必须为 1–2000', { key });
-    if (typeof verification !== 'string' || !VERIFICATIONS.has(verification as V1AcceptanceVerification))
+    if (
+      typeof verification !== 'string' ||
+      !VERIFICATIONS.has(verification as V1AcceptanceVerification)
+    )
       throw invalid('验收条款 verification 仅支持 TEST/INSPECTION/DEMO', { key });
     keys.add(key);
-    normalized.push({ key, text: text.trim(), verification: verification as V1AcceptanceVerification });
+    normalized.push({
+      key,
+      text: text.trim(),
+      verification: verification as V1AcceptanceVerification,
+    });
   }
   return normalized;
 }

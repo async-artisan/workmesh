@@ -69,8 +69,7 @@ export function workspaceConfigPath(dir: string): string {
 /** 用户配置根默认 ~/.workmesh；显式 --config-home 必须为绝对路径，不从 workspace 改变。 */
 export function configHome(explicit?: string): string {
   const value = explicit ?? process.env.WORKMESH_CONFIG_HOME ?? join(homedir(), '.workmesh');
-  if (!isAbsolute(value))
-    throw new CliError('INVALID_REQUEST', '--config-home 必须是绝对路径');
+  if (!isAbsolute(value)) throw new CliError('INVALID_REQUEST', '--config-home 必须是绝对路径');
   return resolve(value);
 }
 
@@ -109,12 +108,18 @@ export function parseWorkspaceConfig(value: unknown): WorkspaceConfig {
   const record = asRecord(value, '工作区配置必须是 JSON 对象');
   for (const key of Object.keys(record)) {
     if (FORBIDDEN_KEYS.has(key))
-      throw new CliError('CONFIG_SCHEMA_UNSUPPORTED', `旧配置字段 ${key} 不再受支持，请重新安装工作区`);
+      throw new CliError(
+        'CONFIG_SCHEMA_UNSUPPORTED',
+        `旧配置字段 ${key} 不再受支持，请重新安装工作区`,
+      );
     if (!ALLOWED_KEYS.has(key))
       throw new CliError('CONFIG_SCHEMA_UNSUPPORTED', `未知配置字段 ${key}`);
   }
   if (record.schemaVersion !== CONFIG_SCHEMA_VERSION)
-    throw new CliError('CONFIG_SCHEMA_UNSUPPORTED', `schemaVersion 必须为 ${CONFIG_SCHEMA_VERSION}`);
+    throw new CliError(
+      'CONFIG_SCHEMA_UNSUPPORTED',
+      `schemaVersion 必须为 ${CONFIG_SCHEMA_VERSION}`,
+    );
   if (typeof record.profile !== 'string' || !PROFILE.test(record.profile))
     throw new CliError('CONFIG_SCHEMA_UNSUPPORTED', 'profile 必须是 1–48 位小写字母/数字/连字符');
   const platformRecord = asRecord(record.platform, 'platform 必须是对象');
@@ -129,10 +134,7 @@ export function parseWorkspaceConfig(value: unknown): WorkspaceConfig {
     throw new CliError('CONFIG_SCHEMA_UNSUPPORTED', 'repositoryId 必须是 UUID 或 null');
   if (record.host !== 'codex' && record.host !== 'claude-code')
     throw new CliError('CONFIG_SCHEMA_UNSUPPORTED', 'host 必须是 codex 或 claude-code');
-  if (
-    record.workflowDefinitionRevisionId !== null &&
-    !isUuid(record.workflowDefinitionRevisionId)
-  )
+  if (record.workflowDefinitionRevisionId !== null && !isUuid(record.workflowDefinitionRevisionId))
     throw new CliError(
       'CONFIG_SCHEMA_UNSUPPORTED',
       'workflowDefinitionRevisionId 必须是 UUID 或 null',
@@ -162,8 +164,7 @@ export async function loadWorkspace(dir: string): Promise<WorkspaceConfig> {
         'CONFIG_NOT_FOUND',
         `未找到 ${path}；请先运行 workmesh roles install --package <dir> --project <uuid> --host <codex|claude-code> --api <base>`,
       );
-    if (code === 'EACCES')
-      throw new CliError('CONFIG_SCHEMA_UNSUPPORTED', `无权读取 ${path}`);
+    if (code === 'EACCES') throw new CliError('CONFIG_SCHEMA_UNSUPPORTED', `无权读取 ${path}`);
     throw new CliError('CONFIG_SCHEMA_UNSUPPORTED', `无法读取 ${path}`);
   }
   let parsed: unknown;

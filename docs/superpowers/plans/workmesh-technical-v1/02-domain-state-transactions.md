@@ -19,15 +19,15 @@
 
 ### 2.1 项目、需求与流程实例
 
-| 实体 | 字段与约束 |
-| --- | --- |
-| Project | 保留`id,organizationId,key,name,description?,createdById,createdAt,updatedAt`；新增`version=1,knowledgeBindingsVersion=1,defaultKnowledgeBaseId,archivedAt?,nextRequirementSeq=1`；唯一`(organizationId,key)`，key不可改。默认KB与项目同事务创建。 |
-| Requirement | `id,projectId,seq,code,title,description,version=1,generation=1,phase,workStatus,workReason?,workOwnerUserId?,resumeCondition?,workStatusChangedAt?,workStatusByStampId?,responsibleUserId,currentUnderstandingRevisionId?,currentPrdRevisionId?,activeWorkflowInstanceId?,deliveryScope?,nextTaskSeq=1,createdByStampId,createdAt,updatedAt,archivedAt?`；唯一`(projectId,seq)`、`(projectId,code)`；responsible默认创建者，必须为当前项目成员。 |
-| ProjectWorkflowDefinition | `id,projectId,workflowKey,currentPublishedRevisionId?,version=1,archivedAt?,createdAt,updatedAt`；唯一`(projectId,workflowKey)`，发布指针引用本定义revision。 |
-| WorkflowDefinitionRevision | `id,projectId,definitionId,revision,protocolVersion='1.0',digest,definition:Json,compiledRules:Json,createdByStampId,createdAt`；唯一`(definitionId,revision)`；正文与编译结果不可改。compiledRules为03的resolvedRoles/packageLocks/systemGates。 |
-| WorkflowInstance | `id,projectId,requirementId,definitionRevisionId,version=1,workStatus,createdByStampId,createdAt,updatedAt,retiredAt?`；同需求只允许一条retiredAt为空的实例，Requirement.activeWorkflowInstanceId精确引用它。 |
-| WorkflowStepBinding | `id,projectId,workflowInstanceId,stepKey,roleId,responsibleUserId`；唯一`(workflowInstanceId,stepKey)`；roleId必须为发布编译映射，责任人当前有该角色。 |
-| WorkflowRoleSlotBinding | `id,projectId,workflowInstanceId,slotKey,roleId,userId`；唯一`(workflowInstanceId,slotKey)`；所有必需slot绑定真实当前有资格的成员，不能缺人即跳过。 |
+| 实体                       | 字段与约束                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Project                    | 保留`id,organizationId,key,name,description?,createdById,createdAt,updatedAt`；新增`version=1,knowledgeBindingsVersion=1,defaultKnowledgeBaseId,archivedAt?,nextRequirementSeq=1`；唯一`(organizationId,key)`，key不可改。默认KB与项目同事务创建。                                                                                                                                                                                                |
+| Requirement                | `id,projectId,seq,code,title,description,version=1,generation=1,phase,workStatus,workReason?,workOwnerUserId?,resumeCondition?,workStatusChangedAt?,workStatusByStampId?,responsibleUserId,currentUnderstandingRevisionId?,currentPrdRevisionId?,activeWorkflowInstanceId?,deliveryScope?,nextTaskSeq=1,createdByStampId,createdAt,updatedAt,archivedAt?`；唯一`(projectId,seq)`、`(projectId,code)`；responsible默认创建者，必须为当前项目成员。 |
+| ProjectWorkflowDefinition  | `id,projectId,workflowKey,currentPublishedRevisionId?,version=1,archivedAt?,createdAt,updatedAt`；唯一`(projectId,workflowKey)`，发布指针引用本定义revision。                                                                                                                                                                                                                                                                                     |
+| WorkflowDefinitionRevision | `id,projectId,definitionId,revision,protocolVersion='1.0',digest,definition:Json,compiledRules:Json,createdByStampId,createdAt`；唯一`(definitionId,revision)`；正文与编译结果不可改。compiledRules为03的resolvedRoles/packageLocks/systemGates。                                                                                                                                                                                                 |
+| WorkflowInstance           | `id,projectId,requirementId,definitionRevisionId,version=1,workStatus,createdByStampId,createdAt,updatedAt,retiredAt?`；同需求只允许一条retiredAt为空的实例，Requirement.activeWorkflowInstanceId精确引用它。                                                                                                                                                                                                                                     |
+| WorkflowStepBinding        | `id,projectId,workflowInstanceId,stepKey,roleId,responsibleUserId`；唯一`(workflowInstanceId,stepKey)`；roleId必须为发布编译映射，责任人当前有该角色。                                                                                                                                                                                                                                                                                            |
+| WorkflowRoleSlotBinding    | `id,projectId,workflowInstanceId,slotKey,roleId,userId`；唯一`(workflowInstanceId,slotKey)`；所有必需slot绑定真实当前有资格的成员，不能缺人即跳过。                                                                                                                                                                                                                                                                                               |
 
 Project默认KB使用预生成UUID，Project→默认KB的同项目FK设置DEFERRABLE INITIALLY DEFERRED；创建事务插Project、KB、OWNER、预置角色和创建者显式内容grant后一次提交，不能留下长期nullable默认KB。用户与Organization继续使用现有业务身份，角色及成员关系按01替换。
 
@@ -39,13 +39,13 @@ Project默认KB使用预生成UUID，Project→默认KB的同项目FK设置DEFER
 
 ### 2.2 文档、知识与正式发布
 
-| 实体 | 字段与约束 |
-| --- | --- |
-| KnowledgeBase | `id,projectId,key,name,visibility:PROJECT\|RESTRICTED,version=1,authzVersion=1,publicationApproverUserId,publicationApproverRoleId?,archivedAt?,createdAt,updatedAt`；唯一`(projectId,key)`。grant和授权规则归01；库创建者获得显式USER内容grant，不存在管理身份隐式读后门。 |
-| KnowledgeDocument | `id,projectId,knowledgeBaseId,requirementId?,kind:UNDERSTANDING\|DECISION\|PRD\|KNOWLEDGE,version=1,nextRevisionSeq=1,currentPublishedRevisionId?,archivedAt?,createdAt,updatedAt`；kind和requirement绑定不可通过修订更换。UNDERSTANDING/PRD必须有同项目requirement。 |
-| DocumentRevision | `id,projectId,documentId,seq,title,mimeType,bodyBytes,byteLength,sha256,sourceRef?,basisUnderstandingRevisionId?,deliveryScope?,acceptance?,createdByStampId?,importBatchId?,createdAt`；唯一`(documentId,seq)`；两种创建来源精确二选一，原始bytes与SHA不可改。 |
-| DocumentPublication | `id,projectId,documentId,revisionId,kind:PUBLISH\|WITHDRAW,reviewRequestId?,previousPublicationId?,reason?,createdByStampId,createdAt`；PUBLISH由最后批准产生，WITHDRAW由01票据产生；禁止update旧publication。 |
-| DocumentChunk | `id,projectId,revisionId,position,headingPath,content,indexVersion,createdAt`；唯一`(revisionId,indexVersion,position)`；属于可重建派生物，不能反向写正文或发布指针。 |
+| 实体                | 字段与约束                                                                                                                                                                                                                                                                  |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| KnowledgeBase       | `id,projectId,key,name,visibility:PROJECT\|RESTRICTED,version=1,authzVersion=1,publicationApproverUserId,publicationApproverRoleId?,archivedAt?,createdAt,updatedAt`；唯一`(projectId,key)`。grant和授权规则归01；库创建者获得显式USER内容grant，不存在管理身份隐式读后门。 |
+| KnowledgeDocument   | `id,projectId,knowledgeBaseId,requirementId?,kind:UNDERSTANDING\|DECISION\|PRD\|KNOWLEDGE,version=1,nextRevisionSeq=1,currentPublishedRevisionId?,archivedAt?,createdAt,updatedAt`；kind和requirement绑定不可通过修订更换。UNDERSTANDING/PRD必须有同项目requirement。       |
+| DocumentRevision    | `id,projectId,documentId,seq,title,mimeType,bodyBytes,byteLength,sha256,sourceRef?,basisUnderstandingRevisionId?,deliveryScope?,acceptance?,createdByStampId?,importBatchId?,createdAt`；唯一`(documentId,seq)`；两种创建来源精确二选一，原始bytes与SHA不可改。             |
+| DocumentPublication | `id,projectId,documentId,revisionId,kind:PUBLISH\|WITHDRAW,reviewRequestId?,previousPublicationId?,reason?,createdByStampId,createdAt`；PUBLISH由最后批准产生，WITHDRAW由01票据产生；禁止update旧publication。                                                              |
+| DocumentChunk       | `id,projectId,revisionId,position,headingPath,content,indexVersion,createdAt`；唯一`(revisionId,indexVersion,position)`；属于可重建派生物，不能反向写正文或发布指针。                                                                                                       |
 
 `sourceRef={sourceSystem:string,sourceId:string,sourceRevision:string|null,logicalPath:string|null}`，各值最长500；拒绝凭据、带userinfo URL或本机绝对路径。人工明确选择的外部资料可以作为候选来源，不自动形成第二发布权威。
 
@@ -57,14 +57,14 @@ KnowledgeDocument与现Source/Entry合并为同一稳定身份，不再维护一
 
 ### 2.3 任务、认领和输入快照
 
-| 实体 | 字段与约束 |
-| --- | --- |
-| Task | `id,projectId,requirementId,workflowInstanceId,workflowStepKey,seq,code,title,roleId,responsibleUserId,version=1,generation=1,executionStatus,workStatus,workReason?,workOwnerUserId?,resumeCondition?,workStatusChangedAt?,workStatusByStampId?,currentClaimId?,currentSnapshotId?,currentArtifactSetId?,createdAt,updatedAt,retiredAt?`；唯一`(workflowInstanceId,workflowStepKey)`、`(requirementId,seq)`；无任意task status写API。 |
-| TaskDependency | `id,projectId,fromTaskId,toTaskId,type='BLOCKS'`；唯一`(fromTaskId,toTaskId,type)`；两端同实例，无自环或环，只从发布定义生成。 |
-| TaskRepository | `id,projectId,taskId,projectRepositoryId`；唯一`(taskId,projectRepositoryId)`；两端同项目真实FK，从实例stepBindings的repositoryIds生成。IMPL步骤至少一仓，非代码步骤为空或显式只读参考，不由交付方临时缩小代码范围。 |
-| TaskClaim | `id,projectId,taskId,taskGeneration,claimedByStampId,claimedByUserId,agentCredentialId?,claimedAt,releasedAt?,releaseReason?,releasedByStampId?`；每task仅一条releasedAt为空的有效claim，永久关联原主体，不是lease。 |
-| ContextSnapshot | `id,projectId,requirementId,taskId,requirementGeneration,taskGeneration,workflowDefinitionRevisionId,claimId,manifest:Json,manifestDigest,createdByStampId,createdAt`；不可变，当前task指向一个明确snapshot。 |
-| SnapshotResourceRef | `id,projectId,snapshotId,refKey,kind:DOCUMENT_REVISION\|ARTIFACT\|ROLE_RESOURCE,documentRevisionId?,artifactId?,rolePackageResourceId?,sha256,byteLength,mediaType,authority:PUBLISHED\|CANDIDATE`；目标FK精确一项非空，唯一`(snapshotId,refKey)`，INDEX各资源ID供影响追踪。 |
+| 实体                | 字段与约束                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Task                | `id,projectId,requirementId,workflowInstanceId,workflowStepKey,seq,code,title,roleId,responsibleUserId,version=1,generation=1,executionStatus,workStatus,workReason?,workOwnerUserId?,resumeCondition?,workStatusChangedAt?,workStatusByStampId?,currentClaimId?,currentSnapshotId?,currentArtifactSetId?,createdAt,updatedAt,retiredAt?`；唯一`(workflowInstanceId,workflowStepKey)`、`(requirementId,seq)`；无任意task status写API。 |
+| TaskDependency      | `id,projectId,fromTaskId,toTaskId,type='BLOCKS'`；唯一`(fromTaskId,toTaskId,type)`；两端同实例，无自环或环，只从发布定义生成。                                                                                                                                                                                                                                                                                                         |
+| TaskRepository      | `id,projectId,taskId,projectRepositoryId`；唯一`(taskId,projectRepositoryId)`；两端同项目真实FK，从实例stepBindings的repositoryIds生成。IMPL步骤至少一仓，非代码步骤为空或显式只读参考，不由交付方临时缩小代码范围。                                                                                                                                                                                                                   |
+| TaskClaim           | `id,projectId,taskId,taskGeneration,claimedByStampId,claimedByUserId,agentCredentialId?,claimedAt,releasedAt?,releaseReason?,releasedByStampId?`；每task仅一条releasedAt为空的有效claim，永久关联原主体，不是lease。                                                                                                                                                                                                                   |
+| ContextSnapshot     | `id,projectId,requirementId,taskId,requirementGeneration,taskGeneration,workflowDefinitionRevisionId,claimId,manifest:Json,manifestDigest,createdByStampId,createdAt`；不可变，当前task指向一个明确snapshot。                                                                                                                                                                                                                          |
+| SnapshotResourceRef | `id,projectId,snapshotId,refKey,kind:DOCUMENT_REVISION\|ARTIFACT\|ROLE_RESOURCE,documentRevisionId?,artifactId?,rolePackageResourceId?,sha256,byteLength,mediaType,authority:PUBLISHED\|CANDIDATE`；目标FK精确一项非空，唯一`(snapshotId,refKey)`，INDEX各资源ID供影响追踪。                                                                                                                                                           |
 
 认领主体必须为任务responsibleUser本人或其同角色受限Agent，且依赖当前有效。roleSlotBinding确定评审人，不代表可抢其他角色或他人责任任务。管理员不能以自己的Agent静默接管，需在Web显式release／重新绑定并审计。
 
@@ -86,9 +86,22 @@ type SnapshotManifest = {
   workflowDigest: string;
   knowledgeBindingsVersion: number;
   stepKey: string;
-  baselinePolicy: 'NONE'|'PUBLISHED_PRD';
-  productBaseline: null|{understandingRevisionId:string;prdRevisionId:string;prdSha256:string;deliveryScopeDigest:string};
-  resources: Array<{refId:string;kind:string;targetId:string;sha256:string;byteLength:number;mediaType:string;authority:'PUBLISHED'|'CANDIDATE'}>;
+  baselinePolicy: 'NONE' | 'PUBLISHED_PRD';
+  productBaseline: null | {
+    understandingRevisionId: string;
+    prdRevisionId: string;
+    prdSha256: string;
+    deliveryScopeDigest: string;
+  };
+  resources: Array<{
+    refId: string;
+    kind: string;
+    targetId: string;
+    sha256: string;
+    byteLength: number;
+    mediaType: string;
+    authority: 'PUBLISHED' | 'CANDIDATE';
+  }>;
 };
 ```
 
@@ -106,18 +119,18 @@ resources按refId字典序排序，target引用ID和摘要全部参与05 canonic
 
 ## 4. 不可变交付与版本化评审
 
-| 实体 | 字段与约束 |
-| --- | --- |
-| Artifact | `id,projectId,taskId,kind:PRD\|DESIGN\|IMPL\|CASES\|RELEASE,schemaVersion='1.0',storage:HOSTED\|GIT_REF,mediaType,byteLength,sha256,bodyBytes?,projectRepositoryId?,commitSha?,repoPath?,summary?,checks:Json,submittedByStampId,createdAt`；HOSTED与git定位精确二选一；原始交付不可改。 |
-| ArtifactValidation | `id,projectId,artifactId,source:SUBMITTER_ASSERTION\|PLATFORM_CHECK,validatorId,validatorVersion,passed,checks:Json,createdByStampId?,webhookReceiptId?,createdAt`；来源二选一，独立验证追加，不覆盖提交方声明。 |
-| ArtifactSet | `id,projectId,taskId,taskGeneration,snapshotId,manifestDigest,workflowDefinitionRevisionId,localRunId,createdByStampId,createdAt`；不可变集合，清单按artifact／revision ID排序。 |
-| ArtifactSetItem | `id,projectId,artifactSetId,artifactId?,candidateRevisionId?`；目标FK二选一；每set目标唯一；candidateRefs与artifacts至少一种非空。 |
-| ReviewRequest | `id,projectId,kind,subjectKind:DOCUMENT_REVISION\|TASK_ARTIFACT_SET,documentRevisionId?,artifactSetId?,taskId?,taskGeneration?,requirementGeneration?,subjectDigest,version=1,status:OPEN\|APPROVED\|CHANGES_REQUESTED\|REJECTED\|INVALIDATED,createdByStampId,createdAt,closedAt?`；subject精确一项，当前相同subject/kind只有一个OPEN request。 |
-| ApprovalSlot | `id,projectId,reviewRequestId,slotKey,kind,requiredRoleId?,assignedUserId,sourceSlotBindingId?`；唯一`(reviewRequestId,slotKey)`；知识USER-grant场景requiredRoleId可空，其他槽必填；创建后绑定不原位改。 |
-| ReviewDecision | `id,projectId,reviewRequestId,approvalSlotId,decision:APPROVE\|CHANGES_REQUESTED\|REJECT,subjectDigest,comment?,createdByStampId,confirmationTicketId,createdAt`；每slot每request仅一条正式决定，重试靠operation幂等，不靠upsert覆盖。 |
-| ReviewDecisionRevocation | `id,projectId,decisionId,reason,createdByStampId,confirmationTicketId,createdAt`；原决定最多一条生效撤销，原记录保留。 |
-| ReviewRequestCodeEvidence | `reviewRequestId,projectRepositoryId,evidenceId`；当前prepare集合，PK前两项，改集合必须ReviewRequest.version++。 |
-| DecisionCodeEvidence | `decisionId,evidenceId`；不可变FK，固定批准依据，不随镜像刷新替换。 |
+| 实体                      | 字段与约束                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Artifact                  | `id,projectId,taskId,kind:PRD\|DESIGN\|IMPL\|CASES\|RELEASE,schemaVersion='1.0',storage:HOSTED\|GIT_REF,mediaType,byteLength,sha256,bodyBytes?,projectRepositoryId?,commitSha?,repoPath?,summary?,checks:Json,submittedByStampId,createdAt`；HOSTED与git定位精确二选一；原始交付不可改。                                                         |
+| ArtifactValidation        | `id,projectId,artifactId,source:SUBMITTER_ASSERTION\|PLATFORM_CHECK,validatorId,validatorVersion,passed,checks:Json,createdByStampId?,webhookReceiptId?,createdAt`；来源二选一，独立验证追加，不覆盖提交方声明。                                                                                                                                 |
+| ArtifactSet               | `id,projectId,taskId,taskGeneration,snapshotId,manifestDigest,workflowDefinitionRevisionId,localRunId,createdByStampId,createdAt`；不可变集合，清单按artifact／revision ID排序。                                                                                                                                                                 |
+| ArtifactSetItem           | `id,projectId,artifactSetId,artifactId?,candidateRevisionId?`；目标FK二选一；每set目标唯一；candidateRefs与artifacts至少一种非空。                                                                                                                                                                                                               |
+| ReviewRequest             | `id,projectId,kind,subjectKind:DOCUMENT_REVISION\|TASK_ARTIFACT_SET,documentRevisionId?,artifactSetId?,taskId?,taskGeneration?,requirementGeneration?,subjectDigest,version=1,status:OPEN\|APPROVED\|CHANGES_REQUESTED\|REJECTED\|INVALIDATED,createdByStampId,createdAt,closedAt?`；subject精确一项，当前相同subject/kind只有一个OPEN request。 |
+| ApprovalSlot              | `id,projectId,reviewRequestId,slotKey,kind,requiredRoleId?,assignedUserId,sourceSlotBindingId?`；唯一`(reviewRequestId,slotKey)`；知识USER-grant场景requiredRoleId可空，其他槽必填；创建后绑定不原位改。                                                                                                                                         |
+| ReviewDecision            | `id,projectId,reviewRequestId,approvalSlotId,decision:APPROVE\|CHANGES_REQUESTED\|REJECT,subjectDigest,comment?,createdByStampId,confirmationTicketId,createdAt`；每slot每request仅一条正式决定，重试靠operation幂等，不靠upsert覆盖。                                                                                                           |
+| ReviewDecisionRevocation  | `id,projectId,decisionId,reason,createdByStampId,confirmationTicketId,createdAt`；原决定最多一条生效撤销，原记录保留。                                                                                                                                                                                                                           |
+| ReviewRequestCodeEvidence | `reviewRequestId,projectRepositoryId,evidenceId`；当前prepare集合，PK前两项，改集合必须ReviewRequest.version++。                                                                                                                                                                                                                                 |
+| DecisionCodeEvidence      | `decisionId,evidenceId`；不可变FK，固定批准依据，不随镜像刷新替换。                                                                                                                                                                                                                                                                              |
 
 ArtifactSet允许产品任务使用`items=[]`和非空candidateRevisionIds，形成正式检查点而不是造一个空PRD Artifact。所有候选都必须属于本step允许类型及KB权限范围。TASK_ACCEPTANCE用于工件集合，候选理解与PRD分别产生UNDERSTANDING_CONFIRM和PRD_PUBLICATION。
 
@@ -127,16 +140,16 @@ ArtifactSet允许产品任务使用`items=[]`和非空candidateRevisionIds，形
 
 评审操作效果如下。所有文档的正式发布还需准确KB PUBLISH，业务role槽位不绕过正文ACL；仅创建候选和评审请求不要求Agent取得发布权限。
 
-| 操作 | 同一事务的结果 |
-| --- | --- |
-| UNDERSTANDING_CONFIRM最后ALL APPROVE | 核当前候选和未决项及KB发布资格；追加该理解文档publication、设置文档指针和Requirement.currentUnderstandingRevisionId，req.version/generation++、阶段至少DEFINITION。若来自当前产品任务且全部step gate满足才完成该任务，再处理下游失效；不是PRD批准。 |
-| PRD_PUBLICATION最后ALL APPROVE | 核basisUnderstanding、deliveryScope、acceptance和准确revision；追加publication、设置文档及Requirement.currentPrdRevisionId，req.version/generation++、phase至少DELIVERY；同样重算候选来源Task全部step gate，满足才DONE，不要求不存在的第二个TASK_ACCEPTANCE槽；事件和收件人同事务。 |
-| KNOWLEDGE_PUBLICATION最后ALL APPROVE | 核当前KB发布资格和候选；追加publication、切document发布指针，找实际引用旧版的任务和依赖后继并废止；不是全项目无差别generation++。 |
-| TASK_ACCEPTANCE最后ALL APPROVE | 核快照、claim产生代次、准确ArtifactSet、所有定义gate及IMPL证据；Task.executionStatus=DONE、version++，claim标记释放；重算需求当前门禁及阶段。 |
-| RELEASE_ACCEPTANCE最后ALL APPROVE | 唯一RELEASE step的RELEASE工件、全部上游当前有效；DONE并将phase设RELEASED，保留准确release依据。 |
-| CHANGES_REQUESTED | 关闭该request，保留当前发布版；绑定任务进入新generation、OPEN/ACTIVE，废止claim和当前set，记录返修意见与责任人，下游按依赖失效。新候选和新request重新审，不复用旧批准。 |
-| REJECT | request关闭；绑定任务OPEN/BLOCKED并保留拒绝原因，后续由责任HUMAN明确恢复／重新提交，不把拒绝当需求已撤回。候选不发布。 |
-| 撤销APPROVE | 原决定人或当前准确slot有权HUMAN＋票据；追加revocation，相关published当前有效性撤销，受影响任务及后继失效；已有发布历史不删除。 |
+| 操作                                 | 同一事务的结果                                                                                                                                                                                                                                                                      |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| UNDERSTANDING_CONFIRM最后ALL APPROVE | 核当前候选和未决项及KB发布资格；追加该理解文档publication、设置文档指针和Requirement.currentUnderstandingRevisionId，req.version/generation++、阶段至少DEFINITION。若来自当前产品任务且全部step gate满足才完成该任务，再处理下游失效；不是PRD批准。                                 |
+| PRD_PUBLICATION最后ALL APPROVE       | 核basisUnderstanding、deliveryScope、acceptance和准确revision；追加publication、设置文档及Requirement.currentPrdRevisionId，req.version/generation++、phase至少DELIVERY；同样重算候选来源Task全部step gate，满足才DONE，不要求不存在的第二个TASK_ACCEPTANCE槽；事件和收件人同事务。 |
+| KNOWLEDGE_PUBLICATION最后ALL APPROVE | 核当前KB发布资格和候选；追加publication、切document发布指针，找实际引用旧版的任务和依赖后继并废止；不是全项目无差别generation++。                                                                                                                                                   |
+| TASK_ACCEPTANCE最后ALL APPROVE       | 核快照、claim产生代次、准确ArtifactSet、所有定义gate及IMPL证据；Task.executionStatus=DONE、version++，claim标记释放；重算需求当前门禁及阶段。                                                                                                                                       |
+| RELEASE_ACCEPTANCE最后ALL APPROVE    | 唯一RELEASE step的RELEASE工件、全部上游当前有效；DONE并将phase设RELEASED，保留准确release依据。                                                                                                                                                                                     |
+| CHANGES_REQUESTED                    | 关闭该request，保留当前发布版；绑定任务进入新generation、OPEN/ACTIVE，废止claim和当前set，记录返修意见与责任人，下游按依赖失效。新候选和新request重新审，不复用旧批准。                                                                                                             |
+| REJECT                               | request关闭；绑定任务OPEN/BLOCKED并保留拒绝原因，后续由责任HUMAN明确恢复／重新提交，不把拒绝当需求已撤回。候选不发布。                                                                                                                                                              |
+| 撤销APPROVE                          | 原决定人或当前准确slot有权HUMAN＋票据；追加revocation，相关published当前有效性撤销，受影响任务及后继失效；已有发布历史不删除。                                                                                                                                                      |
 
 生产当前理解／PRD的PRODUCT任务按“输出revision仍为当前已确认／已发布指针、当前批准未撤销”判断有效，不因为自己的输出刚推进req.generation就立即失效；其旧snapshot只保留来源，不能继续写入。其他任务按快照输入与当前代次严格判断。
 
@@ -148,29 +161,29 @@ ArtifactSet允许产品任务使用`items=[]`和非空candidateRevisionIds，形
 
 BLOCK／PAUSE／CANCEL保存workReason、workOwnerUserId、resumeCondition及改变时间／stamp；负责人未显式指定时取该聚合responsibleUserId，必须是当前成员。BLOCK和PAUSE的resumeCondition必填；CANCEL可空。UNBLOCK／RESUME成功后清当前workReason／workOwnerUserId／resumeCondition，但AuditEvent保留原原因与本次继续理由；状态有效性与取消限制按动作表。实例自己的状态仅由所属需求暂停／撤回或管理员实例升级派生，不增加另一套无路由的自由写入口。
 
-| action | 前置条件与允许主体 | 状态与版本效果 |
-| --- | --- | --- |
-| CLAIM | Task OPEN/ACTIVE、父级ACTIVE、所有前置当前有效、指定责任人的当前角色、expectedVersion；AGENT需task:claim。 | 新TaskClaim，IN_PROGRESS，task.version++，generation不变。 |
-| SNAPSHOT_CREATE | 本claim且generation一致，context:create，满足baselinePolicy及全部必需资源。 | 不可变快照，task.version++，phase不变。 |
-| DELIVER | 本claim、IN_PROGRESS/ACTIVE、当前snapshot、全部必要输出及验证；task:deliver。 | ArtifactSet+REVIEW_PENDING，task.version++；不自行DONE。 |
-| RELEASE | 本claim主体task:release，或HUMAN管理员票据force=true；非CANCELLED且expectedVersion匹配。 | 原claim释放，generation/version++，OPEN；旧快照与当前set指针清空，历史不删。 |
-| BLOCK | 本claim的当前主体，AGENT还需clarification:write；原因、负责人和resumeCondition必填。 | workStatus=BLOCKED、version++；不自动释放claim或推进业务阶段，继续编辑只在本地。 |
-| UNBLOCK | 当前任务责任HUMAN或管理员，说明缺口已解决，校验相关澄清与当前基线。 | ACTIVE、version++；若基线变了先走失效并需重新认领，不复活旧claim。 |
-| PAUSE／RESUME | 责任HUMAN或管理员；暂停原因、恢复条件，恢复时重核基线及权限；Agent CLI仅Web handoff。 | PAUSED／ACTIVE及version++，不抹历史阶段；暂停不自动触发外部动作重放。 |
-| CANCEL | 责任HUMAN或管理员明确撤回，reason必填。 | CANCELLED、version/generation++，释放claim；终止不能通过RESUME复活，需新任务／需求关联历史。 |
-| BASELINE_INVALIDATE | 正式版本、撤销或代码证据变化的系统结果，来源必须是真实PrincipalStamp或WebhookReceipt。 | 受影响任务generation/version++、OPEN，旧claim释放，snapshot/set指针清；若原为PAUSED/CANCELLED保留其工作状态。 |
-| ARCHIVE | 01规定HUMAN资格＋票据，当前无未处理活动工作或明确列明影响。 | archivedAt、phase=ARCHIVED，停止新写，保留合法历史读取。 |
+| action              | 前置条件与允许主体                                                                                         | 状态与版本效果                                                                                                |
+| ------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| CLAIM               | Task OPEN/ACTIVE、父级ACTIVE、所有前置当前有效、指定责任人的当前角色、expectedVersion；AGENT需task:claim。 | 新TaskClaim，IN_PROGRESS，task.version++，generation不变。                                                    |
+| SNAPSHOT_CREATE     | 本claim且generation一致，context:create，满足baselinePolicy及全部必需资源。                                | 不可变快照，task.version++，phase不变。                                                                       |
+| DELIVER             | 本claim、IN_PROGRESS/ACTIVE、当前snapshot、全部必要输出及验证；task:deliver。                              | ArtifactSet+REVIEW_PENDING，task.version++；不自行DONE。                                                      |
+| RELEASE             | 本claim主体task:release，或HUMAN管理员票据force=true；非CANCELLED且expectedVersion匹配。                   | 原claim释放，generation/version++，OPEN；旧快照与当前set指针清空，历史不删。                                  |
+| BLOCK               | 本claim的当前主体，AGENT还需clarification:write；原因、负责人和resumeCondition必填。                       | workStatus=BLOCKED、version++；不自动释放claim或推进业务阶段，继续编辑只在本地。                              |
+| UNBLOCK             | 当前任务责任HUMAN或管理员，说明缺口已解决，校验相关澄清与当前基线。                                        | ACTIVE、version++；若基线变了先走失效并需重新认领，不复活旧claim。                                            |
+| PAUSE／RESUME       | 责任HUMAN或管理员；暂停原因、恢复条件，恢复时重核基线及权限；Agent CLI仅Web handoff。                      | PAUSED／ACTIVE及version++，不抹历史阶段；暂停不自动触发外部动作重放。                                         |
+| CANCEL              | 责任HUMAN或管理员明确撤回，reason必填。                                                                    | CANCELLED、version/generation++，释放claim；终止不能通过RESUME复活，需新任务／需求关联历史。                  |
+| BASELINE_INVALIDATE | 正式版本、撤销或代码证据变化的系统结果，来源必须是真实PrincipalStamp或WebhookReceipt。                     | 受影响任务generation/version++、OPEN，旧claim释放，snapshot/set指针清；若原为PAUSED/CANCELLED保留其工作状态。 |
+| ARCHIVE             | 01规定HUMAN资格＋票据，当前无未处理活动工作或明确列明影响。                                                | archivedAt、phase=ARCHIVED，停止新写，保留合法历史读取。                                                      |
 
 公开`TaskView.inputValidity`由实际输入和门禁计算，返回VALID|STALE|UNKNOWN及原因，不是数据库可写状态。不能通过修改phase或把依赖executionStatus写为DONE恢复有效性。ready仅展示本主体可认领、依赖有效的任务，不认领；阻塞信息由task读取和board提供。
 
 ## 6. 变更、确认与澄清
 
-| 实体 | 字段与约束 |
-| --- | --- |
-| ChangeEvent | `id,projectId,requirementId?,generation?,sourceKind:DOCUMENT_PUBLICATION\|REVIEW_REVOCATION\|WORKFLOW_UPGRADE\|CODE_OBSERVATION,sourceId,changedFields:String[],targets:Json,actorStampId?,webhookReceiptId?,createdAt`；来源二选一；唯一`(projectId,sourceKind,sourceId,requirementId)`的NULL场景用partial unique，不允许同事件重写targets。 |
-| ChangeRecipient | `id,projectId,eventId,userId,roleId?,version=1,ackedAt?,ackedByStampId?,reassignedAt?,replacementRecipientId?,createdAt`；唯一`(eventId,userId,roleId)`，null-role用partial unique；转派保留原记录。 |
-| Clarification | `id,projectId,requirementId,taskId?,version=1,question,impact,assignedUserId,resumeCondition,status:OPEN\|DEFERRED\|RESOLVED,dependencyIds:UUID[],createdByStampId,createdAt,updatedAt`；依赖同需求且无环，引用存在和访问权由事务校验。 |
-| ClarificationResponse | `id,projectId,clarificationId,answer,resolution:PROPOSED\|CONFIRMED\|DEFERRED,resolutionRefs:Json,createdByStampId,createdAt`；追加记录；Agent只能PROPOSED，不能关闭正式阻塞。 |
+| 实体                  | 字段与约束                                                                                                                                                                                                                                                                                                                                    |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ChangeEvent           | `id,projectId,requirementId?,generation?,sourceKind:DOCUMENT_PUBLICATION\|REVIEW_REVOCATION\|WORKFLOW_UPGRADE\|CODE_OBSERVATION,sourceId,changedFields:String[],targets:Json,actorStampId?,webhookReceiptId?,createdAt`；来源二选一；唯一`(projectId,sourceKind,sourceId,requirementId)`的NULL场景用partial unique，不允许同事件重写targets。 |
+| ChangeRecipient       | `id,projectId,eventId,userId,roleId?,version=1,ackedAt?,ackedByStampId?,reassignedAt?,replacementRecipientId?,createdAt`；唯一`(eventId,userId,roleId)`，null-role用partial unique；转派保留原记录。                                                                                                                                          |
+| Clarification         | `id,projectId,requirementId,taskId?,version=1,question,impact,assignedUserId,resumeCondition,status:OPEN\|DEFERRED\|RESOLVED,dependencyIds:UUID[],createdByStampId,createdAt,updatedAt`；依赖同需求且无环，引用存在和访问权由事务校验。                                                                                                       |
+| ClarificationResponse | `id,projectId,clarificationId,answer,resolution:PROPOSED\|CONFIRMED\|DEFERRED,resolutionRefs:Json,createdByStampId,createdAt`；追加记录；Agent只能PROPOSED，不能关闭正式阻塞。                                                                                                                                                                |
 
 变更recipient从实际受影响任务responsibleUserId+roleId生成；同人不同角色独立收件。知识仅影响无任务的订阅角色时按明确绑定生成；无法确定责任人则交项目唯一OWNER、roleId=null，不能静默丢事件。后续角色或人员变化不删已有事件，管理者可明确转派并审计；ack不等于重新批准。
 

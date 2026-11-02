@@ -1,4 +1,8 @@
-import type { KnowledgePermission, KnowledgeVisibility, ProjectManagementRole } from '../auth/v1-authorization';
+import type {
+  KnowledgePermission,
+  KnowledgeVisibility,
+  ProjectManagementRole,
+} from '../auth/v1-authorization';
 
 export const V1_KNOWLEDGE_BASE_REPOSITORY = Symbol('V1_KNOWLEDGE_BASE_REPOSITORY');
 
@@ -126,9 +130,17 @@ export interface V1KnowledgeBaseRepository {
     q: string;
     limit: number;
     cursor: string | null;
-  }): Promise<{ items: V1KnowledgeBaseSearchItem[]; nextCursor: string | null; hasMore: boolean; truncated: boolean }>;
+  }): Promise<{
+    items: V1KnowledgeBaseSearchItem[];
+    nextCursor: string | null;
+    hasMore: boolean;
+    truncated: boolean;
+  }>;
 
   findMember(projectId: string, userId: string): Promise<V1KnowledgeMemberRecord | null>;
 
-  findProjectRoles(projectId: string, roleIds: readonly string[]): Promise<V1KnowledgeProjectRoleRecord[]>;
+  findProjectRoles(
+    projectId: string,
+    roleIds: readonly string[],
+  ): Promise<V1KnowledgeProjectRoleRecord[]>;
 }

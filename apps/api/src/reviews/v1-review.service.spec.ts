@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { V1_ERROR_CODES, WorkmeshError, type Principal } from '@workmesh/shared';
 import { V1AuthorizationService, type V1AuthorizationRepository } from '../auth/v1-authorization';
-import { actionDigestOf, hashTicketSecret, type V1ConfirmationRepository, type V1TicketRecord } from '../auth/v1-confirmation';
-import { requestDigestOf, type V1IdempotencyRepository, type V1OperationRecord } from '../common/v1-idempotency';
 import {
-  V1ReviewService,
-  type V1DecideContext,
-  type V1DecideInput,
-} from './v1-review.service';
+  actionDigestOf,
+  hashTicketSecret,
+  type V1ConfirmationRepository,
+  type V1TicketRecord,
+} from '../auth/v1-confirmation';
+import {
+  requestDigestOf,
+  type V1IdempotencyRepository,
+  type V1OperationRecord,
+} from '../common/v1-idempotency';
+import { V1ReviewService, type V1DecideContext, type V1DecideInput } from './v1-review.service';
 import type {
   V1CommitDecisionInput,
   V1CommitDecisionResult,
@@ -82,13 +87,35 @@ function store(): Store {
       artifactSetId: null,
       taskId: null,
       slots: [
-        { id: 'slot-1', slotKey: 'publication', kind: 'KNOWLEDGE_PUBLICATION', requiredRoleId: null, requiredUserId: 'alice', sourceSlotBindingId: null },
-        { id: 'slot-2', slotKey: 'qa', kind: 'KNOWLEDGE_PUBLICATION', requiredRoleId: 'r-qa', requiredUserId: 'bob', sourceSlotBindingId: null },
+        {
+          id: 'slot-1',
+          slotKey: 'publication',
+          kind: 'KNOWLEDGE_PUBLICATION',
+          requiredRoleId: null,
+          requiredUserId: 'alice',
+          sourceSlotBindingId: null,
+        },
+        {
+          id: 'slot-2',
+          slotKey: 'qa',
+          kind: 'KNOWLEDGE_PUBLICATION',
+          requiredRoleId: 'r-qa',
+          requiredUserId: 'bob',
+          sourceSlotBindingId: null,
+        },
       ],
       decisions: [],
       subject: subject(),
     },
-    documents: [{ id: 'doc-1', projectId: 'p-a', knowledgeBaseId: 'kb-1', version: 3, currentPublishedRevisionId: null }],
+    documents: [
+      {
+        id: 'doc-1',
+        projectId: 'p-a',
+        knowledgeBaseId: 'kb-1',
+        version: 3,
+        currentPublishedRevisionId: null,
+      },
+    ],
     publications: [],
     decisions: [],
     operations: [],
@@ -99,7 +126,18 @@ function store(): Store {
 
 /** 事务替身：以结构化快照实现真实回滚，用于验证“任一步失败全部回滚”的服务层顺序。 */
 function reviewRepository(state: Store): V1ReviewRepository {
-  const snapshot = () => JSON.parse(JSON.stringify({ review: state.review, documents: state.documents, publications: state.publications, decisions: state.decisions, operations: state.operations, tickets: state.tickets, snapshotTaskIds: state.snapshotTaskIds }));
+  const snapshot = () =>
+    JSON.parse(
+      JSON.stringify({
+        review: state.review,
+        documents: state.documents,
+        publications: state.publications,
+        decisions: state.decisions,
+        operations: state.operations,
+        tickets: state.tickets,
+        snapshotTaskIds: state.snapshotTaskIds,
+      }),
+    );
   const restore = (snap: ReturnType<typeof snapshot>) => {
     state.review = snap.review;
     state.documents = snap.documents;
@@ -120,10 +158,20 @@ function reviewRepository(state: Store): V1ReviewRepository {
       return null;
     },
     async createReviewRequest() {
-      throw new WorkmeshError(V1_ERROR_CODES.INVALID_REQUEST, 'NOT_USED_IN_DECIDE_TESTS', undefined, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INVALID_REQUEST,
+        'NOT_USED_IN_DECIDE_TESTS',
+        undefined,
+        422,
+      );
     },
     async listReviews() {
-      throw new WorkmeshError(V1_ERROR_CODES.INVALID_REQUEST, 'NOT_USED_IN_DECIDE_TESTS', undefined, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INVALID_REQUEST,
+        'NOT_USED_IN_DECIDE_TESTS',
+        undefined,
+        422,
+      );
     },
     async findDecisionContext(decisionId) {
       const record = state.decisions.find((item) => item.id === decisionId);
@@ -153,16 +201,45 @@ function reviewRepository(state: Store): V1ReviewRepository {
       try {
         const record = state.decisions.find((item) => item.id === input.decisionId);
         if (!record)
-          throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REVIEW_DECISION_NOT_FOUND', { decisionId: input.decisionId }, 404);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'REVIEW_DECISION_NOT_FOUND',
+            { decisionId: input.decisionId },
+            404,
+          );
         if (record.decision !== 'APPROVE')
-          throw new WorkmeshError(V1_ERROR_CODES.VALIDATION_FAILED, 'REVOCATION_NOT_APPLICABLE', { decisionId: input.decisionId }, 422);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.VALIDATION_FAILED,
+            'REVOCATION_NOT_APPLICABLE',
+            { decisionId: input.decisionId },
+            422,
+          );
         if (record.revoked)
-          throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_CONFLICT, 'DECISION_ALREADY_REVOKED', { decisionId: input.decisionId }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_CONFLICT,
+            'DECISION_ALREADY_REVOKED',
+            { decisionId: input.decisionId },
+            409,
+          );
         const wasApproved = state.review.status === 'APPROVED';
         if (state.review.status !== 'APPROVED' && state.review.status !== 'OPEN')
-          throw new WorkmeshError(V1_ERROR_CODES.REVIEW_CLOSED, 'REVIEW_CLOSED', { reviewId: state.review.id, status: state.review.status }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.REVIEW_CLOSED,
+            'REVIEW_CLOSED',
+            { reviewId: state.review.id, status: state.review.status },
+            409,
+          );
         if (state.review.version !== input.expectedVersion)
-          throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'VERSION_CONFLICT', { reviewId: state.review.id, expectedVersion: input.expectedVersion, currentVersion: state.review.version }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.VERSION_CONFLICT,
+            'VERSION_CONFLICT',
+            {
+              reviewId: state.review.id,
+              expectedVersion: input.expectedVersion,
+              currentVersion: state.review.version,
+            },
+            409,
+          );
 
         // 条件消费票据：只有未消费、未失效、未过期且属于本次 session 的行才可消费。
         const ticket = state.tickets.find((item) => item.id === input.ticket.id);
@@ -174,7 +251,12 @@ function reviewRepository(state: Store): V1ReviewRepository {
           !ticket.invalidatedAt &&
           ticket.expiresAt > input.now;
         if (!consumed)
-          throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_USED, 'CONFIRMATION_CONSUME_CONFLICT', { ticketId: input.ticket.id }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CONFIRMATION_USED,
+            'CONFIRMATION_CONSUME_CONFLICT',
+            { ticketId: input.ticket.id },
+            409,
+          );
         ticket!.consumedAt = input.now;
         ticket!.consumedOperationId = input.operationId;
 
@@ -190,11 +272,21 @@ function reviewRepository(state: Store): V1ReviewRepository {
 
         if (wasApproved && state.review.documentRevisionId) {
           const revisionId = state.review.documentRevisionId;
-          const document = state.documents.find((item) => item.id === state.review.subject?.documentId);
+          const document = state.documents.find(
+            (item) => item.id === state.review.subject?.documentId,
+          );
           if (!document)
-            throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'DOCUMENT_NOT_FOUND', { documentId: state.review.subject?.documentId }, 404);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+              'DOCUMENT_NOT_FOUND',
+              { documentId: state.review.subject?.documentId },
+              404,
+            );
           const publication = state.publications.find(
-            (item) => item.documentId === document.id && item.revisionId === revisionId && item.kind === 'PUBLISH',
+            (item) =>
+              item.documentId === document.id &&
+              item.revisionId === revisionId &&
+              item.kind === 'PUBLISH',
           );
           if (!publication)
             throw new WorkmeshError(
@@ -237,7 +329,12 @@ function reviewRepository(state: Store): V1ReviewRepository {
         });
 
         return {
-          revocation: { id: revocationId, decisionId: record.id, reason: input.reason, createdAt: input.now },
+          revocation: {
+            id: revocationId,
+            decisionId: record.id,
+            reason: input.reason,
+            createdAt: input.now,
+          },
           affectedTaskIds,
         };
       } catch (error) {
@@ -252,11 +349,26 @@ function reviewRepository(state: Store): V1ReviewRepository {
         if (state.review.status !== 'OPEN')
           throw new WorkmeshError(V1_ERROR_CODES.REVIEW_CLOSED, 'REVIEW_CLOSED', undefined, 409);
         if (state.review.version !== input.expectedVersion)
-          throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'VERSION_CONFLICT', undefined, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.VERSION_CONFLICT,
+            'VERSION_CONFLICT',
+            undefined,
+            409,
+          );
         if (state.review.subjectDigest !== input.subjectDigest)
-          throw new WorkmeshError(V1_ERROR_CODES.REVISION_DIGEST_CHANGED, 'REVISION_DIGEST_CHANGED', undefined, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.REVISION_DIGEST_CHANGED,
+            'REVISION_DIGEST_CHANGED',
+            undefined,
+            409,
+          );
         if (state.decisions.some((item) => item.approvalSlotId === input.slotId))
-          throw new WorkmeshError(V1_ERROR_CODES.REVIEW_SLOT_DECIDED, 'REVIEW_SLOT_DECIDED', undefined, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.REVIEW_SLOT_DECIDED,
+            'REVIEW_SLOT_DECIDED',
+            undefined,
+            409,
+          );
 
         // 条件消费票据：只有未消费、未失效且属于本次 session 的行才 count=1。
         const ticket = state.tickets.find((item) => item.id === input.ticket.id);
@@ -267,7 +379,13 @@ function reviewRepository(state: Store): V1ReviewRepository {
           !ticket.consumedAt &&
           !ticket.invalidatedAt &&
           ticket.expiresAt > input.now;
-        if (!consumed) throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_USED, 'CONFIRMATION_CONSUME_FAILED', undefined, 409);
+        if (!consumed)
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CONFIRMATION_USED,
+            'CONFIRMATION_CONSUME_FAILED',
+            undefined,
+            409,
+          );
         ticket!.consumedAt = input.now;
         ticket!.consumedOperationId = input.operationId;
 
@@ -281,7 +399,12 @@ function reviewRepository(state: Store): V1ReviewRepository {
         state.review.decisions = [...state.review.decisions];
 
         const approvedSlots = new Set(
-          state.decisions.filter((item) => item.decision === 'APPROVE' && item.subjectDigest === state.review.subjectDigest).map((item) => item.approvalSlotId),
+          state.decisions
+            .filter(
+              (item) =>
+                item.decision === 'APPROVE' && item.subjectDigest === state.review.subjectDigest,
+            )
+            .map((item) => item.approvalSlotId),
         );
         const allApproved =
           state.review.slots.length > 0 &&
@@ -297,13 +420,25 @@ function reviewRepository(state: Store): V1ReviewRepository {
           // CAS：首次发布 currentPublishedRevisionId 为 NULL 也必须命中；
           // 重复发布同一 revision 视为已被并发发布，不静默成功。
           const doc = state.documents.find((item) => item.id === state.review.subject!.documentId)!;
-          const alreadyPublished = doc.currentPublishedRevisionId === state.review.subject!.revisionId;
-          if (alreadyPublished) throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'VERSION_CONFLICT', undefined, 409);
+          const alreadyPublished =
+            doc.currentPublishedRevisionId === state.review.subject!.revisionId;
+          if (alreadyPublished)
+            throw new WorkmeshError(
+              V1_ERROR_CODES.VERSION_CONFLICT,
+              'VERSION_CONFLICT',
+              undefined,
+              409,
+            );
           doc.version += 1;
           doc.currentPublishedRevisionId = state.review.subject!.revisionId;
           documentVersion = doc.version;
           publicationId = `pub-${state.publications.length + 1}`;
-          state.publications.push({ id: publicationId, documentId: doc.id, revisionId: state.review.subject!.revisionId, kind: 'PUBLISH' });
+          state.publications.push({
+            id: publicationId,
+            documentId: doc.id,
+            revisionId: state.review.subject!.revisionId,
+            kind: 'PUBLISH',
+          });
           state.review.status = 'APPROVED';
           state.review.version += 1;
           published = true;
@@ -312,19 +447,20 @@ function reviewRepository(state: Store): V1ReviewRepository {
           state.review.version += 1;
         }
 
-        const subjectResult: V1SubjectResult = published && publicationId && documentVersion !== null
-          ? { kind: 'PUBLISHED', publicationId, documentVersion }
-          : input.decision === 'REJECT'
-            ? { kind: 'REJECTED', affectedTaskIds: [] }
-            : input.decision === 'CHANGES_REQUESTED'
-              ? { kind: 'REWORK', affectedTaskIds: [] }
-              : {
-                  kind: 'RECORDED',
-                  approvedSlotIds: [...approvedSlots],
-                  remainingSlotIds: state.review.slots
-                    .filter((slot) => !approvedSlots.has(slot.id))
-                    .map((slot) => slot.id),
-                };
+        const subjectResult: V1SubjectResult =
+          published && publicationId && documentVersion !== null
+            ? { kind: 'PUBLISHED', publicationId, documentVersion }
+            : input.decision === 'REJECT'
+              ? { kind: 'REJECTED', affectedTaskIds: [] }
+              : input.decision === 'CHANGES_REQUESTED'
+                ? { kind: 'REWORK', affectedTaskIds: [] }
+                : {
+                    kind: 'RECORDED',
+                    approvedSlotIds: [...approvedSlots],
+                    remainingSlotIds: state.review.slots
+                      .filter((slot) => !approvedSlots.has(slot.id))
+                      .map((slot) => slot.id),
+                  };
 
         state.operations.push({
           id: input.operationId,
@@ -373,7 +509,13 @@ function authRepository(overrides: { memberActive?: boolean } = {}): V1Authoriza
       return { id: projectId, version: 1, archivedAt: null };
     },
     async findMember(projectId, userId) {
-      return { projectId, userId, role: 'MEMBER', version: 1, revokedAt: memberActive ? null : now };
+      return {
+        projectId,
+        userId,
+        role: 'MEMBER',
+        version: 1,
+        revokedAt: memberActive ? null : now,
+      };
     },
     async findActiveRoleAssignments() {
       return [];
@@ -403,7 +545,10 @@ function authRepository(overrides: { memberActive?: boolean } = {}): V1Authoriza
 
 const ticketSecret = 'ticket-secret-value';
 
-function makeTicket(binding: Record<string, unknown>, overrides: Partial<V1TicketRecord> = {}): V1TicketRecord {
+function makeTicket(
+  binding: Record<string, unknown>,
+  overrides: Partial<V1TicketRecord> = {},
+): V1TicketRecord {
   return {
     id: 'tk-1',
     secretHash: hashTicketSecret(ticketSecret),
@@ -474,7 +619,9 @@ describe('V1ReviewService.decide', () => {
     operations = state.operations;
     const authorization = new V1AuthorizationService(authRepository());
     const confirmation: V1ConfirmationRepository = {
-      async createTicket() { throw new Error('not used'); },
+      async createTicket() {
+        throw new Error('not used');
+      },
       async findTicket(ticketId) {
         return state.tickets.find((item) => item.id === ticketId) ?? null;
       },
@@ -494,10 +641,19 @@ describe('V1ReviewService.decide', () => {
         );
       },
     };
-    service = new V1ReviewService(reviewRepository(state), authorization, confirmation, idempotency);
+    service = new V1ReviewService(
+      reviewRepository(state),
+      authorization,
+      confirmation,
+      idempotency,
+    );
     // 预置票据：绑定必须与服务层服务端派生的 binding 完全一致
     const preview = service.previewDigest(state.review, baseInput);
-    state.tickets.push(makeTicket({ schemaVersion: 1, ...preview.binding } as unknown as Parameters<typeof actionDigestOf>[0]));
+    state.tickets.push(
+      makeTicket({ schemaVersion: 1, ...preview.binding } as unknown as Parameters<
+        typeof actionDigestOf
+      >[0]),
+    );
   });
 
   it('rejects an Agent principal for approval decisions', async () => {
@@ -519,25 +675,35 @@ describe('V1ReviewService.decide', () => {
   it('allows a slot qualified by current business role assignment', async () => {
     const roleBinding = service.previewDigest(state.review, { ...baseInput, slotId: 'slot-2' });
     state.tickets.push(
-      makeTicket({ schemaVersion: 1, ...roleBinding.binding } as unknown as Parameters<typeof actionDigestOf>[0], {
-        id: 'tk-2',
-        userId: 'bob',
-        roleId: 'r-qa',
-        approvalSlotId: 'slot-2',
-      }),
+      makeTicket(
+        { schemaVersion: 1, ...roleBinding.binding } as unknown as Parameters<
+          typeof actionDigestOf
+        >[0],
+        {
+          id: 'tk-2',
+          userId: 'bob',
+          roleId: 'r-qa',
+          approvalSlotId: 'slot-2',
+        },
+      ),
     );
     const result = await service.decide(
       bob,
       'rr-1',
       { ...baseInput, slotId: 'slot-2', confirmation: { ticketId: 'tk-2', ticketSecret } },
-      context({ operationId: 'op-2', body: { slotId: 'slot-2', decision: 'APPROVE', expectedVersion: 3 } }),
+      context({
+        operationId: 'op-2',
+        body: { slotId: 'slot-2', decision: 'APPROVE', expectedVersion: 3 },
+      }),
     );
     expect(result.decisionId).toBe('dec-1');
     expect(result.published).toBe(false);
   });
 
   it('rejects a stale expectedVersion', async () => {
-    await expect(service.decide(alice, 'rr-1', { ...baseInput, expectedVersion: 2 }, context())).rejects.toMatchObject({
+    await expect(
+      service.decide(alice, 'rr-1', { ...baseInput, expectedVersion: 2 }, context()),
+    ).rejects.toMatchObject({
       code: 'VERSION_CONFLICT',
       status: 409,
     });
@@ -545,11 +711,24 @@ describe('V1ReviewService.decide', () => {
 
   it('requires a non-empty comment when requesting changes or rejecting', async () => {
     await expect(
-      service.decide(alice, 'rr-1', { ...baseInput, decision: 'CHANGES_REQUESTED', comment: '  ' }, context()),
-    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', message: 'REVIEW_COMMENT_REQUIRED', status: 422 });
+      service.decide(
+        alice,
+        'rr-1',
+        { ...baseInput, decision: 'CHANGES_REQUESTED', comment: '  ' },
+        context(),
+      ),
+    ).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      message: 'REVIEW_COMMENT_REQUIRED',
+      status: 422,
+    });
     await expect(
       service.decide(alice, 'rr-1', { ...baseInput, decision: 'REJECT', comment: null }, context()),
-    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', message: 'REVIEW_COMMENT_REQUIRED', status: 422 });
+    ).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      message: 'REVIEW_COMMENT_REQUIRED',
+      status: 422,
+    });
   });
 
   it('rejects decisions on a closed review', async () => {
@@ -562,7 +741,15 @@ describe('V1ReviewService.decide', () => {
 
   it('rejects a second decision for the same slot', async () => {
     state.review.decisions = [
-      { id: 'dec-0', approvalSlotId: 'slot-1', decision: 'APPROVE', subjectDigest: state.review.subjectDigest, comment: null, createdById: 'alice', createdAt: now },
+      {
+        id: 'dec-0',
+        approvalSlotId: 'slot-1',
+        decision: 'APPROVE',
+        subjectDigest: state.review.subjectDigest,
+        comment: null,
+        createdById: 'alice',
+        createdAt: now,
+      },
     ];
     await expect(service.decide(alice, 'rr-1', baseInput, context())).rejects.toMatchObject({
       code: 'REVIEW_SLOT_DECIDED',
@@ -572,25 +759,50 @@ describe('V1ReviewService.decide', () => {
 
   it('rejects a wrong ticket secret without recording a decision', async () => {
     await expect(
-      service.decide(alice, 'rr-1', { ...baseInput, confirmation: { ticketId: 'tk-1', ticketSecret: 'wrong' } }, context()),
+      service.decide(
+        alice,
+        'rr-1',
+        { ...baseInput, confirmation: { ticketId: 'tk-1', ticketSecret: 'wrong' } },
+        context(),
+      ),
     ).rejects.toMatchObject({ code: 'CONFIRMATION_INVALID', status: 403 });
     expect(state.decisions).toHaveLength(0);
   });
 
   it('rejects a ticket bound to a different comment', async () => {
     const otherPreview = service.previewDigest(state.review, { ...baseInput, comment: 'changed' });
-    state.tickets.push(makeTicket({ schemaVersion: 1, ...otherPreview.binding } as unknown as Parameters<typeof actionDigestOf>[0], { id: 'tk-9' }));
+    state.tickets.push(
+      makeTicket(
+        { schemaVersion: 1, ...otherPreview.binding } as unknown as Parameters<
+          typeof actionDigestOf
+        >[0],
+        { id: 'tk-9' },
+      ),
+    );
     await expect(
-      service.decide(alice, 'rr-1', { ...baseInput, confirmation: { ticketId: 'tk-9', ticketSecret } }, context()),
+      service.decide(
+        alice,
+        'rr-1',
+        { ...baseInput, confirmation: { ticketId: 'tk-9', ticketSecret } },
+        context(),
+      ),
     ).rejects.toMatchObject({ code: 'ACTION_CHANGED' });
   });
 
   it('publishes atomically when the last required slot approves', async () => {
     const secondBinding = service.previewDigest(state.review, { ...baseInput, slotId: 'slot-2' });
     state.tickets.push(
-      makeTicket({ schemaVersion: 1, ...secondBinding.binding } as unknown as Parameters<typeof actionDigestOf>[0], { id: 'tk-2', userId: 'bob', roleId: 'r-qa', approvalSlotId: 'slot-2' }),
+      makeTicket(
+        { schemaVersion: 1, ...secondBinding.binding } as unknown as Parameters<
+          typeof actionDigestOf
+        >[0],
+        { id: 'tk-2', userId: 'bob', roleId: 'r-qa', approvalSlotId: 'slot-2' },
+      ),
     );
-    const secondContext = context({ operationId: 'op-2', body: { slotId: 'slot-2', decision: 'APPROVE', expectedVersion: 3 } });
+    const secondContext = context({
+      operationId: 'op-2',
+      body: { slotId: 'slot-2', decision: 'APPROVE', expectedVersion: 3 },
+    });
     const first = await service.decide(alice, 'rr-1', baseInput, context());
     expect(first.published).toBe(false);
     const second = await service.decide(
@@ -616,7 +828,12 @@ describe('V1ReviewService.decide', () => {
     await service.decide(alice, 'rr-1', baseInput, context());
     expect(state.tickets[0].consumedAt).toEqual(now);
     await expect(
-      service.decide(alice, 'rr-1', baseInput, context({ operationId: 'op-x', idempotencyKey: '22222222-2222-4222-8222-222222222222' })),
+      service.decide(
+        alice,
+        'rr-1',
+        baseInput,
+        context({ operationId: 'op-x', idempotencyKey: '22222222-2222-4222-8222-222222222222' }),
+      ),
     ).rejects.toMatchObject({ code: 'CONFIRMATION_USED' });
   });
 
@@ -634,10 +851,19 @@ describe('V1ReviewService.decide', () => {
 
   it('returns the original result for a replayed idempotency key', async () => {
     const first = await service.decide(alice, 'rr-1', baseInput, context());
-    const replay = await service.decide(alice, 'rr-1', baseInput, context({ operationId: 'op-again' }));
+    const replay = await service.decide(
+      alice,
+      'rr-1',
+      baseInput,
+      context({ operationId: 'op-again' }),
+    );
     expect(replay.replayed).toBe(true);
     expect(replay.decisionId).toBe(first.decisionId);
-    expect(replay.subjectResult).toEqual({ kind: 'RECORDED', approvedSlotIds: ['slot-1'], remainingSlotIds: ['slot-2'] });
+    expect(replay.subjectResult).toEqual({
+      kind: 'RECORDED',
+      approvedSlotIds: ['slot-1'],
+      remainingSlotIds: ['slot-2'],
+    });
     expect(state.decisions).toHaveLength(1);
   });
 
@@ -647,7 +873,15 @@ describe('V1ReviewService.decide', () => {
     state.review.status = 'APPROVED';
     state.review.version = 9;
     state.review.decisions = [
-      { id: 'dec-1', approvalSlotId: 'slot-1', decision: 'APPROVE', subjectDigest: state.review.subjectDigest, comment: null, createdById: 'alice', createdAt: now },
+      {
+        id: 'dec-1',
+        approvalSlotId: 'slot-1',
+        decision: 'APPROVE',
+        subjectDigest: state.review.subjectDigest,
+        comment: null,
+        createdById: 'alice',
+        createdAt: now,
+      },
     ];
     const replay = await service.decide(
       alice,
@@ -677,10 +911,27 @@ describe('V1ReviewService.decide', () => {
     const hidden = new V1ReviewService(
       reviewRepository(state),
       authorization,
-      { async createTicket() { throw new Error('not used'); }, async findTicket() { return null; }, async consumeTicket() { return { consumed: false, ticket: null }; } },
-      { async findOperation() { return null; } },
+      {
+        async createTicket() {
+          throw new Error('not used');
+        },
+        async findTicket() {
+          return null;
+        },
+        async consumeTicket() {
+          return { consumed: false, ticket: null };
+        },
+      },
+      {
+        async findOperation() {
+          return null;
+        },
+      },
     );
-    await expect(hidden.getReview(alice, 'rr-1')).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND', status: 404 });
+    await expect(hidden.getReview(alice, 'rr-1')).rejects.toMatchObject({
+      code: 'RESOURCE_NOT_FOUND',
+      status: 404,
+    });
   });
 
   it('binds the decision to the server derived binding, not to client supplied slots', async () => {
@@ -690,9 +941,13 @@ describe('V1ReviewService.decide', () => {
     expect(preview.binding.targetId).toBe('rr-1');
     expect(preview.binding.expectedVersion).toBe(3);
     expect(preview.binding.payload).toMatchObject({ slotId: 'slot-1', decision: 'APPROVE' });
-    expect(requestDigestOf({ method: 'POST', route, body: { slotId: 'slot-1', decision: 'APPROVE', expectedVersion: 3 } })).toMatch(
-      /^[a-f0-9]{64}$/,
-    );
+    expect(
+      requestDigestOf({
+        method: 'POST',
+        route,
+        body: { slotId: 'slot-1', decision: 'APPROVE', expectedVersion: 3 },
+      }),
+    ).toMatch(/^[a-f0-9]{64}$/);
   });
 });
 
@@ -763,7 +1018,12 @@ describe('V1ReviewService.revoke', () => {
     ];
     state.documents[0].version = 4;
     state.documents[0].currentPublishedRevisionId = 'rev-1';
-    state.publications.push({ id: 'pub-1', documentId: 'doc-1', revisionId: 'rev-1', kind: 'PUBLISH' });
+    state.publications.push({
+      id: 'pub-1',
+      documentId: 'doc-1',
+      revisionId: 'rev-1',
+      kind: 'PUBLISH',
+    });
     state.snapshotTaskIds = ['task-2'];
     const preview = service.previewRevoke(decisionContext(), reason, state.review.version);
     state.tickets.push(
@@ -780,14 +1040,21 @@ describe('V1ReviewService.revoke', () => {
   }
 
   function revokeInput(overrides: Partial<Parameters<V1ReviewService['revoke']>[2]> = {}) {
-    return { expectedVersion: 3, reason, confirmation: { ticketId: 'tk-1', ticketSecret }, ...overrides };
+    return {
+      expectedVersion: 3,
+      reason,
+      confirmation: { ticketId: 'tk-1', ticketSecret },
+      ...overrides,
+    };
   }
 
   beforeEach(() => {
     state = store();
     const authorization = new V1AuthorizationService(authRepository());
     const confirmation: V1ConfirmationRepository = {
-      async createTicket() { throw new Error('not used'); },
+      async createTicket() {
+        throw new Error('not used');
+      },
       async findTicket(ticketId) {
         return state.tickets.find((item) => item.id === ticketId) ?? null;
       },
@@ -807,7 +1074,12 @@ describe('V1ReviewService.revoke', () => {
         );
       },
     };
-    service = new V1ReviewService(reviewRepository(state), authorization, confirmation, idempotency);
+    service = new V1ReviewService(
+      reviewRepository(state),
+      authorization,
+      confirmation,
+      idempotency,
+    );
   });
 
   it('rejects revoking a non-approval decision', async () => {
@@ -860,7 +1132,14 @@ describe('V1ReviewService.revoke', () => {
         createdAt: now,
       },
     ];
-    await expect(service.revoke(alice, 'dec-1', revokeInput({ expectedVersion: 2 }), context({ body: { expectedVersion: 2, reason } }))).rejects.toMatchObject({
+    await expect(
+      service.revoke(
+        alice,
+        'dec-1',
+        revokeInput({ expectedVersion: 2 }),
+        context({ body: { expectedVersion: 2, reason } }),
+      ),
+    ).rejects.toMatchObject({
       code: 'VERSION_CONFLICT',
       status: 409,
     });
@@ -887,7 +1166,9 @@ describe('V1ReviewService.revoke', () => {
 
   it('rejects an Agent principal', async () => {
     seedPublishedApproval();
-    await expect(service.revoke(agentAlice, 'dec-1', revokeInput(), context())).rejects.toMatchObject({
+    await expect(
+      service.revoke(agentAlice, 'dec-1', revokeInput(), context()),
+    ).rejects.toMatchObject({
       code: 'HUMAN_SESSION_REQUIRED',
       status: 403,
     });
@@ -904,7 +1185,12 @@ describe('V1ReviewService.revoke', () => {
       ),
     );
     await expect(
-      service.revoke(alice, 'dec-1', revokeInput({ confirmation: { ticketId: 'tk-2', ticketSecret } }), context()),
+      service.revoke(
+        alice,
+        'dec-1',
+        revokeInput({ confirmation: { ticketId: 'tk-2', ticketSecret } }),
+        context(),
+      ),
     ).rejects.toMatchObject({ code: 'ACTION_CHANGED', status: 409 });
     expect(state.decisions[0].revoked).toBe(false);
     expect(state.publications).toHaveLength(1);
@@ -937,7 +1223,12 @@ describe('V1ReviewService.revoke', () => {
   it('returns the original revocation for a replayed idempotency key', async () => {
     seedPublishedApproval();
     const first = await service.revoke(alice, 'dec-1', revokeInput(), context());
-    const replay = await service.revoke(alice, 'dec-1', revokeInput(), context({ operationId: 'op-r2' }));
+    const replay = await service.revoke(
+      alice,
+      'dec-1',
+      revokeInput(),
+      context({ operationId: 'op-r2' }),
+    );
 
     expect(replay.replayed).toBe(true);
     expect(replay.revocation.id).toBe(first.revocation.id);

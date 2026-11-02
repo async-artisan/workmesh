@@ -47,21 +47,31 @@ export class V1TaskService {
 
   async getTask(principal: Principal, taskId: string): Promise<V1TaskSnapshot> {
     const task = await this.tasks.findTask(taskId);
-    if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
+    if (!task)
+      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
     // 无项目访问权按 404 返回，不泄露任务存在性。
     await this.authorization.resolveProjectContext(principal, task.projectId);
     return task;
   }
 
-  async claim(principal: Principal, taskId: string, context: V1TaskActionContext): Promise<V1ClaimResult> {
+  async claim(
+    principal: Principal,
+    taskId: string,
+    context: V1TaskActionContext,
+  ): Promise<V1ClaimResult> {
     const task = await this.tasks.findTask(taskId);
-    if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
+    if (!task)
+      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
     const resolved = await this.authorization.resolveProjectContext(principal, task.projectId);
     await this.authorization.requireScope(principal, resolved.project.id, 'task:claim');
 
     const ownerScopeKey = principalScopeKey(principal);
     const projectScopeKey = `project:${task.projectId}`;
-    const requestDigest = requestDigestOf({ method: context.method, route: context.route, body: context.body });
+    const requestDigest = requestDigestOf({
+      method: context.method,
+      route: context.route,
+      body: context.body,
+    });
 
     // 幂等：已提交重放先核路由与摘要一致，再返回当前任务（认领已生效）。
     const existing = await this.operations.findOperation({
@@ -70,21 +80,35 @@ export class V1TaskService {
       key: context.idempotencyKey,
     });
     if (existing) {
-      assertReplayable(existing, { method: context.method, route: context.route, digest: requestDigest });
+      assertReplayable(existing, {
+        method: context.method,
+        route: context.route,
+        digest: requestDigest,
+      });
       const current = await this.tasks.findTask(taskId);
-      if (!current) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
+      if (!current)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+          'TASK_NOT_FOUND',
+          { taskId },
+          404,
+        );
       return { task: current, claimId: String(existing.resultRefs.claimId ?? ''), replayed: true };
     }
 
     // 快速前置复核；并发真实拒绝仍由仓储事务内复核保证（双认领单胜）。
-    this.applyClaimPolicy({ currentClaim: task.currentClaim, taskGeneration: task.generation, principalScopeKey: ownerScopeKey });
+    this.applyClaimPolicy({
+      currentClaim: task.currentClaim,
+      taskGeneration: task.generation,
+      principalScopeKey: ownerScopeKey,
+    });
 
     const input: V1ClaimInput = {
       taskId,
       expectedGeneration: task.generation,
       principalScopeKey: ownerScopeKey,
       userId: principal.userId,
-      credentialId: principal.kind === 'AGENT' ? principal.agentCredentialId ?? null : null,
+      credentialId: principal.kind === 'AGENT' ? (principal.agentCredentialId ?? null) : null,
       now: context.now,
       operation: {
         id: context.operationId,
@@ -108,13 +132,18 @@ export class V1TaskService {
     releaseReason?: string | null,
   ): Promise<V1ReleaseResult> {
     const task = await this.tasks.findTask(taskId);
-    if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
+    if (!task)
+      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
     const resolved = await this.authorization.resolveProjectContext(principal, task.projectId);
     await this.authorization.requireScope(principal, resolved.project.id, 'task:release');
 
     const ownerScopeKey = principalScopeKey(principal);
     const projectScopeKey = `project:${task.projectId}`;
-    const requestDigest = requestDigestOf({ method: context.method, route: context.route, body: context.body });
+    const requestDigest = requestDigestOf({
+      method: context.method,
+      route: context.route,
+      body: context.body,
+    });
 
     const existing = await this.operations.findOperation({
       projectScopeKey,
@@ -122,9 +151,19 @@ export class V1TaskService {
       key: context.idempotencyKey,
     });
     if (existing) {
-      assertReplayable(existing, { method: context.method, route: context.route, digest: requestDigest });
+      assertReplayable(existing, {
+        method: context.method,
+        route: context.route,
+        digest: requestDigest,
+      });
       const current = await this.tasks.findTask(taskId);
-      if (!current) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
+      if (!current)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+          'TASK_NOT_FOUND',
+          { taskId },
+          404,
+        );
       return { task: current, released: true, replayed: true };
     }
 
@@ -159,13 +198,18 @@ export class V1TaskService {
     context: V1TaskActionContext,
   ): Promise<V1SetWorkStatusResult> {
     const task = await this.tasks.findTask(taskId);
-    if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
+    if (!task)
+      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
     const resolved = await this.authorization.resolveProjectContext(principal, task.projectId);
     await this.authorization.requireScope(principal, resolved.project.id, 'task:deliver');
 
     const ownerScopeKey = principalScopeKey(principal);
     const projectScopeKey = `project:${task.projectId}`;
-    const requestDigest = requestDigestOf({ method: context.method, route: context.route, body: context.body });
+    const requestDigest = requestDigestOf({
+      method: context.method,
+      route: context.route,
+      body: context.body,
+    });
 
     const existing = await this.operations.findOperation({
       projectScopeKey,
@@ -173,9 +217,19 @@ export class V1TaskService {
       key: context.idempotencyKey,
     });
     if (existing) {
-      assertReplayable(existing, { method: context.method, route: context.route, digest: requestDigest });
+      assertReplayable(existing, {
+        method: context.method,
+        route: context.route,
+        digest: requestDigest,
+      });
       const current = await this.tasks.findTask(taskId);
-      if (!current) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
+      if (!current)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+          'TASK_NOT_FOUND',
+          { taskId },
+          404,
+        );
       return { task: current, replayed: true };
     }
 
@@ -202,7 +256,11 @@ export class V1TaskService {
     return { task: updated, replayed: false };
   }
 
-  private applyClaimPolicy(input: { currentClaim: V1TaskSnapshot['currentClaim']; taskGeneration: number; principalScopeKey: string }): void {
+  private applyClaimPolicy(input: {
+    currentClaim: V1TaskSnapshot['currentClaim'];
+    taskGeneration: number;
+    principalScopeKey: string;
+  }): void {
     try {
       assertCanClaim({
         currentClaim: this.toPolicyClaim(input.currentClaim),

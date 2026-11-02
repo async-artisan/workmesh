@@ -10,7 +10,12 @@ import {
 } from '@workmesh/shared';
 import { V1AuthorizationService, type V1AuthorizationRepository } from '../auth/v1-authorization';
 import type { V1Principal } from '../auth/v1-policy';
-import { actionDigestOf, hashTicketSecret, type V1ConfirmationRepository, type V1TicketRecord } from '../auth/v1-confirmation';
+import {
+  actionDigestOf,
+  hashTicketSecret,
+  type V1ConfirmationRepository,
+  type V1TicketRecord,
+} from '../auth/v1-confirmation';
 import type { V1IdempotencyRepository, V1OperationRecord } from '../common/v1-idempotency';
 import {
   WORKFLOW_CONFIG_PUBLISH,
@@ -50,7 +55,11 @@ const locks: WorkflowPackageLock[] = [
   { roleKey: 'ops', packageId: 'pkg-ops', version: '1.0.0', packageDigest: 'c'.repeat(64) },
 ];
 
-const roleIdsByKey: Record<string, string> = { product: 'r-product', engineering: 'r-eng', ops: 'r-ops' };
+const roleIdsByKey: Record<string, string> = {
+  product: 'r-product',
+  engineering: 'r-eng',
+  ops: 'r-ops',
+};
 
 function demoDefinition(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -63,8 +72,21 @@ function demoDefinition(overrides: Record<string, unknown> = {}): Record<string,
     stepRemovals: [],
     roleSlots: [{ key: 'release-approval', roleKey: 'ops', kind: 'RELEASE_ACCEPTANCE' }],
     steps: [
-      { key: 'define', roleKey: 'product', kind: 'PRODUCT', deps: [], outputKinds: ['PRD'], baselinePolicy: 'NONE' },
-      { key: 'implement', roleKey: 'engineering', kind: 'DELIVERY', deps: ['define'], outputKinds: ['IMPL'] },
+      {
+        key: 'define',
+        roleKey: 'product',
+        kind: 'PRODUCT',
+        deps: [],
+        outputKinds: ['PRD'],
+        baselinePolicy: 'NONE',
+      },
+      {
+        key: 'implement',
+        roleKey: 'engineering',
+        kind: 'DELIVERY',
+        deps: ['define'],
+        outputKinds: ['IMPL'],
+      },
       {
         key: 'release',
         roleKey: 'ops',
@@ -83,8 +105,21 @@ function definitionWithVerify(baseRevisionId: string | null): Record<string, unk
   return demoDefinition({
     baseRevisionId,
     steps: [
-      { key: 'define', roleKey: 'product', kind: 'PRODUCT', deps: [], outputKinds: ['PRD'], baselinePolicy: 'NONE' },
-      { key: 'implement', roleKey: 'engineering', kind: 'DELIVERY', deps: ['define'], outputKinds: ['IMPL'] },
+      {
+        key: 'define',
+        roleKey: 'product',
+        kind: 'PRODUCT',
+        deps: [],
+        outputKinds: ['PRD'],
+        baselinePolicy: 'NONE',
+      },
+      {
+        key: 'implement',
+        roleKey: 'engineering',
+        kind: 'DELIVERY',
+        deps: ['define'],
+        outputKinds: ['IMPL'],
+      },
       { key: 'verify', roleKey: 'product', kind: 'VERIFY', deps: ['implement'], outputKinds: [] },
       {
         key: 'release',
@@ -130,7 +165,9 @@ function store(): State {
     repositories: ['repo-1'],
     definition: null,
     revisions: [],
-    requirements: [{ id: 'req-1', projectId, version: 1, currentPrdRevisionId: null, deliveryScope: null }],
+    requirements: [
+      { id: 'req-1', projectId, version: 1, currentPrdRevisionId: null, deliveryScope: null },
+    ],
     instances: [],
     operations: [],
     tickets: [],
@@ -149,7 +186,9 @@ function workflowRepository(state: State): V1WorkflowRepository {
       return { items: state.definition ? [state.definition] : [], nextCursor: null };
     },
     async findDefinition(project, key) {
-      return state.definition && state.definition.workflowKey === key ? { ...state.definition } : null;
+      return state.definition && state.definition.workflowKey === key
+        ? { ...state.definition }
+        : null;
     },
     async findRevision(revisionId) {
       return state.revisions.find((revision) => revision.id === revisionId) ?? null;
@@ -158,7 +197,9 @@ function workflowRepository(state: State): V1WorkflowRepository {
       return roles;
     },
     async findPackageVersion(project, packageId, version) {
-      const found = state.packages.find((item) => item.packageId === packageId && item.version === version);
+      const found = state.packages.find(
+        (item) => item.packageId === packageId && item.version === version,
+      );
       return found ? { ...found, projectId: null } : null;
     },
     async findRequirement(requirementId) {
@@ -172,13 +213,33 @@ function workflowRepository(state: State): V1WorkflowRepository {
     },
     async publishDefinition(input: V1PublishDefinitionInput): Promise<V1PublishDefinitionResult> {
       if (state.projectVersion !== input.expectedProjectVersion)
-        throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'PROJECT_VERSION_CONFLICT', undefined, 409);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.VERSION_CONFLICT,
+          'PROJECT_VERSION_CONFLICT',
+          undefined,
+          409,
+        );
       const currentRevision = state.definition?.currentRevision ?? 0;
       if (currentRevision !== input.expectedCurrentRevision)
-        throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'WORKFLOW_REVISION_CONFLICT', undefined, 409);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.VERSION_CONFLICT,
+          'WORKFLOW_REVISION_CONFLICT',
+          undefined,
+          409,
+        );
       const ticket = state.tickets.find((item) => item.id === input.ticket.id);
-      if (!ticket || ticket.secretHash !== input.ticket.secretHash || ticket.consumedAt || ticket.invalidatedAt)
-        throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_USED, 'CONFIRMATION_CONSUME_CONFLICT', undefined, 409);
+      if (
+        !ticket ||
+        ticket.secretHash !== input.ticket.secretHash ||
+        ticket.consumedAt ||
+        ticket.invalidatedAt
+      )
+        throw new WorkmeshError(
+          V1_ERROR_CODES.CONFIRMATION_USED,
+          'CONFIRMATION_CONSUME_CONFLICT',
+          undefined,
+          409,
+        );
       ticket.consumedAt = now;
       ticket.consumedOperationId = input.operation.id;
 
@@ -240,7 +301,12 @@ function workflowRepository(state: State): V1WorkflowRepository {
     async createInstance(input: V1CreateInstanceInput): Promise<V1CreateInstanceResult> {
       const requirement = state.requirements.find((item) => item.id === input.requirementId)!;
       if (requirement.version !== input.expectedRequirementVersion)
-        throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'REQUIREMENT_VERSION_CONFLICT', undefined, 409);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.VERSION_CONFLICT,
+          'REQUIREMENT_VERSION_CONFLICT',
+          undefined,
+          409,
+        );
       for (const existing of state.instances) {
         if (!existing.retiredAt) {
           existing.retiredAt = now;
@@ -299,7 +365,16 @@ function authRepository(state: State): V1AuthorizationRepository {
     },
     async findActiveRoleAssignments(project, userId) {
       return userId === 'alice'
-        ? [{ id: 'as-product', projectId: project, userId, roleId: 'r-product', version: 1, revokedAt: null }]
+        ? [
+            {
+              id: 'as-product',
+              projectId: project,
+              userId,
+              roleId: 'r-product',
+              version: 1,
+              revokedAt: null,
+            },
+          ]
         : [];
     },
     async findRoleAssignment() {
@@ -314,7 +389,10 @@ function authRepository(state: State): V1AuthorizationRepository {
   };
 }
 
-function makeTicket(binding: ActionBinding, overrides: Partial<V1TicketRecord> = {}): V1TicketRecord {
+function makeTicket(
+  binding: ActionBinding,
+  overrides: Partial<V1TicketRecord> = {},
+): V1TicketRecord {
   return {
     id: 'tk-1',
     secretHash: hashTicketSecret(ticketSecret),
@@ -356,14 +434,31 @@ async function publishBinding(
       expectedCurrentRevision,
       compiledDigest: compiled.digest!,
       packageLocks: [...packageLocks]
-        .map((lock) => ({ roleKey: lock.roleKey, packageId: lock.packageId, version: lock.version, packageDigest: lock.packageDigest }))
+        .map((lock) => ({
+          roleKey: lock.roleKey,
+          packageId: lock.packageId,
+          version: lock.version,
+          packageDigest: lock.packageDigest,
+        }))
         .sort((left, right) => left.roleKey.localeCompare(right.roleKey)),
     },
   };
 }
 
-const alice: V1Principal = { kind: 'HUMAN', userId: 'alice', scopes: [], sessionId: 'sess-1', authVersion: 1 };
-const bob: V1Principal = { kind: 'HUMAN', userId: 'bob', scopes: [], sessionId: 'sess-1', authVersion: 1 };
+const alice: V1Principal = {
+  kind: 'HUMAN',
+  userId: 'alice',
+  scopes: [],
+  sessionId: 'sess-1',
+  authVersion: 1,
+};
+const bob: V1Principal = {
+  kind: 'HUMAN',
+  userId: 'bob',
+  scopes: [],
+  sessionId: 'sess-1',
+  authVersion: 1,
+};
 const agentAlice: Principal = {
   kind: 'AGENT',
   userId: 'alice',
@@ -384,14 +479,19 @@ describe('V1WorkflowService', () => {
     return {
       expectedVersion: state.projectVersion,
       expectedCurrentRevision: state.definition?.currentRevision ?? 0,
-      definition: demoDefinition(state.definition ? { baseRevisionId: state.definition.currentPublishedRevisionId } : {}),
+      definition: demoDefinition(
+        state.definition ? { baseRevisionId: state.definition.currentPublishedRevisionId } : {},
+      ),
       packageLocks: locks,
       confirmation: { ticketId: 'tk-1', ticketSecret },
       ...overrides,
     };
   }
 
-  function publishContext(body: Record<string, unknown>, overrides: Partial<V1WorkflowContext> = {}): V1WorkflowContext {
+  function publishContext(
+    body: Record<string, unknown>,
+    overrides: Partial<V1WorkflowContext> = {},
+  ): V1WorkflowContext {
     return {
       idempotencyKey,
       method: 'POST',
@@ -405,13 +505,20 @@ describe('V1WorkflowService', () => {
     };
   }
 
-  function instanceInput(overrides: Partial<V1CreateInstanceRequest> = {}): V1CreateInstanceRequest {
+  function instanceInput(
+    overrides: Partial<V1CreateInstanceRequest> = {},
+  ): V1CreateInstanceRequest {
     return {
       definitionRevisionId: 'rev-1',
       expectedRequirementVersion: 1,
       stepBindings: [
         { stepKey: 'define', roleId: 'r-product', responsibleUserId: 'alice', repositoryIds: [] },
-        { stepKey: 'implement', roleId: 'r-eng', responsibleUserId: 'alice', repositoryIds: ['repo-1'] },
+        {
+          stepKey: 'implement',
+          roleId: 'r-eng',
+          responsibleUserId: 'alice',
+          repositoryIds: ['repo-1'],
+        },
         { stepKey: 'release', roleId: 'r-ops', responsibleUserId: 'alice', repositoryIds: [] },
       ],
       roleSlotBindings: [{ slotKey: 'release-approval', roleId: 'r-ops', userId: 'alice' }],
@@ -432,9 +539,15 @@ describe('V1WorkflowService', () => {
     };
   }
 
-  async function seedPublishedDefinition(definition: Record<string, unknown> = definitionWithVerify(null)): Promise<void> {
-    const compiled = await compileWorkflowDefinition(definition, { roleIdsByKey, packageLocks: locks });
-    if (!compiled.valid) throw new Error(`fixture definition invalid: ${JSON.stringify(compiled.issues)}`);
+  async function seedPublishedDefinition(
+    definition: Record<string, unknown> = definitionWithVerify(null),
+  ): Promise<void> {
+    const compiled = await compileWorkflowDefinition(definition, {
+      roleIdsByKey,
+      packageLocks: locks,
+    });
+    if (!compiled.valid)
+      throw new Error(`fixture definition invalid: ${JSON.stringify(compiled.issues)}`);
     state.revisions = [
       {
         id: 'rev-1',
@@ -485,12 +598,20 @@ describe('V1WorkflowService', () => {
         );
       },
     };
-    service = new V1WorkflowService(workflowRepository(state), authorization, confirmation, idempotency);
+    service = new V1WorkflowService(
+      workflowRepository(state),
+      authorization,
+      confirmation,
+      idempotency,
+    );
   });
 
   describe('validate', () => {
     it('compiles a definition without persisting any revision', async () => {
-      const result = await service.validate(alice, projectId, { definition: demoDefinition(), packageLocks: locks });
+      const result = await service.validate(alice, projectId, {
+        definition: demoDefinition(),
+        packageLocks: locks,
+      });
       expect(result.valid).toBe(true);
       expect(result.digest).toMatch(/^[0-9a-f]{64}$/);
       expect(state.revisions).toHaveLength(0);
@@ -499,12 +620,17 @@ describe('V1WorkflowService', () => {
 
     it('rejects an agent without workflow:propose', async () => {
       await expect(
-        service.validate(agentAlice, projectId, { definition: demoDefinition(), packageLocks: locks }),
+        service.validate(agentAlice, projectId, {
+          definition: demoDefinition(),
+          packageLocks: locks,
+        }),
       ).rejects.toMatchObject({ code: 'SCOPE_DENIED', status: 403 });
     });
 
     it('reports scope mismatch when an excluded role is still used', async () => {
-      const definition = demoDefinition({ roleExclusions: [{ roleKey: 'ops', reason: 'not needed' }] });
+      const definition = demoDefinition({
+        roleExclusions: [{ roleKey: 'ops', reason: 'not needed' }],
+      });
       const result = await service.validate(alice, projectId, { definition, packageLocks: locks });
       expect(result.valid).toBe(false);
       expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_SCOPE_MISMATCH');
@@ -512,7 +638,10 @@ describe('V1WorkflowService', () => {
 
     it('rejects a package lock that is not registered for the project', async () => {
       state.packages = state.packages.filter((item) => item.packageId !== 'pkg-ops');
-      const result = await service.validate(alice, projectId, { definition: demoDefinition(), packageLocks: locks });
+      const result = await service.validate(alice, projectId, {
+        definition: demoDefinition(),
+        packageLocks: locks,
+      });
       expect(result.valid).toBe(false);
       expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_PACKAGE_INCOMPATIBLE');
     });
@@ -523,7 +652,15 @@ describe('V1WorkflowService', () => {
       state.memberRole = 'MEMBER';
       const definition = demoDefinition();
       state.tickets.push(makeTicket(await publishBinding(1, 0, definition)));
-      await expect(service.publish(bob, projectId, workflowKey, publishInput({ definition }), publishContext({}))).rejects.toMatchObject({
+      await expect(
+        service.publish(
+          bob,
+          projectId,
+          workflowKey,
+          publishInput({ definition }),
+          publishContext({}),
+        ),
+      ).rejects.toMatchObject({
         code: 'FORBIDDEN',
         status: 403,
       });
@@ -533,7 +670,13 @@ describe('V1WorkflowService', () => {
       const definition = demoDefinition();
       state.tickets.push(makeTicket(await publishBinding(1, 0, definition)));
       await expect(
-        service.publish(agentAlice, projectId, workflowKey, publishInput({ definition }), publishContext({})),
+        service.publish(
+          agentAlice,
+          projectId,
+          workflowKey,
+          publishInput({ definition }),
+          publishContext({}),
+        ),
       ).rejects.toMatchObject({ code: 'HUMAN_SESSION_REQUIRED', status: 403 });
     });
 
@@ -541,7 +684,13 @@ describe('V1WorkflowService', () => {
       const definition = demoDefinition();
       state.tickets.push(makeTicket(await publishBinding(1, 0, definition)));
       await expect(
-        service.publish(alice, projectId, workflowKey, publishInput({ definition, expectedVersion: 2 }), publishContext({})),
+        service.publish(
+          alice,
+          projectId,
+          workflowKey,
+          publishInput({ definition, expectedVersion: 2 }),
+          publishContext({}),
+        ),
       ).rejects.toMatchObject({ code: 'VERSION_CONFLICT', status: 409 });
     });
 
@@ -566,7 +715,13 @@ describe('V1WorkflowService', () => {
       const changed = demoDefinition({ title: 'Changed after preview' });
       state.tickets.push(makeTicket(await publishBinding(1, 0, definition)));
       await expect(
-        service.publish(alice, projectId, workflowKey, publishInput({ definition: changed }), publishContext({})),
+        service.publish(
+          alice,
+          projectId,
+          workflowKey,
+          publishInput({ definition: changed }),
+          publishContext({}),
+        ),
       ).rejects.toMatchObject({ code: 'ACTION_CHANGED', status: 409 });
       expect(state.revisions).toHaveLength(0);
     });
@@ -641,7 +796,13 @@ describe('V1WorkflowService', () => {
       const definition = demoDefinition();
       state.tickets.push(makeTicket(await publishBinding(1, 0, definition)));
       const body = currentBody(definition, 1, 0);
-      const first = await service.publish(alice, projectId, workflowKey, publishInput({ definition }), publishContext(body));
+      const first = await service.publish(
+        alice,
+        projectId,
+        workflowKey,
+        publishInput({ definition }),
+        publishContext(body),
+      );
       const replay = await service.publish(
         alice,
         projectId,
@@ -659,7 +820,13 @@ describe('V1WorkflowService', () => {
     it('rejects reusing an idempotency key for a different request', async () => {
       const definition = demoDefinition();
       state.tickets.push(makeTicket(await publishBinding(1, 0, definition)));
-      await service.publish(alice, projectId, workflowKey, publishInput({ definition }), publishContext(currentBody(definition, 1, 0)));
+      await service.publish(
+        alice,
+        projectId,
+        workflowKey,
+        publishInput({ definition }),
+        publishContext(currentBody(definition, 1, 0)),
+      );
       await expect(
         service.publish(
           alice,
@@ -675,8 +842,17 @@ describe('V1WorkflowService', () => {
   describe('createInstance', () => {
     it('materialises one task per step and bumps the requirement version', async () => {
       await seedPublishedDefinition(demoDefinition());
-      const result = await service.createInstance(alice, 'req-1', instanceInput(), instanceContext(instanceBody(instanceInput())));
-      expect(result.instance.steps.map((step) => step.stepKey)).toEqual(['define', 'implement', 'release']);
+      const result = await service.createInstance(
+        alice,
+        'req-1',
+        instanceInput(),
+        instanceContext(instanceBody(instanceInput())),
+      );
+      expect(result.instance.steps.map((step) => step.stepKey)).toEqual([
+        'define',
+        'implement',
+        'release',
+      ]);
       expect(result.requirementVersion).toBe(2);
       expect(state.requirements[0].version).toBe(2);
       expect(state.operations).toHaveLength(1);
@@ -690,7 +866,11 @@ describe('V1WorkflowService', () => {
       const stale = instanceInput({ definitionRevisionId: 'rev-1' });
       await expect(
         service.createInstance(alice, 'req-1', stale, instanceContext(instanceBody(stale))),
-      ).rejects.toMatchObject({ code: 'WORKFLOW_INVALID', status: 409, message: 'WORKFLOW_REVISION_NOT_CURRENT' });
+      ).rejects.toMatchObject({
+        code: 'WORKFLOW_INVALID',
+        status: 409,
+        message: 'WORKFLOW_REVISION_NOT_CURRENT',
+      });
     });
 
     it('rejects step bindings that do not exactly cover the definition', async () => {
@@ -727,13 +907,23 @@ describe('V1WorkflowService', () => {
         requiredOutputKinds: ['IMPL'],
       };
       await expect(
-        service.createInstance(alice, 'req-1', instanceInput(), instanceContext(instanceBody(instanceInput()))),
+        service.createInstance(
+          alice,
+          'req-1',
+          instanceInput(),
+          instanceContext(instanceBody(instanceInput())),
+        ),
       ).rejects.toMatchObject({ code: 'WORKFLOW_INVALID', status: 409 });
     });
 
     it('retires the previous active instance', async () => {
       await seedPublishedDefinition(demoDefinition());
-      const first = await service.createInstance(alice, 'req-1', instanceInput(), instanceContext(instanceBody(instanceInput())));
+      const first = await service.createInstance(
+        alice,
+        'req-1',
+        instanceInput(),
+        instanceContext(instanceBody(instanceInput())),
+      );
       state.requirements[0].version = 2;
       state.operations = [];
       const second = await service.createInstance(
@@ -761,7 +951,11 @@ describe('V1WorkflowService', () => {
   });
 });
 
-function currentBody(definition: Record<string, unknown>, expectedVersion: number, expectedCurrentRevision: number) {
+function currentBody(
+  definition: Record<string, unknown>,
+  expectedVersion: number,
+  expectedCurrentRevision: number,
+) {
   return { expectedVersion, expectedCurrentRevision, definition, packageLocks: locks };
 }
 

@@ -8,6 +8,7 @@ import { KnowledgeModule } from './knowledge/knowledge.module';
 import { V1ReviewModule } from './reviews/v1-review.module';
 import { V1TaskModule } from './tasks/v1-task.module';
 import { WorkflowsModule } from './workflows/workflows.module';
+import { V1WorkbenchModule } from './workbench/v1-workbench.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { HttpExceptionFilter } from './common/http-exception.filter';
 import { V1OperationReceiptModule } from './common/v1-operation-receipt.module';
@@ -31,6 +32,7 @@ import { RequestContextMiddleware } from './common/request-context.middleware';
     KnowledgeModule,
     V1ReviewModule,
     V1TaskModule,
+    V1WorkbenchModule,
     WorkflowsModule,
     IntegrationsModule,
     V1OperationReceiptModule,

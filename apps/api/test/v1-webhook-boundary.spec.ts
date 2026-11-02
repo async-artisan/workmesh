@@ -19,10 +19,17 @@ import {
   type V1ProjectRecord,
   type V1RoleAssignmentRecord,
 } from '../src/auth/v1-authorization';
-import { V1_IDEMPOTENCY_REPOSITORY, type V1IdempotencyRepository, type V1OperationRecord } from '../src/common/v1-idempotency';
+import {
+  V1_IDEMPOTENCY_REPOSITORY,
+  type V1IdempotencyRepository,
+  type V1OperationRecord,
+} from '../src/common/v1-idempotency';
 
 import { V1GithubEvidenceController } from '../src/integrations/v1-github-evidence.controller';
-import { V1GithubEvidenceService, V1_GITHUB_WEBHOOK_SECRET } from '../src/integrations/v1-github-evidence.service';
+import {
+  V1GithubEvidenceService,
+  V1_GITHUB_WEBHOOK_SECRET,
+} from '../src/integrations/v1-github-evidence.service';
 import {
   V1_GITHUB_EVIDENCE_REPOSITORY,
   type V1CodeReviewEvidenceRecord,
@@ -105,7 +112,8 @@ class MemoryGithubRepo implements V1GithubEvidenceRepository {
   }
 
   async findReceiptByDelivery(_source: 'GITHUB', deliveryId: string) {
-    for (const receipt of this.receipts.values()) if (receipt.deliveryId === deliveryId) return receipt;
+    for (const receipt of this.receipts.values())
+      if (receipt.deliveryId === deliveryId) return receipt;
     return null;
   }
 
@@ -122,7 +130,11 @@ class MemoryGithubRepo implements V1GithubEvidenceRepository {
     return receipt;
   }
 
-  async recordReceiptProcessed(receiptId: string, status: string, errorMessage: string | null): Promise<void> {
+  async recordReceiptProcessed(
+    receiptId: string,
+    status: string,
+    errorMessage: string | null,
+  ): Promise<void> {
     const receipt = this.receipts.get(receiptId)!;
     this.receipts.set(receiptId, { ...receipt, status, errorMessage, processedAt: new Date() });
   }
@@ -132,7 +144,8 @@ class MemoryGithubRepo implements V1GithubEvidenceRepository {
   }
 
   async findEvidenceByFingerprint(fingerprint: string): Promise<V1CodeReviewEvidenceRecord | null> {
-    for (const row of this.evidence.values()) if (row.evidenceFingerprint === fingerprint) return row;
+    for (const row of this.evidence.values())
+      if (row.evidenceFingerprint === fingerprint) return row;
     return null;
   }
 
@@ -179,9 +192,14 @@ class MemoryAuthzRepo implements V1AuthorizationRepository {
     if (projectId !== PROJECT_ID || userId !== USER_ID) return null;
     return { id: 'm-1', projectId, userId, role: 'MEMBER', version: 1, revokedAt: null };
   }
-  async findActiveRoleAssignments(projectId: string, userId: string): Promise<V1RoleAssignmentRecord[]> {
+  async findActiveRoleAssignments(
+    projectId: string,
+    userId: string,
+  ): Promise<V1RoleAssignmentRecord[]> {
     if (userId !== USER_ID) return [];
-    return [{ id: 'ra-1', projectId, userId, roleId: ROLE_INTEGRATION, version: 1, revokedAt: null }];
+    return [
+      { id: 'ra-1', projectId, userId, roleId: ROLE_INTEGRATION, version: 1, revokedAt: null },
+    ];
   }
   async findRoleAssignment(projectId: string, userId: string, roleId: string) {
     if (userId !== USER_ID || roleId !== ROLE_INTEGRATION) return null;
@@ -244,7 +262,9 @@ async function buildApp(secret: string) {
 
   const app = moduleRef.createNestApplication({ rawBody: true });
   app.setGlobalPrefix('api');
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+  app.useGlobalPipes(
+    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+  );
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new ResponseInterceptor(), new StrictJsonInterceptor());
   await app.init();

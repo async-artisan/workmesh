@@ -33,6 +33,15 @@ export class CreateRequirementDto {
   @IsOptional() @IsString() @MaxLength(10000) description?: string;
 }
 
+/** 需求编辑只允许改标题/描述；priority、用户故事等字段当前模型没有，先不伪造。 */
+export class UpdateRequirementDto {
+  @IsInt() @Min(1) expectedVersion!: number;
+
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(200) title?: string;
+
+  @IsOptional() @IsString() @MaxLength(10000) description?: string;
+}
+
 export class ConfirmationDto {
   @IsUUID() ticketId!: string;
 

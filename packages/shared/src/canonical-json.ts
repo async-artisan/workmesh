@@ -32,7 +32,11 @@ export function canonicalJson(value: unknown): string {
   assertValue(value);
   return JSON.stringify(value, (_key, item: JsonValue) => {
     if (item && typeof item === 'object' && !Array.isArray(item)) {
-      return Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]]));
+      return Object.fromEntries(
+        Object.keys(item)
+          .sort()
+          .map((key) => [key, item[key]]),
+      );
     }
     return item;
   });

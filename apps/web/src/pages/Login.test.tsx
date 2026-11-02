@@ -68,11 +68,15 @@ describe('Login（cookie WebSession + CSRF，不落本地 token）', () => {
     expect(await screen.findByText('工作台首页')).toBeInTheDocument();
 
     const loginCall = mock.mock.calls.find(
-      ([url, init]) => pathOf(String(url)) === '/api/v1/auth/login' && methodOf(init ?? {}) === 'POST',
+      ([url, init]) =>
+        pathOf(String(url)) === '/api/v1/auth/login' && methodOf(init ?? {}) === 'POST',
     );
     expect(loginCall?.[1]?.credentials).toBe('include');
     expect(headersOf(loginCall?.[1] ?? {})['X-CSRF-Token']).toBe('csrf-anon');
-    expect(bodyOf(loginCall?.[1] ?? {})).toEqual({ email: 'user@example.com', password: 'secret-pass' });
+    expect(bodyOf(loginCall?.[1] ?? {})).toEqual({
+      email: 'user@example.com',
+      password: 'secret-pass',
+    });
     expect(Object.keys(localStorage).some((key) => /token|session|csrf/i.test(key))).toBe(false);
   });
 });

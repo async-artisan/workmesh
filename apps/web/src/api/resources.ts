@@ -70,6 +70,8 @@ export interface ReviewSlot {
   requiredRoleId: string | null;
   requiredUserId: string;
   sourceSlotBindingId: string | null;
+  /** 服务端按当前用户派生；详情接口返回，列表接口可能缺省。 */
+  viewerCanDecide?: boolean;
 }
 
 export interface ReviewDecision {
@@ -80,6 +82,7 @@ export interface ReviewDecision {
   comment: string | null;
   createdById: string;
   createdAt: string;
+  actor?: { id: string; email: string } | null;
 }
 
 export interface ReviewView {
@@ -174,19 +177,6 @@ export interface ListPage<T> {
   hasMore?: boolean;
 }
 
-/** 候选修订/恢复的响应：附带服务端生成的评审请求 ID 与派生槽位。 */
-export interface ProposeRevisionResult {
-  revision: RevisionView;
-  reviewRequestId: string;
-  reviewKind: string;
-  slots: Array<{
-    id: string;
-    slotKey: string;
-    requiredUserId: string;
-    requiredRoleId: string | null;
-  }>;
-}
-
 const enc = (value: string) => encodeURIComponent(value);
 const projectPath = (projectId: string) => `/projects/${enc(projectId)}`;
 
@@ -219,6 +209,89 @@ export interface RequirementView {
   workStatus: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface RequirementTaskDetail {
+  id: string;
+  stepKey: string;
+  role: { key: string; title: string };
+  responsibleUser: { id: string; email: string };
+  version: number;
+  generation: number;
+  executionStatus: string;
+  workStatus: string;
+  currentClaimId: string | null;
+  currentArtifactSetId: string | null;
+  instanceId: string;
+  artifactCount: number;
+  review: { id: string; kind: string; status: string } | null;
+}
+
+export interface RequirementArtifactDetail {
+  id: string;
+  taskId: string;
+  kind: string;
+  storage: string;
+  mediaType: string;
+  byteLength: number;
+  sha256: string;
+  commitSha: string | null;
+  repoPath: string | null;
+  summary: string | null;
+  checks: unknown;
+  createdAt: string;
+}
+
+export interface RequirementReviewDetail {
+  id: string;
+  kind: string;
+  status: string;
+  version: number;
+  subjectDigest: string;
+  documentRevisionId: string | null;
+  artifactSetId: string | null;
+  taskId: string | null;
+  createdAt: string;
+  subjectLabel: string;
+  slots: Array<{
+    id: string;
+    slotKey: string;
+    requiredUserId: string;
+    requiredRoleId: string | null;
+  }>;
+  decisions: Array<{
+    id: string;
+    approvalSlotId: string;
+    decision: string;
+    comment: string | null;
+    createdAt: string;
+    actor: { id: string; email: string } | null;
+  }>;
+}
+
+export interface RequirementChangeDetail {
+  id: string;
+  sourceKind: string;
+  sourceId: string;
+  changedFields: string[];
+  targets: unknown;
+  createdAt: string;
+  recipients: Array<{
+    id: string;
+    userId: string;
+    roleId: string | null;
+    ackedAt: string | null;
+    version: number;
+  }>;
+}
+
+export interface RequirementDetail {
+  requirement: RequirementView;
+  tasks: RequirementTaskDetail[];
+  artifacts: RequirementArtifactDetail[];
+  reviews: RequirementReviewDetail[];
+  changes: RequirementChangeDetail[];
+  counts: { tasks: number; artifacts: number; reviews: number; changes: number };
 }
 
 export const projectApi = {
@@ -271,9 +344,35 @@ export const requirementApi = {
       method: 'POST',
       body: data,
     }),
+  /** key 同时接受需求 UUID 与人类编号（YFF-REQ-12）。 */
+  detail: (projectId: string, key: string) =>
+    apiRequest<RequirementDetail>(
+      `${projectPath(projectId)}/requirements/${encodeURIComponent(key)}`,
+    ),
+  update: (
+    projectId: string,
+    requirementId: string,
+    input: { expectedVersion: number; title?: string; description?: string },
+  ) =>
+    apiRequest<RequirementView>(
+      `${projectPath(projectId)}/requirements/${enc(requirementId)}`,
+      { method: 'PATCH', body: input, idempotencyKey: 'auto' },
+    ),
 };
 
 /** 工作流定义摘要：不含定义体，只看当前修订号与已发布指针。 */
+export interface WorkflowInstanceView {
+  id: string;
+  projectId: string;
+  requirementId: string;
+  definitionRevisionId: string;
+  definitionDigest: string;
+  version: number;
+  workStatus: string;
+  retiredAt: string | null;
+  steps: Array<Record<string, unknown>>;
+}
+
 export interface WorkflowDefinitionView {
   workflowKey: string;
   title: string;
@@ -309,6 +408,26 @@ export interface RolePackageListItem {
   roleKey: string;
   manifestDigest: string;
   scope: 'BUILTIN' | 'PROJECT';
+}
+
+export interface WorkflowStepDefinition {
+  key: string;
+  roleKey: string;
+  deps?: string[];
+}
+
+export interface WorkflowSlotDefinition {
+  key: string;
+  roleKey: string;
+}
+
+export interface WorkflowRevisionView {
+  id: string;
+  projectId: string;
+  workflowKey: string;
+  revision: number;
+  digest: string;
+  definition: Record<string, unknown>;
 }
 
 export const workflowApi = {
@@ -348,14 +467,9 @@ export const workflowApi = {
       idempotencyKey: 'auto',
     }),
   revision: (revisionId: string) =>
-    apiRequest<{
-      id: string;
-      projectId: string;
-      workflowKey: string;
-      revision: number;
-      digest: string;
-      definition: Record<string, unknown>;
-    }>(`/workflow-definition-revisions/${enc(revisionId)}`),
+    apiRequest<WorkflowRevisionView>(`/workflow-definition-revisions/${enc(revisionId)}`),
+  instance: (instanceId: string) =>
+    apiRequest<WorkflowInstanceView>(`/workflow-instances/${enc(instanceId)}`),
   createInstance: (
     requirementId: string,
     input: {
@@ -399,30 +513,6 @@ export const documentApi = {
       byteLength: number;
       sha256: string;
     }>(`/document-revisions/${enc(revisionId)}/content`),
-  /** Agent-only transport: 页面不调用此生产接口，候选正文应由本地 Product Agent 提交。 */
-  proposeRevision: (
-    documentId: string,
-    data: {
-      title: string;
-      mimeType?: string;
-      bodyBase64: string;
-      basisUnderstandingRevisionId?: string | null;
-      deliveryScope?: Record<string, unknown>;
-      acceptance?: Array<{ key: string; text: string; verification: string }>;
-    },
-  ) =>
-    apiRequest<ProposeRevisionResult>(`/documents/${enc(documentId)}/revisions`, {
-      method: 'POST',
-      body: { mimeType: 'text/markdown; charset=utf-8', ...data },
-      idempotencyKey: 'auto',
-    }),
-  /** Agent-only transport: 页面不通过历史恢复生产新正文；恢复仍需重新评审。 */
-  restore: (documentId: string, input: { sourceRevisionId: string; title?: string }) =>
-    apiRequest<ProposeRevisionResult>(`/documents/${enc(documentId)}/restore`, {
-      method: 'POST',
-      body: input,
-      idempotencyKey: 'auto',
-    }),
   /** 撤销发布必须提交 expectedVersion + 一次性票据；不携带 DTO 未声明的字段。 */
   withdraw: (
     documentId: string,
@@ -431,25 +521,6 @@ export const documentApi = {
     apiRequest<{ documentVersion: number; publicationId: string | null }>(
       `/documents/${enc(documentId)}/withdraw`,
       { method: 'POST', body: input, idempotencyKey: 'auto' },
-    ),
-  /** Agent-only transport: 页面不手写创建文档，保留给本地 Agent 适配层。 */
-  create: (
-    projectId: string,
-    data: {
-      knowledgeBaseId: string;
-      kind: DocumentKind;
-      requirementId?: string | null;
-      title: string;
-      bodyBase64: string;
-    },
-  ) =>
-    apiRequest<{ document: DocumentView } & ProposeRevisionResult>(
-      `${projectPath(projectId)}/documents`,
-      {
-        method: 'POST',
-        body: { mimeType: 'text/markdown; charset=utf-8', ...data },
-        idempotencyKey: 'auto',
-      },
     ),
 };
 
@@ -508,13 +579,38 @@ export const boardApi = {
 
 export const taskApi = {
   get: (taskId: string) => apiRequest<TaskView>(`/tasks/${enc(taskId)}`),
-  /** v1 ClaimDto 为空：服务端按任务当前代次串行，不接受客户端版本声明。 */
-  claim: (taskId: string) =>
-    apiRequest<TaskView>(`/tasks/${enc(taskId)}/claims`, {
-      method: 'POST',
-      body: {},
-      idempotencyKey: 'auto',
-    }),
+};
+
+export interface ArtifactView {
+  id: string;
+  kind: string;
+  schemaVersion: string;
+  storage: string;
+  mediaType: string;
+  byteLength: number;
+  sha256: string;
+  projectRepositoryId: string | null;
+  commitSha: string | null;
+  repoPath: string | null;
+  summary: string | null;
+  checks: Array<{ code: string; passed: boolean; message?: string }>;
+}
+
+export interface ArtifactSetView {
+  id: string;
+  taskId: string;
+  taskGeneration: number;
+  snapshotId: string;
+  manifestDigest: string;
+  workflowDefinitionRevisionId: string;
+  localRunId: string;
+  candidateRevisionIds: string[];
+  artifacts: ArtifactView[];
+  createdAt: string;
+}
+
+export const artifactApi = {
+  get: (artifactId: string) => apiRequest<ArtifactSetView>(`/artifact-sets/${enc(artifactId)}`),
 };
 
 export const changeApi = {
@@ -528,6 +624,110 @@ export const changeApi = {
       body: { expectedVersion },
       idempotencyKey: 'auto',
     }),
+};
+
+export interface WorkbenchRequirement {
+  code: string;
+  title: string;
+}
+
+export interface WorkbenchRole {
+  id: string;
+  key: string;
+  title: string;
+}
+
+export interface WorkbenchReviewItem {
+  reviewId: string;
+  kind: string;
+  status: string;
+  version: number;
+  projectId: string;
+  projectKey: string;
+  projectName: string;
+  requirement: WorkbenchRequirement | null;
+  subjectLabel: string;
+  role: WorkbenchRole | null;
+  slots: Array<{
+    id: string;
+    slotKey: string;
+    requiredUserId: string;
+    requiredRoleId: string | null;
+    decided: boolean;
+    viewerCanDecide: boolean;
+  }>;
+  ageSeconds: number | null;
+  evidence: { artifactCount: number; hasPr: boolean };
+}
+
+export interface WorkbenchChangeItem {
+  recipientId: string;
+  eventId: string;
+  projectId: string;
+  projectKey: string;
+  projectName: string;
+  requirement: WorkbenchRequirement | null;
+  changedFields: string[];
+  targets: unknown;
+  pendingRoles: Array<{ key: string; title: string }>;
+  version: number;
+  createdAt: string;
+  ageSeconds: number;
+}
+
+export interface WorkbenchReadyTaskItem {
+  taskId: string;
+  projectId: string;
+  projectKey: string;
+  projectName: string;
+  requirement: WorkbenchRequirement | null;
+  role: { key: string; title: string } | null;
+  stepKey: string;
+  executionStatus: string;
+  workStatus: string;
+  ageSeconds: number | null;
+}
+
+export interface WorkbenchSnapshot {
+  counts: { reviews: number; changes: number; readyTasks: number; total: number };
+  reviews: WorkbenchReviewItem[];
+  changes: WorkbenchChangeItem[];
+  readyTasks: WorkbenchReadyTaskItem[];
+  warnings: string[];
+}
+
+export interface ActivityItem {
+  id: string;
+  projectId: string | null;
+  projectName: string | null;
+  action: string;
+  targetType: string;
+  targetId: string;
+  targetVersion: number | null;
+  outcome: string;
+  details: unknown;
+  createdAt: string;
+  actor: { id: string; email: string } | null;
+}
+
+export const activityApi = {
+  list: (limit = 30) => apiRequest<{ items: ActivityItem[] }>(`/activity?limit=${limit}`),
+};
+
+export const notificationApi = {
+  sendEmailDigest: () =>
+    apiRequest<{
+      sent: boolean;
+      to: string;
+      counts: { reviews: number; changes: number; readyTasks: number; total: number };
+    }>('/notifications/email-digest', { method: 'POST' }),
+};
+
+export const workbenchApi = {
+  get: (projectId?: string | null) =>
+    apiRequest<WorkbenchSnapshot>(
+      `/workbench${projectId ? `?projectId=${enc(projectId)}` : ''}`,
+    ),
 };
 
 export const aclApi = {

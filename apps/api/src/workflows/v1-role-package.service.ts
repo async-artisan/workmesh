@@ -1,10 +1,28 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { V1_ERROR_CODES, WorkmeshError, type ActionBinding, type Confirmation, type Principal } from '@workmesh/shared';
+import {
+  V1_ERROR_CODES,
+  WorkmeshError,
+  type ActionBinding,
+  type Confirmation,
+  type Principal,
+} from '@workmesh/shared';
 import { V1AuthorizationService } from '../auth/v1-authorization';
-import { verifyTicketBinding, V1_CONFIRMATION_REPOSITORY, type V1ConfirmationRepository } from '../auth/v1-confirmation';
+import {
+  verifyTicketBinding,
+  V1_CONFIRMATION_REPOSITORY,
+  type V1ConfirmationRepository,
+} from '../auth/v1-confirmation';
 import { sessionIdOf } from '../auth/v1-cli-authorization.service';
-import { assertReplayable, requestDigestOf, V1_IDEMPOTENCY_REPOSITORY, type V1IdempotencyRepository } from '../common/v1-idempotency';
-import { validateRolePackageInput, type V1RolePackageResourceInput } from './v1-role-package-policy';
+import {
+  assertReplayable,
+  requestDigestOf,
+  V1_IDEMPOTENCY_REPOSITORY,
+  type V1IdempotencyRepository,
+} from '../common/v1-idempotency';
+import {
+  validateRolePackageInput,
+  type V1RolePackageResourceInput,
+} from './v1-role-package-policy';
 import {
   V1_ROLE_PACKAGE_REPOSITORY,
   type V1RolePackageDetail,
@@ -49,11 +67,18 @@ export class V1RolePackageService {
     query: { limit?: number; cursor?: string | null },
   ): Promise<{ items: V1RolePackageListItem[]; nextCursor: string | null }> {
     await this.requireRead(principal, projectId);
-    const limit = Number.isInteger(query.limit) ? Math.min(Math.max(query.limit ?? 20, 1), 100) : 20;
+    const limit = Number.isInteger(query.limit)
+      ? Math.min(Math.max(query.limit ?? 20, 1), 100)
+      : 20;
     return this.repository.list(projectId, { limit, cursor: query.cursor ?? null });
   }
 
-  async getVersion(principal: Principal, projectId: string, packageId: string, version: string): Promise<V1RolePackageDetail> {
+  async getVersion(
+    principal: Principal,
+    projectId: string,
+    packageId: string,
+    version: string,
+  ): Promise<V1RolePackageDetail> {
     await this.requireRead(principal, projectId);
     const found = await this.repository.findVersion(projectId, packageId, version);
     if (!found)
@@ -94,12 +119,24 @@ export class V1RolePackageService {
     const project = await this.requireManager(principal, projectId);
 
     // 合法重放先于项目版本 CAS 与票据消费。
-    const requestDigest = requestDigestOf({ method: context.method, route: context.route, body: context.body });
+    const requestDigest = requestDigestOf({
+      method: context.method,
+      route: context.route,
+      body: context.body,
+    });
     const projectScopeKey = `project:${projectId}`;
     const principalScopeKey = `user:${principal.userId}`;
-    const replay = await this.repository.findOperation({ projectScopeKey, principalScopeKey, key: context.idempotencyKey });
+    const replay = await this.repository.findOperation({
+      projectScopeKey,
+      principalScopeKey,
+      key: context.idempotencyKey,
+    });
     if (replay) {
-      assertReplayable(replay, { method: context.method, route: context.route, digest: requestDigest });
+      assertReplayable(replay, {
+        method: context.method,
+        route: context.route,
+        digest: requestDigest,
+      });
       return {
         packageVersionId: String(replay.resultRefs.packageVersionId ?? ''),
         packageId: String(replay.resultRefs.packageId ?? ''),
@@ -126,7 +163,15 @@ export class V1RolePackageService {
       throw new WorkmeshError(
         V1_ERROR_CODES.VALIDATION_FAILED,
         'ROLE_PACKAGE_ROLE_UNKNOWN',
-        { issues: [{ path: '/roleKey', code: 'WORKFLOW_ROLE_UNKNOWN', message: `role ${manifest.roleKey} is not an active project role` }] },
+        {
+          issues: [
+            {
+              path: '/roleKey',
+              code: 'WORKFLOW_ROLE_UNKNOWN',
+              message: `role ${manifest.roleKey} is not an active project role`,
+            },
+          ],
+        },
         422,
       );
 
@@ -208,7 +253,11 @@ export class V1RolePackageService {
       expectedProjectVersion: input.expectedVersion,
       actorUserId: principal.userId,
       userAuthVersion: context.userAuthVersion,
-      ticket: { id: ticket.id, secretHash: ticket.secretHash, webSessionId: sessionIdOf(principal) },
+      ticket: {
+        id: ticket.id,
+        secretHash: ticket.secretHash,
+        webSessionId: sessionIdOf(principal),
+      },
       now: context.now,
       operation: {
         id: context.operationId,
@@ -226,16 +275,31 @@ export class V1RolePackageService {
   private async requireRead(principal: Principal, projectId: string) {
     const context = await this.authorization.resolveProjectContext(principal, projectId);
     if (principal.kind === 'AGENT' && !principal.scopes.includes('workflow:read'))
-      throw new WorkmeshError(V1_ERROR_CODES.SCOPE_DENIED, 'SCOPE_DENIED', { scope: 'workflow:read' }, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.SCOPE_DENIED,
+        'SCOPE_DENIED',
+        { scope: 'workflow:read' },
+        403,
+      );
     return context;
   }
 
   private async requireManager(principal: Principal, projectId: string) {
     if (principal.kind !== 'HUMAN')
-      throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, 'HUMAN_SESSION_REQUIRED', undefined, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+        'HUMAN_SESSION_REQUIRED',
+        undefined,
+        403,
+      );
     const context = await this.authorization.resolveProjectContext(principal, projectId);
     if (context.membership.role !== 'OWNER' && context.membership.role !== 'ADMIN')
-      throw new WorkmeshError(V1_ERROR_CODES.FORBIDDEN, 'PROJECT_MANAGER_REQUIRED', { projectId }, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.FORBIDDEN,
+        'PROJECT_MANAGER_REQUIRED',
+        { projectId },
+        403,
+      );
     return context.project;
   }
 }

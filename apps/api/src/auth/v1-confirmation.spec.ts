@@ -68,9 +68,9 @@ describe('confirmation ticket policy', () => {
   });
 
   it('rejects a wrong secret', () => {
-    expect(() => verify({ confirmation: { ticketId: 'tk-1', ticketSecret: 'wrong' } })).toThrowError(
-      expect.objectContaining({ code: 'CONFIRMATION_INVALID', status: 403 }),
-    );
+    expect(() =>
+      verify({ confirmation: { ticketId: 'tk-1', ticketSecret: 'wrong' } }),
+    ).toThrowError(expect.objectContaining({ code: 'CONFIRMATION_INVALID', status: 403 }));
   });
 
   it('rejects a ticket moved to another session', () => {
@@ -80,7 +80,9 @@ describe('confirmation ticket policy', () => {
   });
 
   it('rejects a ticket used by another user', () => {
-    expect(() => verify({ userId: 'bob' })).toThrowError(expect.objectContaining({ code: 'CONFIRMATION_INVALID' }));
+    expect(() => verify({ userId: 'bob' })).toThrowError(
+      expect.objectContaining({ code: 'CONFIRMATION_INVALID' }),
+    );
   });
 
   it('rejects an expired ticket', () => {
@@ -111,7 +113,9 @@ describe('confirmation ticket policy', () => {
     // 同一人兼任多个 slot 时必须分别预览与二验：approvalSlotId 进入 digest，
     // 因此 slot-1 的票据无法在 slot-2 上通过（此处由 digest 校验先行拦截）。
     expect(() =>
-      verify({ binding: { ...binding, roleSlot: { roleId: 'r-product', approvalSlotId: 'slot-2' } } }),
+      verify({
+        binding: { ...binding, roleSlot: { roleId: 'r-product', approvalSlotId: 'slot-2' } },
+      }),
     ).toThrowError(expect.objectContaining({ code: 'ACTION_CHANGED' }));
     expect(() => verify({ ticket: ticket({ roleId: null, approvalSlotId: null }) })).toThrowError(
       expect.objectContaining({ code: 'CONFIRMATION_INVALID' }),
@@ -119,14 +123,33 @@ describe('confirmation ticket policy', () => {
   });
 
   it('requires one independent ticket per slot held by the same user', () => {
-    const slotTwo: ActionBinding = { ...binding, roleSlot: { roleId: 'r-product', approvalSlotId: 'slot-2' } };
-    const ticketTwo = ticket({ id: 'tk-2', approvalSlotId: 'slot-2', actionDigest: actionDigestOf(slotTwo) });
+    const slotTwo: ActionBinding = {
+      ...binding,
+      roleSlot: { roleId: 'r-product', approvalSlotId: 'slot-2' },
+    };
+    const ticketTwo = ticket({
+      id: 'tk-2',
+      approvalSlotId: 'slot-2',
+      actionDigest: actionDigestOf(slotTwo),
+    });
     // slot-2 的票据只在 slot-2 上成立
-    expect(() => verify({ ticket: ticketTwo, binding: slotTwo, confirmation: { ticketId: 'tk-2', ticketSecret: 'ticket-secret-value' } })).not.toThrow();
+    expect(() =>
+      verify({
+        ticket: ticketTwo,
+        binding: slotTwo,
+        confirmation: { ticketId: 'tk-2', ticketSecret: 'ticket-secret-value' },
+      }),
+    ).not.toThrow();
     // slot-1 的票据不能用于 slot-2
     expect(() => verify({ binding: slotTwo })).toThrow();
     // slot-2 的票据也不能用于 slot-1
-    expect(() => verify({ ticket: ticketTwo, binding, confirmation: { ticketId: 'tk-2', ticketSecret: 'ticket-secret-value' } })).toThrow();
+    expect(() =>
+      verify({
+        ticket: ticketTwo,
+        binding,
+        confirmation: { ticketId: 'tk-2', ticketSecret: 'ticket-secret-value' },
+      }),
+    ).toThrow();
   });
 
   it('rejects a ticket reused for another target', () => {
@@ -136,7 +159,9 @@ describe('confirmation ticket policy', () => {
   });
 
   it('rejects a ticket after the authorizer authVersion moved', () => {
-    expect(() => verify({ userAuthVersion: 2 })).toThrowError(expect.objectContaining({ code: 'CONFIRMATION_INVALID' }));
+    expect(() => verify({ userAuthVersion: 2 })).toThrowError(
+      expect.objectContaining({ code: 'CONFIRMATION_INVALID' }),
+    );
   });
 
   it('compares secrets in constant time and hashes rather than storing raw values', () => {

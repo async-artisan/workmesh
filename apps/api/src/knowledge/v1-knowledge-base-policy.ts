@@ -1,7 +1,16 @@
-import type { KnowledgePermission, KnowledgeVisibility, ProjectManagementRole } from '../auth/v1-authorization';
+import type {
+  KnowledgePermission,
+  KnowledgeVisibility,
+  ProjectManagementRole,
+} from '../auth/v1-authorization';
 
 /** v1 知识 ACL 只接受这四个权限；大小写与顺序严格按字面值。 */
-export const KNOWLEDGE_GRANT_PERMISSIONS: readonly KnowledgePermission[] = ['READ', 'PROPOSE', 'PUBLISH', 'REVOKE'];
+export const KNOWLEDGE_GRANT_PERMISSIONS: readonly KnowledgePermission[] = [
+  'READ',
+  'PROPOSE',
+  'PUBLISH',
+  'REVOKE',
+];
 
 export const KNOWLEDGE_VISIBILITIES: readonly KnowledgeVisibility[] = ['PROJECT', 'RESTRICTED'];
 

@@ -43,8 +43,7 @@ export type MaterializeResult = {
   reused: boolean;
 };
 
-const UUID =
-  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
 const MEDIA_EXTENSIONS: ReadonlyArray<[string, string]> = [
   ['text/markdown', '.md'],
@@ -102,7 +101,8 @@ export function parseSnapshot(value: unknown): SnapshotView {
     throw new CliError('PROTOCOL_INVALID', '快照 id 非法');
   const manifest = asRecord(record.manifest, '快照 manifest 非法');
   const resources = manifest.resources;
-  if (!Array.isArray(resources)) throw new CliError('PROTOCOL_INVALID', '快照 manifest.resources 非法');
+  if (!Array.isArray(resources))
+    throw new CliError('PROTOCOL_INVALID', '快照 manifest.resources 非法');
   const parsed = resources.map(readResource);
   const seen = new Set<string>();
   for (const resource of parsed) {
@@ -162,10 +162,14 @@ export async function createSnapshot(
 }
 
 function safeFileName(index: number, resource: SnapshotResource): string {
-  const base = resource.refId.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '').slice(0, 80);
+  const base = resource.refId
+    .replace(/[^A-Za-z0-9._-]/g, '_')
+    .replace(/^\.+/, '')
+    .slice(0, 80);
   const extension =
-    MEDIA_EXTENSIONS.find(([mediaType]) => resource.mediaType.split(';')[0].trim() === mediaType)?.[1] ??
-    '.bin';
+    MEDIA_EXTENSIONS.find(
+      ([mediaType]) => resource.mediaType.split(';')[0].trim() === mediaType,
+    )?.[1] ?? '.bin';
   return `${String(index + 1).padStart(3, '0')}-${base || 'resource'}${extension}`;
 }
 
@@ -258,7 +262,8 @@ export async function materializeSnapshot(options: {
   await mkdir(staging, { recursive: true, mode: 0o700 });
 
   const expected = new Map<string, string>();
-  const receiptFiles: Array<{ name: string; refId: string; sha256: string; byteLength: number }> = [];
+  const receiptFiles: Array<{ name: string; refId: string; sha256: string; byteLength: number }> =
+    [];
   try {
     for (const [index, resource] of snapshot.resources.entries()) {
       const response = await client.request<unknown>(
@@ -278,7 +283,10 @@ export async function materializeSnapshot(options: {
           `资源 ${resource.refId} 的长度或摘要与 manifest 不一致`,
         );
       if (body.byteLength !== undefined && body.byteLength !== bytes.length)
-        throw new CliError('CONTENT_INTEGRITY_FAILED', `资源 ${resource.refId} 的 byteLength 不一致`);
+        throw new CliError(
+          'CONTENT_INTEGRITY_FAILED',
+          `资源 ${resource.refId} 的 byteLength 不一致`,
+        );
       if (body.sha256 !== undefined && body.sha256 !== resource.sha256)
         throw new CliError('CONTENT_INTEGRITY_FAILED', `资源 ${resource.refId} 的 sha256 不一致`);
       const name = safeFileName(index, resource);

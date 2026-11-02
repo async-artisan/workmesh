@@ -3,7 +3,11 @@ import { V1_IDEMPOTENCY_REPOSITORY } from '../common/v1-idempotency';
 import { V1IdempotencyPrismaRepository } from '../common/v1-idempotency.prisma-repository';
 import { V1_REVIEW_REPOSITORY } from './v1-review.repository';
 import { V1ReviewPrismaRepository } from './v1-review.prisma-repository';
-import { V1ProjectReviewController, V1ReviewController, V1ReviewDecisionController } from './v1-review.controller';
+import {
+  V1ProjectReviewController,
+  V1ReviewController,
+  V1ReviewDecisionController,
+} from './v1-review.controller';
 import { V1ReviewService } from './v1-review.service';
 
 @Module({

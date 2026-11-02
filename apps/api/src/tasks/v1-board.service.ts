@@ -13,7 +13,8 @@ const COLUMN_ORDER = ['BACKLOG', 'ACTIVE', 'BLOCKED', 'PAUSED', 'DELIVERED'] as 
 @Injectable()
 export class V1BoardService {
   constructor(
-    @Inject(V1_BOARD_REPOSITORY) private readonly repository: import('./v1-board.repository').V1BoardRepository,
+    @Inject(V1_BOARD_REPOSITORY)
+    private readonly repository: import('./v1-board.repository').V1BoardRepository,
     private readonly authorization: V1AuthorizationService,
   ) {}
 

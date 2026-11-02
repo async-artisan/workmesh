@@ -27,7 +27,10 @@ describe('scope registry', () => {
     expect(validateScopeSet(['*'])).toEqual({ ok: false, reason: 'WILDCARD' });
     expect(validateScopeSet(['project:*'])).toEqual({ ok: false, reason: 'WILDCARD' });
     expect(validateScopeSet(['knowledge:publish'])).toEqual({ ok: false, reason: 'UNKNOWN_SCOPE' });
-    expect(validateScopeSet(['task:read', 'task:read'])).toEqual({ ok: false, reason: 'DUPLICATE' });
+    expect(validateScopeSet(['task:read', 'task:read'])).toEqual({
+      ok: false,
+      reason: 'DUPLICATE',
+    });
     expect(validateScopeSet(['knowledge:READ'])).toEqual({ ok: false, reason: 'UNKNOWN_SCOPE' });
   });
 
@@ -42,11 +45,15 @@ describe('scope registry', () => {
 
 describe('principal shape', () => {
   it('rejects HUMAN carrying an agent credential', () => {
-    expect(() => assertPrincipalShape({ ...human, agentCredentialId: 'c-9' })).toThrow(/agentCredentialId/);
+    expect(() => assertPrincipalShape({ ...human, agentCredentialId: 'c-9' })).toThrow(
+      /agentCredentialId/,
+    );
   });
 
   it('requires credential, project and exactly one role for AGENT', () => {
-    expect(() => assertPrincipalShape({ kind: 'AGENT', userId: 'u-1', scopes: [] })).toThrow(/agentCredentialId/);
+    expect(() => assertPrincipalShape({ kind: 'AGENT', userId: 'u-1', scopes: [] })).toThrow(
+      /agentCredentialId/,
+    );
     expect(() =>
       assertPrincipalShape({ kind: 'AGENT', userId: 'u-1', agentCredentialId: 'c-1', scopes: [] }),
     ).toThrow(/projectId/);

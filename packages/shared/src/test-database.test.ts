@@ -57,9 +57,11 @@ describe('isolated test database guard', () => {
     if (!result.ok) throw new Error('expected the base target to validate');
     const described = describeTestDatabaseTarget(result.target);
     expect(Object.values(described).join(' ')).not.toContain('@');
-    expect(redactDatabaseUrl('postgresql://alice:s3cr3t@127.0.0.1:5432/workmesh_test_v1?schema=workmesh_v1')).toBe(
-      'postgresql://127.0.0.1:5432/workmesh_test_v1?schema=workmesh_v1',
-    );
+    expect(
+      redactDatabaseUrl(
+        'postgresql://alice:s3cr3t@127.0.0.1:5432/workmesh_test_v1?schema=workmesh_v1',
+      ),
+    ).toBe('postgresql://127.0.0.1:5432/workmesh_test_v1?schema=workmesh_v1');
   });
 
   it('refuses when the explicit test URL is missing instead of falling back to the app URL', () => {
@@ -84,15 +86,23 @@ describe('isolated test database guard', () => {
   });
 
   it('refuses a non-loopback host', () => {
-    expect(codeOf(withUrl(`postgresql://${LOCAL_USER}@db.internal:5432/workmesh_test_v1?schema=workmesh_v1`))).toBe(
-      'TEST_DATABASE_HOST_NOT_LOOPBACK',
-    );
-    expect(codeOf(withUrl(`postgresql://${LOCAL_USER}@10.0.0.9:5432/workmesh_test_v1?schema=workmesh_v1`))).toBe(
-      'TEST_DATABASE_HOST_NOT_LOOPBACK',
-    );
-    expect(codeOf(withUrl(`postgresql://${LOCAL_USER}@workmesh.example.com:5432/workmesh_test_v1?schema=workmesh_v1`))).toBe(
-      'TEST_DATABASE_HOST_NOT_LOOPBACK',
-    );
+    expect(
+      codeOf(
+        withUrl(`postgresql://${LOCAL_USER}@db.internal:5432/workmesh_test_v1?schema=workmesh_v1`),
+      ),
+    ).toBe('TEST_DATABASE_HOST_NOT_LOOPBACK');
+    expect(
+      codeOf(
+        withUrl(`postgresql://${LOCAL_USER}@10.0.0.9:5432/workmesh_test_v1?schema=workmesh_v1`),
+      ),
+    ).toBe('TEST_DATABASE_HOST_NOT_LOOPBACK');
+    expect(
+      codeOf(
+        withUrl(
+          `postgresql://${LOCAL_USER}@workmesh.example.com:5432/workmesh_test_v1?schema=workmesh_v1`,
+        ),
+      ),
+    ).toBe('TEST_DATABASE_HOST_NOT_LOOPBACK');
     expect(isLoopbackHost('LOCALHOST')).toBe(true);
     expect(isLoopbackHost('[::1]')).toBe(true);
     expect(isLoopbackHost('127.0.0.2')).toBe(false);
@@ -103,15 +113,17 @@ describe('isolated test database guard', () => {
     expect(codeOf(withUrl(`postgresql://${LOCAL_USER}@127.0.0.1:5432/?schema=workmesh_v1`))).toBe(
       'TEST_DATABASE_NAME_MISSING',
     );
-    expect(codeOf(withUrl(`postgresql://${LOCAL_USER}@127.0.0.1:5432/workmesh?schema=workmesh_v1`))).toBe(
-      'TEST_DATABASE_NAME_PREFIX',
-    );
-    expect(codeOf(withUrl(`postgresql://${LOCAL_USER}@127.0.0.1:5432/workmesh_prod?schema=workmesh_v1`))).toBe(
-      'TEST_DATABASE_NAME_PREFIX',
-    );
-    expect(codeOf(withUrl(`postgresql://${LOCAL_USER}@127.0.0.1:5432/my_workmesh_test_db?schema=workmesh_v1`))).toBe(
-      'TEST_DATABASE_NAME_PREFIX',
-    );
+    expect(
+      codeOf(withUrl(`postgresql://${LOCAL_USER}@127.0.0.1:5432/workmesh?schema=workmesh_v1`)),
+    ).toBe('TEST_DATABASE_NAME_PREFIX');
+    expect(
+      codeOf(withUrl(`postgresql://${LOCAL_USER}@127.0.0.1:5432/workmesh_prod?schema=workmesh_v1`)),
+    ).toBe('TEST_DATABASE_NAME_PREFIX');
+    expect(
+      codeOf(
+        withUrl(`postgresql://${LOCAL_USER}@127.0.0.1:5432/my_workmesh_test_db?schema=workmesh_v1`),
+      ),
+    ).toBe('TEST_DATABASE_NAME_PREFIX');
   });
 
   it('refuses a spoofed prefix that only appears in the user, password or query parameters', () => {
@@ -129,11 +141,15 @@ describe('isolated test database guard', () => {
     expect(codeOf(withUrl(`postgresql://${LOCAL_USER}@127.0.0.1:5432/workmesh_test_v1`))).toBe(
       'TEST_DATABASE_SCHEMA_MISSING',
     );
-    expect(codeOf(withUrl(`postgresql://${LOCAL_USER}@127.0.0.1:5432/workmesh_test_v1?schema=public`))).toBe(
-      'TEST_DATABASE_SCHEMA_MISMATCH',
-    );
     expect(
-      codeOf(withUrl(`postgresql://${LOCAL_USER}@127.0.0.1:5432/workmesh_test_v1?schema=workmesh_v1&schema=public`)),
+      codeOf(withUrl(`postgresql://${LOCAL_USER}@127.0.0.1:5432/workmesh_test_v1?schema=public`)),
+    ).toBe('TEST_DATABASE_SCHEMA_MISMATCH');
+    expect(
+      codeOf(
+        withUrl(
+          `postgresql://${LOCAL_USER}@127.0.0.1:5432/workmesh_test_v1?schema=workmesh_v1&schema=public`,
+        ),
+      ),
     ).toBe('TEST_DATABASE_SCHEMA_MISSING');
   });
 
@@ -142,7 +158,9 @@ describe('isolated test database guard', () => {
       'TEST_DATABASE_USER_MISSING',
     );
     expect(
-      codeOf(withUrl(`postgresql://someone-else@127.0.0.1:5432/workmesh_test_v1?schema=workmesh_v1`)),
+      codeOf(
+        withUrl(`postgresql://someone-else@127.0.0.1:5432/workmesh_test_v1?schema=workmesh_v1`),
+      ),
     ).toBe('TEST_DATABASE_USER_NOT_ALLOWED');
   });
 
@@ -163,19 +181,27 @@ describe('isolated test database guard', () => {
     expect(
       codeOf({ ...env, WORKMESH_TEST_DATABASE_USERS: 'ci-user, other-user' } as TestEnvSource),
     ).toBeNull();
-    expect(resolveAllowedUsers({ WORKMESH_TEST_DATABASE_USERS: ' a , b ' }, 'ci')).toEqual(['a', 'b']);
+    expect(resolveAllowedUsers({ WORKMESH_TEST_DATABASE_USERS: ' a , b ' }, 'ci')).toEqual([
+      'a',
+      'b',
+    ]);
     expect(resolveAllowedUsers({ USER: 'local-me' }, 'local')).toEqual(['local-me']);
     expect(resolveAllowedUsers({ USER: 'local-me' }, 'ci')).toEqual([]);
   });
 
   it('refuses a local target that carries a password but allows a ci target with one', () => {
-    expect(codeOf(withUrl(`postgresql://${LOCAL_USER}:pw@127.0.0.1:5432/workmesh_test_v1?schema=workmesh_v1`))).toBe(
-      'TEST_DATABASE_PASSWORD_FORBIDDEN',
+    expect(
+      codeOf(
+        withUrl(`postgresql://${LOCAL_USER}:pw@127.0.0.1:5432/workmesh_test_v1?schema=workmesh_v1`),
+      ),
+    ).toBe('TEST_DATABASE_PASSWORD_FORBIDDEN');
+    const ciEnv = withUrl(
+      `postgresql://ci-user:pw@127.0.0.1:5432/workmesh_test_v1?schema=workmesh_v1`,
+      {
+        [TEST_ENV_ENV]: 'ci',
+        WORKMESH_TEST_DATABASE_USERS: 'ci-user',
+      },
     );
-    const ciEnv = withUrl(`postgresql://ci-user:pw@127.0.0.1:5432/workmesh_test_v1?schema=workmesh_v1`, {
-      [TEST_ENV_ENV]: 'ci',
-      WORKMESH_TEST_DATABASE_USERS: 'ci-user',
-    });
     expect(codeOf(ciEnv)).toBeNull();
   });
 
@@ -183,7 +209,9 @@ describe('isolated test database guard', () => {
     expect(codeOf({ ...BASE_ENV, [TEST_ENV_ENV]: undefined })).toBe('TEST_ENV_MISSING');
     expect(codeOf({ ...BASE_ENV, [TEST_ENV_ENV]: 'staging' })).toBe('TEST_ENV_INVALID');
     // NODE_ENV=test 不能单独豁免目标检查。
-    expect(codeOf({ ...BASE_ENV, [TEST_ENV_ENV]: undefined, NODE_ENV: 'test' })).toBe('TEST_ENV_MISSING');
+    expect(codeOf({ ...BASE_ENV, [TEST_ENV_ENV]: undefined, NODE_ENV: 'test' })).toBe(
+      'TEST_ENV_MISSING',
+    );
   });
 
   it('rejects a probe result that disagrees with the verified target', () => {
@@ -195,13 +223,22 @@ describe('isolated test database guard', () => {
     );
     expect(ok.ok).toBe(true);
     expect(
-      evaluateIdentityProbe({ database: 'workmesh', user: LOCAL_USER, schema: 'workmesh_v1' }, result.target).ok,
+      evaluateIdentityProbe(
+        { database: 'workmesh', user: LOCAL_USER, schema: 'workmesh_v1' },
+        result.target,
+      ).ok,
     ).toBe(false);
     expect(
-      evaluateIdentityProbe({ database: 'workmesh_test_v1', user: 'other', schema: 'workmesh_v1' }, result.target).ok,
+      evaluateIdentityProbe(
+        { database: 'workmesh_test_v1', user: 'other', schema: 'workmesh_v1' },
+        result.target,
+      ).ok,
     ).toBe(false);
     expect(
-      evaluateIdentityProbe({ database: 'workmesh_test_v1', user: LOCAL_USER, schema: 'public' }, result.target).ok,
+      evaluateIdentityProbe(
+        { database: 'workmesh_test_v1', user: LOCAL_USER, schema: 'public' },
+        result.target,
+      ).ok,
     ).toBe(false);
   });
 });

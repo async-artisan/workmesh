@@ -118,8 +118,12 @@ function agent(credentialId = OWN_CREDENTIAL, userId = 'user-1'): Principal {
 describe('V1AccountService.revokeCredential', () => {
   it('HUMAN 保持原行为：只吊销本人凭据', async () => {
     const { service, revocations } = repository();
-    await expect(service.revokeCredential(human(), OWN_CREDENTIAL, now)).resolves.toEqual({ revoked: true });
-    expect(revocations).toEqual([{ credentialId: OWN_CREDENTIAL, userId: 'user-1', revokedAt: now }]);
+    await expect(service.revokeCredential(human(), OWN_CREDENTIAL, now)).resolves.toEqual({
+      revoked: true,
+    });
+    expect(revocations).toEqual([
+      { credentialId: OWN_CREDENTIAL, userId: 'user-1', revokedAt: now },
+    ]);
   });
 
   it('HUMAN 吊销不存在或他人的凭据仍返回 404', async () => {
@@ -132,8 +136,12 @@ describe('V1AccountService.revokeCredential', () => {
 
   it('AGENT 可自吊销本凭据，返回 {revoked:true}', async () => {
     const { service, revocations } = repository();
-    await expect(service.revokeCredential(agent(), OWN_CREDENTIAL, now)).resolves.toEqual({ revoked: true });
-    expect(revocations).toEqual([{ credentialId: OWN_CREDENTIAL, userId: 'user-1', revokedAt: now }]);
+    await expect(service.revokeCredential(agent(), OWN_CREDENTIAL, now)).resolves.toEqual({
+      revoked: true,
+    });
+    expect(revocations).toEqual([
+      { credentialId: OWN_CREDENTIAL, userId: 'user-1', revokedAt: now },
+    ]);
   });
 
   it('AGENT 吊销他人凭据返回 404 且不执行吊销', async () => {
@@ -147,7 +155,9 @@ describe('V1AccountService.revokeCredential', () => {
 
   it('AGENT 即使凭据 ID 相同，若凭据不属于其授权用户仍返回 404', async () => {
     const { service, revocations } = repository();
-    await expect(service.revokeCredential(agent(OWN_CREDENTIAL, 'user-2'), OWN_CREDENTIAL, now)).rejects.toMatchObject({
+    await expect(
+      service.revokeCredential(agent(OWN_CREDENTIAL, 'user-2'), OWN_CREDENTIAL, now),
+    ).rejects.toMatchObject({
       status: 404,
     });
     expect(revocations).toEqual([]);

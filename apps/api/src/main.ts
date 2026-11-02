@@ -57,7 +57,9 @@ async function bootstrap() {
       next();
     },
   );
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+  app.useGlobalPipes(
+    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+  );
   const swagger = new DocumentBuilder().setTitle('WorkMesh API').setVersion('1.0').build();
   SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, swagger));
   await app.listen(process.env.PORT ?? 3000);

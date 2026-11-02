@@ -1,18 +1,46 @@
 import { describe, expect, it } from 'vitest';
-import { compileWorkflowDefinition, validateWorkflowDefinition, type WorkflowPackageLock } from './workflow';
+import {
+  compileWorkflowDefinition,
+  validateWorkflowDefinition,
+  type WorkflowPackageLock,
+} from './workflow';
 
 describe('workflow semantic validation', () => {
-  const base = { schemaVersion: '1.0', protocolVersion: '1.0', workflowKey: 'demo', title: 'Demo', baseRevisionId: null, roleExclusions: [], stepRemovals: [], roleSlots: [], steps: [{ key: 'release', roleKey: 'ops', kind: 'RELEASE', deps: [] }] };
+  const base = {
+    schemaVersion: '1.0',
+    protocolVersion: '1.0',
+    workflowKey: 'demo',
+    title: 'Demo',
+    baseRevisionId: null,
+    roleExclusions: [],
+    stepRemovals: [],
+    roleSlots: [],
+    steps: [{ key: 'release', roleKey: 'ops', kind: 'RELEASE', deps: [] }],
+  };
   it('accepts a release DAG and returns a deterministic digest', () => {
     const result = validateWorkflowDefinition(base);
     expect(result.valid).toBe(true);
     expect(result.digest).toContain('"workflowKey":"demo"');
   });
   it('rejects unknown dependency and cycles', () => {
-    const result = validateWorkflowDefinition({ ...base, steps: [{ key: 'a', deps: ['missing'] }, { key: 'b', deps: ['a'] }, { key: 'release', kind: 'RELEASE', deps: ['b'] }] });
+    const result = validateWorkflowDefinition({
+      ...base,
+      steps: [
+        { key: 'a', deps: ['missing'] },
+        { key: 'b', deps: ['a'] },
+        { key: 'release', kind: 'RELEASE', deps: ['b'] },
+      ],
+    });
     expect(result.valid).toBe(false);
     expect(result.issues.map((issue) => issue.code)).toContain('DEPENDENCY_UNKNOWN');
-    const cycle = validateWorkflowDefinition({ ...base, steps: [{ key: 'a', deps: ['b'] }, { key: 'b', deps: ['a'] }, { key: 'release', kind: 'RELEASE', deps: ['a'] }] });
+    const cycle = validateWorkflowDefinition({
+      ...base,
+      steps: [
+        { key: 'a', deps: ['b'] },
+        { key: 'b', deps: ['a'] },
+        { key: 'release', kind: 'RELEASE', deps: ['a'] },
+      ],
+    });
     expect(cycle.issues.map((issue) => issue.code)).toContain('WORKFLOW_CYCLE');
   });
 });
@@ -20,21 +48,68 @@ describe('workflow semantic validation', () => {
 describe('workflow compilation', () => {
   const roleIdsByKey = { product: 'r-1', backend: 'r-2', qa: 'r-3', ops: 'r-4' };
   const locks: WorkflowPackageLock[] = [
-    { roleKey: 'product', packageId: 'product-pack', version: '1.0.0', packageDigest: 'a'.repeat(64) },
-    { roleKey: 'backend', packageId: 'backend-pack', version: '1.0.0', packageDigest: 'b'.repeat(64) },
+    {
+      roleKey: 'product',
+      packageId: 'product-pack',
+      version: '1.0.0',
+      packageDigest: 'a'.repeat(64),
+    },
+    {
+      roleKey: 'backend',
+      packageId: 'backend-pack',
+      version: '1.0.0',
+      packageDigest: 'b'.repeat(64),
+    },
     { roleKey: 'qa', packageId: 'qa-pack', version: '1.0.0', packageDigest: 'c'.repeat(64) },
     { roleKey: 'ops', packageId: 'ops-pack', version: '1.0.0', packageDigest: 'd'.repeat(64) },
   ];
   const valid = {
-    schemaVersion: '1.0', protocolVersion: '1.0', workflowKey: 'backend-change', title: '后端变更',
-    baseRevisionId: null, roleExclusions: [], stepRemovals: [],
+    schemaVersion: '1.0',
+    protocolVersion: '1.0',
+    workflowKey: 'backend-change',
+    title: '后端变更',
+    baseRevisionId: null,
+    roleExclusions: [],
+    stepRemovals: [],
     roleSlots: [
       { key: 'release-owner', roleKey: 'ops', kind: 'RELEASE_ACCEPTANCE' },
       { key: 'impl-owner', roleKey: 'backend', kind: 'TASK_ACCEPTANCE' },
     ],
     steps: [
-      { key: 'implement', roleKey: 'backend', kind: 'DELIVERY', baselinePolicy: 'PUBLISHED_PRD', outputKinds: ['IMPL'], deps: [], gates: [{ key: 'accept', kind: 'HUMAN_APPROVAL', mode: 'ALL', outputKinds: ['IMPL'], reviewerSlots: ['impl-owner'] }] },
-      { key: 'release', roleKey: 'ops', kind: 'RELEASE', baselinePolicy: 'PUBLISHED_PRD', outputKinds: ['RELEASE'], deps: ['implement'], gates: [{ key: 'publish', kind: 'HUMAN_APPROVAL', mode: 'ALL', outputKinds: ['RELEASE'], reviewerSlots: ['release-owner'] }] },
+      {
+        key: 'implement',
+        roleKey: 'backend',
+        kind: 'DELIVERY',
+        baselinePolicy: 'PUBLISHED_PRD',
+        outputKinds: ['IMPL'],
+        deps: [],
+        gates: [
+          {
+            key: 'accept',
+            kind: 'HUMAN_APPROVAL',
+            mode: 'ALL',
+            outputKinds: ['IMPL'],
+            reviewerSlots: ['impl-owner'],
+          },
+        ],
+      },
+      {
+        key: 'release',
+        roleKey: 'ops',
+        kind: 'RELEASE',
+        baselinePolicy: 'PUBLISHED_PRD',
+        outputKinds: ['RELEASE'],
+        deps: ['implement'],
+        gates: [
+          {
+            key: 'publish',
+            kind: 'HUMAN_APPROVAL',
+            mode: 'ALL',
+            outputKinds: ['RELEASE'],
+            reviewerSlots: ['release-owner'],
+          },
+        ],
+      },
     ],
   };
 
@@ -44,7 +119,9 @@ describe('workflow compilation', () => {
     expect(first.valid).toBe(true);
     expect(first.digest).toMatch(/^[0-9a-f]{64}$/);
     expect(first.digest).toBe(second.digest);
-    expect(first.compiledRules?.systemGates).toEqual([{ stepKey: 'implement', kind: 'CODE_REVIEW_EVIDENCE', required: true }]);
+    expect(first.compiledRules?.systemGates).toEqual([
+      { stepKey: 'implement', kind: 'CODE_REVIEW_EVIDENCE', required: true },
+    ]);
     expect(first.compiledRules?.resolvedRoles).toEqual([
       { stepKey: 'implement', roleKey: 'backend', roleId: 'r-2' },
       { stepKey: 'release', roleKey: 'ops', roleId: 'r-4' },
@@ -64,11 +141,30 @@ describe('workflow compilation', () => {
     const bad = {
       ...valid,
       roleSlots: [{ key: 'ordinary', roleKey: 'ops', kind: 'TASK_ACCEPTANCE' }],
-      steps: [{ key: 'release', roleKey: 'ops', kind: 'RELEASE', outputKinds: ['RELEASE'], deps: [], gates: [{ key: 'wrong', kind: 'HUMAN_APPROVAL', mode: 'ALL', outputKinds: ['RELEASE'], reviewerSlots: ['ordinary'] }] }],
+      steps: [
+        {
+          key: 'release',
+          roleKey: 'ops',
+          kind: 'RELEASE',
+          outputKinds: ['RELEASE'],
+          deps: [],
+          gates: [
+            {
+              key: 'wrong',
+              kind: 'HUMAN_APPROVAL',
+              mode: 'ALL',
+              outputKinds: ['RELEASE'],
+              reviewerSlots: ['ordinary'],
+            },
+          ],
+        },
+      ],
     };
     const result = await compileWorkflowDefinition(bad, { roleIdsByKey, packageLocks: locks });
     expect(result.valid).toBe(false);
-    expect(result.issues.map((issue) => issue.code)).toEqual(expect.arrayContaining(['WORKFLOW_RELEASE_GATE_REQUIRED']));
+    expect(result.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(['WORKFLOW_RELEASE_GATE_REQUIRED']),
+    );
     expect(result.digest).toBeNull();
   });
 
@@ -77,13 +173,23 @@ describe('workflow compilation', () => {
       { ...valid, steps: [{ ...valid.steps[0], roleKey: 'ghost' }, valid.steps[1]] },
       { roleIdsByKey, packageLocks: [] },
     );
-    expect(result.issues.map((issue) => issue.code)).toEqual(expect.arrayContaining(['WORKFLOW_ROLE_UNKNOWN', 'WORKFLOW_PACKAGE_INCOMPATIBLE']));
+    expect(result.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(['WORKFLOW_ROLE_UNKNOWN', 'WORKFLOW_PACKAGE_INCOMPATIBLE']),
+    );
 
     const anyMode = await compileWorkflowDefinition(
-      { ...valid, steps: [{ ...valid.steps[0], gates: [{ ...valid.steps[0].gates[0], mode: 'ANY' }] }, valid.steps[1]] },
+      {
+        ...valid,
+        steps: [
+          { ...valid.steps[0], gates: [{ ...valid.steps[0].gates[0], mode: 'ANY' }] },
+          valid.steps[1],
+        ],
+      },
       { roleIdsByKey, packageLocks: locks },
     );
-    expect(anyMode.issues.map((issue) => issue.code)).toContain('WORKFLOW_APPROVAL_MODE_UNSUPPORTED');
+    expect(anyMode.issues.map((issue) => issue.code)).toContain(
+      'WORKFLOW_APPROVAL_MODE_UNSUPPORTED',
+    );
   });
 
   it('rejects client-supplied system gates and excluded roles still in use', async () => {

@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Headers, Inject, Param, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Inject,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { IsArray, IsInt, IsOptional, IsUUID, Min } from 'class-validator';
 import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
 import { V1AuthGuard, type V1Request } from '../auth/v1-auth.guard';
@@ -15,7 +25,8 @@ class CreateSnapshotDto {
 }
 
 function principalOf(request: V1Request) {
-  if (!request.v1Principal) throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
+  if (!request.v1Principal)
+    throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
   return request.v1Principal;
 }
 

@@ -59,14 +59,23 @@ export interface V1AuthorizationRepository {
   findProject(projectId: string): Promise<V1ProjectRecord | null>;
   findMember(projectId: string, userId: string): Promise<V1MemberRecord | null>;
   findActiveRoleAssignments(projectId: string, userId: string): Promise<V1RoleAssignmentRecord[]>;
-  findRoleAssignment(projectId: string, userId: string, roleId: string): Promise<V1RoleAssignmentRecord | null>;
+  findRoleAssignment(
+    projectId: string,
+    userId: string,
+    roleId: string,
+  ): Promise<V1RoleAssignmentRecord | null>;
   findKnowledgeBase(knowledgeBaseId: string): Promise<V1KnowledgeBaseRecord | null>;
   findGrants(knowledgeBaseId: string): Promise<V1GrantRecord[]>;
 }
 
 export const V1_AUTHORIZATION_REPOSITORY = Symbol('V1_AUTHORIZATION_REPOSITORY');
 
-const KNOWLEDGE_PERMISSIONS: readonly KnowledgePermission[] = ['READ', 'PROPOSE', 'PUBLISH', 'REVOKE'];
+const KNOWLEDGE_PERMISSIONS: readonly KnowledgePermission[] = [
+  'READ',
+  'PROPOSE',
+  'PUBLISH',
+  'REVOKE',
+];
 
 /**
  * 当前项目上下文。一切项目内动作都必须先经过它，不能只按 userId 合并其全部角色权限。
@@ -97,7 +106,9 @@ export function notFound(code: string, details?: Record<string, unknown>): Workm
 
 @Injectable()
 export class V1AuthorizationService {
-  constructor(@Inject(V1_AUTHORIZATION_REPOSITORY) private readonly repository: V1AuthorizationRepository) {}
+  constructor(
+    @Inject(V1_AUTHORIZATION_REPOSITORY) private readonly repository: V1AuthorizationRepository,
+  ) {}
 
   /**
    * 解析目标真实项目的当前授权上下文。
@@ -116,16 +127,21 @@ export class V1AuthorizationService {
     const membership = await this.repository.findMember(projectId, principal.userId);
     if (!membership || membership.revokedAt) throw notFound('MEMBER_NOT_ACTIVE', { projectId });
 
-    const assignments = (await this.repository.findActiveRoleAssignments(projectId, principal.userId)).filter(
-      (item) => !item.revokedAt,
-    );
+    const assignments = (
+      await this.repository.findActiveRoleAssignments(projectId, principal.userId)
+    ).filter((item) => !item.revokedAt);
     const activeRoleIds = assignments.map((item) => item.roleId);
 
     if (principal.kind === 'AGENT') {
       const roleId = principal.roleIds?.[0];
       // Agent 只能使用其凭据唯一业务角色，且该 assignment 仍须活动。
       if (!roleId || !activeRoleIds.includes(roleId))
-        throw new WorkmeshError(V1_ERROR_CODES.ROLE_INACTIVE, 'AGENT_ROLE_ASSIGNMENT_INACTIVE', { projectId }, 422);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.ROLE_INACTIVE,
+          'AGENT_ROLE_ASSIGNMENT_INACTIVE',
+          { projectId },
+          422,
+        );
       return { project, membership, activeRoleIds: [roleId], selectableRoleIds: [roleId] };
     }
 
@@ -143,19 +159,29 @@ export class V1AuthorizationService {
         422,
       );
     if (!principal.scopes.includes(scope))
-      throw new WorkmeshError(V1_ERROR_CODES.SCOPE_DENIED, 'SCOPE_DENIED', { scope, projectId }, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.SCOPE_DENIED,
+        'SCOPE_DENIED',
+        { scope, projectId },
+        403,
+      );
   }
 
   /**
    * 解析当前 KB 权限交集。顺序固定：
    * 项目与成员 → Agent 项目/角色边界 → 当前 USER/ROLE grant 并集 → scope 交集 → 可见性默认值。
    */
-  async resolveKnowledgeAccess(principal: Principal, knowledgeBaseId: string): Promise<V1KnowledgeAccess> {
+  async resolveKnowledgeAccess(
+    principal: Principal,
+    knowledgeBaseId: string,
+  ): Promise<V1KnowledgeAccess> {
     const knowledgeBase = await this.repository.findKnowledgeBase(knowledgeBaseId);
     if (!knowledgeBase) throw notFound('KNOWLEDGE_BASE_NOT_FOUND', { knowledgeBaseId });
 
     const context = await this.resolveProjectContext(principal, knowledgeBase.projectId);
-    const grants = (await this.repository.findGrants(knowledgeBaseId)).filter((grant) => !grant.revokedAt);
+    const grants = (await this.repository.findGrants(knowledgeBaseId)).filter(
+      (grant) => !grant.revokedAt,
+    );
 
     const permissions = new Set<KnowledgePermission>();
     // visibility=PROJECT：所有活动项目成员默认 READ；不默认 PROPOSE/PUBLISH/REVOKE。
@@ -166,7 +192,9 @@ export class V1AuthorizationService {
       const matchesUser = grant.subjectKind === 'USER' && grant.subjectUserId === principal.userId;
       // ROLE grant 必须匹配当前活动 assignment；AGENT 只匹配其凭据 roleId，不借授权人的其他业务角色。
       const matchesRole =
-        grant.subjectKind === 'ROLE' && grant.subjectRoleId !== null && allowedRoleIds.has(grant.subjectRoleId);
+        grant.subjectKind === 'ROLE' &&
+        grant.subjectRoleId !== null &&
+        allowedRoleIds.has(grant.subjectRoleId);
       if (!matchesUser && !matchesRole) continue;
       for (const permission of grant.permissions) {
         if ((KNOWLEDGE_PERMISSIONS as readonly string[]).includes(permission))
@@ -190,7 +218,10 @@ export class V1AuthorizationService {
   /**
    * Agent 的 KB 能力上限：仅 READ/PROPOSE 且对应 scope；PUBLISH/REVOKE 永不授予。
    */
-  private intersectWithScope(principal: Principal, permissions: Set<KnowledgePermission>): Set<KnowledgePermission> {
+  private intersectWithScope(
+    principal: Principal,
+    permissions: Set<KnowledgePermission>,
+  ): Set<KnowledgePermission> {
     const effective = new Set(permissions);
     if (principal.kind !== 'AGENT') {
       // HUMAN 不依赖 scope 声明，权限完全来自当前成员/角色/grant。
@@ -205,15 +236,22 @@ export class V1AuthorizationService {
     return effective;
   }
 
-  async assertCanReadKnowledge(principal: Principal, knowledgeBaseId: string): Promise<V1KnowledgeAccess> {
+  async assertCanReadKnowledge(
+    principal: Principal,
+    knowledgeBaseId: string,
+  ): Promise<V1KnowledgeAccess> {
     const access = await this.resolveKnowledgeAccess(principal, knowledgeBaseId);
     if (!access.canRead) throw notFound('KNOWLEDGE_NOT_READABLE', { knowledgeBaseId });
     return access;
   }
 
-  async assertCanProposeKnowledge(principal: Principal, knowledgeBaseId: string): Promise<V1KnowledgeAccess> {
+  async assertCanProposeKnowledge(
+    principal: Principal,
+    knowledgeBaseId: string,
+  ): Promise<V1KnowledgeAccess> {
     const access = await this.assertCanReadKnowledge(principal, knowledgeBaseId);
-    if (principal.kind === 'AGENT') await this.requireScope(principal, access.projectId, 'knowledge:propose');
+    if (principal.kind === 'AGENT')
+      await this.requireScope(principal, access.projectId, 'knowledge:propose');
     if (!access.canPropose)
       throw new WorkmeshError(
         V1_ERROR_CODES.KNOWLEDGE_PROPOSE_PERMISSION_REQUIRED,
@@ -224,10 +262,18 @@ export class V1AuthorizationService {
     return access;
   }
 
-  async assertCanPublishKnowledge(principal: Principal, knowledgeBaseId: string): Promise<V1KnowledgeAccess> {
+  async assertCanPublishKnowledge(
+    principal: Principal,
+    knowledgeBaseId: string,
+  ): Promise<V1KnowledgeAccess> {
     const access = await this.assertCanReadKnowledge(principal, knowledgeBaseId);
     if (principal.kind !== 'HUMAN')
-      throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, 'HUMAN_SESSION_REQUIRED', undefined, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+        'HUMAN_SESSION_REQUIRED',
+        undefined,
+        403,
+      );
     if (!access.canPublish)
       throw new WorkmeshError(
         V1_ERROR_CODES.HUMAN_PUBLISH_PERMISSION_REQUIRED,
@@ -241,10 +287,19 @@ export class V1AuthorizationService {
   /**
    * 当前主体是否满足某个审批槽要求。AGENT 永不满足；ROLE 槽要求当前活动 assignment。
    */
-  async hasBusinessRole(principal: Principal, projectId: string, roleId: string | null): Promise<boolean> {
+  async hasBusinessRole(
+    principal: Principal,
+    projectId: string,
+    roleId: string | null,
+  ): Promise<boolean> {
     if (!roleId) return principal.kind === 'HUMAN';
-    if (principal.kind === 'AGENT') return principal.roleIds?.length === 1 && principal.roleIds[0] === roleId;
-    const assignment = await this.repository.findRoleAssignment(projectId, principal.userId, roleId);
+    if (principal.kind === 'AGENT')
+      return principal.roleIds?.length === 1 && principal.roleIds[0] === roleId;
+    const assignment = await this.repository.findRoleAssignment(
+      projectId,
+      principal.userId,
+      roleId,
+    );
     return Boolean(assignment && !assignment.revokedAt);
   }
 }

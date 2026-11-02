@@ -28,7 +28,10 @@ export function mockFetch(handler: StubHandler) {
     const reply = handler(url, request);
     if (!reply) {
       return stubResponse(404, {
-        error: { code: 'STUB_NOT_FOUND', message: `未配置的请求：${request.method ?? 'GET'} ${url}` },
+        error: {
+          code: 'STUB_NOT_FOUND',
+          message: `未配置的请求：${request.method ?? 'GET'} ${url}`,
+        },
       });
     }
     return stubResponse(reply.status, reply.body);
@@ -41,7 +44,8 @@ export function mockFetch(handler: StubHandler) {
 export function bodyOf(init: RequestInit): Record<string, unknown> {
   if (typeof init.body !== 'string') throw new Error('请求体不是 JSON 字符串');
   const parsed: unknown = JSON.parse(init.body);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('请求体不是对象');
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+    throw new Error('请求体不是对象');
   return parsed as Record<string, unknown>;
 }
 

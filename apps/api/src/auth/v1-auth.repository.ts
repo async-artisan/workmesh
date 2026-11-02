@@ -140,11 +140,17 @@ export interface V1AuthRepository {
   }): Promise<boolean>;
   approveCliAuthorization(input: V1CliApproveInput): Promise<V1CliAuthorizationRecord | null>;
   denyCliAuthorization(input: V1CliDenyInput): Promise<V1CliAuthorizationRecord | null>;
-  markCliAuthorizationIssued(id: string, credentialId: string, now: Date): Promise<V1CliAuthorizationRecord | null>;
+  markCliAuthorizationIssued(
+    id: string,
+    credentialId: string,
+    now: Date,
+  ): Promise<V1CliAuthorizationRecord | null>;
   bumpRateWindow(input: V1RateWindowInput): Promise<number>;
 }
 
-export function parseAgentBearerToken(value: string): { credentialId: string; secret: string } | null {
+export function parseAgentBearerToken(
+  value: string,
+): { credentialId: string; secret: string } | null {
   const match = /^wm_a1\.([0-9a-f-]{36})\.([A-Za-z0-9_-]{43})$/.exec(value);
   return match ? { credentialId: match[1], secret: match[2] } : null;
 }

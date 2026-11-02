@@ -3,7 +3,9 @@ export type CredentialInput = {
   sessionCookie?: string;
 };
 
-export function classifyCredential(input: CredentialInput): 'HUMAN_SESSION' | 'AGENT_BEARER' | 'NONE' | 'CONFLICT' {
+export function classifyCredential(
+  input: CredentialInput,
+): 'HUMAN_SESSION' | 'AGENT_BEARER' | 'NONE' | 'CONFLICT' {
   const hasBearer = /^Bearer\s+\S+$/.test(input.authorization ?? '');
   const hasSession = Boolean(input.sessionCookie);
   if (hasBearer && hasSession) return 'CONFLICT';

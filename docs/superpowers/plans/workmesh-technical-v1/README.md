@@ -4,14 +4,14 @@
 
 请先读[主实施方案](../2026-11-01-workmesh-technical-implementation.md)，再按任务职责读取分册。产品与架构选择来自[已确认总纲](../2026-11-01-workmesh-open-source-collaboration-plan.md)；本目录给出供开发执行的技术决策，不启动实施。
 
-| 顺序 | 分册 | 权威范围 |
-| --- | --- | --- |
-| 1 | [身份、权限与人工确认](01-identity-permissions.md) | Principal、scope、WebSession、Agent、角色／KB ACL和确认票据。 |
-| 2 | [领域模型、状态与事务](02-domain-state-transactions.md) | 不可变修订、共享基线、工作状态、claim、快照、工件、评审、事件和事务。 |
-| 3 | [本地角色工作流与客户端](03-local-workflows-clients.md) | JSON Schema、包与宿主、工作区配置、CLI／Web、本地产品工作流集成。 |
-| 4 | [代码托管适配器](04-code-hosting-adapters.md) | 厂商中立仓库引用、GitHub证据、Webhook、Codeup准入。 |
-| 5 | [API契约](05-api-contract.md) | HTTP输入输出、错误、业务幂等、资料／角色包传输及各子系统接口。 |
-| 6 | [开发任务与验证](06-development-tasks-and-verification.md) | 文件责任、T00–T09依赖、迁移映射、fixtures、测试命令、发布与恢复。 |
+| 顺序 | 分册                                                       | 权威范围                                                              |
+| ---- | ---------------------------------------------------------- | --------------------------------------------------------------------- |
+| 1    | [身份、权限与人工确认](01-identity-permissions.md)         | Principal、scope、WebSession、Agent、角色／KB ACL和确认票据。         |
+| 2    | [领域模型、状态与事务](02-domain-state-transactions.md)    | 不可变修订、共享基线、工作状态、claim、快照、工件、评审、事件和事务。 |
+| 3    | [本地角色工作流与客户端](03-local-workflows-clients.md)    | JSON Schema、包与宿主、工作区配置、CLI／Web、本地产品工作流集成。     |
+| 4    | [代码托管适配器](04-code-hosting-adapters.md)              | 厂商中立仓库引用、GitHub证据、Webhook、Codeup准入。                   |
+| 5    | [API契约](05-api-contract.md)                              | HTTP输入输出、错误、业务幂等、资料／角色包传输及各子系统接口。        |
+| 6    | [开发任务与验证](06-development-tasks-and-verification.md) | 文件责任、T00–T09依赖、迁移映射、fixtures、测试命令、发布与恢复。     |
 
 代码开发从T00开始，不从任选一册各自解释接口开始。01–04中细分契约与05表格需共同满足，冲突必须先澄清并在本目录修正；不存在自动放宽授权或省略验收的优先级。
 

@@ -27,11 +27,17 @@ export class V1AuthGuard implements CanActivate {
       authorization: request.headers.authorization,
       sessionCookie: cookieValue(request.headers.cookie, names.session),
       csrfCookie: cookieValue(request.headers.cookie, names.csrf),
-      csrfHeader: typeof request.headers['x-csrf-token'] === 'string' ? request.headers['x-csrf-token'] : undefined,
+      csrfHeader:
+        typeof request.headers['x-csrf-token'] === 'string'
+          ? request.headers['x-csrf-token']
+          : undefined,
       method: request.method,
       origin: typeof request.headers.origin === 'string' ? request.headers.origin : undefined,
       publicOrigin: process.env.WORKMESH_PUBLIC_ORIGIN ?? 'http://127.0.0.1:5173',
-      body: request.body && typeof request.body === 'object' ? (request.body as Record<string, unknown>) : undefined,
+      body:
+        request.body && typeof request.body === 'object'
+          ? (request.body as Record<string, unknown>)
+          : undefined,
     });
     request.v1Principal = principal;
     return true;

@@ -52,7 +52,14 @@ describe('collectDownstreamStepKeys', () => {
     expect(collectDownstreamStepKeys({ steps: 'nope' }, 'a')).toEqual([]);
     expect(
       collectDownstreamStepKeys(
-        { steps: [null, { key: 1, deps: ['a'] }, { key: 'b', deps: 'a' }, { key: 'c', deps: ['a', 2] }] },
+        {
+          steps: [
+            null,
+            { key: 1, deps: ['a'] },
+            { key: 'b', deps: 'a' },
+            { key: 'c', deps: ['a', 2] },
+          ],
+        },
         'a',
       ),
     ).toEqual(['c']);

@@ -25,15 +25,22 @@ const roles = [
   { id: 'r-product', projectId: 'p1', key: 'product', title: '产品', isActive: true },
   { id: 'r-frontend', projectId: 'p1', key: 'frontend', title: '前端', isActive: true },
 ];
-
-const definition = {
-  definition: {
-    steps: [{ key: 'impl', roleKey: 'frontend', deps: [] }],
-    roleSlots: [{ key: 'release-acceptance', roleKey: 'product' }],
-  },
+const members = [
+  { id: 'u-1', email: 'alice@example.com', name: 'Alice', role: 'OWNER', version: 1 },
+  { id: 'u-2', email: 'bob@example.com', name: 'Bob', role: 'MEMBER', version: 1 },
+];
+const publishedDefinition = {
+  workflowKey: 'standard',
+  title: '标准交付流程',
+  version: 2,
+  currentRevision: 1,
+  currentPublishedRevisionId: 'rev-1',
 };
 
-function handler(definitions: unknown[]) {
+function handler(input: {
+  definitions?: unknown[];
+  definition?: Record<string, unknown>;
+}) {
   return (url: string, init: RequestInit) => {
     const path = pathOf(url);
     const method = methodOf(init);
@@ -41,10 +48,12 @@ function handler(definitions: unknown[]) {
       return { status: 200, body: envelope([project]) };
     if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
       return { status: 200, body: envelope({ items: [requirement], nextCursor: null }) };
+    if (path === '/api/v1/projects/p1/members' && method === 'GET')
+      return { status: 200, body: envelope(members) };
     if (path === '/api/v1/projects/p1/roles' && method === 'GET')
       return { status: 200, body: envelope(roles) };
     if (path === '/api/v1/projects/p1/workflow-definitions' && method === 'GET')
-      return { status: 200, body: envelope({ items: definitions, nextCursor: null }) };
+      return { status: 200, body: envelope({ items: input.definitions ?? [], nextCursor: null }) };
     if (path === '/api/v1/workflow-definition-revisions/rev-1' && method === 'GET')
       return {
         status: 200,
@@ -54,7 +63,7 @@ function handler(definitions: unknown[]) {
           workflowKey: 'standard',
           revision: 1,
           digest: 'd'.repeat(64),
-          ...definition,
+          definition: input.definition ?? {},
         }),
       };
     if (path === '/api/v1/requirements/req-1/workflow-instances' && method === 'POST')
@@ -63,7 +72,15 @@ function handler(definitions: unknown[]) {
   };
 }
 
-describe('Requirements（流程修订只能从已发布定义里选）', () => {
+function renderPage() {
+  return render(
+    <MemoryRouter>
+      <Requirements />
+    </MemoryRouter>,
+  );
+}
+
+describe('Requirements（流程实例只由管理员显式绑定）', () => {
   beforeEach(() => {
     setCsrfToken('csrf-1');
     useProject('p1');
@@ -76,43 +93,38 @@ describe('Requirements（流程修订只能从已发布定义里选）', () => {
     localStorage.clear();
   });
 
-  it('没有已发布定义时不给手填入口，而是指向流程页', async () => {
-    mockFetch(handler([]));
-    render(
-      <MemoryRouter>
-        <Requirements />
-      </MemoryRouter>,
-    );
+  it('普通成员看不到初始化入口，只提交需求意图', async () => {
+    useAuthStore.getState().setSession({ id: 'u-2', email: 'bob@example.com' });
+    mockFetch(handler({ definitions: [publishedDefinition] }));
 
-    expect(await screen.findByText(/还没有已发布的流程定义/)).toBeInTheDocument();
-    expect(screen.queryByLabelText('已发布 workflow 修订')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '创建流程实例' })).toBeDisabled();
+    renderPage();
+
+    expect(await screen.findByText('DEMO-REQ-1')).toBeInTheDocument();
+    expect(screen.getByText(/流程实例由项目管理员初始化/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '初始化流程' })).not.toBeInTheDocument();
   });
 
-  it('有已发布定义时默认选中，并用它创建实例', async () => {
+  it('管理员逐项选择责任人与审批人后创建实例', async () => {
     const mock = mockFetch(
-      handler([
-        {
-          workflowKey: 'standard',
-          title: '标准交付流程',
-          version: 2,
-          currentRevision: 1,
-          currentPublishedRevisionId: 'rev-1',
+      handler({
+        definitions: [publishedDefinition],
+        definition: {
+          steps: [{ key: 'impl', roleKey: 'frontend', deps: [] }],
+          roleSlots: [{ key: 'release-acceptance', roleKey: 'product' }],
         },
-      ]),
-    );
-    render(
-      <MemoryRouter>
-        <Requirements />
-      </MemoryRouter>,
+      }),
     );
 
-    const select = await screen.findByLabelText('已发布 workflow 修订');
-    expect(select).toHaveValue('rev-1');
-    expect(screen.getByRole('option', { name: /标准交付流程/ })).toBeInTheDocument();
+    renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: '创建流程实例' }));
-    fireEvent.click(await screen.findByRole('button', { name: '确认创建流程' }));
+    fireEvent.click(await screen.findByRole('button', { name: '初始化流程' }));
+    fireEvent.change(await screen.findByLabelText('步骤 impl 责任人'), {
+      target: { value: 'u-2' },
+    });
+    fireEvent.change(await screen.findByLabelText('审批槽 release-acceptance 审批人'), {
+      target: { value: 'u-1' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '确认创建' }));
 
     expect(await screen.findByText(/流程实例已创建/)).toBeInTheDocument();
 
@@ -124,12 +136,36 @@ describe('Requirements（流程修订只能从已发布定义里选）', () => {
     const body = bodyOf(call?.[1] ?? {});
     expect(body.definitionRevisionId).toBe('rev-1');
     expect(body.expectedRequirementVersion).toBe(2);
-    // 角色与责任人由服务端可见的角色列表派生，不需要用户手填 UUID。
     expect(body.stepBindings).toEqual([
-      { stepKey: 'impl', roleId: 'r-frontend', responsibleUserId: 'u-1', repositoryIds: [] },
+      { stepKey: 'impl', roleId: 'r-frontend', responsibleUserId: 'u-2', repositoryIds: [] },
     ]);
     expect(body.roleSlotBindings).toEqual([
       { slotKey: 'release-acceptance', roleId: 'r-product', userId: 'u-1' },
     ]);
+  });
+
+  it('同角色审批人与责任人相同时阻断提交', async () => {
+    mockFetch(
+      handler({
+        definitions: [publishedDefinition],
+        definition: {
+          steps: [{ key: 'prd', roleKey: 'product', deps: [] }],
+          roleSlots: [{ key: 'product-approval', roleKey: 'product' }],
+        },
+      }),
+    );
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '初始化流程' }));
+    fireEvent.change(await screen.findByLabelText('步骤 prd 责任人'), {
+      target: { value: 'u-1' },
+    });
+    fireEvent.change(await screen.findByLabelText('审批槽 product-approval 审批人'), {
+      target: { value: 'u-1' },
+    });
+
+    expect(await screen.findByText(/不能自审/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '确认创建' })).toBeDisabled();
   });
 });

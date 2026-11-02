@@ -76,7 +76,9 @@ export function isKnownScope(value: string): value is Scope {
 /**
  * scope 是区分大小写的有限字符串：不支持 `*`，不支持前缀通配，不支持角色名替代或客户端扩展。
  */
-export function validateScopeSet(scopes: readonly string[]): { ok: true } | { ok: false; reason: string } {
+export function validateScopeSet(
+  scopes: readonly string[],
+): { ok: true } | { ok: false; reason: string } {
   if (!Array.isArray(scopes) || scopes.length === 0) return { ok: false, reason: 'EMPTY' };
   const seen = new Set<string>();
   for (const scope of scopes) {
@@ -92,7 +94,9 @@ export function validateScopeSet(scopes: readonly string[]): { ok: true } | { ok
 export function containsForbiddenAgentScope(scopes: readonly string[] | null | undefined): boolean {
   if (!scopes) return false;
   return scopes.some((scope) =>
-    AGENT_FORBIDDEN_SCOPE_TOKENS.some((token) => scope === token || scope.startsWith(`${token}:`) || scope.endsWith(`:${token}`)),
+    AGENT_FORBIDDEN_SCOPE_TOKENS.some(
+      (token) => scope === token || scope.startsWith(`${token}:`) || scope.endsWith(`:${token}`),
+    ),
   );
 }
 
@@ -101,12 +105,14 @@ export function containsForbiddenAgentScope(scopes: readonly string[] | null | u
  */
 export function assertPrincipalShape(principal: Principal): void {
   if (principal.kind === 'HUMAN') {
-    if (principal.agentCredentialId) throw new Error('HUMAN principal must not carry agentCredentialId');
+    if (principal.agentCredentialId)
+      throw new Error('HUMAN principal must not carry agentCredentialId');
     return;
   }
   if (!principal.agentCredentialId) throw new Error('AGENT principal requires agentCredentialId');
   if (!principal.projectId) throw new Error('AGENT principal requires projectId');
-  if (!principal.roleIds || principal.roleIds.length !== 1) throw new Error('AGENT principal requires exactly one roleId');
+  if (!principal.roleIds || principal.roleIds.length !== 1)
+    throw new Error('AGENT principal requires exactly one roleId');
 }
 
 /**

@@ -32,14 +32,21 @@ const REVIEW_STATES: Record<string, ReviewEvidenceState> = {
 };
 
 export function payloadInvalid(field: string): WorkmeshError {
-  return new WorkmeshError(V1_ERROR_CODES.REVIEW_PRECONDITION_FAILED, 'GITHUB_PAYLOAD_INVALID', { field }, 422);
+  return new WorkmeshError(
+    V1_ERROR_CODES.REVIEW_PRECONDITION_FAILED,
+    'GITHUB_PAYLOAD_INVALID',
+    { field },
+    422,
+  );
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export function repositoryStableKeyOf(identity: Pick<RepositoryIdentity, 'provider' | 'externalRepositoryId'>): string {
+export function repositoryStableKeyOf(
+  identity: Pick<RepositoryIdentity, 'provider' | 'externalRepositoryId'>,
+): string {
   return `${identity.provider}:${identity.externalRepositoryId}`;
 }
 
@@ -55,8 +62,7 @@ export function parseGithubRepository(
   const owner = optionalNonEmptyString(ownerRecord?.login) ?? fallback?.owner ?? '';
   if (name.length === 0) throw payloadInvalid('repository.name');
   if (owner.length === 0) throw payloadInvalid('repository.owner.login');
-  const fullName =
-    optionalNonEmptyString(repository.full_name) ?? `${owner}/${name}`;
+  const fullName = optionalNonEmptyString(repository.full_name) ?? `${owner}/${name}`;
   const defaultBranch = optionalNonEmptyString(repository.default_branch);
   return {
     provider: 'GITHUB',
@@ -69,7 +75,10 @@ export function parseGithubRepository(
   };
 }
 
-export function parseGithubPullRequest(raw: unknown, repository: RepositoryIdentity): NormalizedPullRequest {
+export function parseGithubPullRequest(
+  raw: unknown,
+  repository: RepositoryIdentity,
+): NormalizedPullRequest {
   const pullRequest = asRecord(raw, 'pull_request');
   const externalId = idToString(pullRequest.id, 'pull_request.id');
   const number = pullRequest.number;
@@ -83,7 +92,11 @@ export function parseGithubPullRequest(raw: unknown, repository: RepositoryIdent
   const baseSha = asString(base.sha, 'pull_request.base.sha');
   const providerState = asString(pullRequest.state, 'pull_request.state').toLowerCase();
   const merged = pullRequest.merged === true;
-  const state: ChangeRequestState = merged ? 'MERGED' : providerState === 'open' ? 'OPEN' : 'CLOSED';
+  const state: ChangeRequestState = merged
+    ? 'MERGED'
+    : providerState === 'open'
+      ? 'OPEN'
+      : 'CLOSED';
   const providerUpdatedAt = asString(pullRequest.updated_at, 'pull_request.updated_at');
   return {
     repository,

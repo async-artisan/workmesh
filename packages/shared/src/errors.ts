@@ -61,6 +61,7 @@ export const V1_ERROR_CODES = {
   ARTIFACT_INVALID: 'ARTIFACT_INVALID',
   REVIEW_PRECONDITION_FAILED: 'REVIEW_PRECONDITION_FAILED',
   EMAIL_IN_USE: 'EMAIL_IN_USE',
+  EMAIL_NOT_CONFIGURED: 'EMAIL_NOT_CONFIGURED',
   AUTHORIZATION_DENIED: 'AUTHORIZATION_DENIED',
   AUTHORIZATION_EXPIRED: 'AUTHORIZATION_EXPIRED',
   AUTHORIZATION_SLOW_DOWN: 'AUTHORIZATION_SLOW_DOWN',
@@ -82,5 +83,12 @@ export class WorkmeshError extends Error {
 }
 
 export function errorEnvelope(error: WorkmeshError, requestId: string) {
-  return { error: { code: error.code, message: error.message, ...(error.details ? { details: error.details } : {}), requestId } };
+  return {
+    error: {
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+      requestId,
+    },
+  };
 }

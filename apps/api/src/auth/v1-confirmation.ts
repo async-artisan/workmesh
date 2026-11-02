@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { canonicalJson, V1_ERROR_CODES, WorkmeshError, type ActionBinding, type Confirmation as ConfirmationRef } from '@workmesh/shared';
+import {
+  canonicalJson,
+  V1_ERROR_CODES,
+  WorkmeshError,
+  type ActionBinding,
+  type Confirmation as ConfirmationRef,
+} from '@workmesh/shared';
 
 export const CONFIRMATION_SCHEMA_VERSION = 1;
 export const CONFIRMATION_TTL_MS = 5 * 60 * 1000;
@@ -100,34 +106,102 @@ export type TicketVerificationInput = {
 export function verifyTicketBinding(input: TicketVerificationInput): void {
   const { ticket, confirmation, binding } = input;
   if (!equalTicketSecret(confirmation.ticketSecret, ticket.secretHash))
-    throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_INVALID, 'CONFIRMATION_SECRET_MISMATCH', { ticketId: ticket.id }, 403);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.CONFIRMATION_INVALID,
+      'CONFIRMATION_SECRET_MISMATCH',
+      { ticketId: ticket.id },
+      403,
+    );
   if (ticket.userId !== input.userId)
-    throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_INVALID, 'CONFIRMATION_CROSS_USER', { ticketId: ticket.id }, 403);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.CONFIRMATION_INVALID,
+      'CONFIRMATION_CROSS_USER',
+      { ticketId: ticket.id },
+      403,
+    );
   if (ticket.webSessionId !== input.webSessionId)
-    throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_INVALID, 'CONFIRMATION_CROSS_SESSION', { ticketId: ticket.id }, 403);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.CONFIRMATION_INVALID,
+      'CONFIRMATION_CROSS_SESSION',
+      { ticketId: ticket.id },
+      403,
+    );
   if (ticket.userAuthVersion !== input.userAuthVersion)
-    throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_INVALID, 'CONFIRMATION_AUTH_VERSION_CHANGED', { ticketId: ticket.id }, 403);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.CONFIRMATION_INVALID,
+      'CONFIRMATION_AUTH_VERSION_CHANGED',
+      { ticketId: ticket.id },
+      403,
+    );
   if (ticket.invalidatedAt)
-    throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_INVALID, 'CONFIRMATION_INVALIDATED', { ticketId: ticket.id }, 403);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.CONFIRMATION_INVALID,
+      'CONFIRMATION_INVALIDATED',
+      { ticketId: ticket.id },
+      403,
+    );
   if (ticket.consumedAt || ticket.consumedOperationId)
-    throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_USED, 'CONFIRMATION_ALREADY_CONSUMED', { ticketId: ticket.id }, 409);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.CONFIRMATION_USED,
+      'CONFIRMATION_ALREADY_CONSUMED',
+      { ticketId: ticket.id },
+      409,
+    );
   if (ticket.expiresAt <= input.now)
-    throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_EXPIRED, 'CONFIRMATION_EXPIRED', { ticketId: ticket.id }, 410);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.CONFIRMATION_EXPIRED,
+      'CONFIRMATION_EXPIRED',
+      { ticketId: ticket.id },
+      410,
+    );
 
   if (ticket.action !== binding.action)
-    throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_INVALID, 'CONFIRMATION_ACTION_MISMATCH', { ticketId: ticket.id }, 403);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.CONFIRMATION_INVALID,
+      'CONFIRMATION_ACTION_MISMATCH',
+      { ticketId: ticket.id },
+      403,
+    );
   if (ticket.targetType !== binding.targetType || ticket.targetId !== binding.targetId)
-    throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_INVALID, 'CONFIRMATION_TARGET_MISMATCH', { ticketId: ticket.id }, 403);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.CONFIRMATION_INVALID,
+      'CONFIRMATION_TARGET_MISMATCH',
+      { ticketId: ticket.id },
+      403,
+    );
   if (ticket.expectedVersion !== binding.expectedVersion)
-    throw new WorkmeshError(V1_ERROR_CODES.ACTION_CHANGED, 'CONFIRMATION_VERSION_MISMATCH', { ticketId: ticket.id }, 409);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.ACTION_CHANGED,
+      'CONFIRMATION_VERSION_MISMATCH',
+      { ticketId: ticket.id },
+      409,
+    );
   if (ticket.actionDigest !== actionDigestOf(binding))
-    throw new WorkmeshError(V1_ERROR_CODES.ACTION_CHANGED, 'CONFIRMATION_DIGEST_MISMATCH', { ticketId: ticket.id }, 409);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.ACTION_CHANGED,
+      'CONFIRMATION_DIGEST_MISMATCH',
+      { ticketId: ticket.id },
+      409,
+    );
   if ((ticket.projectId ?? null) !== (binding.projectId ?? null))
-    throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_INVALID, 'CONFIRMATION_PROJECT_MISMATCH', { ticketId: ticket.id }, 403);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.CONFIRMATION_INVALID,
+      'CONFIRMATION_PROJECT_MISMATCH',
+      { ticketId: ticket.id },
+      403,
+    );
   const ticketRoleId = ticket.roleId ?? null;
   const ticketSlotId = ticket.approvalSlotId ?? null;
-  if (ticketRoleId !== (binding.roleSlot?.roleId ?? null) || ticketSlotId !== (binding.roleSlot?.approvalSlotId ?? null))
-    throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_INVALID, 'CONFIRMATION_ROLE_SLOT_MISMATCH', { ticketId: ticket.id }, 403);
+  if (
+    ticketRoleId !== (binding.roleSlot?.roleId ?? null) ||
+    ticketSlotId !== (binding.roleSlot?.approvalSlotId ?? null)
+  )
+    throw new WorkmeshError(
+      V1_ERROR_CODES.CONFIRMATION_INVALID,
+      'CONFIRMATION_ROLE_SLOT_MISMATCH',
+      { ticketId: ticket.id },
+      403,
+    );
 }
 
 @Injectable()
@@ -138,7 +212,10 @@ export class V1ConfirmationService {
    * 预览：返回规范化 binding 与摘要，供 Web 展示“批准并发布”的准确版本与内容摘要。
    */
   preview(binding: ActionBinding): { binding: ActionBinding; actionDigest: string } {
-    return { binding: this.normalize(binding), actionDigest: actionDigestOf(this.normalize(binding)) };
+    return {
+      binding: this.normalize(binding),
+      actionDigest: actionDigestOf(this.normalize(binding)),
+    };
   }
 
   normalize(binding: ActionBinding): ActionBinding {
@@ -148,7 +225,12 @@ export class V1ConfirmationService {
       targetType: binding.targetType,
       targetId: binding.targetId,
       expectedVersion: binding.expectedVersion,
-      roleSlot: binding.roleSlot ? { roleId: binding.roleSlot.roleId, approvalSlotId: binding.roleSlot.approvalSlotId ?? null } : null,
+      roleSlot: binding.roleSlot
+        ? {
+            roleId: binding.roleSlot.roleId,
+            approvalSlotId: binding.roleSlot.approvalSlotId ?? null,
+          }
+        : null,
       payload: binding.payload,
     };
   }

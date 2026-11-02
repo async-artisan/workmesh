@@ -6,14 +6,14 @@ import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
+import {
+  DECISION_LABELS,
+  REVIEW_KIND_LABELS,
+  REVIEW_STATUS_LABELS,
+  labelFor,
+} from '../lib/labels';
 
 type DecisionValue = 'APPROVE' | 'CHANGES_REQUESTED' | 'REJECT';
-
-const DECISION_LABELS: Record<DecisionValue, string> = {
-  APPROVE: '批准',
-  CHANGES_REQUESTED: '要求修改',
-  REJECT: '驳回',
-};
 
 interface DecideTarget {
   slot: ReviewSlot;
@@ -125,7 +125,8 @@ export function Reviews() {
   async function submitDecision(confirmation: { ticketId: string; ticketSecret: string }) {
     if (!review || !pendingDecision) throw new Error('缺少评审目标');
     const target = pendingDecision;
-    if (commentRequired(target.decision) && !target.comment.trim()) throw new Error('要求修改或驳回时必须填写说明');
+    if (commentRequired(target.decision) && !target.comment.trim())
+      throw new Error('要求修改或驳回时必须填写说明');
     const result = await reviewApi.decide(review.id, {
       slotId: target.slot.id,
       decision: target.decision,
@@ -232,7 +233,7 @@ export function Reviews() {
               <tbody>
                 {reviews.map((item) => (
                   <tr key={item.id}>
-                    <td>{item.kind}</td>
+                    <td>{labelFor(REVIEW_KIND_LABELS, item.kind)}</td>
                     <td>
                       <span className="cell-mono cell-truncate" title={item.id}>
                         {item.id}
@@ -244,7 +245,9 @@ export function Reviews() {
                       </span>
                     </td>
                     <td>
-                      <span className="status-tag">{item.status}</span>
+                      <span className="status-tag">
+                        {labelFor(REVIEW_STATUS_LABELS, item.status)}
+                      </span>
                     </td>
                     <td className="col-actions">
                       <button className="ghost" onClick={() => openReview(item)}>
@@ -269,8 +272,8 @@ export function Reviews() {
           <div className="table-card">
             <div className="card-head">
               <h3>
-                {review.kind}
-                <small>{review.status}</small>
+                {labelFor(REVIEW_KIND_LABELS, review.kind)}
+                <small>{labelFor(REVIEW_STATUS_LABELS, review.status)}</small>
               </h3>
               <span className="card-head-actions">
                 <small>版本 v{review.version}</small>
@@ -293,7 +296,11 @@ export function Reviews() {
                     </td>
                     <td className="cell-num">v{review.version}</td>
                     <td>
-                      <span className="cell-mono cell-truncate" data-testid="review-subject-digest" title={review.subjectDigest}>
+                      <span
+                        className="cell-mono cell-truncate"
+                        data-testid="review-subject-digest"
+                        title={review.subjectDigest}
+                      >
                         {review.subjectDigest}
                       </span>
                     </td>
@@ -330,7 +337,9 @@ export function Reviews() {
                 </thead>
                 <tbody>
                   {review.slots.map((slot) => {
-                    const decision = review.decisions.find((item) => item.approvalSlotId === slot.id);
+                    const decision = review.decisions.find(
+                      (item) => item.approvalSlotId === slot.id,
+                    );
                     const closed = review.status !== 'OPEN' || Boolean(decision);
                     return (
                       <tr key={slot.id}>
@@ -344,14 +353,20 @@ export function Reviews() {
                         </td>
                         <td>
                           {decision ? (
-                            <span className="status-tag">{DECISION_LABELS[decision.decision]}</span>
+                            <span className="status-tag">
+                              {labelFor(DECISION_LABELS, decision.decision)}
+                            </span>
                           ) : (
                             <span className="muted">未决定</span>
                           )}
                         </td>
                         <td className="col-actions">
                           <div className="cell-actions row-actions">
-                            <button className="ghost" disabled={closed} onClick={() => decideSlot(slot)}>
+                            <button
+                              className="ghost"
+                              disabled={closed}
+                              onClick={() => decideSlot(slot)}
+                            >
                               作出决定
                             </button>
                             {decision?.decision === 'APPROVE' && (
@@ -398,7 +413,9 @@ export function Reviews() {
                   {review.decisions.map((decision) => (
                     <tr key={decision.id}>
                       <td>
-                        <span className="status-tag">{DECISION_LABELS[decision.decision]}</span>
+                        <span className="status-tag">
+                          {labelFor(DECISION_LABELS, decision.decision)}
+                        </span>
                       </td>
                       <td>
                         <span className="cell-mono cell-truncate">{decision.approvalSlotId}</span>
@@ -426,9 +443,7 @@ export function Reviews() {
         open={Boolean(decideTarget)}
         title="作出评审决定"
         description={
-          decideTarget
-            ? `槽位 ${decideTarget.slot.slotKey} · 评审 v${review?.version ?? '?'}`
-            : ''
+          decideTarget ? `槽位 ${decideTarget.slot.slotKey} · 评审 v${review?.version ?? '?'}` : ''
         }
         size="md"
         onClose={() => setDecideTarget(null)}
@@ -439,7 +454,10 @@ export function Reviews() {
             </button>
             <button
               className="primary"
-              disabled={!decideTarget || (commentRequired(decideTarget.decision) && !decideTarget.comment.trim())}
+              disabled={
+                !decideTarget ||
+                (commentRequired(decideTarget.decision) && !decideTarget.comment.trim())
+              }
               onClick={() => {
                 if (!decideTarget) return;
                 const target = decideTarget;
@@ -462,7 +480,10 @@ export function Reviews() {
                 value={decideTarget.decision}
                 aria-label="评审决定"
                 onChange={(event) =>
-                  setDecideTarget({ ...decideTarget, decision: event.target.value as DecisionValue })
+                  setDecideTarget({
+                    ...decideTarget,
+                    decision: event.target.value as DecisionValue,
+                  })
                 }
               >
                 <option value="APPROVE">批准</option>
@@ -476,9 +497,13 @@ export function Reviews() {
                 value={decideTarget.comment}
                 aria-label="评审说明"
                 rows={3}
-                onChange={(event) => setDecideTarget({ ...decideTarget, comment: event.target.value })}
+                onChange={(event) =>
+                  setDecideTarget({ ...decideTarget, comment: event.target.value })
+                }
               />
-              {commentRequired(decideTarget.decision) && <small>要求修改或驳回时必须填写说明。</small>}
+              {commentRequired(decideTarget.decision) && (
+                <small>要求修改或驳回时必须填写说明。</small>
+              )}
             </div>
           </div>
         )}
@@ -497,7 +522,10 @@ export function Reviews() {
                 targetId: review.id,
                 expectedVersion: review.version,
                 roleSlot: pendingDecision.slot.requiredRoleId
-                  ? { roleId: pendingDecision.slot.requiredRoleId, approvalSlotId: pendingDecision.slot.id }
+                  ? {
+                      roleId: pendingDecision.slot.requiredRoleId,
+                      approvalSlotId: pendingDecision.slot.id,
+                    }
                   : null,
                 payload: {
                   slotId: pendingDecision.slot.id,
@@ -548,7 +576,9 @@ export function Reviews() {
                 value={revokeTarget.reason}
                 aria-label="撤销原因"
                 rows={3}
-                onChange={(event) => setRevokeTarget({ ...revokeTarget, reason: event.target.value })}
+                onChange={(event) =>
+                  setRevokeTarget({ ...revokeTarget, reason: event.target.value })
+                }
               />
             </div>
           </div>
@@ -558,7 +588,9 @@ export function Reviews() {
       <ConfirmationPrompt
         open={Boolean(pendingRevoke)}
         title="确认撤销批准"
-        description={review ? `评审 v${review.version} · 决定 ${pendingRevoke?.decision.id ?? ''}` : ''}
+        description={
+          review ? `评审 v${review.version} · 决定 ${pendingRevoke?.decision.id ?? ''}` : ''
+        }
         binding={
           review && pendingRevoke
             ? {

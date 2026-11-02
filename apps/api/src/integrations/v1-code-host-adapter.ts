@@ -9,7 +9,10 @@ import {
   repositoryStableKeyOf,
   type NormalizedPullRequest,
 } from './v1-github-payload';
-import { evaluateGithubChangeRequestEvidence, type GithubEvidenceResult } from './v1-github-evidence-normalizer';
+import {
+  evaluateGithubChangeRequestEvidence,
+  type GithubEvidenceResult,
+} from './v1-github-evidence-normalizer';
 
 export const GITHUB_API_BASE_URL = 'https://api.github.com';
 export const GITHUB_API_VERSION = '2022-11-28';
@@ -87,7 +90,10 @@ export interface CodeHostAdapter {
   ): Promise<PageResult<NormalizedPullRequest>>;
   getChangeRequest(locator: ChangeRequestLocator): Promise<NormalizedChangeRequest>;
   listReviews(locator: ChangeRequestLocator): Promise<NormalizedReview[]>;
-  loadCodeEvidence(locator: ChangeRequestLocator, options?: LoadCodeEvidenceOptions): Promise<LoadedCodeEvidence>;
+  loadCodeEvidence(
+    locator: ChangeRequestLocator,
+    options?: LoadCodeEvidenceOptions,
+  ): Promise<LoadedCodeEvidence>;
 }
 
 export type GithubCodeHostAdapterOptions = {
@@ -151,7 +157,12 @@ export class GithubCodeHostAdapter implements CodeHostAdapter {
 
   constructor(options: GithubCodeHostAdapterOptions) {
     if (typeof options.token !== 'string' || options.token.trim().length === 0)
-      throw new WorkmeshError(V1_ERROR_CODES.INPUT_UNAVAILABLE, 'GITHUB_TOKEN_REQUIRED', undefined, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INPUT_UNAVAILABLE,
+        'GITHUB_TOKEN_REQUIRED',
+        undefined,
+        422,
+      );
 
     const base = new URL(options.apiBaseUrl ?? GITHUB_API_BASE_URL);
     if (base.protocol !== 'https:' || !GITHUB_ALLOWED_HOSTS.has(base.hostname))
@@ -167,13 +178,19 @@ export class GithubCodeHostAdapter implements CodeHostAdapter {
     this.apiBaseUrl = base.origin;
     this.timeoutMs = options.timeoutMs && options.timeoutMs > 0 ? options.timeoutMs : 10_000;
     this.retryDelaysMs = options.retryDelaysMs ?? [250, 1000];
-    this.maxPagesPerCollection = options.maxPagesPerCollection && options.maxPagesPerCollection > 0
-      ? options.maxPagesPerCollection
-      : 100;
+    this.maxPagesPerCollection =
+      options.maxPagesPerCollection && options.maxPagesPerCollection > 0
+        ? options.maxPagesPerCollection
+        : 100;
   }
 
   capabilities(): CodeHostCapabilities {
-    return { webhook: true, fetchChangeRequest: true, commitBoundReviews: true, immutableBlob: true };
+    return {
+      webhook: true,
+      fetchChangeRequest: true,
+      commitBoundReviews: true,
+      immutableBlob: true,
+    };
   }
 
   verifyWebhook(input: GithubWebhookSignatureInput): boolean {
@@ -195,7 +212,12 @@ export class GithubCodeHostAdapter implements CodeHostAdapter {
     input: ListChangeRequestsInput = {},
   ): Promise<PageResult<NormalizedPullRequest>> {
     if (!Array.isArray(repositories) || repositories.length === 0)
-      throw new WorkmeshError(V1_ERROR_CODES.INPUT_UNAVAILABLE, 'REPOSITORY_SCOPE_REQUIRED', undefined, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INPUT_UNAVAILABLE,
+        'REPOSITORY_SCOPE_REQUIRED',
+        undefined,
+        422,
+      );
     const perPage = resolvePerPage(input.perPage);
     const locators = uniqueSortedLocators(repositories);
     const identities: RepositoryIdentity[] = [];
@@ -274,7 +296,13 @@ export class GithubCodeHostAdapter implements CodeHostAdapter {
         reasons: ['UPSTREAM_CHANGED'],
       };
 
-    return { repository, changeRequest, evidence: result.evidence, decision: result.decision, reasons: result.reasons };
+    return {
+      repository,
+      changeRequest,
+      evidence: result.evidence,
+      decision: result.decision,
+      reasons: result.reasons,
+    };
   }
 
   private async fetchPullRequestPages(
@@ -365,7 +393,9 @@ export class GithubCodeHostAdapter implements CodeHostAdapter {
       page = next;
     }
     return reviews.sort(
-      (a, b) => (a.submittedAt ?? '').localeCompare(b.submittedAt ?? '') || a.reviewId.localeCompare(b.reviewId),
+      (a, b) =>
+        (a.submittedAt ?? '').localeCompare(b.submittedAt ?? '') ||
+        a.reviewId.localeCompare(b.reviewId),
     );
   }
 
@@ -378,12 +408,22 @@ export class GithubCodeHostAdapter implements CodeHostAdapter {
     const response = await this.fetchResponse(url);
     const text = await response.text();
     if (text.length === 0)
-      throw new WorkmeshError(V1_ERROR_CODES.CONTENT_UNAVAILABLE, 'GITHUB_EMPTY_RESPONSE', { path }, 503);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.CONTENT_UNAVAILABLE,
+        'GITHUB_EMPTY_RESPONSE',
+        { path },
+        503,
+      );
     let body: unknown;
     try {
       body = JSON.parse(text);
     } catch {
-      throw new WorkmeshError(V1_ERROR_CODES.CONTENT_UNAVAILABLE, 'GITHUB_INVALID_JSON', { path }, 503);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.CONTENT_UNAVAILABLE,
+        'GITHUB_INVALID_JSON',
+        { path },
+        503,
+      );
     }
     return { body, link: response.headers.get('link') };
   }
@@ -409,7 +449,8 @@ export class GithubCodeHostAdapter implements CodeHostAdapter {
         if (response.status === 429) throw rateLimitedError(response);
         if (response.status === 502 || response.status === 503 || response.status === 504) {
           const retryAfter = retryAfterSecondsOf(response);
-          const maxDelay = this.retryDelaysMs.length > 0 ? this.retryDelaysMs[this.retryDelaysMs.length - 1] : 0;
+          const maxDelay =
+            this.retryDelaysMs.length > 0 ? this.retryDelaysMs[this.retryDelaysMs.length - 1] : 0;
           if (retryAfter !== null && retryAfter * 1000 > maxDelay)
             throw upstreamUnavailableError(response.status, { retryAfterSeconds: retryAfter });
           if (attempt < this.retryDelaysMs.length) {
@@ -420,7 +461,12 @@ export class GithubCodeHostAdapter implements CodeHostAdapter {
           throw upstreamUnavailableError(response.status);
         }
         if (response.status === 404)
-          throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'GITHUB_RESOURCE_NOT_FOUND', { status: 404 }, 404);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'GITHUB_RESOURCE_NOT_FOUND',
+            { status: 404 },
+            404,
+          );
         if (response.status === 401 || response.status === 403)
           throw new WorkmeshError(
             V1_ERROR_CODES.AUTHORIZATION_DENIED,
@@ -477,9 +523,19 @@ export class GithubCodeHostAdapter implements CodeHostAdapter {
         422,
       );
     if (typeof locator.owner !== 'string' || locator.owner.trim().length === 0)
-      throw new WorkmeshError(V1_ERROR_CODES.INPUT_UNAVAILABLE, 'REPOSITORY_OWNER_REQUIRED', undefined, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INPUT_UNAVAILABLE,
+        'REPOSITORY_OWNER_REQUIRED',
+        undefined,
+        422,
+      );
     if (typeof locator.name !== 'string' || locator.name.trim().length === 0)
-      throw new WorkmeshError(V1_ERROR_CODES.INPUT_UNAVAILABLE, 'REPOSITORY_NAME_REQUIRED', undefined, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INPUT_UNAVAILABLE,
+        'REPOSITORY_NAME_REQUIRED',
+        undefined,
+        422,
+      );
   }
 
   private repositoryPath(locator: RepositoryLocator): string {
@@ -522,11 +578,20 @@ function decodeCursor(value: string): CursorPayload {
     (parsed as { offset: number }).offset < 0
   )
     throw invalidCursor();
-  return { v: 1, scope: (parsed as { scope: string }).scope, offset: (parsed as { offset: number }).offset };
+  return {
+    v: 1,
+    scope: (parsed as { scope: string }).scope,
+    offset: (parsed as { offset: number }).offset,
+  };
 }
 
 function invalidCursor(): WorkmeshError {
-  return new WorkmeshError(V1_ERROR_CODES.INVALID_REQUEST, 'INVALID_CURSOR', { reason: 'INVALID_CURSOR' }, 400);
+  return new WorkmeshError(
+    V1_ERROR_CODES.INVALID_REQUEST,
+    'INVALID_CURSOR',
+    { reason: 'INVALID_CURSOR' },
+    400,
+  );
 }
 
 function resolvePerPage(value: number | undefined): number {
@@ -549,7 +614,11 @@ function uniqueSortedLocators(repositories: RepositoryLocator[]): RepositoryLoca
 }
 
 function compareLocators(a: RepositoryLocator, b: RepositoryLocator): number {
-  return a.provider.localeCompare(b.provider) || a.owner.localeCompare(b.owner) || a.name.localeCompare(b.name);
+  return (
+    a.provider.localeCompare(b.provider) ||
+    a.owner.localeCompare(b.owner) ||
+    a.name.localeCompare(b.name)
+  );
 }
 
 function compareChangeRequests(a: NormalizedPullRequest, b: NormalizedPullRequest): number {

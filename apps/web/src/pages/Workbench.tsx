@@ -1,48 +1,377 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowRight, Inbox, RefreshCw } from 'lucide-react';
 import { formatApiError } from '../api/client';
-import { changeApi, type ChangeRecipient } from '../api/resources';
-import { ProjectSelect } from '../components/ProjectSelect';
+import {
+  activityApi,
+  changeApi,
+  workbenchApi,
+  type ActivityItem,
+  type WorkbenchChangeItem,
+  type WorkbenchReadyTaskItem,
+  type WorkbenchReviewItem,
+  type WorkbenchSnapshot,
+} from '../api/resources';
+import { ChangeDrawer } from '../components/ChangeDrawer';
+import { ConfirmDialog } from '../components/Modal';
+import { ReviewDecisionDrawer } from '../components/ReviewDecisionDrawer';
 import { useProjectContext } from '../hooks/useProjectContext';
+import { ACTION_LABELS, labelFor } from '../lib/labels';
+
+type Tab = 'all' | 'signOffs' | 'approvals' | 'changes' | 'ready';
+type SortKey = 'oldest' | 'newest' | 'type';
+
+const TAB_KEYS: Tab[] = ['all', 'signOffs', 'approvals', 'changes', 'ready'];
+
+function isTab(value: string | null): value is Tab {
+  return value !== null && (TAB_KEYS as string[]).includes(value);
+}
+
+type WorkbenchItem =
+  | { type: 'review'; data: WorkbenchReviewItem }
+  | { type: 'change'; data: WorkbenchChangeItem }
+  | { type: 'ready'; data: WorkbenchReadyTaskItem };
+
+const TAB_LABELS: Record<Tab, string> = {
+  all: '全部',
+  signOffs: '待签字',
+  approvals: '待审批',
+  changes: '待确认变更',
+  ready: '可开工',
+};
+
+function isSignOffKind(kind: string): boolean {
+  return kind === 'TASK_ACCEPTANCE' || kind === 'RELEASE_ACCEPTANCE';
+}
+
+function itemRoleKeys(item: WorkbenchItem): string[] {
+  if (item.type === 'review') return item.data.role ? [item.data.role.key] : [];
+  if (item.type === 'ready') return item.data.role ? [item.data.role.key] : [];
+  return item.data.pendingRoles.map((role) => role.key);
+}
+
+function itemSearchText(item: WorkbenchItem): string {
+  const requirement = item.data.requirement;
+  const parts = [requirement?.code ?? '', requirement?.title ?? '', item.data.projectName];
+  if (item.type === 'review') parts.push(item.data.subjectLabel, item.data.role?.title ?? '');
+  if (item.type === 'ready') parts.push(item.data.stepKey, item.data.role?.title ?? '');
+  if (item.type === 'change') parts.push(item.data.changedFields.join(' '));
+  return parts.join(' ').toLowerCase();
+}
+
+function ageLabel(seconds: number | null): string {
+  if (seconds === null) return '—';
+  if (seconds < 60) return '刚刚';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时`;
+  return `${Math.floor(seconds / 86400)} 天`;
+}
+
+function requirementLabel(item: {
+  requirement: { code: string; title: string } | null;
+  subjectLabel?: string;
+  stepKey?: string;
+}): string {
+  if (item.requirement) return `${item.requirement.code} · ${item.requirement.title}`;
+  return item.subjectLabel ?? item.stepKey ?? '未关联需求';
+}
 
 /**
- * 工作台：待确认变更与评审入口。确认变更带收件人当前版本，版本变化由服务端判 409。
+ * 工作台：跨项目聚合“待签字 / 待审批 / 待确认变更 / 可开工任务”。
+ * 只做只读聚合与导航；签字、确认变更仍进入各自页面并走服务端票据。
  */
 export function Workbench() {
   const navigate = useNavigate();
-  const { projectId } = useProjectContext();
-  const [recipients, setRecipients] = useState<ChangeRecipient[]>([]);
+  const [params] = useSearchParams();
+  const { projects } = useProjectContext();
+  const [scope, setScope] = useState(params.get('project') ?? '');
+  const [snapshot, setSnapshot] = useState<WorkbenchSnapshot | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [reviewId, setReviewId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<Tab>(
+    isTab(params.get('type')) ? (params.get('type') as Tab) : 'all',
+  );
+  const [query, setQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [sort, setSort] = useState<SortKey>('oldest');
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<string | null>(null);
+  const [changeTarget, setChangeTarget] = useState<WorkbenchChangeItem | null>(null);
+  const [changeBusy, setChangeBusy] = useState(false);
+  const [selectedChanges, setSelectedChanges] = useState<Set<string>>(new Set());
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
 
   async function load() {
-    if (!projectId) {
-      setRecipients([]);
-      return;
-    }
+    setLoading(true);
     try {
-      const page = await changeApi.listRecipients(projectId);
-      setRecipients(page.items);
+      const value = await workbenchApi.get(scope || null);
+      setSnapshot(value);
+      setUpdatedAt(new Date());
       setError('');
     } catch (caught) {
+      setSnapshot(null);
       setError(formatApiError(caught));
+    } finally {
+      setLoading(false);
     }
   }
 
   useEffect(() => {
     void load();
-  }, [projectId]);
+  }, [scope]);
 
-  async function ack(recipient: ChangeRecipient) {
+  useEffect(() => {
+    activityApi
+      .list(20)
+      .then((page) => setActivity(page.items))
+      .catch(() => setActivity([]));
+  }, []);
+
+  function toggleSelected(recipientId: string) {
+    setSelectedChanges((current) => {
+      const next = new Set(current);
+      if (next.has(recipientId)) next.delete(recipientId);
+      else next.add(recipientId);
+      return next;
+    });
+  }
+
+  async function batchAck() {
+    const targets = (snapshot?.changes ?? []).filter((change) =>
+      selectedChanges.has(change.recipientId),
+    );
+    if (targets.length === 0) return;
+    setBatchBusy(true);
     try {
-      await changeApi.ack(recipient.id, recipient.version);
+      for (const change of targets) {
+        await changeApi.ack(change.recipientId, change.version);
+      }
+      setSelectedChanges(new Set());
+      setBatchOpen(false);
+      setNotice(`已确认 ${targets.length} 条变更。`);
+      setError('');
+      await load();
+    } catch (caught) {
+      setError(formatApiError(caught));
+    } finally {
+      setBatchBusy(false);
+    }
+  }
+
+  async function ackChange() {
+    if (!changeTarget) return;
+    setChangeBusy(true);
+    try {
+      await changeApi.ack(changeTarget.recipientId, changeTarget.version);
+      setChangeTarget(null);
       setNotice('变更已确认。');
       setError('');
       await load();
     } catch (caught) {
       setError(formatApiError(caught));
+    } finally {
+      setChangeBusy(false);
     }
+  }
+
+  const signOffReviews = useMemo(
+    () => (snapshot?.reviews ?? []).filter((review) => isSignOffKind(review.kind)),
+    [snapshot],
+  );
+  const approvalReviews = useMemo(
+    () => (snapshot?.reviews ?? []).filter((review) => !isSignOffKind(review.kind)),
+    [snapshot],
+  );
+  const counts = {
+    signOffs: signOffReviews.length,
+    approvals: approvalReviews.length,
+    changes: snapshot?.counts.changes ?? 0,
+    readyTasks: snapshot?.counts.readyTasks ?? 0,
+    total:
+      signOffReviews.length +
+      approvalReviews.length +
+      (snapshot?.counts.changes ?? 0) +
+      (snapshot?.counts.readyTasks ?? 0),
+  };
+
+  const roleOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const review of snapshot?.reviews ?? [])
+      if (review.role) map.set(review.role.key, review.role.title);
+    for (const task of snapshot?.readyTasks ?? [])
+      if (task.role) map.set(task.role.key, task.role.title);
+    for (const change of snapshot?.changes ?? [])
+      for (const role of change.pendingRoles) map.set(role.key, role.title);
+    return [...map.entries()]
+      .map(([key, title]) => ({ key, title }))
+      .sort((a, b) => a.title.localeCompare(b.title, 'zh-CN'));
+  }, [snapshot]);
+
+  const items = useMemo<WorkbenchItem[]>(() => {
+    if (!snapshot) return [];
+    const reviewItems = snapshot.reviews.map((data) => ({ type: 'review' as const, data }));
+    const changeItems = snapshot.changes.map((data) => ({ type: 'change' as const, data }));
+    const readyItems = snapshot.readyTasks.map((data) => ({ type: 'ready' as const, data }));
+    let base: WorkbenchItem[];
+    if (tab === 'signOffs') base = reviewItems.filter((item) => isSignOffKind(item.data.kind));
+    else if (tab === 'approvals')
+      base = reviewItems.filter((item) => !isSignOffKind(item.data.kind));
+    else if (tab === 'changes') base = changeItems;
+    else if (tab === 'ready') base = readyItems;
+    else base = [...reviewItems, ...changeItems, ...readyItems];
+
+    const text = query.trim().toLowerCase();
+    const filtered = base.filter((item) => {
+      if (text && !itemSearchText(item).includes(text)) return false;
+      if (roleFilter && !itemRoleKeys(item).includes(roleFilter)) return false;
+      return true;
+    });
+
+    const ageOf = (item: WorkbenchItem) => item.data.ageSeconds ?? -1;
+    const typeOrder: Record<WorkbenchItem['type'], number> = { review: 0, change: 1, ready: 2 };
+    return [...filtered].sort((a, b) => {
+      if (sort === 'newest') return ageOf(a) - ageOf(b);
+      if (sort === 'type') return typeOrder[a.type] - typeOrder[b.type];
+      return ageOf(b) - ageOf(a);
+    });
+  }, [snapshot, tab, query, roleFilter, sort]);
+
+  const visibleActivity = scope ? activity.filter((item) => item.projectId === scope) : activity;
+
+  const groups = useMemo(() => {
+    const map = new Map<string, { projectName: string; items: WorkbenchItem[] }>();
+    for (const item of items) {
+      const group = map.get(item.data.projectId) ?? {
+        projectName: item.data.projectName,
+        items: [],
+      };
+      group.items.push(item);
+      map.set(item.data.projectId, group);
+    }
+    return [...map.values()];
+  }, [items]);
+
+  function renderReview(review: WorkbenchReviewItem) {
+    return (
+      <article
+        className="wb-row is-signOff"
+        key={review.reviewId}
+        tabIndex={0}
+        aria-label={`打开评审：${requirementLabel(review)}`}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            setReviewTarget(review.reviewId);
+          }
+        }}
+      >
+        <div className="wb-row-main">
+          <div className="wb-row-top">
+            <span className="wb-type">{isSignOffKind(review.kind) ? '签字' : '审批'}</span>
+            <span className="wb-row-context">{requirementLabel(review)}</span>
+          </div>
+          <div className="wb-row-detail">
+            {review.subjectLabel} · {review.role?.title ?? '未指定角色'} · 等待{' '}
+            {ageLabel(review.ageSeconds)}
+          </div>
+          <div className="wb-row-context">
+            证据 {review.evidence.artifactCount} 件
+            {review.evidence.hasPr ? ' · 含 PR' : ''} · v{review.version}
+          </div>
+        </div>
+        <div className="wb-row-actions">
+          <button
+            className="primary"
+            onClick={() => setReviewTarget(review.reviewId)}
+          >
+            打开决定
+            <ArrowRight size={14} />
+          </button>
+        </div>
+      </article>
+    );
+  }
+
+  function renderChange(change: WorkbenchChangeItem) {
+    const fields = change.changedFields.length ? change.changedFields.join(' / ') : '未标注字段';
+    const roles = change.pendingRoles.length
+      ? change.pendingRoles.map((role) => role.title).join(' / ')
+      : '—';
+    return (
+      <article
+        className="wb-row is-change"
+        key={change.recipientId}
+        tabIndex={0}
+        aria-label={`打开变更：${requirementLabel(change)}`}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            setChangeTarget(change);
+          }
+        }}
+      >
+        <input
+          type="checkbox"
+          aria-label={`选择变更 ${requirementLabel(change)}`}
+          checked={selectedChanges.has(change.recipientId)}
+          onChange={() => toggleSelected(change.recipientId)}
+          onClick={(event) => event.stopPropagation()}
+        />
+        <div className="wb-row-main">
+          <div className="wb-row-top">
+            <span className="wb-type">变更</span>
+            <span className="wb-row-context">{requirementLabel(change)}</span>
+          </div>
+          <div className="wb-row-detail">
+            变更字段：{fields} · 待确认：{roles} · 等待 {ageLabel(change.ageSeconds)}
+          </div>
+          <div className="wb-row-context">变更版本 v{change.version}</div>
+        </div>
+        <div className="wb-row-actions">
+          <button className="ghost" onClick={() => setChangeTarget(change)}>
+            去确认
+          </button>
+        </div>
+      </article>
+    );
+  }
+
+  function renderReady(task: WorkbenchReadyTaskItem) {
+    return (
+      <article
+        className="wb-row is-ready"
+        key={task.taskId}
+        tabIndex={0}
+        aria-label={`打开任务：${requirementLabel(task)}`}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            navigate('/board');
+          }
+        }}
+      >
+        <div className="wb-row-main">
+          <div className="wb-row-top">
+            <span className="wb-type">任务</span>
+            <span className="wb-row-context">{requirementLabel(task)}</span>
+          </div>
+          <div className="wb-row-detail">
+            {task.role?.title ?? '未指定角色'} · {task.stepKey} · 可开工
+          </div>
+        </div>
+        <div className="wb-row-actions">
+          <button className="ghost" onClick={() => navigate('/board')}>
+            查看看板
+          </button>
+        </div>
+      </article>
+    );
   }
 
   return (
@@ -50,111 +379,252 @@ export function Workbench() {
       <header className="page-head">
         <div>
           <h2>工作台</h2>
-          <p className="page-sub">待确认变更、评审与项目入口。所有写操作由服务端校验版本与权限。</p>
+          <p className="page-sub">只回答一件事：现在有什么在等我。签字与确认仍由服务端校验版本与权限。</p>
         </div>
         <div className="page-actions">
-          <ProjectSelect onChange={() => setRecipients([])} />
+          <select
+            className="select"
+            aria-label="项目范围"
+            value={scope}
+            onChange={(event) => setScope(event.target.value)}
+          >
+            <option value="">全部项目</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}（{project.key}）
+              </option>
+            ))}
+          </select>
+          <button className="ghost" onClick={() => void load()} disabled={loading}>
+            <RefreshCw size={14} />
+            {loading ? '加载中…' : '刷新'}
+          </button>
         </div>
       </header>
 
-      {error && (
+      {error && !changeTarget && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
       {notice && <p className="kb-notice">{notice}</p>}
+      {snapshot && snapshot.warnings.length > 0 && (
+        <p className="page-sub" role="status">
+          部分数据加载失败：{snapshot.warnings.join('；')}
+        </p>
+      )}
 
-      <div className="table-card">
-        <div className="card-head">
-          <h3>
-            待确认变更<small>{recipients.length}</small>
-          </h3>
+      <div className="wb-toolbar">
+        <div className="wb-field">
+          <input
+            aria-label="搜索待办"
+            placeholder="搜索需求编号 / 标题 / 角色"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
         </div>
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>来源</th>
-                <th>项目</th>
-                <th>版本</th>
-                <th>创建时间</th>
-                <th className="col-actions">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recipients.map((recipient) => (
-                <tr key={recipient.id}>
-                  <td>
-                    <span className="cell-mono cell-truncate" title={recipient.eventId}>
-                      {recipient.eventId}
-                    </span>
-                  </td>
-                  <td className="cell-mono cell-truncate">{recipient.projectId}</td>
-                  <td className="cell-num">v{recipient.version}</td>
-                  <td>{new Date(recipient.createdAt).toLocaleString('zh-CN')}</td>
-                  <td className="col-actions">
-                    <div className="cell-actions row-actions">
-                      {recipient.ackedAt ? (
-                        <span className="status-tag">已确认</span>
-                      ) : (
-                        <button className="primary" onClick={() => void ack(recipient)}>
-                          确认已处理
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {recipients.length === 0 && (
-                <tr className="table-empty">
-                  <td colSpan={5}>{projectId ? '没有待确认变更。' : '先选择项目。'}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="wb-field">
+          <select
+            aria-label="角色筛选"
+            value={roleFilter}
+            onChange={(event) => setRoleFilter(event.target.value)}
+          >
+            <option value="">全部角色</option>
+            {roleOptions.map((role) => (
+              <option key={role.key} value={role.key}>
+                {role.title}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="wb-field">
+          <select
+            aria-label="待办排序"
+            value={sort}
+            onChange={(event) => setSort(event.target.value as SortKey)}
+          >
+            <option value="oldest">最久未处理</option>
+            <option value="newest">最近更新</option>
+            <option value="type">按类型</option>
+          </select>
         </div>
       </div>
 
-      <div className="table-card">
-        <div className="card-head">
-          <h3>评审</h3>
-          <span className="card-head-actions">
-            <input
-              value={reviewId}
-              onChange={(event) => setReviewId(event.target.value)}
-              aria-label="评审请求 ID"
-              placeholder="评审请求 ID"
-            />
-            <button
-              className="ghost"
-              disabled={!reviewId.trim()}
-              onClick={() => navigate(`/reviews?id=${encodeURIComponent(reviewId.trim())}`)}
-            >
-              打开评审
-            </button>
-          </span>
-        </div>
+      {tab === 'changes' && selectedChanges.size > 0 && (
         <div className="toolbar">
-          <button className="ghost" onClick={() => navigate('/requirements')}>
-            需求
+          <button className="primary" onClick={() => setBatchOpen(true)}>
+            批量确认 {selectedChanges.size} 条
           </button>
-          <button className="ghost" onClick={() => navigate('/prd')}>
-            PRD 文档
-          </button>
-          <button className="ghost" onClick={() => navigate('/knowledge')}>
-            知识库
-          </button>
-          <button className="ghost" onClick={() => navigate('/board')}>
-            任务看板
-          </button>
-          <button className="ghost" onClick={() => navigate('/roles')}>
-            角色 / ACL
-          </button>
-          <button className="ghost" onClick={() => navigate('/authorization')}>
-            设备授权
+          <button className="ghost" onClick={() => setSelectedChanges(new Set())}>
+            清空选择
           </button>
         </div>
+      )}
+
+      <div className="wb-stats">
+        <button
+          className={`wb-stat${tab === 'signOffs' ? ' is-active' : ''}`}
+          onClick={() => setTab('signOffs')}
+        >
+          <span className="wb-stat-value">{counts.signOffs}</span>
+          <span className="wb-stat-label">待签字</span>
+          <span className="wb-stat-hint">任务验收等你落锤</span>
+        </button>
+        <button
+          className={`wb-stat${tab === 'approvals' ? ' is-active' : ''}`}
+          onClick={() => setTab('approvals')}
+        >
+          <span className="wb-stat-value">{counts.approvals}</span>
+          <span className="wb-stat-label">待审批</span>
+          <span className="wb-stat-hint">PRD / 知识发布</span>
+        </button>
+        <button
+          className={`wb-stat${tab === 'changes' ? ' is-active' : ''}`}
+          onClick={() => setTab('changes')}
+        >
+          <span className="wb-stat-value">{counts.changes}</span>
+          <span className="wb-stat-label">待确认变更</span>
+          <span className="wb-stat-hint">角色确认已处理</span>
+        </button>
+        <button
+          className={`wb-stat${tab === 'ready' ? ' is-active' : ''}`}
+          onClick={() => setTab('ready')}
+        >
+          <span className="wb-stat-value">{counts.readyTasks}</span>
+          <span className="wb-stat-label">可开工</span>
+          <span className="wb-stat-hint">依赖已满足</span>
+        </button>
       </div>
+
+      <div className="wb-toolbar">
+        <div className="wb-tabs" role="tablist" aria-label="待办类型">
+          {(['all', 'signOffs', 'approvals', 'changes', 'ready'] as Tab[]).map((key) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={tab === key}
+              className={`wb-tab${tab === key ? ' is-active' : ''}`}
+              onClick={() => setTab(key)}
+            >
+              {TAB_LABELS[key]}
+              <span>
+                {key === 'all'
+                  ? counts.total
+                  : key === 'signOffs'
+                    ? counts.signOffs
+                    : key === 'approvals'
+                      ? counts.approvals
+                      : key === 'changes'
+                        ? counts.changes
+                        : counts.readyTasks}
+              </span>
+            </button>
+          ))}
+        </div>
+        {updatedAt && <span className="wb-updated">更新于 {updatedAt.toLocaleTimeString('zh-CN')}</span>}
+      </div>
+
+      {loading && !snapshot && (
+        <div className="wb-list">
+          {[0, 1, 2].map((index) => (
+            <div className="wb-row skeleton-row" key={index}>
+              <div className="skeleton-line" />
+              <div className="skeleton-line short" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && groups.length === 0 && (
+        <div className="wb-empty">
+          <span className="wb-empty-icon">
+            <Inbox size={20} />
+          </span>
+          <h3>{tab === 'all' ? '现在没有待办' : `没有${TAB_LABELS[tab]}`}</h3>
+          <p>可以去看板了解整体进度，或等下一次交付触发。</p>
+          <div className="wb-empty-actions">
+            <button className="ghost" onClick={() => navigate('/board')}>
+              打开看板
+            </button>
+          </div>
+        </div>
+      )}
+
+      {groups.length > 0 && (
+        <div className="wb-list">
+          {groups.map((group) => (
+            <section className="wb-group" key={group.projectName}>
+              <div className="wb-group-head">
+                <h3>{group.projectName}</h3>
+                <span>{group.items.length} 件</span>
+              </div>
+              {group.items.map((item) =>
+                item.type === 'review'
+                  ? renderReview(item.data)
+                  : item.type === 'change'
+                    ? renderChange(item.data)
+                    : renderReady(item.data),
+              )}
+            </section>
+          ))}
+        </div>
+      )}
+
+      <div className="detail-card" style={{ marginTop: 18 }}>
+        <div className="detail-card-head">
+          <h3>最近活动</h3>
+        </div>
+        {visibleActivity.length === 0 ? (
+          <p className="detail-empty">还没有审计事件。</p>
+        ) : (
+          <div className="task-groups">
+            {visibleActivity.slice(0, 10).map((item) => (
+              <div className="task-row" key={item.id}>
+                <div className="task-row-main">
+                  <div className="task-row-top">
+                    <span className="status-tag">
+                      {labelFor(ACTION_LABELS, item.action)}
+                    </span>
+                    <strong>{item.projectName ?? '—'}</strong>
+                  </div>
+                  <div className="task-row-meta">
+                    {item.actor?.email ?? '系统'} · {new Date(item.createdAt).toLocaleString('zh-CN')}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={batchOpen}
+        title="批量确认变更"
+        description={`将逐一确认 ${selectedChanges.size} 条变更；每条仍按自己的版本提交。`}
+        note="任一失败会停止并保留未确认项，不会跳过失败继续提交。"
+        tone="primary"
+        confirmLabel="批量确认"
+        busy={batchBusy}
+        onCancel={() => {
+          if (!batchBusy) setBatchOpen(false);
+        }}
+        onConfirm={() => void batchAck()}
+      />
+
+      <ReviewDecisionDrawer
+        reviewId={reviewTarget}
+        onClose={() => setReviewTarget(null)}
+      />
+
+      <ChangeDrawer
+        change={changeTarget}
+        busy={changeBusy}
+        error={error}
+        onClose={() => {
+          if (!changeBusy) setChangeTarget(null);
+        }}
+        onAck={() => void ackChange()}
+      />
     </section>
   );
 }

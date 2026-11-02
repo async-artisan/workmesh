@@ -31,8 +31,7 @@ export type DeliverPayload = {
 
 export type BuiltDeliver = { payload: DeliverPayload; sourceFiles: SourceFile[] };
 
-const UUID =
-  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
 const COMMIT = /^[0-9a-f]{40}$/;
 const KINDS: ArtifactKind[] = ['PRD', 'DESIGN', 'IMPL', 'CASES', 'RELEASE'];
@@ -92,7 +91,11 @@ export async function buildDeliver(manifestFile: string): Promise<BuiltDeliver> 
     throw new CliError('LOCAL_INPUT_INVALID', 'workflowDefinitionRevisionId 必须是 UUID');
   const localRunId = readString(record, 'localRunId', 120);
   const candidates = record.candidateRevisionIds;
-  if (candidates !== undefined && (!Array.isArray(candidates) || candidates.some((id) => typeof id !== 'string' || !UUID.test(id))))
+  if (
+    candidates !== undefined &&
+    (!Array.isArray(candidates) ||
+      candidates.some((id) => typeof id !== 'string' || !UUID.test(id)))
+  )
     throw new CliError('LOCAL_INPUT_INVALID', 'candidateRevisionIds 必须是 UUID 数组');
   const candidateRevisionIds = candidates === undefined ? [] : (candidates as string[]);
   const itemsValue = record.items;
@@ -115,9 +118,15 @@ export async function buildDeliver(manifestFile: string): Promise<BuiltDeliver> 
     const mediaType = readString(item, 'mediaType', 100);
     if (storage === 'GIT_REF') {
       if (item.file !== undefined || item.bodyBase64 !== undefined)
-        throw new CliError('LOCAL_INPUT_INVALID', `items[${index}] GIT_REF 不能携带 file/bodyBase64`);
+        throw new CliError(
+          'LOCAL_INPUT_INVALID',
+          `items[${index}] GIT_REF 不能携带 file/bodyBase64`,
+        );
       if (typeof item.projectRepositoryId !== 'string' || !UUID.test(item.projectRepositoryId))
-        throw new CliError('LOCAL_INPUT_INVALID', `items[${index}].projectRepositoryId 必须是 UUID`);
+        throw new CliError(
+          'LOCAL_INPUT_INVALID',
+          `items[${index}].projectRepositoryId 必须是 UUID`,
+        );
       if (typeof item.commitSha !== 'string' || !COMMIT.test(item.commitSha))
         throw new CliError('LOCAL_INPUT_INVALID', `items[${index}].commitSha 必须是 40 位小写 hex`);
       if (typeof item.repoPath !== 'string' || !item.repoPath || item.repoPath.length > 500)
@@ -164,7 +173,10 @@ export async function buildDeliver(manifestFile: string): Promise<BuiltDeliver> 
       typeof item.byteLength === 'number' &&
       (!Number.isSafeInteger(item.byteLength) || item.byteLength !== bytes.length)
     )
-      throw new CliError('CONTENT_INTEGRITY_FAILED', `items[${index}] 声明的 byteLength 与文件不一致`);
+      throw new CliError(
+        'CONTENT_INTEGRITY_FAILED',
+        `items[${index}] 声明的 byteLength 与文件不一致`,
+      );
     sourceFiles.push({ path, sha256: digest, byteLength: bytes.length });
     items.push({
       kind: kind as ArtifactKind,

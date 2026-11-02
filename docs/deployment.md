@@ -6,18 +6,22 @@ WorkMesh 使用 Node.js 20+、pnpm 10.28.2（`corepack pnpm`）与 PostgreSQL 15
 
 数据库连接串只来自 `WORKMESH_V1_DATABASE_URL`，领域代码不读取隐式数据源，也不提供旧连接变量回退。
 
-| 变量 | 作用 |
-| --- | --- |
-| `WORKMESH_V1_DATABASE_URL` | 正式 PostgreSQL 连接串（`workmesh_v1` schema）。 |
-| `WORKMESH_TEST_DATABASE_URL` | 隔离测试库连接串；仅在显式确认后由 `scripts/test-integration.sh` 使用。 |
-| `WORKMESH_COOKIE_MODE` | `SECURE`（默认，要求 HTTPS 与 `__Host-` Cookie）或 `LOCAL_INSECURE`（仅 loopback HTTP 开发）。 |
-| `WORKMESH_PUBLIC_ORIGIN` | Web 公共源；用于 Origin 精确匹配与 Cookie 部署校验。 |
-| `WEB_ORIGIN` | CORS 允许源，默认 `http://127.0.0.1:5173`。 |
-| `RATE_LIMIT_MAX` | 每 IP 每分钟请求上限，默认 120。 |
-| `PORT` | API 端口，默认 3000。 |
-| `REDIS_URL` | 可选；未设置时缓存直通，不影响正确性。 |
+| 变量                         | 作用                                                                                           |
+| ---------------------------- | ---------------------------------------------------------------------------------------------- |
+| `WORKMESH_V1_DATABASE_URL`   | 正式 PostgreSQL 连接串（`workmesh_v1` schema）。                                               |
+| `WORKMESH_TEST_DATABASE_URL` | 隔离测试库连接串；仅在显式确认后由 `scripts/test-integration.sh` 使用。                        |
+| `WORKMESH_COOKIE_MODE`       | `SECURE`（默认，要求 HTTPS 与 `__Host-` Cookie）或 `LOCAL_INSECURE`（仅 loopback HTTP 开发）。 |
+| `WORKMESH_PUBLIC_ORIGIN`     | Web 公共源；用于 Origin 精确匹配与 Cookie 部署校验。                                           |
+| `WEB_ORIGIN`                 | CORS 允许源，默认 `http://127.0.0.1:5173`。                                                    |
+| `RATE_LIMIT_MAX`             | 每 IP 每分钟请求上限，默认 120。                                                               |
+| `PORT`                       | API 端口，默认 3000。                                                                          |
+| `REDIS_URL`                  | 可选；未设置时缓存直通，不影响正确性。                                                         |
+| `WORKMESH_SMTP_URL`          | 可选；SMTP 连接串（如 `smtp://user:pass@host:587`），用于手动“邮件摘要”。                       |
+| `WORKMESH_EMAIL_FROM`        | 可选；邮件发件人，默认 `no-reply@workmesh.local`。                                              |
 
 `WORKMESH_COOKIE_MODE=SECURE` 必须配合 HTTPS；`LOCAL_INSECURE` 只允许 loopback 且必须为 HTTP，不会根据 Host/Origin/Forwarded 头自动降级。
+
+邮件摘要只在用户点击通知中心的“发送邮件摘要”时触发，发送到当前登录账号；未配置 `WORKMESH_SMTP_URL` 时接口返回 `503 EMAIL_NOT_CONFIGURED`。它不是定时提醒，定时发送需要外部 cron 调用同一接口或后续的发送任务。
 
 ## 步骤
 

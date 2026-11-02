@@ -1,6 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { V1_ERROR_CODES, WorkmeshError, type ActionBinding, type Principal } from '@workmesh/shared';
+import {
+  V1_ERROR_CODES,
+  WorkmeshError,
+  type ActionBinding,
+  type Principal,
+} from '@workmesh/shared';
 import { V1AuthorizationService } from './v1-authorization';
 import { requireHuman, V1AccountService } from './v1-account.service';
 import { sessionIdOf } from './v1-cli-authorization.service';
@@ -39,7 +44,8 @@ export class V1ActionService {
 
   async preview(principal: Principal, binding: ActionBinding): Promise<V1PreviewResult> {
     requireHuman(principal);
-    if (binding.projectId) await this.authorization.resolveProjectContext(principal, binding.projectId);
+    if (binding.projectId)
+      await this.authorization.resolveProjectContext(principal, binding.projectId);
     const normalized = this.confirmation.normalize(binding);
     return {
       binding: normalized,
@@ -74,14 +80,26 @@ export class V1ActionService {
       password: input.password,
       now,
     });
-    if (!user.isActive) throw new WorkmeshError(V1_ERROR_CODES.AUTH_INVALID, '账号已停用', undefined, 401);
+    if (!user.isActive)
+      throw new WorkmeshError(V1_ERROR_CODES.AUTH_INVALID, '账号已停用', undefined, 401);
     const normalized = this.confirmation.normalize(input.binding);
     const digest = actionDigestOf(normalized);
     if (digest !== input.actionDigest)
-      throw new WorkmeshError(V1_ERROR_CODES.ACTION_CHANGED, '动作内容已变更，请重新预览', { actionDigest: digest }, 409);
-    if (normalized.projectId) await this.authorization.resolveProjectContext(principal, normalized.projectId);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ACTION_CHANGED,
+        '动作内容已变更，请重新预览',
+        { actionDigest: digest },
+        409,
+      );
+    if (normalized.projectId)
+      await this.authorization.resolveProjectContext(principal, normalized.projectId);
     if (principal.kind !== 'HUMAN' || !principal.authVersion)
-      throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, '缺少人类会话版本', undefined, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+        '缺少人类会话版本',
+        undefined,
+        403,
+      );
 
     const ticketSecret = newTicketSecret();
     const ticketId = randomUUID();

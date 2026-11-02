@@ -215,7 +215,23 @@ export class V1ReviewService {
     // 无对象访问权按 404 返回，不泄露 review 存在性。
     if (review.subject)
       await this.authorization.assertCanReadKnowledge(principal, review.subject.knowledgeBaseId);
-    return review;
+    // 可签性只对人类审批工位有意义；Agent 读取不额外要求项目上下文。
+    if (principal.kind !== 'HUMAN') return review;
+    const context = await this.authorization.resolveProjectContext(principal, review.projectId);
+    const decided = new Set(review.decisions.map((decision) => decision.approvalSlotId));
+    return {
+      ...review,
+      slots: review.slots.map((slot) => ({
+        ...slot,
+        viewerCanDecide:
+          review.status === 'OPEN' &&
+          !decided.has(slot.id) &&
+          (slot.requiredUserId === principal.userId ||
+            (slot.requiredRoleId
+              ? context.activeRoleIds.includes(slot.requiredRoleId)
+              : false)),
+      })),
+    };
   }
 
   /**

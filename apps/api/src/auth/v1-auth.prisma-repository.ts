@@ -229,7 +229,9 @@ export class V1AuthPrismaRepository implements V1AuthRepository {
     };
   }
 
-  async createCliAuthorization(input: V1CliAuthorizationCreateInput): Promise<V1CliAuthorizationRecord> {
+  async createCliAuthorization(
+    input: V1CliAuthorizationCreateInput,
+  ): Promise<V1CliAuthorizationRecord> {
     const row = await this.prisma.cliAuthorizationRequest.create({
       data: {
         clientName: input.clientName,
@@ -249,13 +251,19 @@ export class V1AuthPrismaRepository implements V1AuthRepository {
     return row ? mapCli(row) : null;
   }
 
-  async findCliAuthorizationByDeviceCodeHash(hash: string): Promise<V1CliAuthorizationRecord | null> {
-    const row = await this.prisma.cliAuthorizationRequest.findUnique({ where: { deviceCodeHash: hash } });
+  async findCliAuthorizationByDeviceCodeHash(
+    hash: string,
+  ): Promise<V1CliAuthorizationRecord | null> {
+    const row = await this.prisma.cliAuthorizationRequest.findUnique({
+      where: { deviceCodeHash: hash },
+    });
     return row ? mapCli(row) : null;
   }
 
   async findCliAuthorizationByUserCodeHash(hash: string): Promise<V1CliAuthorizationRecord | null> {
-    const row = await this.prisma.cliAuthorizationRequest.findUnique({ where: { userCodeHash: hash } });
+    const row = await this.prisma.cliAuthorizationRequest.findUnique({
+      where: { userCodeHash: hash },
+    });
     return row ? mapCli(row) : null;
   }
 
@@ -303,7 +311,9 @@ export class V1AuthPrismaRepository implements V1AuthRepository {
    * 批准只接受当前 PENDING、未过期且版本未变的请求；同时写入主体戳记。
    * 两个审批者并发时，只有一次条件更新会成功。
    */
-  async approveCliAuthorization(input: V1CliApproveInput): Promise<V1CliAuthorizationRecord | null> {
+  async approveCliAuthorization(
+    input: V1CliApproveInput,
+  ): Promise<V1CliAuthorizationRecord | null> {
     return this.prisma.$transaction(async (tx) => {
       const request = await tx.cliAuthorizationRequest.findUnique({ where: { id: input.id } });
       if (!request) return null;

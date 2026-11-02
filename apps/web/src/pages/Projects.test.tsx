@@ -33,9 +33,15 @@ describe('Projects（项目列表 / 创建 / 归档）', () => {
       if (path === '/api/v1/projects' && method === 'GET')
         return { status: 200, body: envelope([project]) };
       if (path === '/api/v1/projects' && method === 'POST')
-        return { status: 201, body: envelope({ ...project, id: 'p2', key: 'NEW', name: 'New project' }) };
+        return {
+          status: 201,
+          body: envelope({ ...project, id: 'p2', key: 'NEW', name: 'New project' }),
+        };
       if (path === '/api/v1/projects/p1' && method === 'DELETE')
-        return { status: 200, body: envelope({ ...project, archivedAt: '2026-11-01T00:00:00.000Z' }) };
+        return {
+          status: 200,
+          body: envelope({ ...project, archivedAt: '2026-11-01T00:00:00.000Z' }),
+        };
       return undefined;
     });
 
@@ -50,12 +56,14 @@ describe('Projects（项目列表 / 创建 / 归档）', () => {
 
     await waitFor(() => {
       const call = mock.mock.calls.find(
-        ([url, init]) => pathOf(String(url)) === '/api/v1/projects' && methodOf(init ?? {}) === 'POST',
+        ([url, init]) =>
+          pathOf(String(url)) === '/api/v1/projects' && methodOf(init ?? {}) === 'POST',
       );
       expect(call).toBeTruthy();
     });
     const createCall = mock.mock.calls.find(
-      ([url, init]) => pathOf(String(url)) === '/api/v1/projects' && methodOf(init ?? {}) === 'POST',
+      ([url, init]) =>
+        pathOf(String(url)) === '/api/v1/projects' && methodOf(init ?? {}) === 'POST',
     );
     const body = bodyOf(createCall?.[1] ?? {});
     expect(body).toEqual({ name: 'New project', key: 'NEW' });
@@ -68,11 +76,19 @@ describe('Projects（项目列表 / 创建 / 归档）', () => {
 
     await waitFor(() => {
       const call = mock.mock.calls.find(
-        ([url, init]) => pathOf(String(url)) === '/api/v1/projects/p1' && methodOf(init ?? {}) === 'DELETE',
+        ([url, init]) =>
+          pathOf(String(url)) === '/api/v1/projects/p1' && methodOf(init ?? {}) === 'DELETE',
       );
       expect(call).toBeTruthy();
     });
-    expect(headersOf(mock.mock.calls.find(([url, init]) => pathOf(String(url)) === '/api/v1/projects/p1' && methodOf(init ?? {}) === 'DELETE')?.[1] ?? {})['X-CSRF-Token']).toBe('csrf-1');
+    expect(
+      headersOf(
+        mock.mock.calls.find(
+          ([url, init]) =>
+            pathOf(String(url)) === '/api/v1/projects/p1' && methodOf(init ?? {}) === 'DELETE',
+        )?.[1] ?? {},
+      )['X-CSRF-Token'],
+    ).toBe('csrf-1');
   });
 
   it('列表被服务端 403 拒绝时原样展示错误 envelope', async () => {

@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
 import { PrismaService } from '../prisma/prisma.service';
-import type { V1ConfirmationRepository, V1TicketCreateInput, V1TicketRecord } from './v1-confirmation';
+import type {
+  V1ConfirmationRepository,
+  V1TicketCreateInput,
+  V1TicketRecord,
+} from './v1-confirmation';
 
 @Injectable()
 export class V1ConfirmationPrismaRepository implements V1ConfirmationRepository {

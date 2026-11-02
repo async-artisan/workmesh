@@ -45,7 +45,13 @@ export function Register() {
         </label>
         <label>
           密码
-          <input name="password" type="password" minLength={8} required autoComplete="new-password" />
+          <input
+            name="password"
+            type="password"
+            minLength={8}
+            required
+            autoComplete="new-password"
+          />
         </label>
         {error && (
           <p className="error" role="alert">

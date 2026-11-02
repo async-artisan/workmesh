@@ -77,11 +77,16 @@ function validateManifest(value: unknown): RolePackageManifest {
       path: error.instancePath || '/',
       message: error.message ?? 'invalid',
     }));
-    throw new CliError('PACKAGE_MANIFEST_INVALID', '角色包 manifest 校验失败', { details: { issues } });
+    throw new CliError('PACKAGE_MANIFEST_INVALID', '角色包 manifest 校验失败', {
+      details: { issues },
+    });
   }
   const manifest = value as RolePackageManifest;
   if (manifest.protocolVersion !== PROTOCOL_VERSION)
-    throw new CliError('PACKAGE_INCOMPATIBLE', `协议版本 ${manifest.protocolVersion} 与 CLI 不一致`);
+    throw new CliError(
+      'PACKAGE_INCOMPATIBLE',
+      `协议版本 ${manifest.protocolVersion} 与 CLI 不一致`,
+    );
   if (!isStrictSemver(manifest.version) || !isStrictSemver(manifest.compatibility.minCliVersion))
     throw new CliError('PACKAGE_MANIFEST_INVALID', '版本号必须是严格 SemVer');
   try {
@@ -117,7 +122,13 @@ async function readManifest(packageDir: string): Promise<RolePackageManifest> {
   return validateManifest(parsed);
 }
 
-type VerifiedResource = { id: string; path: string; sha256: string; byteLength: number; bytes: Buffer };
+type VerifiedResource = {
+  id: string;
+  path: string;
+  sha256: string;
+  byteLength: number;
+  bytes: Buffer;
+};
 
 async function verifyResources(
   packageDir: string,
@@ -143,7 +154,8 @@ async function verifyResources(
     }
     if (info.isSymbolicLink())
       throw new CliError('PACKAGE_TAMPERED', `资源是符号链接：${resource.path}`);
-    if (!info.isFile()) throw new CliError('PACKAGE_TAMPERED', `资源不是普通文件：${resource.path}`);
+    if (!info.isFile())
+      throw new CliError('PACKAGE_TAMPERED', `资源不是普通文件：${resource.path}`);
     const bytes = Buffer.from(await readFile(absolute));
     const digest = await sha256Bytes(new Uint8Array(bytes));
     if (bytes.length !== resource.byteLength || digest !== resource.sha256)
@@ -231,8 +243,7 @@ async function assertInstalledCopy(target: string, resources: VerifiedResource[]
 
 function hostOf(manifest: RolePackageManifest, requested?: string): WorkspaceHost {
   if (requested === 'codex' || requested === 'claude-code') return requested;
-  if (requested)
-    throw new CliError('VALIDATION_FAILED', '--host 必须是 codex 或 claude-code');
+  if (requested) throw new CliError('VALIDATION_FAILED', '--host 必须是 codex 或 claude-code');
   const first = manifest.agentEntries[0]?.host;
   if (first === 'codex' || first === 'claude-code') return first;
   throw new CliError('PACKAGE_MANIFEST_INVALID', '角色包没有支持的宿主入口');
@@ -254,9 +265,7 @@ export async function installRolePackage(options: {
   const workspaceDir = resolve(options.workspaceDir);
   const manifest = await readManifest(packageDir);
   const resources = await verifyResources(packageDir, manifest);
-  const manifestDigest = await sha256Bytes(
-    new TextEncoder().encode(canonicalJson(manifest)),
-  );
+  const manifestDigest = await sha256Bytes(new TextEncoder().encode(canonicalJson(manifest)));
 
   const lock = await readLock(lockPath(workspaceDir));
   const existing = lock.packageLocks.find(
@@ -272,8 +281,7 @@ export async function installRolePackage(options: {
   const existingWorkspace = await maybeLoadWorkspace(workspaceDir);
   let pendingWorkspace: WorkspaceConfig | undefined;
   if (!existingWorkspace) {
-    if (!options.projectId)
-      throw new CliError('INVALID_REQUEST', '首次安装需要 --project <uuid>');
+    if (!options.projectId) throw new CliError('INVALID_REQUEST', '首次安装需要 --project <uuid>');
     if (!options.api) throw new CliError('INVALID_REQUEST', '首次安装需要 --api <base>');
     pendingWorkspace = parseWorkspaceConfig({
       schemaVersion: '1.0',
@@ -334,7 +342,9 @@ export async function installRolePackage(options: {
       version: manifest.version,
       packageDigest: manifestDigest,
     },
-  ].sort((left, right) => `${left.packageId}@${left.version}`.localeCompare(`${right.packageId}@${right.version}`));
+  ].sort((left, right) =>
+    `${left.packageId}@${left.version}`.localeCompare(`${right.packageId}@${right.version}`),
+  );
 
   const files = resources.map((resource) => ({
     path: relative(workspaceDir, join(target, resource.path)).split('\\').join('/'),
@@ -342,7 +352,9 @@ export async function installRolePackage(options: {
     kind: 'ROLE_PACKAGE_RESOURCE',
   }));
   const managedFiles = [
-    ...lock.managedFiles.filter((entry) => !entry.path.startsWith(`.workmesh/packages/${manifest.id}/`)),
+    ...lock.managedFiles.filter(
+      (entry) => !entry.path.startsWith(`.workmesh/packages/${manifest.id}/`),
+    ),
     ...files,
   ];
   const nextLock: RoleLock = {

@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Menu, User, X } from 'lucide-react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Bell, ChevronDown, Menu, User, X } from 'lucide-react';
+import { Navigate, matchPath, useLocation, useNavigate } from 'react-router-dom';
 import { SESSION_EXPIRED_EVENT, formatApiError } from './api/client';
 import { authApi, bootstrapSession } from './api/auth';
+import {
+  activityApi,
+  notificationApi,
+  workbenchApi,
+  type ActivityItem,
+} from './api/resources';
+import { ACTION_LABELS, labelFor } from './lib/labels';
 import { useAuthStore } from './store/auth';
 import { findNav, navItems } from './nav';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -15,8 +22,10 @@ import { Prds } from './pages/Prds';
 import { Profile } from './pages/Profile';
 import { Projects } from './pages/Projects';
 import { Requirements } from './pages/Requirements';
+import { RequirementDetail } from './pages/RequirementDetail';
 import { Register } from './pages/Register';
 import { Reviews } from './pages/Reviews';
+import { ReviewDecision } from './pages/ReviewDecision';
 import { Roles } from './pages/Roles';
 import { Workbench } from './pages/Workbench';
 import { Workflows } from './pages/Workflows';
@@ -26,9 +35,21 @@ export function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const current = findNav(location.pathname);
+  const legacyReviewId = new URLSearchParams(location.search).get('id');
   const [apiStatus, setApiStatus] = useState<'checking' | 'ready' | 'offline'>('checking');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [todoCounts, setTodoCounts] = useState({
+    signOffs: 0,
+    approvals: 0,
+    changes: 0,
+    readyTasks: 0,
+    total: 0,
+  });
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+  const [mailBusy, setMailBusy] = useState(false);
+  const [mailNotice, setMailNotice] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
   const user = useAuthStore((state) => state.user);
   const status = useAuthStore((state) => state.status);
@@ -41,6 +62,57 @@ export function App() {
       toast.error(formatApiError(caught));
     });
   }, [isAuthPage]);
+
+  useEffect(() => {
+    if (!user) {
+      setTodoCounts({ signOffs: 0, approvals: 0, changes: 0, readyTasks: 0, total: 0 });
+      return;
+    }
+    let alive = true;
+    const load = () => {
+      workbenchApi
+        .get()
+        .then((value) => {
+          if (!alive) return;
+          const signOffs = value.reviews.filter(
+            (review) =>
+              review.kind === 'TASK_ACCEPTANCE' || review.kind === 'RELEASE_ACCEPTANCE',
+          ).length;
+          setTodoCounts({
+            signOffs,
+            approvals: value.reviews.length - signOffs,
+            changes: value.counts.changes,
+            readyTasks: value.counts.readyTasks,
+            total: value.counts.total,
+          });
+        })
+        .catch(() => {
+          // 通知徽标失败不阻塞页面。
+        });
+    };
+    void load();
+    const timer = window.setInterval(load, 60_000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    let alive = true;
+    activityApi
+      .list(8)
+      .then((page) => {
+        if (alive) setRecentActivity(page.items);
+      })
+      .catch(() => {
+        if (alive) setRecentActivity([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [notificationsOpen]);
 
   useEffect(() => {
     fetch('/api/health')
@@ -88,6 +160,19 @@ export function App() {
       document.body.style.overflow = previous;
     };
   }, [drawerOpen]);
+
+  async function sendEmailDigest() {
+    setMailBusy(true);
+    setMailNotice('');
+    try {
+      const result = await notificationApi.sendEmailDigest();
+      setMailNotice(`邮件摘要已发送到 ${result.to}`);
+    } catch (caught) {
+      setMailNotice(formatApiError(caught));
+    } finally {
+      setMailBusy(false);
+    }
+  }
 
   async function logout() {
     try {
@@ -180,6 +265,101 @@ export function App() {
           </button>
         </div>
         <div className="navbar-right">
+          <div className="nav-notifications">
+            <button
+              className="nav-bell"
+              aria-label={`通知：${todoCounts.total} 件待办`}
+              aria-expanded={notificationsOpen}
+              title={`待办 ${todoCounts.total} 件`}
+              onClick={() => setNotificationsOpen((value) => !value)}
+            >
+              <Bell size={16} />
+              {todoCounts.total > 0 && (
+                <span className="nav-bell-count">
+                  {todoCounts.total > 99 ? '99+' : todoCounts.total}
+                </span>
+              )}
+            </button>
+            {notificationsOpen && (
+              <div className="notification-panel" role="dialog" aria-label="通知中心">
+                <div className="notification-head">
+                  <strong>通知</strong>
+                  <button
+                    className="ghost"
+                    onClick={() => setNotificationsOpen(false)}
+                    aria-label="关闭通知"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className="notification-stats">
+                  <button
+                    onClick={() => {
+                      setNotificationsOpen(false);
+                      navigate('/?type=signOffs');
+                    }}
+                  >
+                    <span>待签字</span>
+                    <strong>{todoCounts.signOffs}</strong>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setNotificationsOpen(false);
+                      navigate('/?type=approvals');
+                    }}
+                  >
+                    <span>待审批</span>
+                    <strong>{todoCounts.approvals}</strong>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setNotificationsOpen(false);
+                      navigate('/?type=changes');
+                    }}
+                  >
+                    <span>待确认变更</span>
+                    <strong>{todoCounts.changes}</strong>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setNotificationsOpen(false);
+                      navigate('/?type=ready');
+                    }}
+                  >
+                    <span>可开工</span>
+                    <strong>{todoCounts.readyTasks}</strong>
+                  </button>
+                </div>
+                <button
+                  className="ghost notification-mail"
+                  disabled={mailBusy}
+                  onClick={() => void sendEmailDigest()}
+                >
+                  {mailBusy ? '发送中…' : '发送邮件摘要'}
+                </button>
+                {mailNotice && <p className="page-sub">{mailNotice}</p>}
+                <div className="notification-list">
+                  <h4>最近活动</h4>
+                  {recentActivity.length === 0 ? (
+                    <p className="detail-empty">暂无审计事件。</p>
+                  ) : (
+                    recentActivity.map((item) => (
+                      <div className="notification-item" key={item.id}>
+                        <span className="status-tag">
+                          {labelFor(ACTION_LABELS, item.action)}
+                        </span>
+                        <span>{item.projectName ?? '—'}</span>
+                        <small>
+                          {item.actor?.email ?? '系统'} ·{' '}
+                          {new Date(item.createdAt).toLocaleString('zh-CN')}
+                        </small>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <div className="user-menu" ref={menuRef}>
             <button
               className="user-profile"
@@ -247,6 +427,8 @@ export function App() {
               <Projects />
             ) : location.pathname === '/requirements' ? (
               <Requirements />
+            ) : matchPath('/requirements/:requirementId', location.pathname) ? (
+              <RequirementDetail />
             ) : location.pathname === '/workflows' ? (
               <Workflows />
             ) : location.pathname === '/knowledge' ? (
@@ -254,7 +436,13 @@ export function App() {
             ) : location.pathname === '/prd' ? (
               <Prds />
             ) : location.pathname === '/reviews' ? (
-              <Reviews />
+              legacyReviewId ? (
+                <Navigate to={`/reviews/${encodeURIComponent(legacyReviewId)}`} replace />
+              ) : (
+                <Reviews />
+              )
+            ) : matchPath('/reviews/:reviewId', location.pathname) ? (
+              <ReviewDecision />
             ) : location.pathname === '/board' ? (
               <Board />
             ) : location.pathname === '/roles' ? (

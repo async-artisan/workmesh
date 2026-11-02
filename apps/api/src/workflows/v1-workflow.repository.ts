@@ -1,7 +1,13 @@
 import type { WorkflowCompiledRules, WorkflowPackageLock } from '@workmesh/shared';
 import type { V1OperationRecord } from '../common/v1-idempotency';
 
-export type V1WorkflowRole = { id: string; key: string; title: string; isActive: boolean; version: number };
+export type V1WorkflowRole = {
+  id: string;
+  key: string;
+  title: string;
+  isActive: boolean;
+  version: number;
+};
 
 export type V1WorkflowDefinitionView = {
   workflowKey: string;
@@ -111,7 +117,13 @@ export type V1CreateInstanceInput = {
   expectedRequirementVersion: number;
   stepBindings: V1CreateInstanceStepBinding[];
   roleSlotBindings: V1CreateInstanceSlotBinding[];
-  steps: Array<{ stepKey: string; roleId: string; responsibleUserId: string; repositoryIds: string[]; outputKinds: string[] }>;
+  steps: Array<{
+    stepKey: string;
+    roleId: string;
+    responsibleUserId: string;
+    repositoryIds: string[];
+    outputKinds: string[];
+  }>;
   actorUserId: string;
   operation: {
     id: string;
@@ -134,10 +146,17 @@ export interface V1WorkflowRepository {
     projectId: string,
     query: { limit: number; cursor: string | null },
   ): Promise<{ items: V1WorkflowDefinitionView[]; nextCursor: string | null }>;
-  findDefinition(projectId: string, workflowKey: string): Promise<(V1WorkflowDefinitionView & { id: string }) | null>;
+  findDefinition(
+    projectId: string,
+    workflowKey: string,
+  ): Promise<(V1WorkflowDefinitionView & { id: string }) | null>;
   findRevision(revisionId: string): Promise<V1WorkflowRevisionView | null>;
   projectRoles(projectId: string): Promise<V1WorkflowRole[]>;
-  findPackageVersion(projectId: string, packageId: string, version: string): Promise<V1PackageVersionRecord | null>;
+  findPackageVersion(
+    projectId: string,
+    packageId: string,
+    version: string,
+  ): Promise<V1PackageVersionRecord | null>;
   findRequirement(requirementId: string): Promise<V1RequirementWorkflowView | null>;
   isActiveMember(projectId: string, userId: string): Promise<boolean>;
   isProjectRepository(projectId: string, repositoryId: string): Promise<boolean>;

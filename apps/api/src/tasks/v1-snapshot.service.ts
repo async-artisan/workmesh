@@ -1,7 +1,18 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { principalScopeKey, V1_ERROR_CODES, WorkmeshError, type Principal, type Scope } from '@workmesh/shared';
+import {
+  principalScopeKey,
+  V1_ERROR_CODES,
+  WorkmeshError,
+  type Principal,
+  type Scope,
+} from '@workmesh/shared';
 import { V1AuthorizationService } from '../auth/v1-authorization';
-import { assertReplayable, requestDigestOf, V1_IDEMPOTENCY_REPOSITORY, type V1IdempotencyRepository } from '../common/v1-idempotency';
+import {
+  assertReplayable,
+  requestDigestOf,
+  V1_IDEMPOTENCY_REPOSITORY,
+  type V1IdempotencyRepository,
+} from '../common/v1-idempotency';
 import {
   assembleSnapshotManifest,
   deliveryScopeDigestOf,
@@ -34,7 +45,11 @@ export type V1CreateSnapshotRequest = {
   candidateRevisionIds?: string[];
 };
 
-export type V1CreateSnapshotResultView = { snapshot: V1SnapshotView; taskVersion: number; replayed: boolean };
+export type V1CreateSnapshotResultView = {
+  snapshot: V1SnapshotView;
+  taskVersion: number;
+  replayed: boolean;
+};
 
 const CONTEXT_READ: Scope = 'context:read';
 const CONTEXT_CREATE: Scope = 'context:create';
@@ -58,13 +73,18 @@ export class V1SnapshotService {
     context: V1SnapshotContext,
   ): Promise<V1CreateSnapshotResultView> {
     const task = await this.repository.findTaskState(taskId);
-    if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
+    if (!task)
+      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
     await this.authorization.resolveProjectContext(principal, task.projectId);
     await this.authorization.requireScope(principal, task.projectId, CONTEXT_CREATE);
 
     const ownerScopeKey = principalScopeKey(principal);
     const projectScopeKey = `project:${task.projectId}`;
-    const requestDigest = requestDigestOf({ method: context.method, route: context.route, body: context.body });
+    const requestDigest = requestDigestOf({
+      method: context.method,
+      route: context.route,
+      body: context.body,
+    });
 
     // 合法重放在版本 CAS 之前返回已提交结果。
     const existing = await this.operations.findOperation({
@@ -73,10 +93,26 @@ export class V1SnapshotService {
       key: context.idempotencyKey,
     });
     if (existing) {
-      assertReplayable(existing, { method: context.method, route: context.route, digest: requestDigest });
-      const current = await this.repository.findSnapshot(String(existing.resultRefs.snapshotId ?? ''));
-      if (!current) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'SNAPSHOT_NOT_FOUND', undefined, 404);
-      return { snapshot: current, taskVersion: Number(existing.resultRefs.taskVersion ?? current.taskGeneration), replayed: true };
+      assertReplayable(existing, {
+        method: context.method,
+        route: context.route,
+        digest: requestDigest,
+      });
+      const current = await this.repository.findSnapshot(
+        String(existing.resultRefs.snapshotId ?? ''),
+      );
+      if (!current)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+          'SNAPSHOT_NOT_FOUND',
+          undefined,
+          404,
+        );
+      return {
+        snapshot: current,
+        taskVersion: Number(existing.resultRefs.taskVersion ?? current.taskGeneration),
+        replayed: true,
+      };
     }
 
     this.requireActiveClaim(task, request.claimId, ownerScopeKey);
@@ -96,7 +132,13 @@ export class V1SnapshotService {
       );
 
     const resources: V1SnapshotManifestResource[] = [];
-    const refs: Array<V1SnapshotManifestResource & { documentRevisionId?: string | null; artifactId?: string | null; rolePackageResourceId?: string | null }> = [];
+    const refs: Array<
+      V1SnapshotManifestResource & {
+        documentRevisionId?: string | null;
+        artifactId?: string | null;
+        rolePackageResourceId?: string | null;
+      }
+    > = [];
 
     const addDocument = async (
       refId: string,
@@ -109,7 +151,10 @@ export class V1SnapshotService {
       if (expected.requirementId && revision.requirementId !== expected.requirementId) return false;
       if (expected.kinds && !expected.kinds.includes(revision.documentKind)) return false;
       // 当前读取权在创建快照时校验；快照固定内容但不冻结未来权限。
-      const access = await this.authorization.resolveKnowledgeAccess(principal, revision.knowledgeBaseId);
+      const access = await this.authorization.resolveKnowledgeAccess(
+        principal,
+        revision.knowledgeBaseId,
+      );
       if (!access.canRead) return false;
       const resource: V1SnapshotManifestResource = {
         refId,
@@ -152,10 +197,15 @@ export class V1SnapshotService {
         revisionIds: candidateIds,
       })) {
         if (!candidateIds.includes(candidate.revisionId)) continue;
-        const added = await addDocument(`candidate:${candidate.revisionId}`, candidate.revisionId, 'CANDIDATE', {
-          requirementId: task.requirementId,
-          kinds: ['UNDERSTANDING', 'PRD'],
-        });
+        const added = await addDocument(
+          `candidate:${candidate.revisionId}`,
+          candidate.revisionId,
+          'CANDIDATE',
+          {
+            requirementId: task.requirementId,
+            kinds: ['UNDERSTANDING', 'PRD'],
+          },
+        );
         if (!added)
           throw new WorkmeshError(
             V1_ERROR_CODES.INPUT_UNAVAILABLE,
@@ -167,11 +217,19 @@ export class V1SnapshotService {
       const resolvedIds = new Set(refs.map((ref) => ref.documentRevisionId));
       for (const id of candidateIds) {
         if (!resolvedIds.has(id))
-          throw new WorkmeshError(V1_ERROR_CODES.INPUT_UNAVAILABLE, 'SNAPSHOT_INPUT_UNAVAILABLE', { revisionId: id }, 422);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.INPUT_UNAVAILABLE,
+            'SNAPSHOT_INPUT_UNAVAILABLE',
+            { revisionId: id },
+            422,
+          );
       }
     }
 
-    for (const binding of await this.repository.listRoleKnowledgeBindings(task.projectId, task.roleId)) {
+    for (const binding of await this.repository.listRoleKnowledgeBindings(
+      task.projectId,
+      task.roleId,
+    )) {
       if (!binding.currentPublishedRevisionId) {
         if (binding.required)
           throw new WorkmeshError(
@@ -182,9 +240,14 @@ export class V1SnapshotService {
           );
         continue;
       }
-      const added = await addDocument(`knowledge:${binding.documentId}`, binding.currentPublishedRevisionId, 'PUBLISHED', {
-        kinds: ['KNOWLEDGE', 'DECISION'],
-      });
+      const added = await addDocument(
+        `knowledge:${binding.documentId}`,
+        binding.currentPublishedRevisionId,
+        'PUBLISHED',
+        {
+          kinds: ['KNOWLEDGE', 'DECISION'],
+        },
+      );
       if (!added && binding.required)
         throw new WorkmeshError(
           V1_ERROR_CODES.INPUT_UNAVAILABLE,
@@ -258,7 +321,8 @@ export class V1SnapshotService {
       actorStamp: {
         kind: principal.kind,
         webSessionId: principal.kind === 'HUMAN' ? context.webSessionId : null,
-        agentCredentialId: principal.kind === 'AGENT' ? principal.agentCredentialId ?? null : null,
+        agentCredentialId:
+          principal.kind === 'AGENT' ? (principal.agentCredentialId ?? null) : null,
         roleId: task.roleId,
         roleKeySnapshot: task.roleKey,
         scopeSnapshot: [...principal.scopes].sort(),
@@ -283,12 +347,23 @@ export class V1SnapshotService {
   /** 读取快照：任一必需引用已失权则整个读取拒绝，不返回部分可误用 manifest。 */
   async getSnapshot(principal: Principal, snapshotId: string): Promise<V1SnapshotView> {
     const snapshot = await this.repository.findSnapshot(snapshotId);
-    if (!snapshot) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'SNAPSHOT_NOT_FOUND', { snapshotId }, 404);
+    if (!snapshot)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'SNAPSHOT_NOT_FOUND',
+        { snapshotId },
+        404,
+      );
     await this.authorization.resolveProjectContext(principal, snapshot.projectId);
     await this.authorization.requireScope(principal, snapshot.projectId, CONTEXT_READ);
 
     for (const resource of snapshot.resources) {
-      await this.assertResourceReadable(principal, resource.kind, resource.targetId, resource.sha256);
+      await this.assertResourceReadable(
+        principal,
+        resource.kind,
+        resource.targetId,
+        resource.sha256,
+      );
     }
     return snapshot;
   }
@@ -297,19 +372,40 @@ export class V1SnapshotService {
    * 读取单个资源正文：只按 refId 定位 manifest 中已记录的目标，不接受客户端提供的文件路径；
    * 读取后再次核对摘要与长度，防止底层内容与 manifest 不一致。
    */
-  async getResource(principal: Principal, snapshotId: string, refId: string): Promise<V1SnapshotResourceBody> {
+  async getResource(
+    principal: Principal,
+    snapshotId: string,
+    refId: string,
+  ): Promise<V1SnapshotResourceBody> {
     const snapshot = await this.repository.findSnapshot(snapshotId);
-    if (!snapshot) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'SNAPSHOT_NOT_FOUND', { snapshotId }, 404);
+    if (!snapshot)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'SNAPSHOT_NOT_FOUND',
+        { snapshotId },
+        404,
+      );
     await this.authorization.resolveProjectContext(principal, snapshot.projectId);
     await this.authorization.requireScope(principal, snapshot.projectId, CONTEXT_READ);
 
     const declared = snapshot.resources.find((resource) => resource.refId === refId);
-    if (!declared) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'SNAPSHOT_REF_NOT_FOUND', { snapshotId, refId }, 404);
+    if (!declared)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'SNAPSHOT_REF_NOT_FOUND',
+        { snapshotId, refId },
+        404,
+      );
     await this.assertResourceReadable(principal, declared.kind, declared.targetId, declared.sha256);
 
     const body = await this.repository.findSnapshotResource(snapshotId, refId);
     if (!body || body.sha256 !== declared.sha256 || body.byteLength !== declared.byteLength)
-      throw new WorkmeshError(V1_ERROR_CODES.CONTENT_UNAVAILABLE, 'SNAPSHOT_RESOURCE_UNAVAILABLE', { snapshotId, refId }, 503);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.CONTENT_UNAVAILABLE,
+        'SNAPSHOT_RESOURCE_UNAVAILABLE',
+        { snapshotId, refId },
+        503,
+      );
     return body;
   }
 
@@ -322,7 +418,12 @@ export class V1SnapshotService {
       claim.taskGeneration !== task.taskGeneration ||
       claim.principalScopeKey !== ownerScopeKey
     )
-      throw new WorkmeshError(V1_ERROR_CODES.CLAIM_INVALID, 'CLAIM_INVALID', { taskId: task.id, claimId }, 409);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.CLAIM_INVALID,
+        'CLAIM_INVALID',
+        { taskId: task.id, claimId },
+        409,
+      );
   }
 
   private async buildBaseline(
@@ -336,10 +437,15 @@ export class V1SnapshotService {
     ) => Promise<boolean>,
   ) {
     if (!task.currentPrdRevisionId || !task.currentUnderstandingRevisionId) return null;
-    const understandingAdded = await addDocument('understanding', task.currentUnderstandingRevisionId, 'PUBLISHED', {
-      requirementId: task.requirementId,
-      kinds: ['UNDERSTANDING'],
-    });
+    const understandingAdded = await addDocument(
+      'understanding',
+      task.currentUnderstandingRevisionId,
+      'PUBLISHED',
+      {
+        requirementId: task.requirementId,
+        kinds: ['UNDERSTANDING'],
+      },
+    );
     const prdAdded = await addDocument('prd', task.currentPrdRevisionId, 'PUBLISHED', {
       requirementId: task.requirementId,
       kinds: ['PRD'],
@@ -364,9 +470,23 @@ export class V1SnapshotService {
     if (kind === 'DOCUMENT_REVISION') {
       const revision = await this.repository.findRevision(targetId);
       if (!revision || revision.sha256 !== sha256)
-        throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'SNAPSHOT_REF_UNREADABLE', { targetId }, 404);
-      const access = await this.authorization.resolveKnowledgeAccess(principal, revision.knowledgeBaseId);
-      if (!access.canRead) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'SNAPSHOT_REF_UNREADABLE', { targetId }, 404);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+          'SNAPSHOT_REF_UNREADABLE',
+          { targetId },
+          404,
+        );
+      const access = await this.authorization.resolveKnowledgeAccess(
+        principal,
+        revision.knowledgeBaseId,
+      );
+      if (!access.canRead)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+          'SNAPSHOT_REF_UNREADABLE',
+          { targetId },
+          404,
+        );
       return;
     }
     if (kind === 'ROLE_RESOURCE') {

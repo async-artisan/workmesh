@@ -58,8 +58,7 @@ export type TestDatabaseRejection = {
 };
 
 export type TestDatabaseResult =
-  | { ok: true; target: TestDatabaseTarget }
-  | { ok: false; rejection: TestDatabaseRejection };
+  { ok: true; target: TestDatabaseTarget } | { ok: false; rejection: TestDatabaseRejection };
 
 export type TestDatabaseOptions = {
   env?: TestEnvSource;
@@ -134,7 +133,10 @@ export function evaluateTestDatabase(options: TestDatabaseOptions = {}): TestDat
     );
   }
   if (!(TEST_ENV_VALUES as readonly string[]).includes(envRaw)) {
-    return reject('TEST_ENV_INVALID', `${TEST_ENV_ENV} must be one of ${TEST_ENV_VALUES.join('|')}, received "${envRaw}"`);
+    return reject(
+      'TEST_ENV_INVALID',
+      `${TEST_ENV_ENV} must be one of ${TEST_ENV_VALUES.join('|')}, received "${envRaw}"`,
+    );
   }
   const env = envRaw as TestEnv;
 
@@ -158,7 +160,10 @@ export function evaluateTestDatabase(options: TestDatabaseOptions = {}): TestDat
   try {
     parsed = new URL(url);
   } catch {
-    return reject('TEST_DATABASE_URL_INVALID', `${TEST_DATABASE_URL_ENV} is not a parseable absolute URL`);
+    return reject(
+      'TEST_DATABASE_URL_INVALID',
+      `${TEST_DATABASE_URL_ENV} is not a parseable absolute URL`,
+    );
   }
 
   if (!(ALLOWED_SCHEMES as readonly string[]).includes(parsed.protocol)) {
@@ -179,7 +184,10 @@ export function evaluateTestDatabase(options: TestDatabaseOptions = {}): TestDat
   // 库名只来自 pathname；用户名/密码/查询参数中的前缀不算合规目标。
   const database = decodeURIComponent(parsed.pathname.replace(/^\//, ''));
   if (database.length === 0) {
-    return reject('TEST_DATABASE_NAME_MISSING', 'database URL must carry a database name in its path');
+    return reject(
+      'TEST_DATABASE_NAME_MISSING',
+      'database URL must carry a database name in its path',
+    );
   }
   if (!database.startsWith(TEST_DATABASE_PREFIX)) {
     return reject(

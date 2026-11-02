@@ -40,8 +40,7 @@ export function parsePlatform(input: string): Platform {
   if (path.endsWith('/')) path = path.slice(0, -1);
   if (!path.endsWith(API_ROOT))
     clampThrow(`API 路径必须以 ${API_ROOT} 结尾（允许明确的反向代理前缀）`);
-  if (path.includes('//') || path.includes('..'))
-    clampThrow('API 路径不能包含空段或点段');
+  if (path.includes('//') || path.includes('..')) clampThrow('API 路径不能包含空段或点段');
   if (/%[0-9a-fA-F]{2}/.test(path)) clampThrow('API 路径不能包含编码分隔符');
 
   return { origin, apiBasePath: path };

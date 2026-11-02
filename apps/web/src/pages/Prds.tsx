@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { base64ToUtf8, documentApi, type DocumentDetail, type RevisionView } from '../api/resources';
+import {
+  base64ToUtf8,
+  documentApi,
+  type DocumentDetail,
+  type RevisionView,
+} from '../api/resources';
 import { formatApiError } from '../api/client';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { ProjectSelect } from '../components/ProjectSelect';
@@ -56,7 +61,8 @@ export function Prds() {
   const [withdrawReason, setWithdrawReason] = useState('');
 
   const selected = docs.find((item) => item.document.id === selectedId) ?? null;
-  const candidateCount = selected?.revisions.filter((revision) => revision.state === 'CANDIDATE').length ?? 0;
+  const candidateCount =
+    selected?.revisions.filter((revision) => revision.state === 'CANDIDATE').length ?? 0;
   const diff = useMemo(
     () => (content?.baseText === undefined ? [] : diffLines(content.baseText, content.text)),
     [content],
@@ -74,7 +80,9 @@ export function Prds() {
       setDocs(page.items);
       setError('');
       setSelectedId((current) =>
-        page.items.some((item) => item.document.id === current) ? current : (page.items[0]?.document.id ?? ''),
+        page.items.some((item) => item.document.id === current)
+          ? current
+          : (page.items[0]?.document.id ?? ''),
       );
       setContent(null);
     } catch (caught) {
@@ -132,7 +140,8 @@ export function Prds() {
         <div>
           <h2>PRD 文档</h2>
           <p className="page-sub">
-            PRD 由本地 Product Agent 生成并提交候选。此页面用于查看版本、比较差异和进入评审，人工只在关键决策处介入。
+            PRD 由本地 Product Agent
+            生成并提交候选。此页面用于查看版本、比较差异和进入评审，人工只在关键决策处介入。
           </p>
         </div>
         <div className="page-actions">
@@ -153,7 +162,8 @@ export function Prds() {
       {notice && <p className="kb-notice">{notice}</p>}
 
       <div className="page-card muted">
-        Agent 生成的候选会自动出现在这里。页面不提供手动新建或编辑 PRD 的入口；需要返修时，请在评审中提出意见，由 Agent 生成下一版。
+        Agent 生成的候选会自动出现在这里。页面不提供手动新建或编辑 PRD
+        的入口；需要返修时，请在评审中提出意见，由 Agent 生成下一版。
       </div>
 
       <div className="table-card">
@@ -175,13 +185,18 @@ export function Prds() {
             </thead>
             <tbody>
               {docs.map((item) => (
-                <tr key={item.document.id} className={selectedId === item.document.id ? 'is-selected' : undefined}>
+                <tr
+                  key={item.document.id}
+                  className={selectedId === item.document.id ? 'is-selected' : undefined}
+                >
                   <td>
                     <strong>{item.publishedRevision?.title ?? '尚未发布'}</strong>
                     <div className="cell-mono cell-truncate">{item.document.id}</div>
                   </td>
                   <td>
-                    <span className="cell-mono cell-truncate">{item.document.requirementId ?? '—'}</span>
+                    <span className="cell-mono cell-truncate">
+                      {item.document.requirementId ?? '—'}
+                    </span>
                   </td>
                   <td className="cell-num">v{item.document.version}</td>
                   <td className="cell-num">
@@ -202,7 +217,11 @@ export function Prds() {
               ))}
               {docs.length === 0 && (
                 <tr className="table-empty">
-                  <td colSpan={5}>{projectId ? '该项目还没有 PRD 文档，等待 Product Agent 提交候选。' : '先选择项目。'}</td>
+                  <td colSpan={5}>
+                    {projectId
+                      ? '该项目还没有 PRD 文档，等待 Product Agent 提交候选。'
+                      : '先选择项目。'}
+                  </td>
                 </tr>
               )}
             </tbody>

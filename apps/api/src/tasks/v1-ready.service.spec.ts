@@ -48,9 +48,27 @@ class InMemoryAuthorizationRepository implements V1AuthorizationRepository {
   private assignments = new Map<string, V1RoleAssignmentRecord[]>();
 
   constructor() {
-    this.members.set(`${P1}:alice`, { projectId: P1, userId: 'alice', role: 'MEMBER', version: 1, revokedAt: null });
-    this.members.set(`${P1}:bob`, { projectId: P1, userId: 'bob', role: 'MEMBER', version: 1, revokedAt: null });
-    this.members.set(`${P1}:owner`, { projectId: P1, userId: 'owner', role: 'OWNER', version: 1, revokedAt: null });
+    this.members.set(`${P1}:alice`, {
+      projectId: P1,
+      userId: 'alice',
+      role: 'MEMBER',
+      version: 1,
+      revokedAt: null,
+    });
+    this.members.set(`${P1}:bob`, {
+      projectId: P1,
+      userId: 'bob',
+      role: 'MEMBER',
+      version: 1,
+      revokedAt: null,
+    });
+    this.members.set(`${P1}:owner`, {
+      projectId: P1,
+      userId: 'owner',
+      role: 'OWNER',
+      version: 1,
+      revokedAt: null,
+    });
     this.assignments.set(`${P1}:alice`, [
       { id: 'ra-alice-1', projectId: P1, userId: 'alice', roleId: R1, version: 1, revokedAt: null },
     ]);
@@ -69,11 +87,20 @@ class InMemoryAuthorizationRepository implements V1AuthorizationRepository {
   async findMember(projectId: string, userId: string): Promise<V1MemberRecord | null> {
     return this.members.get(`${projectId}:${userId}`) ?? null;
   }
-  async findActiveRoleAssignments(projectId: string, userId: string): Promise<V1RoleAssignmentRecord[]> {
+  async findActiveRoleAssignments(
+    projectId: string,
+    userId: string,
+  ): Promise<V1RoleAssignmentRecord[]> {
     return this.assignments.get(`${projectId}:${userId}`) ?? [];
   }
-  async findRoleAssignment(projectId: string, userId: string, roleId: string): Promise<V1RoleAssignmentRecord | null> {
-    return this.findActiveRoleAssignments(projectId, userId).then((items) => items.find((item) => item.roleId === roleId) ?? null);
+  async findRoleAssignment(
+    projectId: string,
+    userId: string,
+    roleId: string,
+  ): Promise<V1RoleAssignmentRecord | null> {
+    return this.findActiveRoleAssignments(projectId, userId).then(
+      (items) => items.find((item) => item.roleId === roleId) ?? null,
+    );
   }
   async findKnowledgeBase(): Promise<V1KnowledgeBaseRecord | null> {
     return null;
@@ -90,7 +117,10 @@ function matchesOwnership(candidate: V1ReadyCandidate, ownership: V1ReadyOwnersh
     case 'AGENT':
       return candidate.roleId === ownership.roleId;
     case 'HUMAN':
-      return candidate.responsibleUserId === ownership.userId || ownership.roleIds.includes(candidate.roleId);
+      return (
+        candidate.responsibleUserId === ownership.userId ||
+        ownership.roleIds.includes(candidate.roleId)
+      );
   }
 }
 
@@ -120,7 +150,15 @@ class InMemoryReadyRepository implements V1ReadyRepository {
             (candidate.stepKey === input.after.stepKey && candidate.id > input.after.id)
           : true,
       )
-      .sort((left, right) => (left.stepKey === right.stepKey ? (left.id < right.id ? -1 : 1) : left.stepKey < right.stepKey ? -1 : 1));
+      .sort((left, right) =>
+        left.stepKey === right.stepKey
+          ? left.id < right.id
+            ? -1
+            : 1
+          : left.stepKey < right.stepKey
+            ? -1
+            : 1,
+      );
     return { items: filtered.slice(0, input.take), hasMore: filtered.length > input.take };
   }
 
@@ -152,7 +190,11 @@ function candidate(over: Partial<V1ReadyCandidate>): V1ReadyCandidate {
   };
 }
 
-function build(candidates: V1ReadyCandidate[], revisions: V1ReadyRevisionSteps[], tasks: V1ReadyInstanceStep[]) {
+function build(
+  candidates: V1ReadyCandidate[],
+  revisions: V1ReadyRevisionSteps[],
+  tasks: V1ReadyInstanceStep[],
+) {
   const repository = new InMemoryReadyRepository(candidates, revisions, tasks);
   const authorization = new V1AuthorizationService(new InMemoryAuthorizationRepository());
   return { service: new V1ReadyService(repository, authorization), repository };
@@ -178,12 +220,18 @@ describe('V1ReadyService.ready', () => {
 
   it('AGENT 缺 task:read 返回 403 SCOPE_DENIED', async () => {
     const { service } = build([candidate({ stepKey: 'design' })], [REVISION], []);
-    await expect(service.ready(agent(R1, []), P1, {})).rejects.toMatchObject({ status: 403, code: 'SCOPE_DENIED' });
+    await expect(service.ready(agent(R1, []), P1, {})).rejects.toMatchObject({
+      status: 403,
+      code: 'SCOPE_DENIED',
+    });
   });
 
   it('AGENT 只返回本凭据角色的任务，不能看到其他角色任务', async () => {
     const { service } = build(
-      [candidate({ stepKey: 'design', roleId: R1 }), candidate({ stepKey: 'impl', roleId: R2, responsibleUserId: 'bob' })],
+      [
+        candidate({ stepKey: 'design', roleId: R1 }),
+        candidate({ stepKey: 'impl', roleId: R2, responsibleUserId: 'bob' }),
+      ],
       [REVISION],
       [],
     );
@@ -221,7 +269,16 @@ describe('V1ReadyService.ready', () => {
         candidate({ stepKey: 'design', responsibleUserId: 'alice', roleId: R2 }),
         candidate({ stepKey: 'impl', responsibleUserId: 'bob', roleId: R1 }),
       ],
-      [{ revisionId: 'revision-1', projectId: P1, steps: [{ key: 'design', deps: [] }, { key: 'impl', deps: [] }] }],
+      [
+        {
+          revisionId: 'revision-1',
+          projectId: P1,
+          steps: [
+            { key: 'design', deps: [] },
+            { key: 'impl', deps: [] },
+          ],
+        },
+      ],
       [],
     );
     const page = await service.ready(human('owner'), P1, {});
@@ -230,15 +287,21 @@ describe('V1ReadyService.ready', () => {
 
   it('前序依赖任务未 DONE 时该任务不就绪；全部 DONE 后就绪', async () => {
     const impl = candidate({ stepKey: 'impl', id: '55555555-5555-4555-8555-555555555555' });
-    const { service: notReady } = build([impl], [REVISION], [
-      { workflowInstanceId: 'instance-1', stepKey: 'design', executionStatus: 'OPEN' },
-    ]);
+    const { service: notReady } = build(
+      [impl],
+      [REVISION],
+      [{ workflowInstanceId: 'instance-1', stepKey: 'design', executionStatus: 'OPEN' }],
+    );
     expect((await notReady.ready(human('alice'), P1, {})).items).toEqual([]);
 
-    const { service: ready } = build([impl], [REVISION], [
-      { workflowInstanceId: 'instance-1', stepKey: 'design', executionStatus: 'DONE' },
+    const { service: ready } = build(
+      [impl],
+      [REVISION],
+      [{ workflowInstanceId: 'instance-1', stepKey: 'design', executionStatus: 'DONE' }],
+    );
+    expect((await ready.ready(human('alice'), P1, {})).items.map((item) => item.id)).toEqual([
+      impl.id,
     ]);
-    expect((await ready.ready(human('alice'), P1, {})).items.map((item) => item.id)).toEqual([impl.id]);
   });
 
   it('缺少前序步骤任务或修订缺少该步骤时按不就绪处理', async () => {
@@ -257,14 +320,28 @@ describe('V1ReadyService.ready', () => {
     const inProgress = candidate({ stepKey: 'review', executionStatus: 'IN_PROGRESS' });
     const { service } = build(
       [claimed, blocked, inProgress],
-      [{ revisionId: 'revision-1', projectId: P1, steps: [{ key: 'design', deps: [] }, { key: 'impl', deps: [] }, { key: 'review', deps: [] }] }],
+      [
+        {
+          revisionId: 'revision-1',
+          projectId: P1,
+          steps: [
+            { key: 'design', deps: [] },
+            { key: 'impl', deps: [] },
+            { key: 'review', deps: [] },
+          ],
+        },
+      ],
       [],
     );
     expect((await service.ready(human('alice'), P1, {})).items).toEqual([]);
   });
 
   it('实例没有 definitionRevisionId 时一律不就绪，不猜测基线', async () => {
-    const { service } = build([candidate({ stepKey: 'design', definitionRevisionId: null })], [REVISION], []);
+    const { service } = build(
+      [candidate({ stepKey: 'design', definitionRevisionId: null })],
+      [REVISION],
+      [],
+    );
     expect((await service.ready(human('alice'), P1, {})).items).toEqual([]);
   });
 
@@ -284,7 +361,16 @@ describe('V1ReadyService.ready', () => {
     const third = candidate({ stepKey: 'beta', id: '66666666-6666-4666-8666-666666666663' });
     const { service } = build(
       [third, second, first],
-      [{ revisionId: 'revision-1', projectId: P1, steps: [{ key: 'alpha', deps: [] }, { key: 'beta', deps: [] }] }],
+      [
+        {
+          revisionId: 'revision-1',
+          projectId: P1,
+          steps: [
+            { key: 'alpha', deps: [] },
+            { key: 'beta', deps: [] },
+          ],
+        },
+      ],
       [],
     );
 
@@ -301,7 +387,9 @@ describe('V1ReadyService.ready', () => {
 
   it('非法 cursor 返回 400 INVALID_REQUEST', async () => {
     const { service } = build([], [], []);
-    await expect(service.ready(human('alice'), P1, { cursor: 'not-a-cursor' })).rejects.toMatchObject({
+    await expect(
+      service.ready(human('alice'), P1, { cursor: 'not-a-cursor' }),
+    ).rejects.toMatchObject({
       status: 400,
       code: 'INVALID_REQUEST',
     });
@@ -309,6 +397,9 @@ describe('V1ReadyService.ready', () => {
 
   it('项目不可见时返回 404', async () => {
     const { service } = build([candidate({ projectId: P2 })], [], []);
-    await expect(service.ready(human('alice'), P2, {})).rejects.toMatchObject({ status: 404, code: 'RESOURCE_NOT_FOUND' });
+    await expect(service.ready(human('alice'), P2, {})).rejects.toMatchObject({
+      status: 404,
+      code: 'RESOURCE_NOT_FOUND',
+    });
   });
 });

@@ -156,9 +156,10 @@ describe('deviceLogin', () => {
 
     expect(prompts[0]?.url).toBe('https://workmesh.example.com/cli/authorize');
     expect(prompts[0]?.url).not.toContain('ABCD');
-    const printed = [...prompts.map((prompt) => `${prompt.url} ${prompt.userCode}`), ...notices].join(
-      '\n',
-    );
+    const printed = [
+      ...prompts.map((prompt) => `${prompt.url} ${prompt.userCode}`),
+      ...notices,
+    ].join('\n');
     expect(printed).not.toContain(result.credential.secret);
   });
 

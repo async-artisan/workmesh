@@ -96,13 +96,17 @@ export function parseJsonStrict(input: Uint8Array | string, maxDepth = 32): unkn
       }
       fail('unterminated array');
     }
-    const token = source.slice(index).match(/^(true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/)?.[0];
+    const token = source
+      .slice(index)
+      .match(/^(true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/)?.[0];
     if (!token) fail('invalid JSON value');
     const parsedToken = token as string;
     index += parsedToken.length;
-    if (/^-?\d/.test(parsedToken) && !/^-?(?:0|[1-9]\d*)$/.test(parsedToken)) fail('floating point number is not supported');
+    if (/^-?\d/.test(parsedToken) && !/^-?(?:0|[1-9]\d*)$/.test(parsedToken))
+      fail('floating point number is not supported');
     const value = JSON.parse(parsedToken) as unknown;
-    if (typeof value === 'number' && (!Number.isFinite(value) || !Number.isSafeInteger(value))) fail('number is not a safe integer');
+    if (typeof value === 'number' && (!Number.isFinite(value) || !Number.isSafeInteger(value)))
+      fail('number is not a safe integer');
     return value;
   };
 

@@ -3,7 +3,15 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Reviews } from './Reviews';
 import { setCsrfToken } from '../api/client';
-import { bodyOf, envelope, headersOf, methodOf, mockFetch, pathOf, useProject } from '../test-utils';
+import {
+  bodyOf,
+  envelope,
+  headersOf,
+  methodOf,
+  mockFetch,
+  pathOf,
+  useProject,
+} from '../test-utils';
 
 const review = {
   id: 'review-1',
@@ -97,7 +105,11 @@ describe('Reviews（槽位 / digest / 版本，权限由服务端拒绝）', () 
     const mock = mockFetch((url, init) => {
       const path = pathOf(url);
       const method = methodOf(init ?? {});
-      if (path === '/api/v1/projects' && method === 'GET') return { status: 200, body: envelope([{ id: 'p1', key: 'DEMO', name: 'Demo', version: 1 }]) };
+      if (path === '/api/v1/projects' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope([{ id: 'p1', key: 'DEMO', name: 'Demo', version: 1 }]),
+        };
       if (path === '/api/v1/review-requests/review-1' && method === 'GET')
         return { status: 200, body: envelope(review) };
       if (path === '/api/v1/auth/action-previews') return previewReply(init);
@@ -129,14 +141,21 @@ describe('Reviews（槽位 / digest / 版本，权限由服务端拒绝）', () 
     fireEvent.click(await screen.findByRole('button', { name: '下一步：预览并验证密码' }));
     expect(await screen.findByTestId('action-digest')).toHaveTextContent('digest-action');
 
-    const previewCall = mock.mock.calls.find(([url]) => pathOf(String(url)) === '/api/v1/auth/action-previews');
+    const previewCall = mock.mock.calls.find(
+      ([url]) => pathOf(String(url)) === '/api/v1/auth/action-previews',
+    );
     expect(bodyOf(previewCall?.[1] ?? {})).toMatchObject({
       action: 'REVIEW_DECIDE',
       targetType: 'REVIEW_REQUEST',
       targetId: 'review-1',
       expectedVersion: 4,
       roleSlot: null,
-      payload: { slotId: 'slot-1', decision: 'APPROVE', subjectDigest: 'sha256-subject', comment: null },
+      payload: {
+        slotId: 'slot-1',
+        decision: 'APPROVE',
+        subjectDigest: 'sha256-subject',
+        comment: null,
+      },
     });
 
     await reachTicket();
@@ -149,7 +168,9 @@ describe('Reviews（槽位 / digest / 版本，权限由服务端拒绝）', () 
     expect(screen.queryByText(/决定已记录/)).not.toBeInTheDocument();
 
     const decisionCall = mock.mock.calls.find(
-      ([url, init]) => pathOf(String(url)) === '/api/v1/review-requests/review-1/decisions' && methodOf(init ?? {}) === 'POST',
+      ([url, init]) =>
+        pathOf(String(url)) === '/api/v1/review-requests/review-1/decisions' &&
+        methodOf(init ?? {}) === 'POST',
     );
     expect(bodyOf(decisionCall?.[1] ?? {})).toEqual({
       slotId: 'slot-1',
@@ -164,7 +185,11 @@ describe('Reviews（槽位 / digest / 版本，权限由服务端拒绝）', () 
     const mock = mockFetch((url, init) => {
       const path = pathOf(url);
       const method = methodOf(init ?? {});
-      if (path === '/api/v1/projects' && method === 'GET') return { status: 200, body: envelope([{ id: 'p1', key: 'DEMO', name: 'Demo', version: 1 }]) };
+      if (path === '/api/v1/projects' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope([{ id: 'p1', key: 'DEMO', name: 'Demo', version: 1 }]),
+        };
       if (path === '/api/v1/review-requests/review-1' && method === 'GET')
         return { status: 200, body: envelope(review) };
       if (path === '/api/v1/auth/action-previews') return previewReply(init);
@@ -197,7 +222,9 @@ describe('Reviews（槽位 / digest / 版本，权限由服务端拒绝）', () 
     expect(screen.queryByText(/决定已记录|服务端已发布/)).not.toBeInTheDocument();
 
     const decisionCall = mock.mock.calls.find(
-      ([url, init]) => pathOf(String(url)) === '/api/v1/review-requests/review-1/decisions' && methodOf(init ?? {}) === 'POST',
+      ([url, init]) =>
+        pathOf(String(url)) === '/api/v1/review-requests/review-1/decisions' &&
+        methodOf(init ?? {}) === 'POST',
     );
     expect(bodyOf(decisionCall?.[1] ?? {}).expectedVersion).toBe(4);
   });
@@ -221,7 +248,11 @@ describe('Reviews（槽位 / digest / 版本，权限由服务端拒绝）', () 
     const mock = mockFetch((url, init) => {
       const path = pathOf(url);
       const method = methodOf(init ?? {});
-      if (path === '/api/v1/projects' && method === 'GET') return { status: 200, body: envelope([{ id: 'p1', key: 'DEMO', name: 'Demo', version: 1 }]) };
+      if (path === '/api/v1/projects' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope([{ id: 'p1', key: 'DEMO', name: 'Demo', version: 1 }]),
+        };
       if (path === '/api/v1/review-requests/review-1' && method === 'GET')
         return { status: 200, body: envelope(withDecision) };
       if (path === '/api/v1/auth/action-previews') return previewReply(init);
@@ -271,7 +302,9 @@ describe('Reviews（槽位 / digest / 版本，权限由服务端拒绝）', () 
     );
 
     const revokeCall = mock.mock.calls.find(
-      ([url, init]) => pathOf(String(url)) === '/api/v1/review-decisions/decision-1/revoke' && methodOf(init ?? {}) === 'POST',
+      ([url, init]) =>
+        pathOf(String(url)) === '/api/v1/review-decisions/decision-1/revoke' &&
+        methodOf(init ?? {}) === 'POST',
     );
     expect(bodyOf(revokeCall?.[1] ?? {})).toEqual({
       expectedVersion: 4,
@@ -291,7 +324,10 @@ describe('Reviews（槽位 / digest / 版本，权限由服务端拒绝）', () 
           body: envelope([{ id: 'p1', key: 'demo', name: 'Demo', version: 1 }]),
         };
       if (path === '/api/v1/projects/p1/review-requests' && method === 'GET')
-        return { status: 200, body: envelope({ items: [review], nextCursor: null, hasMore: false }) };
+        return {
+          status: 200,
+          body: envelope({ items: [review], nextCursor: null, hasMore: false }),
+        };
       if (path === '/api/v1/review-requests/review-1' && method === 'GET')
         return { status: 200, body: envelope(review) };
       return undefined;
@@ -301,7 +337,9 @@ describe('Reviews（槽位 / digest / 版本，权限由服务端拒绝）', () 
 
     expect(await screen.findByText('待评审收件箱')).toBeInTheDocument();
     expect(screen.getByText('review-1')).toBeInTheDocument();
-    const listCall = mock.mock.calls.find(([url]) => pathOf(String(url)) === '/api/v1/projects/p1/review-requests');
+    const listCall = mock.mock.calls.find(
+      ([url]) => pathOf(String(url)) === '/api/v1/projects/p1/review-requests',
+    );
     expect(String(listCall?.[0])).toContain('assignedToMe=true');
     expect(String(listCall?.[0])).toContain('status=OPEN');
 
@@ -325,6 +363,8 @@ describe('Reviews（槽位 / digest / 版本，权限由服务端拒绝）', () 
     expect(screen.getByRole('button', { name: '下一步：预览并验证密码' })).toBeDisabled();
     fireEvent.change(screen.getByLabelText('评审说明'), { target: { value: '请补充验收证据' } });
     expect(screen.getByRole('button', { name: '下一步：预览并验证密码' })).toBeEnabled();
-    expect(mock.mock.calls.some(([url]) => pathOf(String(url)) === '/api/v1/auth/action-previews')).toBe(false);
+    expect(
+      mock.mock.calls.some(([url]) => pathOf(String(url)) === '/api/v1/auth/action-previews'),
+    ).toBe(false);
   });
 });

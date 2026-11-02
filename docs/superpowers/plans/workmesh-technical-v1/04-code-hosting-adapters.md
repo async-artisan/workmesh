@@ -12,14 +12,14 @@
 
 下列字段是本分册的权威定义。UUID、时间和通用审计字段遵守主方案。所有外部 ID 存字符串，不能转换为会丢精度的 JavaScript number。
 
-| 实体 | 字段与约束 |
-| --- | --- |
-| ProviderConnection | `id, projectId, provider: GITHUB\|CODEUP, instanceKey, apiBaseUrl, webBaseUrl, externalNamespaceId, credentialRef, webhookSecretRef, version:Int=1, archivedAt?, createdAt, updatedAt`。`credentialRef` 和 `webhookSecretRef` 是部署秘密映射的非敏感键，长度 1..120、仅 `[A-Za-z0-9._-]`，绝不接收秘密值。唯一 `(projectId,provider,instanceKey,externalNamespaceId)`。 |
-| ProjectRepository | `id,projectId,connectionId,externalRepositoryId,fullName,repositoryUrl,defaultBranch,version:Int=1,archivedAt?,createdAt,updatedAt`；唯一 `(connectionId,externalRepositoryId)`。`projectId` 必须与 connection 相同；归档而非删除。 |
-| ChangeRequestMirror | `id,projectId,projectRepositoryId,externalId,numberLabel,title,authorExternalId,authorKind:USER\|BOT,headSha,baseSha,state:OPEN\|CLOSED\|MERGED,mergedCommitSha?,mergedAt?,providerUpdatedAt,lastFetchedAt,version`；唯一 `(projectRepositoryId,externalId)`。这是可刷新的查询投影，不是永久批准。 |
-| ExternalReviewMirror | `id,changeRequestId,externalReviewId,reviewerExternalId,reviewerKind,commitSha?,state:APPROVED\|CHANGES_REQUESTED\|DISMISSED\|COMMENTED\|PENDING,submittedAt?,lastFetchedAt`；唯一 `(changeRequestId,externalReviewId)`，允许刷新当前厂商状态，重要变更写 AuditEvent。 |
-| CodeReviewEvidence | `id,projectId,projectRepositoryId,changeRequestId,headSha,mergedCommitSha?,authorExternalId,decision:VALID\|INVALID\|UNKNOWN,reasons:String[],reviews:Json,verifiedAt,expiresAt,digest,providerStateDigest,createdByStampId?,webhookReceiptId?`；不可变，`expiresAt=verifiedAt+60s`。来源stamp与webhookReceipt精确二选一，不伪造HUMAN身份。`reviews` 保存参与判定的稳定 ID、类型、决定、评审提交和时间，不保存评论正文或完整厂商响应。 |
-| WebhookReceipt | `id,connectionId,deliveryId,eventType,bodySha256,targets:Json,receivedAt,processedAt?,outcome:PENDING\|APPLIED\|IGNORED\|FAILED,errorCode?`；唯一 `(connectionId,deliveryId)`。targets仅存已解析的仓库、请求ID或提交定位，供重启后主动刷新；不存原始请求体、评论、认证头或秘密。 |
+| 实体                 | 字段与约束                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ProviderConnection   | `id, projectId, provider: GITHUB\|CODEUP, instanceKey, apiBaseUrl, webBaseUrl, externalNamespaceId, credentialRef, webhookSecretRef, version:Int=1, archivedAt?, createdAt, updatedAt`。`credentialRef` 和 `webhookSecretRef` 是部署秘密映射的非敏感键，长度 1..120、仅 `[A-Za-z0-9._-]`，绝不接收秘密值。唯一 `(projectId,provider,instanceKey,externalNamespaceId)`。                                                                |
+| ProjectRepository    | `id,projectId,connectionId,externalRepositoryId,fullName,repositoryUrl,defaultBranch,version:Int=1,archivedAt?,createdAt,updatedAt`；唯一 `(connectionId,externalRepositoryId)`。`projectId` 必须与 connection 相同；归档而非删除。                                                                                                                                                                                                    |
+| ChangeRequestMirror  | `id,projectId,projectRepositoryId,externalId,numberLabel,title,authorExternalId,authorKind:USER\|BOT,headSha,baseSha,state:OPEN\|CLOSED\|MERGED,mergedCommitSha?,mergedAt?,providerUpdatedAt,lastFetchedAt,version`；唯一 `(projectRepositoryId,externalId)`。这是可刷新的查询投影，不是永久批准。                                                                                                                                     |
+| ExternalReviewMirror | `id,changeRequestId,externalReviewId,reviewerExternalId,reviewerKind,commitSha?,state:APPROVED\|CHANGES_REQUESTED\|DISMISSED\|COMMENTED\|PENDING,submittedAt?,lastFetchedAt`；唯一 `(changeRequestId,externalReviewId)`，允许刷新当前厂商状态，重要变更写 AuditEvent。                                                                                                                                                                 |
+| CodeReviewEvidence   | `id,projectId,projectRepositoryId,changeRequestId,headSha,mergedCommitSha?,authorExternalId,decision:VALID\|INVALID\|UNKNOWN,reasons:String[],reviews:Json,verifiedAt,expiresAt,digest,providerStateDigest,createdByStampId?,webhookReceiptId?`；不可变，`expiresAt=verifiedAt+60s`。来源stamp与webhookReceipt精确二选一，不伪造HUMAN身份。`reviews` 保存参与判定的稳定 ID、类型、决定、评审提交和时间，不保存评论正文或完整厂商响应。 |
+| WebhookReceipt       | `id,connectionId,deliveryId,eventType,bodySha256,targets:Json,receivedAt,processedAt?,outcome:PENDING\|APPLIED\|IGNORED\|FAILED,errorCode?`；唯一 `(connectionId,deliveryId)`。targets仅存已解析的仓库、请求ID或提交定位，供重启后主动刷新；不存原始请求体、评论、认证头或秘密。                                                                                                                                                       |
 
 `CodeReviewEvidence.digest` 是05的canonical JSON对 `{schemaVersion:'1.0',projectRepositoryId,changeRequestId,headSha,mergedCommitSha,authorExternalId,decision,reasons,reviews,verifiedAt,expiresAt,providerStateDigest}` 计算的完整SHA-256；nullable字段显式null，reviews按reviewerExternalId、reviewId排序，reasons去重排序。`providerStateDigest`覆盖PR／评审业务集合但不含本地核验时间。批准记录引用证据ID，并固定headSha与工件集合，不能只保存PR编号或URL。
 
@@ -35,9 +35,20 @@ interface CodeHostingAdapter {
     commitBoundReviews: boolean;
     immutableBlob: boolean;
   };
-  verifyWebhook(connection: ConnectionRuntime, headers: HeadersView, rawBody: Uint8Array): VerifiedEvent;
-  refreshChangeRequest(repository: RepositoryRuntime, externalId: string): Promise<NormalizedChangeRequest>;
-  fetchBlob(repository: RepositoryRuntime, commitSha: string, repoPath: string): Promise<Uint8Array>;
+  verifyWebhook(
+    connection: ConnectionRuntime,
+    headers: HeadersView,
+    rawBody: Uint8Array,
+  ): VerifiedEvent;
+  refreshChangeRequest(
+    repository: RepositoryRuntime,
+    externalId: string,
+  ): Promise<NormalizedChangeRequest>;
+  fetchBlob(
+    repository: RepositoryRuntime,
+    commitSha: string,
+    repoPath: string,
+  ): Promise<Uint8Array>;
 }
 ```
 
@@ -111,18 +122,18 @@ Codeup 适配器作为后续独立开发切片，必需输入是经授权的实�
 
 共同 envelope、错误和幂等规则见 05。
 
-| 方法与路径 | 授权与请求 | 响应 data |
-| --- | --- | --- |
-| GET `/projects/:p/code-connections` | 当前项目 HUMAN 管理者。 | 非敏感连接元数据数组；不返回 secret 值，secretRef 仅管理页面可见。 |
-| POST `/projects/:p/code-connections` | HUMAN OWNER/ADMIN＋票据；`{expectedVersion:Project.version,provider,instanceKey,externalNamespaceId,credentialRef,webhookSecretRef,confirmation}`，v1 GITHUB URL服务端固定。 | `{connection,projectVersion}`，201。 |
-| POST `/code-connections/:id/archive` | HUMAN OWNER/ADMIN＋票据；`{expectedVersion,reason,confirmation}`，有关联待审任务时先阻塞并审计。 | `{id,version,archivedAt}`。 |
-| GET `/projects/:p/repositories` | 项目读取权限。 | 仓库列表，不含秘密引用。 |
-| POST `/projects/:p/repositories` | HUMAN OWNER/ADMIN＋票据；`{expectedVersion:Project.version,connectionId,fullName,confirmation}`，服务端核验仓库并将其稳定身份及连接版本纳入ActionBinding。 | `{repository,projectVersion}`，201。 |
-| POST `/repositories/:id/archive` | HUMAN OWNER/ADMIN＋票据；`{expectedVersion,reason,confirmation}`；不得删证据历史。 | `{id,version,archivedAt}`。 |
-| POST `/repositories/:id/change-requests/refresh` | HUMAN 管理者或具备 `task:deliver` 且持有本仓 IMPL task claim 的 Agent；`{externalId,taskId?}`；幂等键必需。 | `{changeRequest,evidence:{id,decision,reasons,headSha,verifiedAt,expiresAt}}`。 |
-| GET `/code-review-evidence/:id` | 对证据关联任务／仓库有当前读取权。 | 不可变标准证据，不含原始敏感评论。 |
-| POST `/integrations/code-hosting/:connectionId/webhook` | 厂商请求认证，不接收人／Agent Cookie。 | `{receiptId,outcome,duplicate}`；成功 200。 |
-| POST `/code-connections/:id/webhook-receipts/:receiptId/retry` | HUMAN当前项目管理者，`{}`，幂等键必需；只允许本连接PENDING/FAILED且targets合法。 | `{receiptId,outcome}`；不能按请求提供的新URL或payload执行。 |
+| 方法与路径                                                     | 授权与请求                                                                                                                                                                   | 响应 data                                                                       |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| GET `/projects/:p/code-connections`                            | 当前项目 HUMAN 管理者。                                                                                                                                                      | 非敏感连接元数据数组；不返回 secret 值，secretRef 仅管理页面可见。              |
+| POST `/projects/:p/code-connections`                           | HUMAN OWNER/ADMIN＋票据；`{expectedVersion:Project.version,provider,instanceKey,externalNamespaceId,credentialRef,webhookSecretRef,confirmation}`，v1 GITHUB URL服务端固定。 | `{connection,projectVersion}`，201。                                            |
+| POST `/code-connections/:id/archive`                           | HUMAN OWNER/ADMIN＋票据；`{expectedVersion,reason,confirmation}`，有关联待审任务时先阻塞并审计。                                                                             | `{id,version,archivedAt}`。                                                     |
+| GET `/projects/:p/repositories`                                | 项目读取权限。                                                                                                                                                               | 仓库列表，不含秘密引用。                                                        |
+| POST `/projects/:p/repositories`                               | HUMAN OWNER/ADMIN＋票据；`{expectedVersion:Project.version,connectionId,fullName,confirmation}`，服务端核验仓库并将其稳定身份及连接版本纳入ActionBinding。                   | `{repository,projectVersion}`，201。                                            |
+| POST `/repositories/:id/archive`                               | HUMAN OWNER/ADMIN＋票据；`{expectedVersion,reason,confirmation}`；不得删证据历史。                                                                                           | `{id,version,archivedAt}`。                                                     |
+| POST `/repositories/:id/change-requests/refresh`               | HUMAN 管理者或具备 `task:deliver` 且持有本仓 IMPL task claim 的 Agent；`{externalId,taskId?}`；幂等键必需。                                                                  | `{changeRequest,evidence:{id,decision,reasons,headSha,verifiedAt,expiresAt}}`。 |
+| GET `/code-review-evidence/:id`                                | 对证据关联任务／仓库有当前读取权。                                                                                                                                           | 不可变标准证据，不含原始敏感评论。                                              |
+| POST `/integrations/code-hosting/:connectionId/webhook`        | 厂商请求认证，不接收人／Agent Cookie。                                                                                                                                       | `{receiptId,outcome,duplicate}`；成功 200。                                     |
+| POST `/code-connections/:id/webhook-receipts/:receiptId/retry` | HUMAN当前项目管理者，`{}`，幂等键必需；只允许本连接PENDING/FAILED且targets合法。                                                                                             | `{receiptId,outcome}`；不能按请求提供的新URL或payload执行。                     |
 
 连接 secretRef 若不存在或不在部署批准白名单，返回 422 `INVALID_SECRET_REFERENCE`。已归档或能力不支持返回 409 `PROVIDER_UNAVAILABLE` 或 422 `PROVIDER_UNSUPPORTED`；GitHub 状态无法取得返回 503 `PROVIDER_VERIFICATION_UNAVAILABLE`。错误信息不包含秘密或上游原始响应。
 

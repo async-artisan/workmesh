@@ -286,7 +286,9 @@ async function runLogin(options: LoginOptions, command: Command): Promise<void> 
     },
     result.requestId,
     () => {
-      console.log(`已授权 ${result.credential.projectId} / ${result.credential.roleKey || '(其他项目)'}。`);
+      console.log(
+        `已授权 ${result.credential.projectId} / ${result.credential.roleKey || '(其他项目)'}。`,
+      );
       console.log(`凭据 ${result.credential.credentialId} 到期 ${result.credential.expiresAt}。`);
       console.log(`本地文件 ${result.credentialPath}（0600）。`);
       console.log('授权只发生在浏览器；CLI 不保存密码或 HUMAN 会话。');
@@ -303,10 +305,14 @@ function buildProgram(): Command {
 
   program.action(() => {
     console.log('WorkMesh 连接本地 AI 与项目协作事实，不替你自动批准。');
-    console.log('1. workmesh roles install --package <dir> --project <uuid> --host <codex|claude-code> --api <base>');
+    console.log(
+      '1. workmesh roles install --package <dir> --project <uuid> --host <codex|claude-code> --api <base>',
+    );
     console.log('2. workmesh auth login --credential-store file');
     console.log('3. workmesh claim --task <uuid> --json');
-    console.log('4. workmesh context --task <uuid> --claim <uuid> --expected-version <n> --materialize --json');
+    console.log(
+      '4. workmesh context --task <uuid> --claim <uuid> --expected-version <n> --materialize --json',
+    );
     console.log('按角色 SOP 本地生产；交付后用 review 请求 Web 人工确认。');
     console.log('修改角色、项目或平台需匹配的新授权；不要上传聊天、个人记忆或凭据。');
   });
@@ -317,7 +323,10 @@ function buildProgram(): Command {
     auth
       .command('login')
       .description('通过浏览器设备授权取得受限 Agent 凭据（不接收密码或 HUMAN token）')
-      .option('--credential-store <kind>', 'explicit credential store consent; only file is supported')
+      .option(
+        '--credential-store <kind>',
+        'explicit credential store consent; only file is supported',
+      )
       .option('--client-name <name>', 'client name shown on the authorization page', 'workmesh-cli')
       .option('--timeout <seconds>', 'polling deadline in seconds'),
   ).action(async (raw: Options, command: Command) => {
@@ -393,14 +402,19 @@ function buildProgram(): Command {
     auth
       .command('logout')
       .description('删除本地凭据文件；服务端凭据需在 Web 独立撤销')
-      .option('--credential-id <id>', 'clear the credential matching this id instead of all workspace credentials'),
+      .option(
+        '--credential-id <id>',
+        'clear the credential matching this id instead of all workspace credentials',
+      ),
   ).action(async (raw: Options, command: Command) => {
     const io = optionsOf(command);
     const home = configHome(str(io, 'config-home'));
     const credentials = await listCredentials(home);
     const wanted = str(raw, 'credential-id');
     const matches = wanted
-      ? credentials.filter((credential) => credential.credentialId === assertUuid(wanted, '--credential-id'))
+      ? credentials.filter(
+          (credential) => credential.credentialId === assertUuid(wanted, '--credential-id'),
+        )
       : credentials;
     if (matches.length === 0)
       throw new CliError('RESOURCE_NOT_FOUND', '本地没有匹配的 Agent 凭据', { status: 404 });
@@ -418,7 +432,9 @@ function buildProgram(): Command {
       () => {
         for (const credential of matches)
           console.log(`已删除本地凭据 ${credential.credentialId}（${credential.projectId}）。`);
-        console.log('服务端凭据仍然有效；如需撤销，请在有权的 Web 会话中处理。CLI 无密码、无 HUMAN token，不能自撤销。');
+        console.log(
+          '服务端凭据仍然有效；如需撤销，请在有权的 Web 会话中处理。CLI 无密码、无 HUMAN token，不能自撤销。',
+        );
       },
     );
   });
@@ -504,8 +520,12 @@ function buildProgram(): Command {
       },
       written.requestId,
       () => {
-        console.log(`已认领 ${taskId} → claim ${claimId}${taskVersion !== null ? `（task v${taskVersion}）` : ''}。`);
-        console.log(`下一步：workmesh context --task ${taskId} --claim ${claimId} --expected-version ${taskVersion ?? 1} --materialize`);
+        console.log(
+          `已认领 ${taskId} → claim ${claimId}${taskVersion !== null ? `（task v${taskVersion}）` : ''}。`,
+        );
+        console.log(
+          `下一步：workmesh context --task ${taskId} --claim ${claimId} --expected-version ${taskVersion ?? 1} --materialize`,
+        );
       },
     );
   });
@@ -533,7 +553,10 @@ function buildProgram(): Command {
     let taskVersion: number | null = null;
     let requestId: string;
     if (snapshotOption) {
-      const snapshot = await fetchSnapshot(connection.client, assertUuid(snapshotOption, '--snapshot'));
+      const snapshot = await fetchSnapshot(
+        connection.client,
+        assertUuid(snapshotOption, '--snapshot'),
+      );
       snapshotId = snapshot.id;
       requestId = randomUUID();
     } else {
@@ -613,7 +636,9 @@ function buildProgram(): Command {
       () => {
         console.log(`快照 ${snapshotId}（manifest ${view.manifestDigest}）`);
         for (const resource of view.resources)
-          console.log(`  ${resource.kind} ${resource.refId} ${resource.byteLength}B ${resource.sha256}`);
+          console.log(
+            `  ${resource.kind} ${resource.refId} ${resource.byteLength}B ${resource.sha256}`,
+          );
         if (materialized)
           console.log(
             `${materialized.reused ? '已存在且摘要一致' : '已原子物化'}：${materialized.path}（${materialized.files.length} 个文件，本次从服务端读取，不宣称离线新鲜度）`,
@@ -661,7 +686,10 @@ function buildProgram(): Command {
       .requiredOption('--kind <kind>', 'UNDERSTANDING | DECISION | PRD | KNOWLEDGE')
       .requiredOption('--file <path>', 'single candidate file')
       .option('--title <title>', 'candidate title (defaults to file name)')
-      .option('--requirement <id>', 'requirement UUID (required when creating UNDERSTANDING/PRD; inferred for --document)')
+      .option(
+        '--requirement <id>',
+        'requirement UUID (required when creating UNDERSTANDING/PRD; inferred for --document)',
+      )
       .option('--document <id>', 'existing document UUID to add a revision to')
       .option('--basis-understanding-revision <id>', 'PRD basis Understanding revision UUID')
       .option('--delivery-scope <json>', 'PRD deliveryScope JSON, or @path/to/delivery-scope.json')
@@ -677,7 +705,9 @@ function buildProgram(): Command {
     const deliveryScope = deliveryScopeInput
       ? await parseCandidateJson(deliveryScopeInput, '--delivery-scope')
       : undefined;
-    const acceptance = acceptanceInput ? await parseCandidateJson(acceptanceInput, '--acceptance') : undefined;
+    const acceptance = acceptanceInput
+      ? await parseCandidateJson(acceptanceInput, '--acceptance')
+      : undefined;
     const built = await buildCandidate(connection.workspace.projectId, {
       knowledgeBaseId: str(raw, 'kb'),
       kind,
@@ -697,8 +727,12 @@ function buildProgram(): Command {
       operation: str(raw, 'operation'),
       resultRefs: (data) => {
         const record = asRecord(data, '候选响应结构非法');
-        const revision = record.revision ? asRecord(record.revision, '候选 revision 非法') : undefined;
-        const document = record.document ? asRecord(record.document, '候选 document 非法') : undefined;
+        const revision = record.revision
+          ? asRecord(record.revision, '候选 revision 非法')
+          : undefined;
+        const document = record.document
+          ? asRecord(record.document, '候选 document 非法')
+          : undefined;
         return {
           documentId:
             typeof record.documentId === 'string'
@@ -736,7 +770,10 @@ function buildProgram(): Command {
         ...pick(record, ['documentId', 'revisionId', 'status', 'version', 'reviewRequestId']),
         document: document ? pick(document, ['id', 'kind', 'version']) : null,
         revision: revision
-          ? { ...pick(revision, ['id', 'seq', 'status', 'sha256', 'byteLength', 'reviewRequestId']), reviewRequestId }
+          ? {
+              ...pick(revision, ['id', 'seq', 'status', 'sha256', 'byteLength', 'reviewRequestId']),
+              reviewRequestId,
+            }
           : null,
         operationId: written.operationId,
       },
@@ -747,7 +784,8 @@ function buildProgram(): Command {
         console.log(
           `已提交候选 ${built.title}${documentId ? `（document ${String(documentId)}）` : ''}${revisionId ? ` revision ${String(revisionId)}` : ''}。`,
         );
-        if (reviewRequestId) console.log(`评审请求 ${reviewRequestId}，请在 Web 中由 HUMAN 完成决策。`);
+        if (reviewRequestId)
+          console.log(`评审请求 ${reviewRequestId}，请在 Web 中由 HUMAN 完成决策。`);
         console.log('候选尚未发布；发布需在 Web 由有权 HUMAN 独立确认。');
       },
     );
@@ -816,7 +854,9 @@ function buildProgram(): Command {
       written.requestId,
       () => {
         console.log(`已交付 ArtifactSet${artifactSetId ? ` ${artifactSetId}` : ''}。`);
-        console.log(`任务 ${taskId}${taskVersion !== null ? ` v${taskVersion}` : ''} 停在评审；人工确认前不会 DONE。`);
+        console.log(
+          `任务 ${taskId}${taskVersion !== null ? ` v${taskVersion}` : ''} 停在评审；人工确认前不会 DONE。`,
+        );
         console.log('后续：workmesh review --task <id> --artifact-set <id> --expected-version <n>');
       },
     );
@@ -889,7 +929,10 @@ function buildProgram(): Command {
       .description('显示本地 receipt 的安全元数据')
       .requiredOption('--operation <uuid>', 'operation UUID'),
   ).action(async (raw: Options, command: Command) => {
-    const record = await readReceipt(workspaceDirOf(optionsOf(command)), operationIdOf(str(raw, 'operation')));
+    const record = await readReceipt(
+      workspaceDirOf(optionsOf(command)),
+      operationIdOf(str(raw, 'operation')),
+    );
     emitLocal(
       command,
       {
@@ -905,7 +948,9 @@ function buildProgram(): Command {
         freshness: 'local-only',
       },
       () => {
-        console.log(`${record.operationId}  ${record.status}  ${record.method} ${record.relativeRoute}`);
+        console.log(
+          `${record.operationId}  ${record.status}  ${record.method} ${record.relativeRoute}`,
+        );
         console.log(`digest ${record.requestDigest}`);
         console.log('本地 receipt 仅代表本机记录，不保证服务端已提交（stale 需 reconcile）。');
       },
@@ -934,10 +979,16 @@ function buildProgram(): Command {
       throw new CliError('PROTOCOL_INVALID', '服务端 resultRefs 非法');
     const resultRefs: Record<string, string | number | null> = {};
     for (const [key, value] of Object.entries((refs ?? {}) as Record<string, unknown>)) {
-      if (typeof value === 'string' || typeof value === 'number' || value === null) resultRefs[key] = value;
+      if (typeof value === 'string' || typeof value === 'number' || value === null)
+        resultRefs[key] = value;
       else throw new CliError('PROTOCOL_INVALID', `服务端 resultRefs.${key} 非法`);
     }
-    const updated = await finishOperation(connection.workspaceDir, operationId, 'COMMITTED', resultRefs);
+    const updated = await finishOperation(
+      connection.workspaceDir,
+      operationId,
+      'COMMITTED',
+      resultRefs,
+    );
     emitLocal(
       command,
       {
@@ -950,7 +1001,9 @@ function buildProgram(): Command {
         localUpdatedAt: updated.updatedAt,
       },
       () => {
-        console.log(`服务端已提交 ${operationId}（digest ${String(server.requestDigest ?? '')}）。`);
+        console.log(
+          `服务端已提交 ${operationId}（digest ${String(server.requestDigest ?? '')}）。`,
+        );
         console.log(`本地 status：${local.status} → ${updated.status}`);
       },
     );
@@ -982,25 +1035,20 @@ function buildProgram(): Command {
     if (record.nextCursor !== null && typeof record.nextCursor !== 'string')
       throw new CliError('PROTOCOL_INVALID', 'changes nextCursor 非法');
     const nextCursor = record.nextCursor;
-    emit(
-      command,
-      { items, nextCursor, hasMore: nextCursor !== null },
-      response.requestId,
-      () => {
-        if (!items.length) {
-          console.log('当前没有待处理的变更。');
-          return;
-        }
-        for (const item of items) {
-          const row = asRecord(item, 'change item 非法');
-          console.log(
-            `${String(row.recipientId ?? row.id ?? '')}  ${String(row.eventId ?? '')}  ${String(row.changeSummary ?? row.summary ?? '')}`,
-          );
-        }
-        if (nextCursor) console.log(`下一页：--cursor ${nextCursor}`);
-        console.log('ack 需在 Web 或具备 change:ack 的界面逐槽确认；CLI 不代其他角色确认。');
-      },
-    );
+    emit(command, { items, nextCursor, hasMore: nextCursor !== null }, response.requestId, () => {
+      if (!items.length) {
+        console.log('当前没有待处理的变更。');
+        return;
+      }
+      for (const item of items) {
+        const row = asRecord(item, 'change item 非法');
+        console.log(
+          `${String(row.recipientId ?? row.id ?? '')}  ${String(row.eventId ?? '')}  ${String(row.changeSummary ?? row.summary ?? '')}`,
+        );
+      }
+      if (nextCursor) console.log(`下一页：--cursor ${nextCursor}`);
+      console.log('ack 需在 Web 或具备 change:ack 的界面逐槽确认；CLI 不代其他角色确认。');
+    });
   });
 
   return program;

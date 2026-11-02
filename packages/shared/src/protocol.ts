@@ -30,6 +30,12 @@ export type Scope =
   | 'integrations:prepare';
 
 export const DEFAULT_READ_SCOPES: readonly Scope[] = [
-  'project:read', 'workflow:read', 'requirement:read', 'knowledge:read',
-  'task:read', 'context:read', 'review:read', 'change:read',
+  'project:read',
+  'workflow:read',
+  'requirement:read',
+  'knowledge:read',
+  'task:read',
+  'context:read',
+  'review:read',
+  'change:read',
 ];

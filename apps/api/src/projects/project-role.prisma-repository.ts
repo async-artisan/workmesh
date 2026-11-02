@@ -21,7 +21,11 @@ function isRetryable(error: unknown): boolean {
   const code = (error as { code?: string })?.code;
   if (code === 'P2034') return true;
   const message = String((error as Error)?.message ?? '');
-  return message.includes('40001') || message.includes('40P01') || message.includes('could not serialize');
+  return (
+    message.includes('40001') ||
+    message.includes('40P01') ||
+    message.includes('could not serialize')
+  );
 }
 
 function assignmentRecordOf(row: {
@@ -104,7 +108,9 @@ export class ProjectRolePrismaRepository implements ProjectRoleRepository {
     return this.runWithRetry(() => this.runMutation(input, 'REVOKE'));
   }
 
-  private async runWithRetry(run: () => Promise<ProjectRoleMutationView>): Promise<ProjectRoleMutationView> {
+  private async runWithRetry(
+    run: () => Promise<ProjectRoleMutationView>,
+  ): Promise<ProjectRoleMutationView> {
     let attempt = 0;
     for (;;) {
       try {
@@ -351,7 +357,10 @@ export class ProjectRolePrismaRepository implements ProjectRoleRepository {
                 revokedAt: view.assignment.revokedAt,
               },
             },
-            responseMetadata: { memberVersion: input.expectedVersion + 1, assignmentVersion: assignment.version },
+            responseMetadata: {
+              memberVersion: input.expectedVersion + 1,
+              assignmentVersion: assignment.version,
+            },
           },
         });
 

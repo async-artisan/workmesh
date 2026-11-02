@@ -1,10 +1,28 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { canonicalJson, sha256Bytes, V1_ERROR_CODES, WorkmeshError, type ActionBinding, type Principal } from '@workmesh/shared';
+import {
+  canonicalJson,
+  sha256Bytes,
+  V1_ERROR_CODES,
+  WorkmeshError,
+  type ActionBinding,
+  type Principal,
+} from '@workmesh/shared';
 import { V1AuthorizationService, type V1AuthorizationRepository } from '../auth/v1-authorization';
 import type { V1Principal } from '../auth/v1-policy';
-import { actionDigestOf, hashTicketSecret, type V1ConfirmationRepository, type V1TicketRecord } from '../auth/v1-confirmation';
+import {
+  actionDigestOf,
+  hashTicketSecret,
+  type V1ConfirmationRepository,
+  type V1TicketRecord,
+} from '../auth/v1-confirmation';
 import type { V1OperationRecord } from '../common/v1-idempotency';
-import { ROLE_PACKAGE_PUBLISH, ROLE_PACKAGE_TARGET, V1RolePackageService, type V1RolePackageContext, type V1RegisterRolePackageRequest } from './v1-role-package.service';
+import {
+  ROLE_PACKAGE_PUBLISH,
+  ROLE_PACKAGE_TARGET,
+  V1RolePackageService,
+  type V1RolePackageContext,
+  type V1RegisterRolePackageRequest,
+} from './v1-role-package.service';
 import type {
   V1RegisterRolePackageInput,
   V1RegisterRolePackageResult,
@@ -30,7 +48,11 @@ async function manifest(overrides: Record<string, unknown> = {}): Promise<Record
     protocolVersion: '1.0',
     title: 'Product',
     roleKey: 'product',
-    compatibility: { minCliVersion: '1.0.0', maxCliVersionExclusive: '2.0.0', contractVersion: '1.0' },
+    compatibility: {
+      minCliVersion: '1.0.0',
+      maxCliVersionExclusive: '2.0.0',
+      contractVersion: '1.0',
+    },
     inputs: [],
     outputs: [{ key: 'prd', channel: 'CANDIDATE', kind: 'PRD', contractVersion: '1.0' }],
     resources: [
@@ -43,7 +65,9 @@ async function manifest(overrides: Record<string, unknown> = {}): Promise<Record
         mediaType: 'text/markdown',
       },
     ],
-    agentEntries: [{ host: 'codex', type: 'AGENTS_MD_POINTER', resourceId: 'sop', adapterVersion: '1.0.0' }],
+    agentEntries: [
+      { host: 'codex', type: 'AGENTS_MD_POINTER', resourceId: 'sop', adapterVersion: '1.0.0' },
+    ],
     ...overrides,
   };
 }
@@ -76,13 +100,21 @@ function store(): State {
 function packageRepository(state: State): V1RolePackageRepository {
   return {
     async list(project, query) {
-      const visible = state.packages.filter((item) => item.scope === 'BUILTIN' || item.projectId === project);
-      return { items: visible.slice(0, query.limit).map(({ resources: _resources, ...item }) => item), nextCursor: null };
+      const visible = state.packages.filter(
+        (item) => item.scope === 'BUILTIN' || item.projectId === project,
+      );
+      return {
+        items: visible.slice(0, query.limit).map(({ resources: _resources, ...item }) => item),
+        nextCursor: null,
+      };
     },
     async findVersion(project, id, value) {
       return (
         state.packages.find(
-          (item) => item.packageId === id && item.version === value && (item.scope === 'BUILTIN' || item.projectId === project),
+          (item) =>
+            item.packageId === id &&
+            item.version === value &&
+            (item.scope === 'BUILTIN' || item.projectId === project),
         ) ?? null
       );
     },
@@ -111,18 +143,42 @@ function packageRepository(state: State): V1RolePackageRepository {
     },
     async register(input: V1RegisterRolePackageInput): Promise<V1RegisterRolePackageResult> {
       if (state.projectVersion !== input.expectedProjectVersion)
-        throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'PROJECT_VERSION_CONFLICT', undefined, 409);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.VERSION_CONFLICT,
+          'PROJECT_VERSION_CONFLICT',
+          undefined,
+          409,
+        );
       const ticket = state.tickets.find((item) => item.id === input.ticket.id);
-      if (!ticket || ticket.secretHash !== input.ticket.secretHash || ticket.consumedAt || ticket.invalidatedAt)
-        throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_USED, 'CONFIRMATION_CONSUME_CONFLICT', undefined, 409);
+      if (
+        !ticket ||
+        ticket.secretHash !== input.ticket.secretHash ||
+        ticket.consumedAt ||
+        ticket.invalidatedAt
+      )
+        throw new WorkmeshError(
+          V1_ERROR_CODES.CONFIRMATION_USED,
+          'CONFIRMATION_CONSUME_CONFLICT',
+          undefined,
+          409,
+        );
       ticket.consumedAt = now;
       ticket.consumedOperationId = input.operation.id;
       if (
         state.packages.some(
-          (item) => item.scope === 'PROJECT' && item.projectId === input.projectId && item.packageId === input.packageId && item.version === input.version,
+          (item) =>
+            item.scope === 'PROJECT' &&
+            item.projectId === input.projectId &&
+            item.packageId === input.packageId &&
+            item.version === input.version,
         )
       )
-        throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'ROLE_PACKAGE_VERSION_CONFLICT', undefined, 409);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.VERSION_CONFLICT,
+          'ROLE_PACKAGE_VERSION_CONFLICT',
+          undefined,
+          409,
+        );
       const stored: StoredPackage = {
         id: 'pv-1',
         packageId: input.packageId,
@@ -181,7 +237,16 @@ function authRepository(state: State): V1AuthorizationRepository {
     },
     async findActiveRoleAssignments(project, userId) {
       return userId === 'alice'
-        ? [{ id: 'as-product', projectId: project, userId, roleId: 'r-product', version: 1, revokedAt: null }]
+        ? [
+            {
+              id: 'as-product',
+              projectId: project,
+              userId,
+              roleId: 'r-product',
+              version: 1,
+              revokedAt: null,
+            },
+          ]
         : [];
     },
     async findRoleAssignment() {
@@ -196,7 +261,10 @@ function authRepository(state: State): V1AuthorizationRepository {
   };
 }
 
-function makeTicket(binding: ActionBinding, overrides: Partial<V1TicketRecord> = {}): V1TicketRecord {
+function makeTicket(
+  binding: ActionBinding,
+  overrides: Partial<V1TicketRecord> = {},
+): V1TicketRecord {
   return {
     id: 'tk-1',
     secretHash: hashTicketSecret(ticketSecret),
@@ -220,8 +288,20 @@ function makeTicket(binding: ActionBinding, overrides: Partial<V1TicketRecord> =
   };
 }
 
-const alice: V1Principal = { kind: 'HUMAN', userId: 'alice', scopes: [], sessionId: 'sess-1', authVersion: 1 };
-const bob: V1Principal = { kind: 'HUMAN', userId: 'bob', scopes: [], sessionId: 'sess-1', authVersion: 1 };
+const alice: V1Principal = {
+  kind: 'HUMAN',
+  userId: 'alice',
+  scopes: [],
+  sessionId: 'sess-1',
+  authVersion: 1,
+};
+const bob: V1Principal = {
+  kind: 'HUMAN',
+  userId: 'bob',
+  scopes: [],
+  sessionId: 'sess-1',
+  authVersion: 1,
+};
 const agentAlice: Principal = {
   kind: 'AGENT',
   userId: 'alice',
@@ -252,10 +332,18 @@ describe('V1RolePackageService', () => {
         throw new Error('not used');
       },
     };
-    service = new V1RolePackageService(repository, authorization, tickets, { async findOperation() { return null; } });
+    service = new V1RolePackageService(repository, authorization, tickets, {
+      async findOperation() {
+        return null;
+      },
+    });
   });
 
-  async function bindingFor(expectedVersion: number, manifestDigest: string, resourceIds: string[] = ['sop']): Promise<ActionBinding> {
+  async function bindingFor(
+    expectedVersion: number,
+    manifestDigest: string,
+    resourceIds: string[] = ['sop'],
+  ): Promise<ActionBinding> {
     return {
       action: ROLE_PACKAGE_PUBLISH,
       projectId,
@@ -271,7 +359,9 @@ describe('V1RolePackageService', () => {
     return sha256Bytes(encoder.encode(canonicalJson(value)));
   }
 
-  function request(overrides: Partial<V1RegisterRolePackageRequest> = {}): V1RegisterRolePackageRequest {
+  function request(
+    overrides: Partial<V1RegisterRolePackageRequest> = {},
+  ): V1RegisterRolePackageRequest {
     return {
       expectedVersion: state.projectVersion,
       manifest: {} as Record<string, unknown>,
@@ -281,7 +371,10 @@ describe('V1RolePackageService', () => {
     };
   }
 
-  function context(body: Record<string, unknown>, overrides: Partial<V1RolePackageContext> = {}): V1RolePackageContext {
+  function context(
+    body: Record<string, unknown>,
+    overrides: Partial<V1RolePackageContext> = {},
+  ): V1RolePackageContext {
     return {
       idempotencyKey,
       method: 'POST',
@@ -335,7 +428,12 @@ describe('V1RolePackageService', () => {
   it('serves resource bytes through the registered version', async () => {
     const { manifest: value, digest } = await registered();
     state.tickets.push(makeTicket(await bindingFor(state.projectVersion, digest)));
-    const result = await service.register(alice, projectId, request({ manifest: value }), context({ expectedVersion: state.projectVersion, manifest: value }));
+    const result = await service.register(
+      alice,
+      projectId,
+      request({ manifest: value }),
+      context({ expectedVersion: state.projectVersion, manifest: value }),
+    );
     const resource = await service.getResource(alice, projectId, packageId, version, 'sop');
     expect(resource).toMatchObject({
       resourceId: 'sop',
@@ -349,7 +447,9 @@ describe('V1RolePackageService', () => {
 
   it('rejects an agent on register', async () => {
     const { manifest: value } = await registered();
-    await expect(service.register(agentAlice, projectId, request({ manifest: value }), context({}))).rejects.toMatchObject({
+    await expect(
+      service.register(agentAlice, projectId, request({ manifest: value }), context({})),
+    ).rejects.toMatchObject({
       code: V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
       status: 403,
     });
@@ -358,7 +458,9 @@ describe('V1RolePackageService', () => {
   it('rejects a plain member on register', async () => {
     state.memberRole = 'MEMBER';
     const { manifest: value } = await registered();
-    await expect(service.register(bob, projectId, request({ manifest: value }), context({}))).rejects.toMatchObject({
+    await expect(
+      service.register(bob, projectId, request({ manifest: value }), context({})),
+    ).rejects.toMatchObject({
       code: V1_ERROR_CODES.FORBIDDEN,
       status: 403,
       message: 'PROJECT_MANAGER_REQUIRED',
@@ -368,7 +470,9 @@ describe('V1RolePackageService', () => {
   it('rejects a package whose roleKey is not an active project role', async () => {
     state.roleKeys = ['engineering'];
     const { manifest: value } = await registered();
-    await expect(service.register(alice, projectId, request({ manifest: value }), context({}))).rejects.toMatchObject({
+    await expect(
+      service.register(alice, projectId, request({ manifest: value }), context({})),
+    ).rejects.toMatchObject({
       code: V1_ERROR_CODES.VALIDATION_FAILED,
       status: 422,
       message: 'ROLE_PACKAGE_ROLE_UNKNOWN',
@@ -377,8 +481,12 @@ describe('V1RolePackageService', () => {
 
   it('rejects an invalid manifest before touching project state', async () => {
     const { manifest: value } = await registered();
-    value.resources = [{ ...(value.resources as Array<Record<string, unknown>>)[0], path: '../escape.md' }];
-    await expect(service.register(alice, projectId, request({ manifest: value }), context({}))).rejects.toMatchObject({
+    value.resources = [
+      { ...(value.resources as Array<Record<string, unknown>>)[0], path: '../escape.md' },
+    ];
+    await expect(
+      service.register(alice, projectId, request({ manifest: value }), context({})),
+    ).rejects.toMatchObject({
       code: V1_ERROR_CODES.VALIDATION_FAILED,
       status: 422,
       message: 'ROLE_PACKAGE_INVALID',
@@ -388,7 +496,9 @@ describe('V1RolePackageService', () => {
   it('rejects a project package that shadows a builtin id', async () => {
     state.builtinIds = [packageId];
     const { manifest: value } = await registered();
-    await expect(service.register(alice, projectId, request({ manifest: value }), context({}))).rejects.toMatchObject({
+    await expect(
+      service.register(alice, projectId, request({ manifest: value }), context({})),
+    ).rejects.toMatchObject({
       code: V1_ERROR_CODES.VERSION_CONFLICT,
       status: 409,
       message: 'ROLE_PACKAGE_ID_SHADOWED',
@@ -408,8 +518,17 @@ describe('V1RolePackageService', () => {
       manifest: value as never,
       resources: [],
     });
-    const result = await service.register(alice, projectId, request({ manifest: value }), context({}));
-    expect(result).toMatchObject({ packageVersionId: 'pv-existing', manifestDigest: digest, replayed: false });
+    const result = await service.register(
+      alice,
+      projectId,
+      request({ manifest: value }),
+      context({}),
+    );
+    expect(result).toMatchObject({
+      packageVersionId: 'pv-existing',
+      manifestDigest: digest,
+      replayed: false,
+    });
     expect(state.projectVersion).toBe(3);
   });
 
@@ -426,7 +545,9 @@ describe('V1RolePackageService', () => {
       manifest: value as never,
       resources: [],
     });
-    await expect(service.register(alice, projectId, request({ manifest: value }), context({}))).rejects.toMatchObject({
+    await expect(
+      service.register(alice, projectId, request({ manifest: value }), context({})),
+    ).rejects.toMatchObject({
       code: V1_ERROR_CODES.VERSION_CONFLICT,
       status: 409,
       message: 'ROLE_PACKAGE_VERSION_CONFLICT',
@@ -451,8 +572,14 @@ describe('V1RolePackageService', () => {
 
   it('rejects a ticket bound to a different digest', async () => {
     const { manifest: value, digest } = await registered();
-    state.tickets.push(makeTicket(await bindingFor(state.projectVersion, digest, ['sop']), { actionDigest: '0'.repeat(64) }));
-    await expect(service.register(alice, projectId, request({ manifest: value }), context({}))).rejects.toMatchObject({
+    state.tickets.push(
+      makeTicket(await bindingFor(state.projectVersion, digest, ['sop']), {
+        actionDigest: '0'.repeat(64),
+      }),
+    );
+    await expect(
+      service.register(alice, projectId, request({ manifest: value }), context({})),
+    ).rejects.toMatchObject({
       code: V1_ERROR_CODES.ACTION_CHANGED,
       status: 409,
       message: 'CONFIRMATION_DIGEST_MISMATCH',
@@ -463,7 +590,12 @@ describe('V1RolePackageService', () => {
     const { manifest: value, digest } = await registered();
     state.tickets.push(makeTicket(await bindingFor(state.projectVersion, digest)));
     const body = { expectedVersion: state.projectVersion, manifest: value };
-    const result = await service.register(alice, projectId, request({ manifest: value }), context(body));
+    const result = await service.register(
+      alice,
+      projectId,
+      request({ manifest: value }),
+      context(body),
+    );
     expect(result).toMatchObject({ packageId, version, manifestDigest: digest, replayed: false });
     expect(state.projectVersion).toBe(4);
     expect(state.tickets[0].consumedAt).toEqual(now);
@@ -476,17 +608,36 @@ describe('V1RolePackageService', () => {
     const body = { expectedVersion: state.projectVersion, manifest: value };
     await service.register(alice, projectId, request({ manifest: value }), context(body));
     // 票据已消费、项目版本已前进，合法重放仍返回原结果。
-    const replay = await service.register(alice, projectId, request({ manifest: value }), context(body));
-    expect(replay).toMatchObject({ packageVersionId: 'pv-1', manifestDigest: digest, replayed: true });
+    const replay = await service.register(
+      alice,
+      projectId,
+      request({ manifest: value }),
+      context(body),
+    );
+    expect(replay).toMatchObject({
+      packageVersionId: 'pv-1',
+      manifestDigest: digest,
+      replayed: true,
+    });
     expect(state.packages).toHaveLength(1);
   });
 
   it('conflicts when the same key carries different semantics', async () => {
     const { manifest: value, digest } = await registered();
     state.tickets.push(makeTicket(await bindingFor(state.projectVersion, digest)));
-    await service.register(alice, projectId, request({ manifest: value }), context({ expectedVersion: 3, manifest: value }));
+    await service.register(
+      alice,
+      projectId,
+      request({ manifest: value }),
+      context({ expectedVersion: 3, manifest: value }),
+    );
     await expect(
-      service.register(alice, projectId, request({ manifest: value }), context({ expectedVersion: 4, manifest: value })),
+      service.register(
+        alice,
+        projectId,
+        request({ manifest: value }),
+        context({ expectedVersion: 4, manifest: value }),
+      ),
     ).rejects.toMatchObject({
       code: V1_ERROR_CODES.IDEMPOTENCY_CONFLICT,
       status: 409,

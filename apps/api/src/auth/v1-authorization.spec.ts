@@ -24,15 +24,21 @@ function repository(db: Db): V1AuthorizationRepository {
       return db.projects.find((item) => item.id === projectId) ?? null;
     },
     async findMember(projectId, userId) {
-      return db.members.find((item) => item.projectId === projectId && item.userId === userId) ?? null;
+      return (
+        db.members.find((item) => item.projectId === projectId && item.userId === userId) ?? null
+      );
     },
     async findActiveRoleAssignments(projectId, userId) {
-      return db.assignments.filter((item) => item.projectId === projectId && item.userId === userId);
+      return db.assignments.filter(
+        (item) => item.projectId === projectId && item.userId === userId,
+      );
     },
     async findRoleAssignment(projectId, userId, roleId) {
       return (
-        db.assignments.find((item) => item.projectId === projectId && item.userId === userId && item.roleId === roleId) ??
-        null
+        db.assignments.find(
+          (item) =>
+            item.projectId === projectId && item.userId === userId && item.roleId === roleId,
+        ) ?? null
       );
     },
     async findKnowledgeBase(knowledgeBaseId) {
@@ -58,9 +64,30 @@ function baseDb(): Db {
       { projectId: 'p-a', userId: 'carol', role: 'MEMBER', version: 1, revokedAt: null },
     ],
     assignments: [
-      { id: 'as-1', projectId: 'p-a', userId: 'alice', roleId: 'r-product', version: 1, revokedAt: null },
-      { id: 'as-2', projectId: 'p-a', userId: 'alice', roleId: 'r-backend', version: 1, revokedAt: null },
-      { id: 'as-3', projectId: 'p-b', userId: 'alice', roleId: 'r-product', version: 1, revokedAt: null },
+      {
+        id: 'as-1',
+        projectId: 'p-a',
+        userId: 'alice',
+        roleId: 'r-product',
+        version: 1,
+        revokedAt: null,
+      },
+      {
+        id: 'as-2',
+        projectId: 'p-a',
+        userId: 'alice',
+        roleId: 'r-backend',
+        version: 1,
+        revokedAt: null,
+      },
+      {
+        id: 'as-3',
+        projectId: 'p-b',
+        userId: 'alice',
+        roleId: 'r-product',
+        version: 1,
+        revokedAt: null,
+      },
     ],
     knowledgeBases: [
       {
@@ -143,7 +170,9 @@ describe('V1AuthorizationService', () => {
   });
 
   it('denies a project-A agent proposing a candidate in project B', async () => {
-    await expect(service.assertCanProposeKnowledge(agentProductInA, 'kb-public')).resolves.toBeTruthy();
+    await expect(
+      service.assertCanProposeKnowledge(agentProductInA, 'kb-public'),
+    ).resolves.toBeTruthy();
     const projectB = { ...db.knowledgeBases[1], id: 'kb-b', projectId: 'p-b' };
     db.knowledgeBases.push(projectB);
     await expect(service.assertCanProposeKnowledge(agentProductInA, 'kb-b')).rejects.toMatchObject({
@@ -161,11 +190,15 @@ describe('V1AuthorizationService', () => {
 
   it('does not let an agent borrow another business role of its authorizer', async () => {
     // 凭据角色为 product，KB 只授 backend ROLE：该 Agent 不可读。
-    await expect(service.assertCanReadKnowledge(agentProductInA, 'kb-restricted')).rejects.toMatchObject({
+    await expect(
+      service.assertCanReadKnowledge(agentProductInA, 'kb-restricted'),
+    ).rejects.toMatchObject({
       code: 'RESOURCE_NOT_FOUND',
     });
     // 授权人本人（HUMAN）持有 backend assignment，可读。
-    await expect(service.assertCanReadKnowledge(humanAlice, 'kb-restricted')).resolves.toMatchObject({
+    await expect(
+      service.assertCanReadKnowledge(humanAlice, 'kb-restricted'),
+    ).resolves.toMatchObject({
       canRead: true,
     });
   });
@@ -174,13 +207,17 @@ describe('V1AuthorizationService', () => {
     const access = await service.assertCanReadKnowledge(agentReadonlyInA, 'kb-restricted');
     expect(access.canPublish).toBe(false);
     expect(access.canRevoke).toBe(false);
-    await expect(service.assertCanPublishKnowledge(agentReadonlyInA, 'kb-restricted')).rejects.toMatchObject({
+    await expect(
+      service.assertCanPublishKnowledge(agentReadonlyInA, 'kb-restricted'),
+    ).rejects.toMatchObject({
       code: 'HUMAN_SESSION_REQUIRED',
     });
   });
 
   it('denies a read-only agent proposing content', async () => {
-    await expect(service.assertCanProposeKnowledge(agentReadonlyInA, 'kb-restricted')).rejects.toMatchObject({
+    await expect(
+      service.assertCanProposeKnowledge(agentReadonlyInA, 'kb-restricted'),
+    ).rejects.toMatchObject({
       code: 'SCOPE_DENIED',
       status: 403,
     });
@@ -227,9 +264,11 @@ describe('V1AuthorizationService', () => {
         revokedAt: null,
       },
     ];
-    await expect(service.assertCanReadKnowledge(humanAlice, 'kb-restricted')).rejects.toMatchObject({
-      code: 'RESOURCE_NOT_FOUND',
-    });
+    await expect(service.assertCanReadKnowledge(humanAlice, 'kb-restricted')).rejects.toMatchObject(
+      {
+        code: 'RESOURCE_NOT_FOUND',
+      },
+    );
   });
 
   it('matches business role slots against current active assignments only', async () => {

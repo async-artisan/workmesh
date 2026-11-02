@@ -40,12 +40,24 @@ class InMemoryAuthorizationRepository implements V1AuthorizationRepository {
     [P2, { id: P2, version: 1, archivedAt: null }],
   ]);
   private members = new Map<string, V1MemberRecord>([
-    [`${P1}:alice`, { projectId: P1, userId: 'alice', role: 'MEMBER', version: 1, revokedAt: null }],
+    [
+      `${P1}:alice`,
+      { projectId: P1, userId: 'alice', role: 'MEMBER', version: 1, revokedAt: null },
+    ],
   ]);
   private assignments = new Map<string, V1RoleAssignmentRecord[]>([
     [
       `${P1}:alice`,
-      [{ id: 'ra-1', projectId: P1, userId: 'alice', roleId: 'role-1', version: 1, revokedAt: null }],
+      [
+        {
+          id: 'ra-1',
+          projectId: P1,
+          userId: 'alice',
+          roleId: 'role-1',
+          version: 1,
+          revokedAt: null,
+        },
+      ],
     ],
   ]);
 
@@ -55,7 +67,10 @@ class InMemoryAuthorizationRepository implements V1AuthorizationRepository {
   async findMember(projectId: string, userId: string): Promise<V1MemberRecord | null> {
     return this.members.get(`${projectId}:${userId}`) ?? null;
   }
-  async findActiveRoleAssignments(projectId: string, userId: string): Promise<V1RoleAssignmentRecord[]> {
+  async findActiveRoleAssignments(
+    projectId: string,
+    userId: string,
+  ): Promise<V1RoleAssignmentRecord[]> {
     return this.assignments.get(`${projectId}:${userId}`) ?? [];
   }
   async findRoleAssignment(): Promise<V1RoleAssignmentRecord | null> {
@@ -75,9 +90,13 @@ class InMemoryReceiptRepository implements V1OperationReceiptRepository {
     private readonly credentialOwners: Map<string, string>,
   ) {}
 
-  async findOperations(input: { projectScopeKey: string; key: string }): Promise<V1OperationReceiptRecord[]> {
+  async findOperations(input: {
+    projectScopeKey: string;
+    key: string;
+  }): Promise<V1OperationReceiptRecord[]> {
     return this.operations.filter(
-      (operation) => operation.projectScopeKey === input.projectScopeKey && operation.key === input.key,
+      (operation) =>
+        operation.projectScopeKey === input.projectScopeKey && operation.key === input.key,
     );
   }
 
@@ -102,7 +121,10 @@ function operation(over: Partial<V1OperationReceiptRecord> = {}): V1OperationRec
   };
 }
 
-function build(operations: V1OperationReceiptRecord[], credentialOwners = new Map<string, string>()) {
+function build(
+  operations: V1OperationReceiptRecord[],
+  credentialOwners = new Map<string, string>(),
+) {
   const authorization = new V1AuthorizationService(new InMemoryAuthorizationRepository());
   return new V1OperationReceiptService(
     new InMemoryReceiptRepository(operations, credentialOwners),
@@ -146,7 +168,9 @@ describe('V1OperationReceiptService.getReceipt', () => {
   it('Agent 凭据属于其他用户时仍返回 404', async () => {
     const stored = operation({ principalScopeKey: 'agent:cred-2' });
     const service = build([stored], new Map([['cred-2', 'bob']]));
-    await expect(service.getReceipt(human('alice'), stored.key, P1)).rejects.toMatchObject({ status: 404 });
+    await expect(service.getReceipt(human('alice'), stored.key, P1)).rejects.toMatchObject({
+      status: 404,
+    });
   });
 
   it('项目当前不可见时返回 404，不泄露 key 是否存在', async () => {
@@ -161,7 +185,9 @@ describe('V1OperationReceiptService.getReceipt', () => {
   it('省略 projectId 时按账号 scope 查找；项目 scope 的操作不可见', async () => {
     const stored = operation();
     const service = build([stored]);
-    await expect(service.getReceipt(human('alice'), stored.key, null)).rejects.toMatchObject({ status: 404 });
+    await expect(service.getReceipt(human('alice'), stored.key, null)).rejects.toMatchObject({
+      status: 404,
+    });
 
     const accountOperation = operation({
       projectId: null,
@@ -175,18 +201,24 @@ describe('V1OperationReceiptService.getReceipt', () => {
   it('未提交收据按 404 处理', async () => {
     const stored = operation({ committedAt: null });
     const service = build([stored]);
-    await expect(service.getReceipt(human('alice'), stored.key, P1)).rejects.toMatchObject({ status: 404 });
+    await expect(service.getReceipt(human('alice'), stored.key, P1)).rejects.toMatchObject({
+      status: 404,
+    });
   });
 
   it('AGENT 可读取自身凭据主体收据，但读取其他凭据主体仍 404', async () => {
     const own = operation({ principalScopeKey: 'agent:cred-1' });
     const other = operation({ principalScopeKey: 'agent:cred-3' });
     const service = build([own, other]);
-    await expect(service.getReceipt(agentPrincipal('alice', 'cred-1'), own.key, P1)).resolves.toMatchObject({
+    await expect(
+      service.getReceipt(agentPrincipal('alice', 'cred-1'), own.key, P1),
+    ).resolves.toMatchObject({
       operationKey: own.key,
       status: 'COMMITTED',
     });
-    await expect(service.getReceipt(agentPrincipal('alice', 'cred-1'), other.key, P1)).rejects.toMatchObject({
+    await expect(
+      service.getReceipt(agentPrincipal('alice', 'cred-1'), other.key, P1),
+    ).rejects.toMatchObject({
       status: 404,
     });
   });

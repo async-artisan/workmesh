@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, SESSION_EXPIRED_EVENT, apiRequest, formatApiError, getCsrfToken, setCsrfToken } from './client';
+import {
+  ApiError,
+  SESSION_EXPIRED_EVENT,
+  apiRequest,
+  formatApiError,
+  getCsrfToken,
+  setCsrfToken,
+} from './client';
 import { useAuthStore } from '../store/auth';
 
 interface StubResponse {
@@ -28,9 +35,7 @@ describe('apiRequest（/api/v1 + cookie + CSRF）', () => {
     fetchMock.mockReset();
     setCsrfToken(null);
     useAuthStore.getState().clearAuth();
-    useAuthStore
-      .getState()
-      .setSession({ id: 'user-1', email: 'user@example.com' });
+    useAuthStore.getState().setSession({ id: 'user-1', email: 'user@example.com' });
   });
 
   it('同源请求 /api/v1，携带 cookie，写操作自动带 X-CSRF-Token 与幂等键', async () => {
@@ -58,7 +63,9 @@ describe('apiRequest（/api/v1 + cookie + CSRF）', () => {
       json(403, { error: { code: 'FORBIDDEN', message: '不具备该槽位', requestId: 'req-403' } }),
     );
 
-    const caught = await apiRequest('/projects', { method: 'POST', body: {} }).catch((value: unknown) => value);
+    const caught = await apiRequest('/projects', { method: 'POST', body: {} }).catch(
+      (value: unknown) => value,
+    );
 
     expect(caught).toBeInstanceOf(ApiError);
     const error = caught as ApiError;
@@ -88,11 +95,14 @@ describe('apiRequest（/api/v1 + cookie + CSRF）', () => {
     expect((conflict as ApiError).details).toEqual({ currentVersion: 4 });
 
     fetchMock.mockResolvedValueOnce(
-      json(410, { error: { code: 'CONFIRMATION_EXPIRED', message: '票据已过期', requestId: 'req-410' } }),
+      json(410, {
+        error: { code: 'CONFIRMATION_EXPIRED', message: '票据已过期', requestId: 'req-410' },
+      }),
     );
-    const expired = await apiRequest('/review-requests/r1/decisions', { method: 'POST', body: {} }).catch(
-      (value: unknown) => value,
-    );
+    const expired = await apiRequest('/review-requests/r1/decisions', {
+      method: 'POST',
+      body: {},
+    }).catch((value: unknown) => value);
     expect((expired as ApiError).status).toBe(410);
     expect((expired as ApiError).code).toBe('CONFIRMATION_EXPIRED');
   });
@@ -104,7 +114,10 @@ describe('apiRequest（/api/v1 + cookie + CSRF）', () => {
       json(401, { error: { code: 'AUTH_REQUIRED', message: '会话已失效', requestId: 'req-401' } }),
     );
 
-    await expect(apiRequest('/projects')).rejects.toMatchObject({ status: 401, code: 'AUTH_REQUIRED' });
+    await expect(apiRequest('/projects')).rejects.toMatchObject({
+      status: 401,
+      code: 'AUTH_REQUIRED',
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().user).toBeNull();

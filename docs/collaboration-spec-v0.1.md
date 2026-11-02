@@ -239,18 +239,18 @@ DRAFT → PRD_READY → DESIGN_READY → IN_DEV → CODE_LINKED → TESTED → R
 
 每个角色的本地工作区通过统一桥接器与平台交互，命令面固定：
 
-| 命令                             | 用途                                          |
-| -------------------------------- | --------------------------------------------- |
-| `workmesh roles install --package <dir> --project <uuid> --host <host>` | 安装角色包，下发规范与 agent 入口 |
-| `workmesh claim --task <taskId>`  | 领取本角色可执行的任务；这是取得执行权的唯一方式 |
-| `workmesh context --task <taskId> --claim <claimId> --expected-version <n> --materialize` | 拉取并物化上下文快照 |
-| `workmesh deliver`                | 提交工件与证据（本地自检 + 平台二次校验）     |
-| 无 CLI 命令                       | 人工签字只在 Web 评审页完成：HUMAN 会话 + 一次性票据 |
-| 已移除                            | 本地知识索引上报已下线；正文与索引都不入平台  |
-| `workmesh changes --role <role>`  | 查看本角色待确认的产品变更                    |
-| `workmesh ack <eventId> --role`   | 确认已按变更处理完本角色受影响的内容          |
-| `workmesh pull`                   | 导出需求 JSON 本地快照（非知识同步）          |
-| `workmesh spec-version`           | 查看本机内置的协作规范版本                    |
+| 命令                                                                                      | 用途                                                 |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `workmesh roles install --package <dir> --project <uuid> --host <host>`                   | 安装角色包，下发规范与 agent 入口                    |
+| `workmesh claim --task <taskId>`                                                          | 领取本角色可执行的任务；这是取得执行权的唯一方式     |
+| `workmesh context --task <taskId> --claim <claimId> --expected-version <n> --materialize` | 拉取并物化上下文快照                                 |
+| `workmesh deliver`                                                                        | 提交工件与证据（本地自检 + 平台二次校验）            |
+| 无 CLI 命令                                                                               | 人工签字只在 Web 评审页完成：HUMAN 会话 + 一次性票据 |
+| 已移除                                                                                    | 本地知识索引上报已下线；正文与索引都不入平台         |
+| `workmesh changes --role <role>`                                                          | 查看本角色待确认的产品变更                           |
+| `workmesh ack <eventId> --role`                                                           | 确认已按变更处理完本角色受影响的内容                 |
+| `workmesh pull`                                                                           | 导出需求 JSON 本地快照（非知识同步）                 |
+| `workmesh spec-version`                                                                   | 查看本机内置的协作规范版本                           |
 
 同一套能力同时以 MCP 工具暴露，供不支持 CLI 的 agent 直接调用。
 

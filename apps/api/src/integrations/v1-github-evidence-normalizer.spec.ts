@@ -30,7 +30,8 @@ describe('github commit-level evidence normalization', () => {
   for (const [name, scenario] of Object.entries(scenarios)) {
     it(`fixture scenario: ${name}`, () => {
       const rawReviews = reviewsByKey[scenario.reviewsKey];
-      if (!Array.isArray(rawReviews)) throw new Error(`fixture reviews missing: ${scenario.reviewsKey}`);
+      if (!Array.isArray(rawReviews))
+        throw new Error(`fixture reviews missing: ${scenario.reviewsKey}`);
       const result = normalizeGithubPullRequestEvidence(
         { repository: fixture.repository, pullRequest: fixture.pullRequest, reviews: rawReviews },
         scenario.options,

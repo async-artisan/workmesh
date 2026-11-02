@@ -26,12 +26,22 @@ export class HttpExceptionFilter implements ExceptionFilter {
     } else if (error instanceof HttpException) {
       status = error.getStatus();
       const body = error.getResponse();
-      const rawMessage = typeof body === 'string' ? body : typeof body === 'object' && body !== null && 'message' in body ? (body as { message?: unknown }).message : undefined;
-      message = Array.isArray(rawMessage) ? rawMessage.join('; ') : String(rawMessage ?? '请求失败');
+      const rawMessage =
+        typeof body === 'string'
+          ? body
+          : typeof body === 'object' && body !== null && 'message' in body
+            ? (body as { message?: unknown }).message
+            : undefined;
+      message = Array.isArray(rawMessage)
+        ? rawMessage.join('; ')
+        : String(rawMessage ?? '请求失败');
       code = status >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_REJECTED';
     }
 
-    if (status >= 500) this.logger.error(`${request?.method ?? 'UNKNOWN'} ${request?.path ?? 'UNKNOWN'} returned ${status}: ${message}`);
+    if (status >= 500)
+      this.logger.error(
+        `${request?.method ?? 'UNKNOWN'} ${request?.path ?? 'UNKNOWN'} returned ${status}: ${message}`,
+      );
     response?.setHeader?.('X-Request-Id', requestId);
     response?.status?.(status).json({
       error: {

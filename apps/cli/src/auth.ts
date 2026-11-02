@@ -48,8 +48,7 @@ type CredentialView = {
   expiresAt: string;
 };
 
-const UUID =
-  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 function base64url(value: Buffer): string {
   return value.toString('base64url');
@@ -129,15 +128,19 @@ export async function deviceLogin(options: DeviceLoginOptions): Promise<DeviceLo
     sleep: options.sleep,
   });
 
-  const created = await anonymous.request<Record<string, unknown>>('POST', '/auth/cli-authorizations', {
-    body: {
-      clientName: (options.clientName ?? 'workmesh-cli').slice(0, 80),
-      codeChallenge: proof.codeChallenge,
-      codeChallengeMethod: 'S256',
-      credentialSecretHash: proof.credentialSecretHash,
+  const created = await anonymous.request<Record<string, unknown>>(
+    'POST',
+    '/auth/cli-authorizations',
+    {
+      body: {
+        clientName: (options.clientName ?? 'workmesh-cli').slice(0, 80),
+        codeChallenge: proof.codeChallenge,
+        codeChallengeMethod: 'S256',
+        credentialSecretHash: proof.credentialSecretHash,
+      },
+      idempotent: false,
     },
-    idempotent: false,
-  });
+  );
 
   const authorization = asRecord(created.data, '创建设备授权响应非法');
   const device: DeviceAuthorization = {

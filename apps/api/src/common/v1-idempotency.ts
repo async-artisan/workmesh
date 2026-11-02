@@ -53,7 +53,11 @@ export function requestDigestOf(input: {
     if (EXCLUDED_BODY_KEYS.has(key)) continue;
     payload[key] = toPlainJson(value);
   }
-  const canonical = canonicalJson({ method: input.method.toUpperCase(), route: normalizeRoute(input.route), body: payload });
+  const canonical = canonicalJson({
+    method: input.method.toUpperCase(),
+    route: normalizeRoute(input.route),
+    body: payload,
+  });
   return createHash('sha256').update(Buffer.from(canonical, 'utf8')).digest('hex');
 }
 
@@ -65,7 +69,10 @@ export function assertReplayable(
   operation: V1OperationRecord,
   input: { method: string; route: string; digest: string },
 ): void {
-  if (operation.method.toUpperCase() !== input.method.toUpperCase() || normalizeRoute(operation.route) !== normalizeRoute(input.route))
+  if (
+    operation.method.toUpperCase() !== input.method.toUpperCase() ||
+    normalizeRoute(operation.route) !== normalizeRoute(input.route)
+  )
     throw new WorkmeshError(
       V1_ERROR_CODES.IDEMPOTENCY_CONFLICT,
       'IDEMPOTENCY_ROUTE_CONFLICT',
@@ -83,12 +90,22 @@ export function assertReplayable(
 
 export function requireIdempotencyKey(headerValue: string | undefined): string {
   if (typeof headerValue !== 'string' || !/^[0-9a-fA-F-]{36}$/.test(headerValue))
-    throw new WorkmeshError(V1_ERROR_CODES.IDEMPOTENCY_KEY_REQUIRED, 'IDEMPOTENCY_KEY_REQUIRED', undefined, 400);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.IDEMPOTENCY_KEY_REQUIRED,
+      'IDEMPOTENCY_KEY_REQUIRED',
+      undefined,
+      400,
+    );
   return headerValue;
 }
 
 export function requireExpectedVersion(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1)
-    throw new WorkmeshError(V1_ERROR_CODES.EXPECTED_VERSION_REQUIRED, 'EXPECTED_VERSION_REQUIRED', undefined, 400);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.EXPECTED_VERSION_REQUIRED,
+      'EXPECTED_VERSION_REQUIRED',
+      undefined,
+      400,
+    );
   return value;
 }

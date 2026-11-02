@@ -19,7 +19,11 @@ function isRetryable(error: unknown): boolean {
   const code = (error as { code?: string })?.code;
   if (code === 'P2034') return true;
   const message = String((error as Error)?.message ?? '');
-  return message.includes('40001') || message.includes('40P01') || message.includes('could not serialize');
+  return (
+    message.includes('40001') ||
+    message.includes('40P01') ||
+    message.includes('could not serialize')
+  );
 }
 
 function encodeCursor(packageId: string, version: string): string {
@@ -29,8 +33,13 @@ function encodeCursor(packageId: string, version: string): string {
 function decodeCursor(cursor: string | null): { packageId: string; version: string } | null {
   if (!cursor) return null;
   try {
-    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { p?: unknown; v?: unknown };
-    return typeof parsed.p === 'string' && typeof parsed.v === 'string' ? { packageId: parsed.p, version: parsed.v } : null;
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+      p?: unknown;
+      v?: unknown;
+    };
+    return typeof parsed.p === 'string' && typeof parsed.v === 'string'
+      ? { packageId: parsed.p, version: parsed.v }
+      : null;
   } catch {
     return null;
   }
@@ -68,23 +77,44 @@ export class V1RolePackagePrismaRepository implements V1RolePackageRepository {
     const last = page.at(-1);
     return {
       items: page.map((row) => this.toItem(row)),
-      nextCursor: rows.length > query.limit && last ? encodeCursor(last.packageId, last.version) : null,
+      nextCursor:
+        rows.length > query.limit && last ? encodeCursor(last.packageId, last.version) : null,
     };
   }
 
-  async findVersion(projectId: string, packageId: string, version: string): Promise<V1RolePackageDetail | null> {
+  async findVersion(
+    projectId: string,
+    packageId: string,
+    version: string,
+  ): Promise<V1RolePackageDetail | null> {
     // 项目私有包优先，其次内置包；同名内置包不会被项目包遮蔽。
     const own = await this.prisma.rolePackageVersion.findFirst({
       where: { projectId, packageId, version },
     });
-    const row = own ?? (await this.prisma.rolePackageVersion.findFirst({ where: { projectId: null, packageId, version } }));
+    const row =
+      own ??
+      (await this.prisma.rolePackageVersion.findFirst({
+        where: { projectId: null, packageId, version },
+      }));
     if (!row) return null;
-    return { ...this.toItem(row), projectId: row.projectId, manifest: row.manifest as unknown as RolePackageManifest };
+    return {
+      ...this.toItem(row),
+      projectId: row.projectId,
+      manifest: row.manifest as unknown as RolePackageManifest,
+    };
   }
 
-  async findResource(packageVersionId: string, resourceId: string): Promise<V1RolePackageResourceView | null> {
+  async findResource(
+    packageVersionId: string,
+    resourceId: string,
+  ): Promise<V1RolePackageResourceView | null> {
     const row = await this.prisma.rolePackageResource.findUnique({
-      where: { rolePackageVersionId_resourceKey: { rolePackageVersionId: packageVersionId, resourceKey: resourceId } },
+      where: {
+        rolePackageVersionId_resourceKey: {
+          rolePackageVersionId: packageVersionId,
+          resourceKey: resourceId,
+        },
+      },
     });
     if (!row) return null;
     return {
@@ -98,7 +128,9 @@ export class V1RolePackagePrismaRepository implements V1RolePackageRepository {
   }
 
   async hasBuiltin(packageId: string): Promise<boolean> {
-    const count = await this.prisma.rolePackageVersion.count({ where: { projectId: null, packageId } });
+    const count = await this.prisma.rolePackageVersion.count({
+      where: { projectId: null, packageId },
+    });
     return count > 0;
   }
 
@@ -111,7 +143,10 @@ export class V1RolePackagePrismaRepository implements V1RolePackageRepository {
   }
 
   async findProject(projectId: string): Promise<{ id: string; version: number } | null> {
-    return this.prisma.project.findUnique({ where: { id: projectId }, select: { id: true, version: true } });
+    return this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true, version: true },
+    });
   }
 
   async findOperation(input: { projectScopeKey: string; principalScopeKey: string; key: string }) {
@@ -151,14 +186,26 @@ export class V1RolePackagePrismaRepository implements V1RolePackageRepository {
     }
   }
 
-  private async runRegister(input: V1RegisterRolePackageInput): Promise<V1RegisterRolePackageResult> {
+  private async runRegister(
+    input: V1RegisterRolePackageInput,
+  ): Promise<V1RegisterRolePackageResult> {
     return this.prisma.$transaction(
       async (tx) => {
-        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.projectId}::uuid FOR UPDATE`);
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.projectId}::uuid FOR UPDATE`,
+        );
 
-        const project = await tx.project.findUnique({ where: { id: input.projectId }, select: { version: true } });
+        const project = await tx.project.findUnique({
+          where: { id: input.projectId },
+          select: { version: true },
+        });
         if (!project)
-          throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'PROJECT_NOT_FOUND', { projectId: input.projectId }, 404);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'PROJECT_NOT_FOUND',
+            { projectId: input.projectId },
+            404,
+          );
         if (project.version !== input.expectedProjectVersion)
           throw new WorkmeshError(
             V1_ERROR_CODES.VERSION_CONFLICT,
@@ -172,7 +219,10 @@ export class V1RolePackagePrismaRepository implements V1RolePackageRepository {
           where: { projectId: input.projectId, packageId: input.packageId, version: input.version },
         });
         if (existing) {
-          if (existing.manifestDigest === input.manifestDigest && project.version === input.expectedProjectVersion)
+          if (
+            existing.manifestDigest === input.manifestDigest &&
+            project.version === input.expectedProjectVersion
+          )
             return {
               packageVersionId: existing.id,
               packageId: existing.packageId,
@@ -229,7 +279,12 @@ export class V1RolePackagePrismaRepository implements V1RolePackageRepository {
           data: { version: { increment: 1 } },
         });
         if (bumped.count !== 1)
-          throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'PROJECT_VERSION_CONFLICT', { projectId: input.projectId }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.VERSION_CONFLICT,
+            'PROJECT_VERSION_CONFLICT',
+            { projectId: input.projectId },
+            409,
+          );
 
         const consumed = await tx.$executeRaw(
           Prisma.sql`UPDATE "workmesh_v1"."ConfirmationTicket"
@@ -242,7 +297,12 @@ export class V1RolePackagePrismaRepository implements V1RolePackageRepository {
               AND "expiresAt" > ${input.now}`,
         );
         if (consumed !== 1)
-          throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_USED, 'CONFIRMATION_CONSUME_CONFLICT', { ticketId: input.ticket.id }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CONFIRMATION_USED,
+            'CONFIRMATION_CONSUME_CONFLICT',
+            { ticketId: input.ticket.id },
+            409,
+          );
 
         await tx.auditEvent.create({
           data: {
@@ -252,7 +312,11 @@ export class V1RolePackagePrismaRepository implements V1RolePackageRepository {
             targetId: created.id,
             targetVersion: 1,
             outcome: 'SUCCESS',
-            details: { packageId: input.packageId, version: input.version, digest: input.manifestDigest },
+            details: {
+              packageId: input.packageId,
+              version: input.version,
+              digest: input.manifestDigest,
+            },
           },
         });
 

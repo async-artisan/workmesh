@@ -10,7 +10,12 @@ export const MAX_JSON_DEPTH = 32;
 /** 05 §5：文档与单件正文最多 10MiB 原始字节。 */
 export const MAX_DOCUMENT_BODY_BYTES = 10 * 1024 * 1024;
 
-type RawBodyRequest = { rawBody?: Buffer | string; method?: string; url?: string; headers?: Record<string, unknown> };
+type RawBodyRequest = {
+  rawBody?: Buffer | string;
+  method?: string;
+  url?: string;
+  headers?: Record<string, unknown>;
+};
 
 /**
  * 在 DTO 之前对原始请求字节做严格 JSON 校验：

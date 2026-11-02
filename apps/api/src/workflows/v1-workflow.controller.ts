@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Headers, Inject, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Inject,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -11,7 +22,12 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { V1_ERROR_CODES, WorkmeshError, type Confirmation, type WorkflowPackageLock } from '@workmesh/shared';
+import {
+  V1_ERROR_CODES,
+  WorkmeshError,
+  type Confirmation,
+  type WorkflowPackageLock,
+} from '@workmesh/shared';
 import { V1AuthGuard, type V1Request } from '../auth/v1-auth.guard';
 import { requireIdempotencyKey } from '../common/v1-idempotency';
 import { V1WorkflowService } from './v1-workflow.service';
@@ -35,7 +51,11 @@ class PackageLockDto {
 class ValidateDto {
   @IsObject() definition!: Record<string, unknown>;
 
-  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => PackageLockDto) packageLocks?: PackageLockDto[];
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PackageLockDto)
+  packageLocks?: PackageLockDto[];
 }
 
 class PublishDto extends ValidateDto {
@@ -69,9 +89,15 @@ class CreateInstanceDto {
 
   @IsInt() @Min(1) expectedRequirementVersion!: number;
 
-  @IsArray() @ValidateNested({ each: true }) @Type(() => StepBindingDto) stepBindings!: StepBindingDto[];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => StepBindingDto)
+  stepBindings!: StepBindingDto[];
 
-  @IsArray() @ValidateNested({ each: true }) @Type(() => RoleSlotBindingDto) roleSlotBindings!: RoleSlotBindingDto[];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoleSlotBindingDto)
+  roleSlotBindings!: RoleSlotBindingDto[];
 }
 
 class ListDefinitionsQueryDto {
@@ -81,7 +107,8 @@ class ListDefinitionsQueryDto {
 }
 
 function principalOf(request: V1Request) {
-  if (!request.v1Principal) throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
+  if (!request.v1Principal)
+    throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
   return request.v1Principal;
 }
 
@@ -119,7 +146,11 @@ export class V1WorkflowController {
   }
 
   @Post('projects/:projectId/workflow-definitions/validate')
-  validate(@Req() request: V1Request, @Param('projectId') projectId: string, @Body() dto: ValidateDto) {
+  validate(
+    @Req() request: V1Request,
+    @Param('projectId') projectId: string,
+    @Body() dto: ValidateDto,
+  ) {
     return this.workflows.validate(principalOf(request), projectId, {
       definition: dto.definition,
       packageLocks: packageLocksOf(dto.packageLocks),
@@ -136,7 +167,12 @@ export class V1WorkflowController {
   ) {
     const principal = principalOf(request);
     if (!principal.sessionId)
-      throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, 'HUMAN_SESSION_REQUIRED', undefined, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+        'HUMAN_SESSION_REQUIRED',
+        undefined,
+        403,
+      );
     return this.workflows.publish(
       principal,
       projectId,
@@ -182,7 +218,12 @@ export class V1WorkflowController {
   ) {
     const principal = principalOf(request);
     if (!principal.sessionId)
-      throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, 'HUMAN_SESSION_REQUIRED', undefined, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+        'HUMAN_SESSION_REQUIRED',
+        undefined,
+        403,
+      );
     return this.workflows.createInstance(
       principal,
       requirementId,

@@ -1,26 +1,54 @@
-import { Body, Controller, Delete, Get, Headers, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  Param,
+  Post,
+  Put,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
 import { V1AuthGuard, type V1Request } from '../auth/v1-auth.guard';
 import type { V1Principal } from '../auth/v1-policy';
 import { requireIdempotencyKey } from '../common/v1-idempotency';
-import { CreateProjectDto, AddProjectMemberDto, ProjectRoleChangeDto, UpdateProjectDto } from './dto';
+import {
+  CreateProjectDto,
+  AddProjectMemberDto,
+  ProjectRoleChangeDto,
+  UpdateProjectDto,
+} from './dto';
 import { ProjectsService, type ProjectRoleChangeContext } from './projects.service';
 
 function humanUserId(request: V1Request): string {
   const principal = request.v1Principal;
-  if (!principal) throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, '缺少有效凭据', undefined, 401);
+  if (!principal)
+    throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, '缺少有效凭据', undefined, 401);
   if (principal.kind !== 'HUMAN')
-    throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, '项目管理仅允许人类会话', undefined, 403);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+      '项目管理仅允许人类会话',
+      undefined,
+      403,
+    );
   return principal.userId;
 }
 
 /** 角色写接口要求真实 WebSession：Agent 与无会话主体一律 403。 */
 function humanPrincipal(request: V1Request): V1Principal {
   const principal = request.v1Principal;
-  if (!principal) throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, '缺少有效凭据', undefined, 401);
+  if (!principal)
+    throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, '缺少有效凭据', undefined, 401);
   if (principal.kind !== 'HUMAN' || !principal.sessionId)
-    throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, 'HUMAN_SESSION_REQUIRED', undefined, 403);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+      'HUMAN_SESSION_REQUIRED',
+      undefined,
+      403,
+    );
   return principal;
 }
 
@@ -45,7 +73,11 @@ export class ProjectsController {
   }
 
   @Post(':projectId/members')
-  addMember(@Req() request: V1Request, @Param('projectId') projectId: string, @Body() dto: AddProjectMemberDto) {
+  addMember(
+    @Req() request: V1Request,
+    @Param('projectId') projectId: string,
+    @Body() dto: AddProjectMemberDto,
+  ) {
     return this.projects.addMemberByEmail(humanUserId(request), projectId, dto.email);
   }
 
@@ -72,9 +104,18 @@ export class ProjectsController {
       {
         expectedVersion: dto.expectedVersion,
         reason: dto.reason,
-        confirmation: { ticketId: dto.confirmation.ticketId, ticketSecret: dto.confirmation.ticketSecret },
+        confirmation: {
+          ticketId: dto.confirmation.ticketId,
+          ticketSecret: dto.confirmation.ticketSecret,
+        },
       },
-      this.roleContext(request, principal, dto, `/api/v1/projects/${projectId}/members/${userId}/roles/${roleId}`, idempotencyKey),
+      this.roleContext(
+        request,
+        principal,
+        dto,
+        `/api/v1/projects/${projectId}/members/${userId}/roles/${roleId}`,
+        idempotencyKey,
+      ),
     );
   }
 
@@ -96,7 +137,10 @@ export class ProjectsController {
       {
         expectedVersion: dto.expectedVersion,
         reason: dto.reason,
-        confirmation: { ticketId: dto.confirmation.ticketId, ticketSecret: dto.confirmation.ticketSecret },
+        confirmation: {
+          ticketId: dto.confirmation.ticketId,
+          ticketSecret: dto.confirmation.ticketSecret,
+        },
       },
       this.roleContext(
         request,
@@ -109,7 +153,11 @@ export class ProjectsController {
   }
 
   @Put(':projectId')
-  update(@Req() request: V1Request, @Param('projectId') projectId: string, @Body() dto: UpdateProjectDto) {
+  update(
+    @Req() request: V1Request,
+    @Param('projectId') projectId: string,
+    @Body() dto: UpdateProjectDto,
+  ) {
     return this.projects.update(humanUserId(request), projectId, dto);
   }
 

@@ -86,10 +86,9 @@ function makeClient(
             encoding: 'base64',
             bodyBase64: bytes.toString('base64'),
             byteLength: bytes.length,
-            sha256:
-              overrides.has(refId)
-                ? resource.sha256
-                : await sha256Bytes(new Uint8Array(bytes)),
+            sha256: overrides.has(refId)
+              ? resource.sha256
+              : await sha256Bytes(new Uint8Array(bytes)),
           },
           meta: { requestId: 'req-resource' },
         }),
@@ -110,7 +109,9 @@ async function workspace(): Promise<string> {
 
 describe('parseSnapshot', () => {
   it('拒绝重复 refId 与非法摘要', async () => {
-    const snapshot = await buildSnapshot([{ refId: 'doc:a', body: 'a', mediaType: 'text/markdown' }]);
+    const snapshot = await buildSnapshot([
+      { refId: 'doc:a', body: 'a', mediaType: 'text/markdown' },
+    ]);
     expect(parseSnapshot(snapshot).resources).toHaveLength(1);
     const duplicated = {
       ...snapshot,
@@ -160,7 +161,11 @@ describe('materializeSnapshot', () => {
     const receipt = JSON.parse(await readFile(join(result.path, 'input-receipt.json'), 'utf8')) as {
       files: Array<{ name: string; refId: string; sha256: string }>;
     };
-    expect(receipt.files.map((file) => file.refId)).toEqual(['candidate:revision-a', 'knowledge:doc-b', 'manifest']);
+    expect(receipt.files.map((file) => file.refId)).toEqual([
+      'candidate:revision-a',
+      'knowledge:doc-b',
+      'manifest',
+    ]);
     const info = await stat(join(result.path, 'manifest.json'));
     expect(info.mode & 0o777).toBe(0o600);
   });
@@ -179,9 +184,9 @@ describe('materializeSnapshot', () => {
     await expect(
       readFile(join(dir, '.workmesh', 'context', 'current.json'), 'utf8'),
     ).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(
-      readdir(join(dir, '.workmesh', 'context', SNAPSHOT)),
-    ).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readdir(join(dir, '.workmesh', 'context', SNAPSHOT))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
   });
 
   it('已有受管副本被本地修改时拒绝覆盖，本地文件保持不变', async () => {

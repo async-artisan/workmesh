@@ -10,14 +10,14 @@
 
 本次静态阅读确认以下入口；它们是实施定位，不是 v1 通过证据：
 
-| 现有文件 | 已见行为 | v1 落点 |
-| --- | --- | --- |
-| `apps/cli/src/index.ts` | `init`、密码 `login`、`ready`、按需求编号 `context`、指针式 `deliver`、`sign`、索引 `sync` | 保留 `init` 名称；认证改浏览器授权；补 claim/release 与任务快照；移除直接签字旁路 |
-| `apps/cli/src/config.ts`、`client.ts` | 全局配置含 access/refresh token，工作区只读 cwd，401 自动 refresh | 新配置严格校验、向上发现、受限 AgentCredential 隔离；401 不刷新 HUMAN 凭据 |
-| `apps/cli/src/spec.ts` | 六个角色常量；向两个规则文件替换标记块；资源依赖源码相对路径 | 动态 ProjectRole；选定宿主；自包含分发；安装锁与修改冲突保护 |
-| `apps/cli/src/deliver.ts`、`knowledge.ts` | UTF-8 字符串摘要截为 16 hex；知识只上传本地索引 | 原始字节完整 SHA-256；知识正文经候选、人工发布后由平台托管 |
-| `spec/SPEC.md`、`spec/roles/*.md` | 固定产品源头、固定角色流水线及旧命令 | 按新身份、知识、流程与门禁统一改写，不保留旧规则兼容开关 |
-| `apps/web/src/pages/{Projects,Knowledge,Prds,Board,Profile}.tsx` | 已有项目表单、知识操作、PRD 版本/审批、看板与用户中心 | 复用页面和 Modal，增加准确版本、权限与独立确认交互 |
+| 现有文件                                                         | 已见行为                                                                                   | v1 落点                                                                           |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `apps/cli/src/index.ts`                                          | `init`、密码 `login`、`ready`、按需求编号 `context`、指针式 `deliver`、`sign`、索引 `sync` | 保留 `init` 名称；认证改浏览器授权；补 claim/release 与任务快照；移除直接签字旁路 |
+| `apps/cli/src/config.ts`、`client.ts`                            | 全局配置含 access/refresh token，工作区只读 cwd，401 自动 refresh                          | 新配置严格校验、向上发现、受限 AgentCredential 隔离；401 不刷新 HUMAN 凭据        |
+| `apps/cli/src/spec.ts`                                           | 六个角色常量；向两个规则文件替换标记块；资源依赖源码相对路径                               | 动态 ProjectRole；选定宿主；自包含分发；安装锁与修改冲突保护                      |
+| `apps/cli/src/deliver.ts`、`knowledge.ts`                        | UTF-8 字符串摘要截为 16 hex；知识只上传本地索引                                            | 原始字节完整 SHA-256；知识正文经候选、人工发布后由平台托管                        |
+| `spec/SPEC.md`、`spec/roles/*.md`                                | 固定产品源头、固定角色流水线及旧命令                                                       | 按新身份、知识、流程与门禁统一改写，不保留旧规则兼容开关                          |
+| `apps/web/src/pages/{Projects,Knowledge,Prds,Board,Profile}.tsx` | 已有项目表单、知识操作、PRD 版本/审批、看板与用户中心                                      | 复用页面和 Modal，增加准确版本、权限与独立确认交互                                |
 
 只保留用户熟悉的命令拼写不等于保留旧数据结构。无 `schemaVersion` 的旧配置、旧 `accessToken/refreshToken` 字段、旧 `sign` 和“本地 approved 即发布”均不进入 v1 执行路径；不自动删除旧文件或平台数据。
 
@@ -25,15 +25,15 @@
 
 这些版本各有职责，不能用一个 `version` 字段代替：
 
-| 字段 | 定义 |
-| --- | --- |
-| `packageSchemaVersion` | 角色包 manifest 的结构版本，首版精确为 `1.0` |
-| `version` | 角色包内容的严格 SemVer；稳定 `id` 不因标题、文件改名而变化 |
-| `protocolVersion` | WorkMesh 本地桥接契约，首版精确为 `1.0`，不是 API 路径版本 |
-| `schemaVersion` | 流程配置或本地配置的结构版本，首版 `1.0`；不能据此调用旧 `/api` |
-| `WorkflowDefinitionRevision.revision` | 同项目、同 `workflowKey` 的不可变正整数修订序号 |
-| `WorkflowInstance.version`、`Task.version` | 可变实例与任务的 CAS 版本，不是流程定义修订号 |
-| `Artifact.schemaVersion` | 该工件格式版本，与包版本、HTTP API 版本分别校验 |
+| 字段                                       | 定义                                                            |
+| ------------------------------------------ | --------------------------------------------------------------- |
+| `packageSchemaVersion`                     | 角色包 manifest 的结构版本，首版精确为 `1.0`                    |
+| `version`                                  | 角色包内容的严格 SemVer；稳定 `id` 不因标题、文件改名而变化     |
+| `protocolVersion`                          | WorkMesh 本地桥接契约，首版精确为 `1.0`，不是 API 路径版本      |
+| `schemaVersion`                            | 流程配置或本地配置的结构版本，首版 `1.0`；不能据此调用旧 `/api` |
+| `WorkflowDefinitionRevision.revision`      | 同项目、同 `workflowKey` 的不可变正整数修订序号                 |
+| `WorkflowInstance.version`、`Task.version` | 可变实例与任务的 CAS 版本，不是流程定义修订号                   |
+| `Artifact.schemaVersion`                   | 该工件格式版本，与包版本、HTTP API 版本分别校验                 |
 
 `roleKey` 引用 01 的 ProjectRole.key：`^[a-z][a-z0-9-]{0,47}$`，总长 1–48，例如 `product`、`ui`、`frontend`、`backend`、`qa`、`ops`。六个 key 是初始数据，不是运行时全局枚举。流程、步骤、槽位和资源 key 使用同一字符规则，各自命名空间内唯一。数据库对象 ID 使用服务端 UUID，不把本地目录名或需求展示编号当作 ID。
 
@@ -55,7 +55,19 @@
   "$id": "urn:workmesh:role-package:1.0",
   "type": "object",
   "additionalProperties": false,
-  "required": ["packageSchemaVersion", "id", "version", "protocolVersion", "title", "roleKey", "compatibility", "inputs", "outputs", "resources", "agentEntries"],
+  "required": [
+    "packageSchemaVersion",
+    "id",
+    "version",
+    "protocolVersion",
+    "title",
+    "roleKey",
+    "compatibility",
+    "inputs",
+    "outputs",
+    "resources",
+    "agentEntries"
+  ],
   "properties": {
     "packageSchemaVersion": { "const": "1.0" },
     "id": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$", "maxLength": 120 },
@@ -64,7 +76,8 @@
     "title": { "type": "string", "minLength": 1, "maxLength": 120 },
     "roleKey": { "$ref": "#/$defs/roleKey" },
     "compatibility": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["minCliVersion", "maxCliVersionExclusive", "contractVersion"],
       "properties": {
         "minCliVersion": { "$ref": "#/$defs/semver" },
@@ -73,41 +86,76 @@
       }
     },
     "inputs": {
-      "type": "array", "maxItems": 32,
+      "type": "array",
+      "maxItems": 32,
       "items": {
-        "type": "object", "additionalProperties": false,
+        "type": "object",
+        "additionalProperties": false,
         "required": ["key", "source", "kind", "required", "contractVersion"],
         "properties": {
           "key": { "$ref": "#/$defs/key" },
-          "source": { "enum": ["TASK_SNAPSHOT", "PUBLISHED_KNOWLEDGE", "CANDIDATE_REVISION", "LOCAL_DRAFT"] },
-          "kind": { "enum": ["CONTEXT", "UNDERSTANDING", "DECISION", "PRD", "KNOWLEDGE", "DESIGN", "IMPL", "CASES", "RELEASE"] },
+          "source": {
+            "enum": ["TASK_SNAPSHOT", "PUBLISHED_KNOWLEDGE", "CANDIDATE_REVISION", "LOCAL_DRAFT"]
+          },
+          "kind": {
+            "enum": [
+              "CONTEXT",
+              "UNDERSTANDING",
+              "DECISION",
+              "PRD",
+              "KNOWLEDGE",
+              "DESIGN",
+              "IMPL",
+              "CASES",
+              "RELEASE"
+            ]
+          },
           "required": { "type": "boolean" },
           "contractVersion": { "const": "1.0" }
         }
       }
     },
     "outputs": {
-      "type": "array", "minItems": 1, "maxItems": 32,
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
       "items": {
-        "type": "object", "additionalProperties": false,
+        "type": "object",
+        "additionalProperties": false,
         "required": ["key", "channel", "kind", "contractVersion"],
         "properties": {
           "key": { "$ref": "#/$defs/key" },
           "channel": { "enum": ["CANDIDATE", "ARTIFACT"] },
-          "kind": { "enum": ["UNDERSTANDING", "DECISION", "PRD", "KNOWLEDGE", "DESIGN", "IMPL", "CASES", "RELEASE"] },
+          "kind": {
+            "enum": [
+              "UNDERSTANDING",
+              "DECISION",
+              "PRD",
+              "KNOWLEDGE",
+              "DESIGN",
+              "IMPL",
+              "CASES",
+              "RELEASE"
+            ]
+          },
           "contractVersion": { "const": "1.0" },
           "templateResourceId": { "$ref": "#/$defs/key" }
         }
       }
     },
     "resources": {
-      "type": "array", "minItems": 1, "maxItems": 128,
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
       "items": {
-        "type": "object", "additionalProperties": false,
+        "type": "object",
+        "additionalProperties": false,
         "required": ["id", "kind", "path", "sha256", "byteLength", "mediaType"],
         "properties": {
           "id": { "$ref": "#/$defs/key" },
-          "kind": { "enum": ["SOP", "TEMPLATE", "CHECKLIST", "REFERENCE", "AUXILIARY_SCRIPT", "AGENT_ENTRY"] },
+          "kind": {
+            "enum": ["SOP", "TEMPLATE", "CHECKLIST", "REFERENCE", "AUXILIARY_SCRIPT", "AGENT_ENTRY"]
+          },
           "path": { "type": "string", "minLength": 1, "maxLength": 240 },
           "sha256": { "$ref": "#/$defs/digest" },
           "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 },
@@ -116,11 +164,14 @@
       }
     },
     "agentEntries": {
-      "type": "array", "minItems": 1, "maxItems": 2,
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
       "items": {
         "oneOf": [
           {
-            "type": "object", "additionalProperties": false,
+            "type": "object",
+            "additionalProperties": false,
             "required": ["host", "type", "resourceId", "adapterVersion"],
             "properties": {
               "host": { "const": "codex" },
@@ -130,7 +181,8 @@
             }
           },
           {
-            "type": "object", "additionalProperties": false,
+            "type": "object",
+            "additionalProperties": false,
             "required": ["host", "type", "resourceId", "adapterVersion"],
             "properties": {
               "host": { "const": "claude-code" },
@@ -183,8 +235,19 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:workmesh:workflow-definition:1.0",
-  "type": "object", "additionalProperties": false,
-  "required": ["schemaVersion", "protocolVersion", "workflowKey", "title", "baseRevisionId", "roleExclusions", "stepRemovals", "roleSlots", "steps"],
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "protocolVersion",
+    "workflowKey",
+    "title",
+    "baseRevisionId",
+    "roleExclusions",
+    "stepRemovals",
+    "roleSlots",
+    "steps"
+  ],
   "properties": {
     "schemaVersion": { "const": "1.0" },
     "protocolVersion": { "const": "1.0" },
@@ -192,9 +255,11 @@
     "title": { "type": "string", "minLength": 1, "maxLength": 120 },
     "baseRevisionId": { "anyOf": [{ "type": "null" }, { "type": "string", "format": "uuid" }] },
     "roleExclusions": {
-      "type": "array", "maxItems": 64,
+      "type": "array",
+      "maxItems": 64,
       "items": {
-        "type": "object", "additionalProperties": false,
+        "type": "object",
+        "additionalProperties": false,
         "required": ["roleKey", "reason"],
         "properties": {
           "roleKey": { "$ref": "#/$defs/roleKey" },
@@ -203,9 +268,11 @@
       }
     },
     "stepRemovals": {
-      "type": "array", "maxItems": 32,
+      "type": "array",
+      "maxItems": 32,
       "items": {
-        "type": "object", "additionalProperties": false,
+        "type": "object",
+        "additionalProperties": false,
         "required": ["stepKey", "reason"],
         "properties": {
           "stepKey": { "$ref": "#/$defs/key" },
@@ -214,31 +281,73 @@
       }
     },
     "roleSlots": {
-      "type": "array", "minItems": 1, "maxItems": 64,
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
       "items": {
-        "type": "object", "additionalProperties": false,
+        "type": "object",
+        "additionalProperties": false,
         "required": ["key", "roleKey", "kind"],
         "properties": {
           "key": { "$ref": "#/$defs/key" },
           "roleKey": { "$ref": "#/$defs/roleKey" },
-          "kind": { "enum": ["UNDERSTANDING_CONFIRM", "PRD_PUBLICATION", "TASK_ACCEPTANCE", "RELEASE_ACCEPTANCE"] }
+          "kind": {
+            "enum": [
+              "UNDERSTANDING_CONFIRM",
+              "PRD_PUBLICATION",
+              "TASK_ACCEPTANCE",
+              "RELEASE_ACCEPTANCE"
+            ]
+          }
         }
       }
     },
     "steps": {
-      "type": "array", "minItems": 1, "maxItems": 32,
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
       "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["key", "roleKey", "kind", "baselinePolicy", "outputKinds", "candidateKinds", "deps", "gates"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "roleKey",
+          "kind",
+          "baselinePolicy",
+          "outputKinds",
+          "candidateKinds",
+          "deps",
+          "gates"
+        ],
         "properties": {
           "key": { "$ref": "#/$defs/key" },
           "roleKey": { "$ref": "#/$defs/roleKey" },
           "kind": { "enum": ["PRODUCT", "DELIVERY", "VERIFY", "RELEASE"] },
           "baselinePolicy": { "enum": ["NONE", "PUBLISHED_PRD"] },
-          "outputKinds": { "type": "array", "maxItems": 5, "uniqueItems": true, "items": { "$ref": "#/$defs/artifactKind" } },
-          "candidateKinds": { "type": "array", "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/candidateKind" } },
-          "deps": { "type": "array", "maxItems": 31, "uniqueItems": true, "items": { "$ref": "#/$defs/key" } },
-          "gates": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/gate" } }
+          "outputKinds": {
+            "type": "array",
+            "maxItems": 5,
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/artifactKind" }
+          },
+          "candidateKinds": {
+            "type": "array",
+            "maxItems": 4,
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/candidateKind" }
+          },
+          "deps": {
+            "type": "array",
+            "maxItems": 31,
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/key" }
+          },
+          "gates": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": { "$ref": "#/$defs/gate" }
+          }
         }
       }
     }
@@ -249,14 +358,31 @@
     "artifactKind": { "enum": ["PRD", "DESIGN", "IMPL", "CASES", "RELEASE"] },
     "candidateKind": { "enum": ["UNDERSTANDING", "DECISION", "PRD", "KNOWLEDGE"] },
     "gate": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["key", "kind", "outputKinds", "candidateKinds", "reviewerSlots", "mode"],
       "properties": {
         "key": { "$ref": "#/$defs/key" },
         "kind": { "const": "HUMAN_APPROVAL" },
-        "outputKinds": { "type": "array", "maxItems": 5, "uniqueItems": true, "items": { "$ref": "#/$defs/artifactKind" } },
-        "candidateKinds": { "type": "array", "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/candidateKind" } },
-        "reviewerSlots": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": { "$ref": "#/$defs/key" } },
+        "outputKinds": {
+          "type": "array",
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/artifactKind" }
+        },
+        "candidateKinds": {
+          "type": "array",
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/candidateKind" }
+        },
+        "reviewerSlots": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/key" }
+        },
         "mode": { "const": "ALL" }
       }
     }
@@ -268,22 +394,22 @@
 
 JSON Schema 不能单独证明图与业务可行；`validateWorkflowDefinition` 必须返回结构化问题 `{code,jsonPointer,message}`，顺序按 jsonPointer/code 稳定排序：
 
-| 验证 | 精确定义与拒绝代码 |
-| --- | --- |
-| 身份与角色 | 所有 step、slot、exclusion 的 roleKey 在该项目存在且 ACTIVE；未知/他项目返回 `WORKFLOW_UNKNOWN_ROLE`。roleKey 只编译为本项目稳定 roleId；不能把角色标题当 key |
-| key 与重复 | steps、slots、每步 gates 的 key 各自唯一；deps/slots/kinds 不重复；空白 title/reason 视为空。重复为 `WORKFLOW_DUPLICATE_KEY` |
-| 图 | deps 必须指向本定义内现存步骤且不得自依赖；引用不存在为 `WORKFLOW_UNKNOWN_DEPENDENCY`，拓扑排序不能覆盖全部节点为 `WORKFLOW_CYCLE` |
-| 汇聚 | 恰好一个 `kind=RELEASE`；该步骤 outputKinds 精确为 `["RELEASE"]`、candidateKinds 为空；任何活跃步骤都必须有向路径通向 release。孤立终点为 `WORKFLOW_UNREACHABLE_RELEASE`，不能靠未使用步骤制造“流程已完成” |
-| 基线 | PRODUCT 可以 NONE 或 PUBLISHED_PRD；其余必须 PUBLISHED_PRD。NONE 的 PRODUCT 不能声明 IMPL/DESIGN/CASES/RELEASE；仅候选型步骤也可形成正式检查点。违例 `WORKFLOW_BASELINE_REQUIRED` |
-| 输出 | 每步 outputKinds 与 candidateKinds 至少一个非空；outputKinds 是本步骤必须交付的工件类型，candidateKinds 是允许登记的中间候选类型；被 gate 引用的候选是本步骤必需检查点。每种必需工件都至少有一个覆盖它的 HUMAN_APPROVAL gate，拒绝 `WORKFLOW_UNGATED_OUTPUT` |
-| gate 引用 | gate 的 outputKinds/candidateKinds 至少一个非空，均须为该 step 已声明的类型，reviewerSlots 均存在。引用错误 `WORKFLOW_GATE_TARGET_INVALID`；未使用 roleSlot 也拒绝，避免配置看似有审批却没有生效 |
-| 审批 qualifier | UNDERSTANDING_CONFIRM 只覆盖 UNDERSTANDING 候选；PRD_PUBLICATION 只覆盖 PRD 候选；TASK_ACCEPTANCE 只覆盖非 RELEASE 工件；RELEASE_ACCEPTANCE 只覆盖 RELEASE 工件。一个 gate 的所有槽必须与其目标同类；混用或知识发布借用任务槽返回 `WORKFLOW_APPROVAL_QUALIFIER_INVALID` |
-| 审批模式 | v1 只接受 ALL，不支持 ANY、人数阈值、local approved 或 bot 自动 approve。运行时每个槽独立保存决定；同一人可绑定多个槽，但须分别确认，不能一条决定补齐全部槽 |
-| 发布门 | release 必有 RELEASE_ACCEPTANCE 的 ALL 槽，不能借普通 TASK_ACCEPTANCE 放行。缺失为 `WORKFLOW_RELEASE_GATE_REQUIRED`；RELEASE 不是 ops 角色别名，自定义有权角色也可承担 |
-| 实现门 | 任何 step 声明 IMPL，编译器加入不可编辑的 `systemGates[{stepKey,kind:"CODE_REVIEW_EVIDENCE",required:true}]`。客户端若提交 systemGates、codeReviewRequired=false 或可执行 action，按未知字段拒绝。实际有效他人评审、当前源提交与合并证据由 02/04 检查，不因本地规则、角色或标题改变而取消 |
-| 裁剪 | 与 baseRevisionId 对比，删除的每个 step 必须恰有一条 stepRemovals 理由；不得列不存在的删除项。删后重新校验全部 deps、gate、汇聚和 scope。被完全移除的原参与 role 须列 roleExclusions 理由；新增首版同样须明确本次裁剪的角色，不以“没有任务”作为自动豁免。违例 `WORKFLOW_REMOVAL_REASON_REQUIRED` |
-| 适用范围 | roleExclusions 不得含仍被 step/slot 使用的角色；激活交付步骤时，完整流程须覆盖 Requirement 当前已人工确认 deliveryScope.participatingRoleIds 和 requiredOutputKinds，排除角色理由与确认 scope 一致。少产物或删 IMPL 掩盖已授权实现范围为 `WORKFLOW_SCOPE_MISMATCH` |
-| 包契约 | 每个执行角色有确定 package lock；该包允许的输出覆盖 step 输出，必需输入可由其 baselinePolicy 与依赖提供；版本、角色、缺少模板或摘要不匹配为 `WORKFLOW_PACKAGE_INCOMPATIBLE` |
+| 验证           | 精确定义与拒绝代码                                                                                                                                                                                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 身份与角色     | 所有 step、slot、exclusion 的 roleKey 在该项目存在且 ACTIVE；未知/他项目返回 `WORKFLOW_UNKNOWN_ROLE`。roleKey 只编译为本项目稳定 roleId；不能把角色标题当 key                                                                                                                                    |
+| key 与重复     | steps、slots、每步 gates 的 key 各自唯一；deps/slots/kinds 不重复；空白 title/reason 视为空。重复为 `WORKFLOW_DUPLICATE_KEY`                                                                                                                                                                     |
+| 图             | deps 必须指向本定义内现存步骤且不得自依赖；引用不存在为 `WORKFLOW_UNKNOWN_DEPENDENCY`，拓扑排序不能覆盖全部节点为 `WORKFLOW_CYCLE`                                                                                                                                                               |
+| 汇聚           | 恰好一个 `kind=RELEASE`；该步骤 outputKinds 精确为 `["RELEASE"]`、candidateKinds 为空；任何活跃步骤都必须有向路径通向 release。孤立终点为 `WORKFLOW_UNREACHABLE_RELEASE`，不能靠未使用步骤制造“流程已完成”                                                                                       |
+| 基线           | PRODUCT 可以 NONE 或 PUBLISHED_PRD；其余必须 PUBLISHED_PRD。NONE 的 PRODUCT 不能声明 IMPL/DESIGN/CASES/RELEASE；仅候选型步骤也可形成正式检查点。违例 `WORKFLOW_BASELINE_REQUIRED`                                                                                                                |
+| 输出           | 每步 outputKinds 与 candidateKinds 至少一个非空；outputKinds 是本步骤必须交付的工件类型，candidateKinds 是允许登记的中间候选类型；被 gate 引用的候选是本步骤必需检查点。每种必需工件都至少有一个覆盖它的 HUMAN_APPROVAL gate，拒绝 `WORKFLOW_UNGATED_OUTPUT`                                     |
+| gate 引用      | gate 的 outputKinds/candidateKinds 至少一个非空，均须为该 step 已声明的类型，reviewerSlots 均存在。引用错误 `WORKFLOW_GATE_TARGET_INVALID`；未使用 roleSlot 也拒绝，避免配置看似有审批却没有生效                                                                                                 |
+| 审批 qualifier | UNDERSTANDING_CONFIRM 只覆盖 UNDERSTANDING 候选；PRD_PUBLICATION 只覆盖 PRD 候选；TASK_ACCEPTANCE 只覆盖非 RELEASE 工件；RELEASE_ACCEPTANCE 只覆盖 RELEASE 工件。一个 gate 的所有槽必须与其目标同类；混用或知识发布借用任务槽返回 `WORKFLOW_APPROVAL_QUALIFIER_INVALID`                          |
+| 审批模式       | v1 只接受 ALL，不支持 ANY、人数阈值、local approved 或 bot 自动 approve。运行时每个槽独立保存决定；同一人可绑定多个槽，但须分别确认，不能一条决定补齐全部槽                                                                                                                                      |
+| 发布门         | release 必有 RELEASE_ACCEPTANCE 的 ALL 槽，不能借普通 TASK_ACCEPTANCE 放行。缺失为 `WORKFLOW_RELEASE_GATE_REQUIRED`；RELEASE 不是 ops 角色别名，自定义有权角色也可承担                                                                                                                           |
+| 实现门         | 任何 step 声明 IMPL，编译器加入不可编辑的 `systemGates[{stepKey,kind:"CODE_REVIEW_EVIDENCE",required:true}]`。客户端若提交 systemGates、codeReviewRequired=false 或可执行 action，按未知字段拒绝。实际有效他人评审、当前源提交与合并证据由 02/04 检查，不因本地规则、角色或标题改变而取消        |
+| 裁剪           | 与 baseRevisionId 对比，删除的每个 step 必须恰有一条 stepRemovals 理由；不得列不存在的删除项。删后重新校验全部 deps、gate、汇聚和 scope。被完全移除的原参与 role 须列 roleExclusions 理由；新增首版同样须明确本次裁剪的角色，不以“没有任务”作为自动豁免。违例 `WORKFLOW_REMOVAL_REASON_REQUIRED` |
+| 适用范围       | roleExclusions 不得含仍被 step/slot 使用的角色；激活交付步骤时，完整流程须覆盖 Requirement 当前已人工确认 deliveryScope.participatingRoleIds 和 requiredOutputKinds，排除角色理由与确认 scope 一致。少产物或删 IMPL 掩盖已授权实现范围为 `WORKFLOW_SCOPE_MISMATCH`                               |
+| 包契约         | 每个执行角色有确定 package lock；该包允许的输出覆盖 step 输出，必需输入可由其 baselinePolicy 与依赖提供；版本、角色、缺少模板或摘要不匹配为 `WORKFLOW_PACKAGE_INCOMPATIBLE`                                                                                                                      |
 
 definition始终是完整定义，不应用猜测式数组合并。首次发布可以baseRevisionId=null；以现存模板修订起步时指定该项目可读的准确已发布修订。后续发布baseRevisionId必须等于该workflow当前currentPublishedRevisionId，不能改成null绕过删除理由；stepRemovals精确对比它，不对比当前目录里可能升级过的默认包。原因进入发布摘要及审计；裁剪后的模板仍要经OWNER/ADMIN在Web独立确认。
 
@@ -312,29 +438,99 @@ definition始终是完整定义，不应用猜测式数组合并。首次发布�
   ],
   "steps": [
     {
-      "key": "understand", "roleKey": "product", "kind": "PRODUCT", "baselinePolicy": "NONE",
-      "outputKinds": [], "candidateKinds": ["UNDERSTANDING", "DECISION"], "deps": [],
-      "gates": [{ "key": "understanding", "kind": "HUMAN_APPROVAL", "outputKinds": [], "candidateKinds": ["UNDERSTANDING"], "reviewerSlots": ["understanding-owner"], "mode": "ALL" }]
+      "key": "understand",
+      "roleKey": "product",
+      "kind": "PRODUCT",
+      "baselinePolicy": "NONE",
+      "outputKinds": [],
+      "candidateKinds": ["UNDERSTANDING", "DECISION"],
+      "deps": [],
+      "gates": [
+        {
+          "key": "understanding",
+          "kind": "HUMAN_APPROVAL",
+          "outputKinds": [],
+          "candidateKinds": ["UNDERSTANDING"],
+          "reviewerSlots": ["understanding-owner"],
+          "mode": "ALL"
+        }
+      ]
     },
     {
-      "key": "prd", "roleKey": "product", "kind": "PRODUCT", "baselinePolicy": "NONE",
-      "outputKinds": [], "candidateKinds": ["PRD", "DECISION", "KNOWLEDGE"], "deps": ["understand"],
-      "gates": [{ "key": "publish-prd", "kind": "HUMAN_APPROVAL", "outputKinds": [], "candidateKinds": ["PRD"], "reviewerSlots": ["prd-owner"], "mode": "ALL" }]
+      "key": "prd",
+      "roleKey": "product",
+      "kind": "PRODUCT",
+      "baselinePolicy": "NONE",
+      "outputKinds": [],
+      "candidateKinds": ["PRD", "DECISION", "KNOWLEDGE"],
+      "deps": ["understand"],
+      "gates": [
+        {
+          "key": "publish-prd",
+          "kind": "HUMAN_APPROVAL",
+          "outputKinds": [],
+          "candidateKinds": ["PRD"],
+          "reviewerSlots": ["prd-owner"],
+          "mode": "ALL"
+        }
+      ]
     },
     {
-      "key": "implement", "roleKey": "backend", "kind": "DELIVERY", "baselinePolicy": "PUBLISHED_PRD",
-      "outputKinds": ["IMPL"], "candidateKinds": [], "deps": ["prd"],
-      "gates": [{ "key": "accept-impl", "kind": "HUMAN_APPROVAL", "outputKinds": ["IMPL"], "candidateKinds": [], "reviewerSlots": ["backend-accept"], "mode": "ALL" }]
+      "key": "implement",
+      "roleKey": "backend",
+      "kind": "DELIVERY",
+      "baselinePolicy": "PUBLISHED_PRD",
+      "outputKinds": ["IMPL"],
+      "candidateKinds": [],
+      "deps": ["prd"],
+      "gates": [
+        {
+          "key": "accept-impl",
+          "kind": "HUMAN_APPROVAL",
+          "outputKinds": ["IMPL"],
+          "candidateKinds": [],
+          "reviewerSlots": ["backend-accept"],
+          "mode": "ALL"
+        }
+      ]
     },
     {
-      "key": "verify", "roleKey": "qa", "kind": "VERIFY", "baselinePolicy": "PUBLISHED_PRD",
-      "outputKinds": ["CASES"], "candidateKinds": [], "deps": ["implement"],
-      "gates": [{ "key": "accept-tests", "kind": "HUMAN_APPROVAL", "outputKinds": ["CASES"], "candidateKinds": [], "reviewerSlots": ["qa-accept"], "mode": "ALL" }]
+      "key": "verify",
+      "roleKey": "qa",
+      "kind": "VERIFY",
+      "baselinePolicy": "PUBLISHED_PRD",
+      "outputKinds": ["CASES"],
+      "candidateKinds": [],
+      "deps": ["implement"],
+      "gates": [
+        {
+          "key": "accept-tests",
+          "kind": "HUMAN_APPROVAL",
+          "outputKinds": ["CASES"],
+          "candidateKinds": [],
+          "reviewerSlots": ["qa-accept"],
+          "mode": "ALL"
+        }
+      ]
     },
     {
-      "key": "release", "roleKey": "ops", "kind": "RELEASE", "baselinePolicy": "PUBLISHED_PRD",
-      "outputKinds": ["RELEASE"], "candidateKinds": [], "deps": ["verify"],
-      "gates": [{ "key": "accept-release", "kind": "HUMAN_APPROVAL", "outputKinds": ["RELEASE"], "candidateKinds": [], "reviewerSlots": ["release-owner"], "mode": "ALL" }]
+      "key": "release",
+      "roleKey": "ops",
+      "kind": "RELEASE",
+      "baselinePolicy": "PUBLISHED_PRD",
+      "outputKinds": ["RELEASE"],
+      "candidateKinds": [],
+      "deps": ["verify"],
+      "gates": [
+        {
+          "key": "accept-release",
+          "kind": "HUMAN_APPROVAL",
+          "outputKinds": ["RELEASE"],
+          "candidateKinds": [],
+          "reviewerSlots": ["release-owner"],
+          "mode": "ALL"
+        }
+      ]
     }
   ]
 }
@@ -348,15 +544,35 @@ definition始终是完整定义，不应用猜测式数组合并。首次发布�
 
 ```json
 {
-  "schemaVersion": "1.0", "protocolVersion": "1.0",
-  "workflowKey": "bad-release", "title": "错误发布槽", "baseRevisionId": null,
-  "roleExclusions": [], "stepRemovals": [],
+  "schemaVersion": "1.0",
+  "protocolVersion": "1.0",
+  "workflowKey": "bad-release",
+  "title": "错误发布槽",
+  "baseRevisionId": null,
+  "roleExclusions": [],
+  "stepRemovals": [],
   "roleSlots": [{ "key": "ordinary", "roleKey": "ops", "kind": "TASK_ACCEPTANCE" }],
-  "steps": [{
-    "key": "release", "roleKey": "ops", "kind": "RELEASE", "baselinePolicy": "PUBLISHED_PRD",
-    "outputKinds": ["RELEASE"], "candidateKinds": [], "deps": [],
-    "gates": [{ "key": "wrong", "kind": "HUMAN_APPROVAL", "outputKinds": ["RELEASE"], "candidateKinds": [], "reviewerSlots": ["ordinary"], "mode": "ALL" }]
-  }]
+  "steps": [
+    {
+      "key": "release",
+      "roleKey": "ops",
+      "kind": "RELEASE",
+      "baselinePolicy": "PUBLISHED_PRD",
+      "outputKinds": ["RELEASE"],
+      "candidateKinds": [],
+      "deps": [],
+      "gates": [
+        {
+          "key": "wrong",
+          "kind": "HUMAN_APPROVAL",
+          "outputKinds": ["RELEASE"],
+          "candidateKinds": [],
+          "reviewerSlots": ["ordinary"],
+          "mode": "ALL"
+        }
+      ]
+    }
+  ]
 }
 ```
 
@@ -373,10 +589,18 @@ WorkflowDefinitionRevision 是模板；WorkflowInstance 归属于 requirementId�
   "definitionRevisionId": "11111111-1111-4111-8111-111111111111",
   "expectedRequirementVersion": 3,
   "stepBindings": [
-    { "stepKey": "understand", "roleId": "22222222-2222-4222-8222-222222222222", "responsibleUserId": "33333333-3333-4333-8333-333333333333" }
+    {
+      "stepKey": "understand",
+      "roleId": "22222222-2222-4222-8222-222222222222",
+      "responsibleUserId": "33333333-3333-4333-8333-333333333333"
+    }
   ],
   "roleSlotBindings": [
-    { "slotKey": "understanding-owner", "roleId": "22222222-2222-4222-8222-222222222222", "userId": "33333333-3333-4333-8333-333333333333" }
+    {
+      "slotKey": "understanding-owner",
+      "roleId": "22222222-2222-4222-8222-222222222222",
+      "userId": "33333333-3333-4333-8333-333333333333"
+    }
   ]
 }
 ```
@@ -389,14 +613,14 @@ responsibleUserId 是交接/通知责任，不是 claim 执行主体。claim 的
 
 本地 `.workmesh/local/runs/<localRunId>.json` 使用独立格式：
 
-| 字段 | 定义 |
-| --- | --- |
-| `schemaVersion`、`localRunId` | `1.0` 与本地随机 UUID，不当作平台 Run/任务 ID |
-| `workflowInstanceId`、`taskId`、`workflowStepKey` | 已知时关联正式对象，否则 null |
-| `packageLockDigest`、`host` | 本次所用包锁和 `codex\|claude-code` |
-| `lastSeenCheckpoint` | `{taskVersion,claimId,snapshotId,artifactSetId,reviewRequestIds,observedAt}`，只缓存平台返回，不宣告当前仍有效 |
-| `localSteps` | `[{key,status:"NOT_STARTED\|IN_PROGRESS\|DONE",notePath?}]`，仅本地详细进度 |
-| `draftPaths` | 用户明确选定的本地草稿，不随平台请求自动上传 |
+| 字段                                              | 定义                                                                                                           |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `schemaVersion`、`localRunId`                     | `1.0` 与本地随机 UUID，不当作平台 Run/任务 ID                                                                  |
+| `workflowInstanceId`、`taskId`、`workflowStepKey` | 已知时关联正式对象，否则 null                                                                                  |
+| `packageLockDigest`、`host`                       | 本次所用包锁和 `codex\|claude-code`                                                                            |
+| `lastSeenCheckpoint`                              | `{taskVersion,claimId,snapshotId,artifactSetId,reviewRequestIds,observedAt}`，只缓存平台返回，不宣告当前仍有效 |
+| `localSteps`                                      | `[{key,status:"NOT_STARTED\|IN_PROGRESS\|DONE",notePath?}]`，仅本地详细进度                                    |
+| `draftPaths`                                      | 用户明确选定的本地草稿，不随平台请求自动上传                                                                   |
 
 恢复顺序固定为：加载本地定位 → 验证包锁 → 联网读正式检查点和当前权限 → 核对 claim/快照/变更 → 呈现差异 → 继续本地生产或重新认领。离线只允许读已缓存内容并显式标记 `freshness=UNKNOWN`、编辑本地草稿；不能离线发布、交付、批准或宣称依赖仍有效。`FETCHED`、`PRESENTED_TO_AGENT` 最多是输入取得与提供的客户端记录，不证明 Agent 阅读、更不证明遵循；最终要检验产物。
 
@@ -404,11 +628,11 @@ responsibleUserId 是交接/通知责任，不是 claim 执行主体。claim 的
 
 规则解析顺序为“默认角色包 → 项目已发布 revision → 个人 advisory”。平台身份、安全、知识授权与门禁先行且不可覆盖。
 
-| 层次 | 可配置字段 | 禁止内容 |
-| --- | --- | --- |
-| 默认包 | 本章 manifest、SOP、模板、自检方法、两种声明宿主入口 | 凭据、客户知识、自动执行 hooks、把 persona 变成权限 |
-| 项目发布定制 | 完整 WorkflowDefinition、packageLocks；SOP追加、模板替换和检查表增补放入该角色的项目定制包新版本，通过 manifest 的 SOP/TEMPLATE/CHECKLIST 资源与输出引用表达 | 修改 Principal、scopes、知识库授权、ALL、系统代码证据或确认票据；删除默认/项目已有必需检查项而不走显式修订与门禁 |
-| 个人 advisory | `locale:"zh-CN\|en"`、`verbosity:"concise\|normal\|detailed"`、`preferredHost:"codex\|claude-code"`、`editorHint`(≤120 字符)、`interactionNote`(≤1000 字符) | 覆盖 roleKey、输入/输出、deps、reviewerSlots、required 检查项、endpoint、上传范围、capabilities、任意脚本路径/执行器 |
+| 层次          | 可配置字段                                                                                                                                                   | 禁止内容                                                                                                             |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| 默认包        | 本章 manifest、SOP、模板、自检方法、两种声明宿主入口                                                                                                         | 凭据、客户知识、自动执行 hooks、把 persona 变成权限                                                                  |
+| 项目发布定制  | 完整 WorkflowDefinition、packageLocks；SOP追加、模板替换和检查表增补放入该角色的项目定制包新版本，通过 manifest 的 SOP/TEMPLATE/CHECKLIST 资源与输出引用表达 | 修改 Principal、scopes、知识库授权、ALL、系统代码证据或确认票据；删除默认/项目已有必需检查项而不走显式修订与门禁     |
+| 个人 advisory | `locale:"zh-CN\|en"`、`verbosity:"concise\|normal\|detailed"`、`preferredHost:"codex\|claude-code"`、`editorHint`(≤120 字符)、`interactionNote`(≤1000 字符)  | 覆盖 roleKey、输入/输出、deps、reviewerSlots、required 检查项、endpoint、上传范围、capabilities、任意脚本路径/执行器 |
 
 项目定制不引入第二套任意JSON override：定制 SOP/模板/检查表生成新的项目私有 role package，沿用同一 manifest schema，packageLocks 指定它的稳定 id、准确版本和digest；可由项目发布者选择，不能覆盖同id+version原内容。模板替换必须仍满足相应输出 contract；所有引用资源进入已发布包锁，不从可变本地路径随时读最新版。默认与项目 required 检查项保留稳定 key，个人不得用 false/空值删除。个人 advisory 原文留本地，不因初始化、取上下文或切换宿主上传。提示词中出现“忽略审批”“上传全部聊天”不改变平台行为；客户端也不能把这些文字解释为执行指令。
 
@@ -474,33 +698,33 @@ platform key 由 URL 解析后组成 `{origin,apiBasePath}`：scheme/hostname �
 
 本表是**首版必须实现并验收的命令面**，不是现有代码能力清单。所有业务请求使用 `/api/v1`；只在共享业务服务内决定权限与状态，CLI 不自算批准。
 
-| 命令 | 必需输入与效果 | 类型/权限边界 |
-| --- | --- | --- |
-| `init` / `roles install` | `--role --project --host`；平台、目录可由 profile/参数确定；校验并安装声明资源 | 只写明确本地受管范围；不联网授权、不执行脚本、不自动发布 |
-| `roles validate --package <path>` | 验 manifest、资源路径/bytes/摘要与兼容性 | 只读本地；错误给 jsonPointer/code |
-| `roles update --to <semver>` | 明确目标包版本，校验 lock 与用户修改 | 本地显式更新；不改变在途平台 revision |
-| `auth login/status/logout` | 浏览器proof授权、显式file store同意；状态/当前凭据自撤销；`login` 可作 auth login 拼写别名 | 不保存HUMAN token；不支持 `--password`/`--actor-type`；不可借self-revoke撤销他人凭据 |
-| `doctor` | 配置来源、当前 project/role、API/protocol、包锁、权限与宿主入口诊断 | 本地检查加只读 HTTP；`--offline` 标网络新鲜度 UNKNOWN；无自动修复/安装/发信 |
-| `workflow list/show` | 项目流程列表，或 `--revision <id>` 读 immutable revision | 授权读取，不仅取“最新版” |
-| `workflow validate --file <json>` | 本地完整语义检查；`--online` 用真实项目角色/包/基线补充验证 | validate 无持久写；Agent 可校验建议，正式发布只在 Web |
-| `ready` | 当前 project/role，输出分页任务、version、依赖与阻塞原因 | GET 只读；不会认领、改状态或分配工作 |
-| `claim --task <id> --expected-version <n>` | 原子认领，返回 claimId 与新 task version | 服务端派生主体；冲突不自动换人/任务 |
-| `release --task <id> --claim <id> --expected-version <n> --reason <text>` | 以AGENT身份只释放本凭据认领，使旧claim失效 | 管理员强制接管必须转Web二验；CLI不伪装其授权人或别的凭据 |
-| `context --task <id> --materialize` | POST 创建准确快照；校验全体 bytes 后原子落盘，返回 snapshotId | 创建有副作用；受当前读取权、任务与包 pin 约束 |
-| `context --snapshot <id>` | GET 读指定准确快照；`--materialize` 仅物化它 | 读取不创建新快照；再次核验当前访问权限 |
-| `knowledge submit --kb <id> --kind <candidateKind> --file <path>` | 选定正文/附件候选，明确 requirement/task 与来源引用 | 不递归扫聊天/目录；不发布；KNOWLEDGE/PRD 等按02候选契约校验 |
-| `knowledge get --document <id> --revision <id> --out <path>` | 读取授权的指定修订正文与附件 | 只在 `--published` 明确请求时解析当前发布指针；结果返回确定revision |
-| `deliver --task <id> --claim <id> --snapshot <id> --expected-version <n> --manifest <file>` | 提交 exact ArtifactSet、完整摘要、localRunId、包锁与自检证据 | 正式事务；最多 REVIEW_PENDING，不自动 DONE；见02准确payload |
-| `review --task <id> --artifact-set <id>` | 创建统一 ReviewRequest，返回 reviewRequestId、槽、准确版本和 Web URL | Agent 只能请求；槽由服务端从 revision 导出，不接受自造通过结果 |
-| `review --document-revision <id> --expected-version <n>` | 创建DOCUMENT_REVISION评审，服务端按kind派生理解确认／PRD发布／知识发布槽 | 可在没有workflow实例前请求候选评审；只请求、不批准，仍检查KB与当前发布前置条件 |
-| `reviews show --id <id>` | 查询当前槽、决定、返修意见、有效性及针对版本 | GET，不执行 gate approve |
-| `changes` | 当前 project/role 的收件事件，`--cursor` 稳定分页 | DB 先授权/收件人过滤；items/nextCursor/hasMore |
-| `ack --event <id> --recipient <id> --expected-version <n>` | 当前责任人/当前角色逐槽确认处理 | ack 幂等，不恢复旧批准、不代其他角色确认 |
-| `block --task <id> --expected-version <n> --reason <text> --resume-condition <text>` | 当前claim且clarification:write Agent登记阻塞；不变业务阶段 | 走02合法转换，必填责任与继续条件，不解除依赖门槛 |
-| `pause/resume --task <id>` | 读取当前状态并返回对应Web操作链接，不产生正式状态写入 | PAUSE／RESUME／CANCEL由责任HUMAN或管理者在Web执行；CLI显示“待人工操作”而非已暂停／恢复 |
-| `clarify --task <id> --file <json>` | 登记缺口、依据、影响、回答责任与继续条件 | 共享结构化澄清；不上传全部对话 |
-| `receipts show --operation <uuid>` | 读取本地操作结果定位、digest 与未知结果提示 | 无秘密/敏感响应正文；不是可执行任意历史请求的调度器 |
-| `receipts reconcile --operation <uuid>` | GET `/operation-receipts/:operationKey?projectId=<p>` 读取记录，再以安全metadata更新本地receipt | 只读业务；operationKey为原header key而非数据库PK，当前鉴权后只返回允许结果；他人operation统一404 |
+| 命令                                                                                        | 必需输入与效果                                                                                  | 类型/权限边界                                                                                    |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `init` / `roles install`                                                                    | `--role --project --host`；平台、目录可由 profile/参数确定；校验并安装声明资源                  | 只写明确本地受管范围；不联网授权、不执行脚本、不自动发布                                         |
+| `roles validate --package <path>`                                                           | 验 manifest、资源路径/bytes/摘要与兼容性                                                        | 只读本地；错误给 jsonPointer/code                                                                |
+| `roles update --to <semver>`                                                                | 明确目标包版本，校验 lock 与用户修改                                                            | 本地显式更新；不改变在途平台 revision                                                            |
+| `auth login/status/logout`                                                                  | 浏览器proof授权、显式file store同意；状态/当前凭据自撤销；`login` 可作 auth login 拼写别名      | 不保存HUMAN token；不支持 `--password`/`--actor-type`；不可借self-revoke撤销他人凭据             |
+| `doctor`                                                                                    | 配置来源、当前 project/role、API/protocol、包锁、权限与宿主入口诊断                             | 本地检查加只读 HTTP；`--offline` 标网络新鲜度 UNKNOWN；无自动修复/安装/发信                      |
+| `workflow list/show`                                                                        | 项目流程列表，或 `--revision <id>` 读 immutable revision                                        | 授权读取，不仅取“最新版”                                                                         |
+| `workflow validate --file <json>`                                                           | 本地完整语义检查；`--online` 用真实项目角色/包/基线补充验证                                     | validate 无持久写；Agent 可校验建议，正式发布只在 Web                                            |
+| `ready`                                                                                     | 当前 project/role，输出分页任务、version、依赖与阻塞原因                                        | GET 只读；不会认领、改状态或分配工作                                                             |
+| `claim --task <id> --expected-version <n>`                                                  | 原子认领，返回 claimId 与新 task version                                                        | 服务端派生主体；冲突不自动换人/任务                                                              |
+| `release --task <id> --claim <id> --expected-version <n> --reason <text>`                   | 以AGENT身份只释放本凭据认领，使旧claim失效                                                      | 管理员强制接管必须转Web二验；CLI不伪装其授权人或别的凭据                                         |
+| `context --task <id> --materialize`                                                         | POST 创建准确快照；校验全体 bytes 后原子落盘，返回 snapshotId                                   | 创建有副作用；受当前读取权、任务与包 pin 约束                                                    |
+| `context --snapshot <id>`                                                                   | GET 读指定准确快照；`--materialize` 仅物化它                                                    | 读取不创建新快照；再次核验当前访问权限                                                           |
+| `knowledge submit --kb <id> --kind <candidateKind> --file <path>`                           | 选定正文/附件候选，明确 requirement/task 与来源引用                                             | 不递归扫聊天/目录；不发布；KNOWLEDGE/PRD 等按02候选契约校验                                      |
+| `knowledge get --document <id> --revision <id> --out <path>`                                | 读取授权的指定修订正文与附件                                                                    | 只在 `--published` 明确请求时解析当前发布指针；结果返回确定revision                              |
+| `deliver --task <id> --claim <id> --snapshot <id> --expected-version <n> --manifest <file>` | 提交 exact ArtifactSet、完整摘要、localRunId、包锁与自检证据                                    | 正式事务；最多 REVIEW_PENDING，不自动 DONE；见02准确payload                                      |
+| `review --task <id> --artifact-set <id>`                                                    | 创建统一 ReviewRequest，返回 reviewRequestId、槽、准确版本和 Web URL                            | Agent 只能请求；槽由服务端从 revision 导出，不接受自造通过结果                                   |
+| `review --document-revision <id> --expected-version <n>`                                    | 创建DOCUMENT_REVISION评审，服务端按kind派生理解确认／PRD发布／知识发布槽                        | 可在没有workflow实例前请求候选评审；只请求、不批准，仍检查KB与当前发布前置条件                   |
+| `reviews show --id <id>`                                                                    | 查询当前槽、决定、返修意见、有效性及针对版本                                                    | GET，不执行 gate approve                                                                         |
+| `changes`                                                                                   | 当前 project/role 的收件事件，`--cursor` 稳定分页                                               | DB 先授权/收件人过滤；items/nextCursor/hasMore                                                   |
+| `ack --event <id> --recipient <id> --expected-version <n>`                                  | 当前责任人/当前角色逐槽确认处理                                                                 | ack 幂等，不恢复旧批准、不代其他角色确认                                                         |
+| `block --task <id> --expected-version <n> --reason <text> --resume-condition <text>`        | 当前claim且clarification:write Agent登记阻塞；不变业务阶段                                      | 走02合法转换，必填责任与继续条件，不解除依赖门槛                                                 |
+| `pause/resume --task <id>`                                                                  | 读取当前状态并返回对应Web操作链接，不产生正式状态写入                                           | PAUSE／RESUME／CANCEL由责任HUMAN或管理者在Web执行；CLI显示“待人工操作”而非已暂停／恢复           |
+| `clarify --task <id> --file <json>`                                                         | 登记缺口、依据、影响、回答责任与继续条件                                                        | 共享结构化澄清；不上传全部对话                                                                   |
+| `receipts show --operation <uuid>`                                                          | 读取本地操作结果定位、digest 与未知结果提示                                                     | 无秘密/敏感响应正文；不是可执行任意历史请求的调度器                                              |
+| `receipts reconcile --operation <uuid>`                                                     | GET `/operation-receipts/:operationKey?projectId=<p>` 读取记录，再以安全metadata更新本地receipt | 只读业务；operationKey为原header key而非数据库PK，当前鉴权后只返回允许结果；他人operation统一404 |
 
 `knowledge submit --kind` 仅 CANDIDATE 枚举；kind=PRD 的候选进入 PRD_PUBLICATION，kind=KNOWLEDGE 进入知识库发布权限。局部产品理解等用同一候选服务，CLI 名称不把它们都当成“已发布知识”。`deliver` 不接受 `actorType`、裸 `provider+number` 或 `--uri` 无 bytes/可信存储定位的旧指针交付。多仓库清单引用 projectRepositoryId、源提交和内部证据 ID；详细字段从02/04共享类型生成。
 
@@ -516,18 +740,18 @@ platform key 由 URL 解析后组成 `{origin,apiBasePath}`：scheme/hostname �
 
 `--json` 的 stdout 恰好一份 JSON（一个对象和末尾换行），成功采用 `{data,meta:{requestId}}`；错误采用 `{error:{code,message,details?,requestId}}`。纯本地动作 requestId 为 CLI 生成的 UUID。日志、下载进度、浏览器授权引导和安全诊断只到 stderr；库函数不得 console.log。非 JSON 模式默认中文帮助/错误及下一步提示；`--lang en` 只改文案，不改 keys/codes。成功数据不打印 bearer、秘密、本地 proof 或无关受限内容。
 
-| 退出码 | 含义 |
-| --- | --- |
-| `0` | 声明命令已完成；review 只代表请求已创建 |
-| `2` | 参数、配置、schema 或本地输入验证失败 |
-| `3` | AUTH_REQUIRED / AUTH_EXPIRED / AUTH_REVOKED；含 HTTP 401 |
-| `4` | FORBIDDEN；含 HTTP 403，不泄露资源存在性 |
-| `5` | VERSION_CONFLICT / CLAIM_CONFLICT / IDEMPOTENCY_CONFLICT；含对应409/412 |
-| `6` | WORKFLOW_BLOCKED / STALE_INPUT / GATE_NOT_SATISFIED，需先处理业务条件 |
-| `7` | 网络不可达、超时、重试耗尽；写操作可能结果未知 |
-| `8` | CONTENT_INTEGRITY_FAILED / LOCAL_MANAGED_FILE_MODIFIED / PACKAGE_TAMPERED |
-| `9` | 服务端5xx或响应协议不符合约定 |
-| `130` | 用户中断；已经发出的写请求仍可能结果未知，保留receipt |
+| 退出码 | 含义                                                                      |
+| ------ | ------------------------------------------------------------------------- |
+| `0`    | 声明命令已完成；review 只代表请求已创建                                   |
+| `2`    | 参数、配置、schema 或本地输入验证失败                                     |
+| `3`    | AUTH_REQUIRED / AUTH_EXPIRED / AUTH_REVOKED；含 HTTP 401                  |
+| `4`    | FORBIDDEN；含 HTTP 403，不泄露资源存在性                                  |
+| `5`    | VERSION_CONFLICT / CLAIM_CONFLICT / IDEMPOTENCY_CONFLICT；含对应409/412   |
+| `6`    | WORKFLOW_BLOCKED / STALE_INPUT / GATE_NOT_SATISFIED，需先处理业务条件     |
+| `7`    | 网络不可达、超时、重试耗尽；写操作可能结果未知                            |
+| `8`    | CONTENT_INTEGRITY_FAILED / LOCAL_MANAGED_FILE_MODIFIED / PACKAGE_TAMPERED |
+| `9`    | 服务端5xx或响应协议不符合约定                                             |
+| `130`  | 用户中断；已经发出的写请求仍可能结果未知，保留receipt                     |
 
 HOST_OS_UNSUPPORTED 属本地环境验证失败，退出码2，不得在不安全文件权限下继续。GET 最多三次请求，总 deadline 30 秒，单次 timeout 10 秒；只对连接中断、timeout、408、429、502、503、504 使用指数退避加 jitter，基础 250ms、上限 2s，Retry-After 存在则采用但不得越过 deadline。其它4xx不重试。POST/受保护写入只允许复用同 Idempotency-Key 和完全相同 requestDigest 的重试；不自动重跑任意外部命令，也不为冲突创建新键掩盖原请求。
 
@@ -559,14 +783,14 @@ WorkMesh 连接本地 AI 与项目协作事实，不替你自动批准。
 
 本分册只规定最小交互，不另起整套 CRUD 管理台、流程设计器或新视觉系统。实现参考当前 `Projects.tsx` 的表单/Modal、`Prds.tsx` 的修订与审批弹窗、`Knowledge.tsx` 的候选/正文操作、`Board.tsx` 的项目看板和 `Profile.tsx` 的用户安全入口；进入编码时再核对工作区前端权威规则。
 
-| 页面 | 增补与必须显示的事实 | 权限与禁止动作 |
-| --- | --- | --- |
-| Projects | ProjectRole 列表/人员角色分配；包与协议；导入完整流程 JSON、validate 错误定位、diff、裁剪理由与发布 revision；关联仓库展示 | OWNER/ADMIN 发布配置与分配角色，专业负责人维护候选 SOP；不得因能维护项目而自动获得受限知识读取权 |
-| Knowledge | 候选与已发布视图区分；正文/附件准确 revision、摘要、来源、KB 授权；请求发布、撤销及受影响项 | KB READ/PUBLISH 分别判定；人独立确认准确候选；Agent/维护角色不能自授发布资格；不展示无权条目标题/片段 |
-| Prds | 理解候选、决定落点与 PRD 修订区分；评审意见、确切版本diff、deliveryScope、PRD_PUBLICATION 显示“批准并发布” | 理解确认不自动批准 PRD；最后 ALL 槽统一发布当前确切revision；原型/实现的额外范围不因批准PRD自动授权 |
-| Board | workflow revision、参与/裁剪角色、责任人、deps、phase、workStatus、inputValidity、claim、缺失门禁与下一接手人；ReviewRequest入口/返修/changes ack | 当前有效性与历史批准分开；无拖拽改阶段/手填DONE；代码证据用厂商中立连接/仓库/提交/评审/合并事实 |
-| Profile | 当前 WebSession、AgentCredential 安全metadata、单凭据撤销/全量撤销入口；列出项目/角色/到期与scopes | 仅显示自己的或有权管理的凭据；不展示任何 token 明文、不提供复制HUMAN token给CLI功能 |
-| `/cli/authorize` | userCode lookup、clientName、目标项目/角色/scopes预览、批准或拒绝 | 有效WebSession+密码二验票据；不接受URL中的token/userCode自动批准；当前身份只能授权自己有权的单project/role |
+| 页面             | 增补与必须显示的事实                                                                                                                              | 权限与禁止动作                                                                                             |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Projects         | ProjectRole 列表/人员角色分配；包与协议；导入完整流程 JSON、validate 错误定位、diff、裁剪理由与发布 revision；关联仓库展示                        | OWNER/ADMIN 发布配置与分配角色，专业负责人维护候选 SOP；不得因能维护项目而自动获得受限知识读取权           |
+| Knowledge        | 候选与已发布视图区分；正文/附件准确 revision、摘要、来源、KB 授权；请求发布、撤销及受影响项                                                       | KB READ/PUBLISH 分别判定；人独立确认准确候选；Agent/维护角色不能自授发布资格；不展示无权条目标题/片段      |
+| Prds             | 理解候选、决定落点与 PRD 修订区分；评审意见、确切版本diff、deliveryScope、PRD_PUBLICATION 显示“批准并发布”                                        | 理解确认不自动批准 PRD；最后 ALL 槽统一发布当前确切revision；原型/实现的额外范围不因批准PRD自动授权        |
+| Board            | workflow revision、参与/裁剪角色、责任人、deps、phase、workStatus、inputValidity、claim、缺失门禁与下一接手人；ReviewRequest入口/返修/changes ack | 当前有效性与历史批准分开；无拖拽改阶段/手填DONE；代码证据用厂商中立连接/仓库/提交/评审/合并事实            |
+| Profile          | 当前 WebSession、AgentCredential 安全metadata、单凭据撤销/全量撤销入口；列出项目/角色/到期与scopes                                                | 仅显示自己的或有权管理的凭据；不展示任何 token 明文、不提供复制HUMAN token给CLI功能                        |
+| `/cli/authorize` | userCode lookup、clientName、目标项目/角色/scopes预览、批准或拒绝                                                                                 | 有效WebSession+密码二验票据；不接受URL中的token/userCode自动批准；当前身份只能授权自己有权的单project/role |
 
 统一 ReviewRequest 详情可使用现有页面内 Modal/路由弹层，无须增加导航模块。进入确认时重新 GET 当前 subject/版本、槽、依赖、代码门禁和允许动作；显示不可变 artifactSet/snapshot/documentRevision、diff、业务目的及当前槽。用户明确选择当前业务槽、决定与必要意见，输入密码获得 01 的一次性 ConfirmationTicket，再发送准确 action digest 与 expectedVersion；`APPROVED` 以外也按该受保护动作契约执行。二验或结果失败时只保留非秘密表单，不保留密码/票据。
 
@@ -578,18 +802,18 @@ WorkMesh 连接本地 AI 与项目协作事实，不替你自动批准。
 
 保留现有 Python 产品工作流的检索、澄清、理解、出稿和返修能力；写一个显式调用本地 CLI/共享 bridge contract 的适配层即可，不把 Python、SQLite、目录扫描或全部内部状态搬进中心。以下是未来适配映射，不运行现有脚本，也不导入现有客户资料。
 
-| 产品侧字段/事件 | WorkMesh 映射 | 不能作出的推断 |
-| --- | --- | --- |
-| 本地需求编号、目录 | `externalRef:{source:"chanpingzhishiku",id}` 关联平台 requirementId，项目/需求ID由平台返回 | 本地编号不保证全局唯一；不能用目录生成他项目任务 |
-| fact/assumption/unknown | UNDERSTANDING 候选结构化章节，显式 sourceRefs 与未决项 | 检索命中不等于已核实事实 |
+| 产品侧字段/事件                        | WorkMesh 映射                                                                                                                       | 不能作出的推断                                                         |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| 本地需求编号、目录                     | `externalRef:{source:"chanpingzhishiku",id}` 关联平台 requirementId，项目/需求ID由平台返回                                          | 本地编号不保证全局唯一；不能用目录生成他项目任务                       |
+| fact/assumption/unknown                | UNDERSTANDING 候选结构化章节，显式 sourceRefs 与未决项                                                                              | 检索命中不等于已核实事实                                               |
 | 有依赖澄清问题、回答人、答案、落实位置 | 05的dependencyIds、assignedUserId、impact、resumeCondition与resolutionRefs；Agent记录为PROPOSED，真正责任人CONFIRMED仍不替代PRD批准 | “已经答复”不等于决定已落实；行号引用只证明位置存在，不证明业务语义正确 |
-| 理解版本、理解确认 | 精确 UNDERSTANDING revision + UNDERSTANDING_CONFIRM ReviewRequest | 本地 approved/复选框/口头摘要不能生成 HUMAN ApprovalDecision |
-| PRD 草稿、原文摘要、评审轮次 | PRD 候选 revision、原始 bytes digest、localRunId 与候选关联；review意见绑定确切revision | 不能从已确认理解自动升级成已发布 PRD |
-| 经用户授权的决定、验收与知识变更 | DECISION/KNOWLEDGE 候选；明确 requirement/task/sourceRefs、目标KB | 不全量上传聊天、私人记忆、原始源资料；候选不自动成为共享发布版 |
-| PRD 本地 gate/pass | 仅 `validation.source="LOCAL_SELF_CHECK"` 自检证据 | 不是独立校验/人类批准，不切平台发布指针 |
-| 评审修改任务、返修与恢复说明 | 平台ReviewRequest意见/Clarification引用和新的候选修订；恢复先读正式检查点 | 旧 review round/旧摘要不能批准新内容 |
-| 本地暂停/撤回 | 本地暂停留progress；需要正式暂停／撤回时返回Web链接，由有权HUMAN执行，适配器只读回结果 | 不抹历史phase、不把撤回计为DONE，不把自然语言确认变成HUMAN凭据 |
-| 原型、编码、上传和发布动作 | 单独 scope/任务/宿主或运行态授权 | PRD 通过不自动取得原型、代码或外部副作用授权 |
+| 理解版本、理解确认                     | 精确 UNDERSTANDING revision + UNDERSTANDING_CONFIRM ReviewRequest                                                                   | 本地 approved/复选框/口头摘要不能生成 HUMAN ApprovalDecision           |
+| PRD 草稿、原文摘要、评审轮次           | PRD 候选 revision、原始 bytes digest、localRunId 与候选关联；review意见绑定确切revision                                             | 不能从已确认理解自动升级成已发布 PRD                                   |
+| 经用户授权的决定、验收与知识变更       | DECISION/KNOWLEDGE 候选；明确 requirement/task/sourceRefs、目标KB                                                                   | 不全量上传聊天、私人记忆、原始源资料；候选不自动成为共享发布版         |
+| PRD 本地 gate/pass                     | 仅 `validation.source="LOCAL_SELF_CHECK"` 自检证据                                                                                  | 不是独立校验/人类批准，不切平台发布指针                                |
+| 评审修改任务、返修与恢复说明           | 平台ReviewRequest意见/Clarification引用和新的候选修订；恢复先读正式检查点                                                           | 旧 review round/旧摘要不能批准新内容                                   |
+| 本地暂停/撤回                          | 本地暂停留progress；需要正式暂停／撤回时返回Web链接，由有权HUMAN执行，适配器只读回结果                                              | 不抹历史phase、不把撤回计为DONE，不把自然语言确认变成HUMAN凭据         |
+| 原型、编码、上传和发布动作             | 单独 scope/任务/宿主或运行态授权                                                                                                    | PRD 通过不自动取得原型、代码或外部副作用授权                           |
 
 适配器持有的是用户授予的单项目、单角色 AgentCredential；获授权保存候选只表明可以登记该份内容。不得把本地用户名、环境变量、签字字段或人工对话文本映射为平台 HUMAN Principal/ConfirmationTicket；不得重放旧 Python “approve”伪造 Web 确认。平台批准是 Web 用户对准确版本的独立动作，适配器只轮询读取其结果。
 
@@ -599,35 +823,35 @@ WorkMesh 连接本地 AI 与项目协作事实，不替你自动批准。
 
 以下是后续编码落点，本次只新增本文档：
 
-| 文件/模块 | 单一职责 |
-| --- | --- |
-| `packages/shared/src/contracts/role-package.schema.json`、`workflow-definition.schema.json`、`workspace-config.schema.json` | 上述结构与严格unknown field验证；类型由同源生成/推导，不手写第二份enum |
-| `packages/shared/src/workflow/validate.ts`、`compile.ts` | 有界DAG、qualification、scope/包校验与不可编辑systemGates；不执行脚本 |
-| `apps/api/src/workflows/` | 项目读取、validate、发布 immutable revision 与实例编排；调用02服务处理正式检查点 |
-| `apps/cli/src/config.ts`、`credentials.ts`、`client.ts` | 配置解析/来源、凭据存储、严格envelope/错误/幂等重试 |
-| `apps/cli/src/roles.ts`、`spec.ts`、`hosts/{codex,claude-code}.ts` | 包验证、分发资源定位、安装锁/冲突、宿主入口 |
-| `apps/cli/src/context.ts`、`receipts.ts` | 原始bytes验证与原子materialize、无秘密receipt及恢复 |
-| `apps/cli/src/index.ts`、`commands/` | 仅命令参数/输出编排；不承载正式审批逻辑 |
-| `spec/`、`roles/`、`templates/`、`schemas/` | 新规范、初始6角色包、模板与最终发行资源；内容不携公司业务资料 |
-| `apps/web/src/api/resources.ts`、`client.ts` | 统一/v1 DTO/envelope、错误与CSRF/票据请求；不靠类型断言绕运行校验 |
-| 现有5页面与共用 ReviewRequest/confirmation组件 | 上节最小交互；不新增平行审批状态机 |
+| 文件/模块                                                                                                                   | 单一职责                                                                         |
+| --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `packages/shared/src/contracts/role-package.schema.json`、`workflow-definition.schema.json`、`workspace-config.schema.json` | 上述结构与严格unknown field验证；类型由同源生成/推导，不手写第二份enum           |
+| `packages/shared/src/workflow/validate.ts`、`compile.ts`                                                                    | 有界DAG、qualification、scope/包校验与不可编辑systemGates；不执行脚本            |
+| `apps/api/src/workflows/`                                                                                                   | 项目读取、validate、发布 immutable revision 与实例编排；调用02服务处理正式检查点 |
+| `apps/cli/src/config.ts`、`credentials.ts`、`client.ts`                                                                     | 配置解析/来源、凭据存储、严格envelope/错误/幂等重试                              |
+| `apps/cli/src/roles.ts`、`spec.ts`、`hosts/{codex,claude-code}.ts`                                                          | 包验证、分发资源定位、安装锁/冲突、宿主入口                                      |
+| `apps/cli/src/context.ts`、`receipts.ts`                                                                                    | 原始bytes验证与原子materialize、无秘密receipt及恢复                              |
+| `apps/cli/src/index.ts`、`commands/`                                                                                        | 仅命令参数/输出编排；不承载正式审批逻辑                                          |
+| `spec/`、`roles/`、`templates/`、`schemas/`                                                                                 | 新规范、初始6角色包、模板与最终发行资源；内容不携公司业务资料                    |
+| `apps/web/src/api/resources.ts`、`client.ts`                                                                                | 统一/v1 DTO/envelope、错误与CSRF/票据请求；不靠类型断言绕运行校验                |
+| 现有5页面与共用 ReviewRequest/confirmation组件                                                                              | 上节最小交互；不新增平行审批状态机                                               |
 
 实施必须增加以下 fixtures/tests；示例命令是届时运行入口，不是本次已运行结果：
 
-| fixture / 测试文件 | 必须断言的结果 | 运行命令 |
-| --- | --- | --- |
-| `packages/shared/test/fixtures/workflows/{backend-valid,release-slot-invalid,cycle,unknown-role,removed-step,orphan-endpoint}.json`；`src/workflow/validate.test.ts` | 合法图编译稳定digest与code系统gate；非法图精确code/jsonPointer；同人多槽ALL不合并；无IMPL伪豁免 | `pnpm --filter @workmesh/shared exec vitest run src/workflow/validate.test.ts` |
-| `packages/shared/src/workflow/compile.test.ts` | roleKey→roleId、包lock、systemGates任一改变必变digest；JSON排版/key顺序不影响canonical digest；未知字段/重复JSON key拒绝 | `pnpm --filter @workmesh/shared exec vitest run src/workflow/compile.test.ts` |
-| `apps/cli/test/fixtures/packages/{valid,bad-sha,traversal,duplicate-host,script-resource}/`；`src/roles.test.ts` | 原始二进制hash、长度、路径、大小限制；script资源不执行；与角色/协议不匹配拒绝 | `pnpm --filter @workmesh/cli test -- src/roles.test.ts` |
-| `apps/cli/src/config.test.ts` | cwd→Git根停止、嵌套repo/worktree/config、坏JSON不fallback、flags优先级、profile隔离、normalized origin/base/role不串token | `pnpm --filter @workmesh/cli test -- src/config.test.ts` |
-| `apps/cli/src/auth.test.ts`、`client.test.ts` | 设备proof正确恢复；任何输出无秘密；401零refresh/零跨profile；429 deadline；同key同body重放、异body拒绝、凭据撤销先于旧receipt访问 | `pnpm --filter @workmesh/cli test -- src/auth.test.ts src/client.test.ts` |
-| `apps/cli/src/spec.test.ts`、`hosts/hosts.test.ts` | 两宿主只改各自管理块；重复安装bytes/mtime不变；人工改动冲突保留；更新不改草稿/用户规则；包从任意cwd解析 | `pnpm --filter @workmesh/cli test -- src/spec.test.ts src/hosts/hosts.test.ts` |
-| `apps/cli/src/context.test.ts`、`receipts.test.ts` | 分片中断不混版；hash错误不切current；草稿不覆盖；崩溃后same digest恢复；秘密/正文不进ledger | `pnpm --filter @workmesh/cli test -- src/context.test.ts src/receipts.test.ts` |
-| `apps/cli/src/output.test.ts` | 每条命令success/error stdout各能一次JSON.parse且无额外字节；stderr诊断脱敏；每类固定退出码 | `pnpm --filter @workmesh/cli test -- src/output.test.ts` |
-| `apps/api/test/workflow-definition.e2e-spec.ts` | 真实Nest DTO/格式验证、无权发布、validate不落库、CAS双发布单胜、非法scope/槽/role外键；PRODUCT先于PRD可claim，下游不可 | `pnpm --filter @workmesh/api exec vitest run --config vitest.integration.config.ts test/workflow-definition.e2e-spec.ts` |
-| `apps/api/test/local-workflow.e2e-spec.ts` | 选定授权样例候选→Web理解确认→PRD发布→研发交付/代码证据→返修→重交→测试→发布；local approved/HUMAN自报均拒绝 | `pnpm --filter @workmesh/api exec vitest run --config vitest.integration.config.ts test/local-workflow.e2e-spec.ts` |
-| 现有页面 `*.test.tsx` 与 `apps/web/e2e/independent-confirmation.spec.ts` | 精确版本/槽、同人多槽分别确认、二验ticket过期/重放、变更冲突重新预览、凭据metadata无秘密；未授权页面/API均闭门 | `pnpm --filter @workmesh/web test`；授权隔离环境执行Web浏览器套件 |
-| `apps/cli/test/packaged-cli.test.ts` | pack tar中只有白名单，脱离源码安装后init/doctor/help，spec/roles/templates/lock齐全，CLI无postinstall/遥控脚本 | `pnpm --filter @workmesh/cli build`；`pnpm --filter @workmesh/cli test -- test/packaged-cli.test.ts` |
+| fixture / 测试文件                                                                                                                                                   | 必须断言的结果                                                                                                                    | 运行命令                                                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `packages/shared/test/fixtures/workflows/{backend-valid,release-slot-invalid,cycle,unknown-role,removed-step,orphan-endpoint}.json`；`src/workflow/validate.test.ts` | 合法图编译稳定digest与code系统gate；非法图精确code/jsonPointer；同人多槽ALL不合并；无IMPL伪豁免                                   | `pnpm --filter @workmesh/shared exec vitest run src/workflow/validate.test.ts`                                           |
+| `packages/shared/src/workflow/compile.test.ts`                                                                                                                       | roleKey→roleId、包lock、systemGates任一改变必变digest；JSON排版/key顺序不影响canonical digest；未知字段/重复JSON key拒绝          | `pnpm --filter @workmesh/shared exec vitest run src/workflow/compile.test.ts`                                            |
+| `apps/cli/test/fixtures/packages/{valid,bad-sha,traversal,duplicate-host,script-resource}/`；`src/roles.test.ts`                                                     | 原始二进制hash、长度、路径、大小限制；script资源不执行；与角色/协议不匹配拒绝                                                     | `pnpm --filter @workmesh/cli test -- src/roles.test.ts`                                                                  |
+| `apps/cli/src/config.test.ts`                                                                                                                                        | cwd→Git根停止、嵌套repo/worktree/config、坏JSON不fallback、flags优先级、profile隔离、normalized origin/base/role不串token         | `pnpm --filter @workmesh/cli test -- src/config.test.ts`                                                                 |
+| `apps/cli/src/auth.test.ts`、`client.test.ts`                                                                                                                        | 设备proof正确恢复；任何输出无秘密；401零refresh/零跨profile；429 deadline；同key同body重放、异body拒绝、凭据撤销先于旧receipt访问 | `pnpm --filter @workmesh/cli test -- src/auth.test.ts src/client.test.ts`                                                |
+| `apps/cli/src/spec.test.ts`、`hosts/hosts.test.ts`                                                                                                                   | 两宿主只改各自管理块；重复安装bytes/mtime不变；人工改动冲突保留；更新不改草稿/用户规则；包从任意cwd解析                           | `pnpm --filter @workmesh/cli test -- src/spec.test.ts src/hosts/hosts.test.ts`                                           |
+| `apps/cli/src/context.test.ts`、`receipts.test.ts`                                                                                                                   | 分片中断不混版；hash错误不切current；草稿不覆盖；崩溃后same digest恢复；秘密/正文不进ledger                                       | `pnpm --filter @workmesh/cli test -- src/context.test.ts src/receipts.test.ts`                                           |
+| `apps/cli/src/output.test.ts`                                                                                                                                        | 每条命令success/error stdout各能一次JSON.parse且无额外字节；stderr诊断脱敏；每类固定退出码                                        | `pnpm --filter @workmesh/cli test -- src/output.test.ts`                                                                 |
+| `apps/api/test/workflow-definition.e2e-spec.ts`                                                                                                                      | 真实Nest DTO/格式验证、无权发布、validate不落库、CAS双发布单胜、非法scope/槽/role外键；PRODUCT先于PRD可claim，下游不可            | `pnpm --filter @workmesh/api exec vitest run --config vitest.integration.config.ts test/workflow-definition.e2e-spec.ts` |
+| `apps/api/test/local-workflow.e2e-spec.ts`                                                                                                                           | 选定授权样例候选→Web理解确认→PRD发布→研发交付/代码证据→返修→重交→测试→发布；local approved/HUMAN自报均拒绝                        | `pnpm --filter @workmesh/api exec vitest run --config vitest.integration.config.ts test/local-workflow.e2e-spec.ts`      |
+| 现有页面 `*.test.tsx` 与 `apps/web/e2e/independent-confirmation.spec.ts`                                                                                             | 精确版本/槽、同人多槽分别确认、二验ticket过期/重放、变更冲突重新预览、凭据metadata无秘密；未授权页面/API均闭门                    | `pnpm --filter @workmesh/web test`；授权隔离环境执行Web浏览器套件                                                        |
+| `apps/cli/test/packaged-cli.test.ts`                                                                                                                                 | pack tar中只有白名单，脱离源码安装后init/doctor/help，spec/roles/templates/lock齐全，CLI无postinstall/遥控脚本                    | `pnpm --filter @workmesh/cli build`；`pnpm --filter @workmesh/cli test -- test/packaged-cli.test.ts`                     |
 
 当前 `packages/shared/package.json` 尚无test脚本，实施先按06增加Vitest测试依赖/配置再使用表中exec命令；API现有runner是Vitest而非Jest，隔离HTTP用例纳入integration配置，不临时发明jest配置文件。凭据套件还须验证明确file store同意、0700/0600、UID/symlink拒绝和Windows unsupported；本地chmod/目录构造仅在测试临时目录。
 

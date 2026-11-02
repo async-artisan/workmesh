@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { cookieNames, assertCookieDeployment, resolveCookieMode } from './v1-cookie-policy';
-import { equalSecret, hashSecret, hasScope, parseOpaqueSessionCookie, rejectSelfAssertedIdentity, validateCsrf, validateOrigin } from './v1-policy';
+import {
+  equalSecret,
+  hashSecret,
+  hasScope,
+  parseOpaqueSessionCookie,
+  rejectSelfAssertedIdentity,
+  validateCsrf,
+  validateOrigin,
+} from './v1-policy';
 
 describe('v1 identity policy', () => {
   it('hashes and compares secrets in constant-time shape', () => {
@@ -13,7 +21,14 @@ describe('v1 identity policy', () => {
   it('parses only opaque session cookie format', () => {
     const value = 'wm_s1.123e4567-e89b-12d3-a456-426614174000.A'.repeat(1);
     expect(parseOpaqueSessionCookie(value)).toBeNull();
-    expect(parseOpaqueSessionCookie('wm_s1.123e4567-e89b-12d3-a456-426614174000.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')).toEqual({ sessionId: '123e4567-e89b-12d3-a456-426614174000', secret: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' });
+    expect(
+      parseOpaqueSessionCookie(
+        'wm_s1.123e4567-e89b-12d3-a456-426614174000.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      ),
+    ).toEqual({
+      sessionId: '123e4567-e89b-12d3-a456-426614174000',
+      secret: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    });
   });
 
   it('rejects body identity claims instead of trusting them', () => {
@@ -45,8 +60,15 @@ describe('v1 identity policy', () => {
   });
 
   it('does not grant agent scopes by role name', () => {
-    expect(hasScope({ kind: 'AGENT', userId: 'u', roleIds: ['role'], scopes: [] }, 'task:deliver')).toBe(false);
-    expect(hasScope({ kind: 'AGENT', userId: 'u', roleIds: ['role'], scopes: ['task:deliver'] }, 'task:deliver')).toBe(true);
+    expect(
+      hasScope({ kind: 'AGENT', userId: 'u', roleIds: ['role'], scopes: [] }, 'task:deliver'),
+    ).toBe(false);
+    expect(
+      hasScope(
+        { kind: 'AGENT', userId: 'u', roleIds: ['role'], scopes: ['task:deliver'] },
+        'task:deliver',
+      ),
+    ).toBe(true);
     expect(hasScope({ kind: 'HUMAN', userId: 'u', scopes: [] }, 'task:deliver')).toBe(true);
   });
 
@@ -58,12 +80,18 @@ describe('v1 identity policy', () => {
   });
 
   it('refuses insecure or non-loopback cookie deployments', () => {
-    expect(() => assertCookieDeployment('SECURE', 'http://workmesh.local')).toThrow('SECURE_REQUIRES_HTTPS');
+    expect(() => assertCookieDeployment('SECURE', 'http://workmesh.local')).toThrow(
+      'SECURE_REQUIRES_HTTPS',
+    );
     expect(() => assertCookieDeployment('SECURE', 'https://workmesh.local')).not.toThrow();
-    expect(() => assertCookieDeployment('LOCAL_INSECURE', 'https://127.0.0.1:5173')).toThrow('LOCAL_MODE_REQUIRES_HTTP');
+    expect(() => assertCookieDeployment('LOCAL_INSECURE', 'https://127.0.0.1:5173')).toThrow(
+      'LOCAL_MODE_REQUIRES_HTTP',
+    );
     expect(() => assertCookieDeployment('LOCAL_INSECURE', 'http://127.0.0.1:5173')).not.toThrow();
     expect(() => assertCookieDeployment('LOCAL_INSECURE', 'http://localhost:5173')).not.toThrow();
     // 局域网 IP / 生产主机不能启用开发例外
-    expect(() => assertCookieDeployment('LOCAL_INSECURE', 'http://192.168.1.10:5173')).toThrow('LOCAL_MODE_LOOPBACK_ONLY');
+    expect(() => assertCookieDeployment('LOCAL_INSECURE', 'http://192.168.1.10:5173')).toThrow(
+      'LOCAL_MODE_LOOPBACK_ONLY',
+    );
   });
 });

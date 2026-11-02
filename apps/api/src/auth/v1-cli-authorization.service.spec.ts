@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 import type { V1AuthorizationService } from './v1-authorization';
 import { hashSecret } from './v1-policy';
 import { V1CliAuthorizationService } from './v1-cli-authorization.service';
-import type { V1AuthRepository, V1CliAuthorizationRecord, V1CredentialRecord } from './v1-auth.repository';
+import type {
+  V1AuthRepository,
+  V1CliAuthorizationRecord,
+  V1CredentialRecord,
+} from './v1-auth.repository';
 
 const NOW = new Date('2026-11-01T00:00:00.000Z');
 const DEVICE_CODE = 'd'.repeat(43);
@@ -51,14 +55,23 @@ class FakeAuthRepository implements V1AuthRepository {
     throw new Error('not used');
   }
   async findCredential(credentialId: string): Promise<V1CredentialRecord | null> {
-    return this.credentials.find((item) => item.id === credentialId && !this.revoked.has(item.id)) ?? null;
+    return (
+      this.credentials.find((item) => item.id === credentialId && !this.revoked.has(item.id)) ??
+      null
+    );
   }
   async touchSession(): Promise<void> {}
   async findUserByEmail(): Promise<never> {
     throw new Error('not used');
   }
   async findUser(userId: string) {
-    return { id: userId, isActive: true, authVersion: 1, email: 'a@example.com', passwordHash: 'x' };
+    return {
+      id: userId,
+      isActive: true,
+      authVersion: 1,
+      email: 'a@example.com',
+      passwordHash: 'x',
+    };
   }
   async createUser(): Promise<never> {
     throw new Error('not used');
@@ -123,9 +136,18 @@ class FakeAuthRepository implements V1AuthRepository {
   async denyCliAuthorization(): Promise<never> {
     throw new Error('not used');
   }
-  async markCliAuthorizationIssued(id: string, credentialId: string, now: Date): Promise<V1CliAuthorizationRecord | null> {
+  async markCliAuthorizationIssued(
+    id: string,
+    credentialId: string,
+    now: Date,
+  ): Promise<V1CliAuthorizationRecord | null> {
     if (this.markShouldFail) return null;
-    this.request = { ...this.request, status: 'ISSUED', issuedCredentialId: credentialId, issuedAt: now };
+    this.request = {
+      ...this.request,
+      status: 'ISSUED',
+      issuedCredentialId: credentialId,
+      issuedAt: now,
+    };
     return { ...this.request };
   }
   async bumpRateWindow(): Promise<number> {
@@ -138,7 +160,12 @@ function serviceWith(repository: V1AuthRepository): V1CliAuthorizationService {
 }
 
 function poll(service: V1CliAuthorizationService) {
-  return service.poll({ authorizationId: 'auth-1', deviceCode: DEVICE_CODE, codeVerifier: CODE_VERIFIER, now: NOW });
+  return service.poll({
+    authorizationId: 'auth-1',
+    deviceCode: DEVICE_CODE,
+    codeVerifier: CODE_VERIFIER,
+    now: NOW,
+  });
 }
 
 describe('V1CliAuthorizationService credential issuance recovery', () => {
@@ -160,7 +187,9 @@ describe('V1CliAuthorizationService credential issuance recovery', () => {
 
   it('returns the already-issued credential when a concurrent poll won the race', async () => {
     // 模拟并发 poll 已先把另一个凭据绑定到授权请求，本轮的 mark 因此返回 null。
-    const repository = new FakeAuthRepository(approvedRequest({ issuedCredentialId: 'cred-existing' }));
+    const repository = new FakeAuthRepository(
+      approvedRequest({ issuedCredentialId: 'cred-existing' }),
+    );
     repository.credentials.push({
       id: 'cred-existing',
       userId: 'user-1',
@@ -177,7 +206,10 @@ describe('V1CliAuthorizationService credential issuance recovery', () => {
     const service = serviceWith(repository);
 
     const issued = await poll(service);
-    expect(issued).toMatchObject({ status: 'ISSUED', credential: { credentialId: 'cred-existing' } });
+    expect(issued).toMatchObject({
+      status: 'ISSUED',
+      credential: { credentialId: 'cred-existing' },
+    });
     // 本轮创建但未绑定成功的多余凭据必须被撤销。
     const extra = repository.credentials.find((item) => item.id !== 'cred-existing');
     expect(extra).toBeDefined();

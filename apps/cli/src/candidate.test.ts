@@ -34,7 +34,11 @@ describe('buildCandidate', () => {
       file,
     });
     expect(result.relativeRoute).toBe(`/projects/${PROJECT}/documents`);
-    expect(result.body).toMatchObject({ knowledgeBaseId: KB, kind: 'UNDERSTANDING', requirementId: REQUIREMENT });
+    expect(result.body).toMatchObject({
+      knowledgeBaseId: KB,
+      kind: 'UNDERSTANDING',
+      requirementId: REQUIREMENT,
+    });
     expect(result.body).not.toHaveProperty('basisUnderstandingRevisionId');
     expect(result.body).not.toHaveProperty('deliveryScope');
     expect(result.body).not.toHaveProperty('acceptance');
@@ -116,6 +120,8 @@ describe('buildCandidate', () => {
   });
 
   it('rejects malformed JSON input', async () => {
-    await expect(parseCandidateJson('{', '--acceptance')).rejects.toMatchObject({ code: 'LOCAL_INPUT_INVALID' });
+    await expect(parseCandidateJson('{', '--acceptance')).rejects.toMatchObject({
+      code: 'LOCAL_INPUT_INVALID',
+    });
   });
 });

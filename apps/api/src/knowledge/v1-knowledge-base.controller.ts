@@ -1,4 +1,16 @@
-import { Body, Controller, Get, Headers, Inject, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Inject,
+  Param,
+  Post,
+  Put,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -50,7 +62,10 @@ class ReplaceGrantDto {
 
   @IsOptional() @IsUUID() subjectRoleId?: string | null;
 
-  @IsArray() @ArrayMinSize(1) @IsIn(KNOWLEDGE_GRANT_PERMISSIONS, { each: true }) permissions!: string[];
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsIn(KNOWLEDGE_GRANT_PERMISSIONS, { each: true })
+  permissions!: string[];
 }
 
 class ReplaceAccessDto {
@@ -64,7 +79,10 @@ class ReplaceAccessDto {
 
   @IsOptional() @IsUUID() publicationApproverRoleId?: string | null;
 
-  @IsArray() @ValidateNested({ each: true }) @Type(() => ReplaceGrantDto) grants!: ReplaceGrantDto[];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ReplaceGrantDto)
+  grants!: ReplaceGrantDto[];
 
   @IsString() @MinLength(1) @MaxLength(1000) reason!: string;
 
@@ -80,7 +98,8 @@ class SearchKnowledgeBaseQueryDto {
 }
 
 function principalOf(request: V1Request) {
-  if (!request.v1Principal) throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
+  if (!request.v1Principal)
+    throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
   return request.v1Principal;
 }
 
@@ -103,7 +122,9 @@ function confirmationOf(dto: ConfirmationDto): Confirmation {
 @UseGuards(V1AuthGuard)
 @Controller('v1')
 export class V1KnowledgeBaseController {
-  constructor(@Inject(V1KnowledgeBaseService) private readonly knowledgeBases: V1KnowledgeBaseService) {}
+  constructor(
+    @Inject(V1KnowledgeBaseService) private readonly knowledgeBases: V1KnowledgeBaseService,
+  ) {}
 
   @Post('projects/:projectId/knowledge-bases')
   create(
@@ -150,7 +171,12 @@ export class V1KnowledgeBaseController {
     const principal = principalOf(request);
     const key = requireIdempotencyKey(idempotencyKey);
     if (!principal.sessionId)
-      throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, 'HUMAN_SESSION_REQUIRED', undefined, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+        'HUMAN_SESSION_REQUIRED',
+        undefined,
+        403,
+      );
     const grants = dto.grants.map((grant) => ({
       subjectKind: grant.subjectKind,
       subjectUserId: grant.subjectUserId ?? null,

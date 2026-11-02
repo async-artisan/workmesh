@@ -116,7 +116,9 @@ describe('Knowledge（撤销发布必须带版本与票据）', () => {
     fireEvent.change(within(dialog).getByLabelText('撤销原因'), { target: { value: '内容过期' } });
     expect(await within(dialog).findByLabelText('确认密码')).toBeInTheDocument();
 
-    fireEvent.change(within(dialog).getByLabelText('确认密码'), { target: { value: 'secret-pass' } });
+    fireEvent.change(within(dialog).getByLabelText('确认密码'), {
+      target: { value: 'secret-pass' },
+    });
     fireEvent.click(within(dialog).getByRole('button', { name: '验证密码并签发票据' }));
     expect(await within(dialog).findByText(/票据已签发/)).toBeInTheDocument();
 
@@ -127,7 +129,9 @@ describe('Knowledge（撤销发布必须带版本与票据）', () => {
     expect(screen.queryByText(/发布已撤销/)).not.toBeInTheDocument();
 
     const withdrawCall = mock.mock.calls.find(
-      ([url, init]) => pathOf(String(url)) === '/api/v1/documents/doc-1/withdraw' && methodOf(init ?? {}) === 'POST',
+      ([url, init]) =>
+        pathOf(String(url)) === '/api/v1/documents/doc-1/withdraw' &&
+        methodOf(init ?? {}) === 'POST',
     );
     expect(bodyOf(withdrawCall?.[1] ?? {})).toEqual({
       expectedVersion: 5,

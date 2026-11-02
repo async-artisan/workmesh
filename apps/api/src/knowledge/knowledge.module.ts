@@ -18,6 +18,11 @@ import { V1PublicationService, V1_PUBLICATION_REPOSITORY } from './v1-publicatio
     { provide: V1_KNOWLEDGE_BASE_REPOSITORY, useClass: V1KnowledgeBasePrismaRepository },
     { provide: V1_IDEMPOTENCY_REPOSITORY, useClass: V1IdempotencyPrismaRepository },
   ],
-  exports: [V1PublicationService, V1_PUBLICATION_REPOSITORY, V1KnowledgeBaseService, V1_KNOWLEDGE_BASE_REPOSITORY],
+  exports: [
+    V1PublicationService,
+    V1_PUBLICATION_REPOSITORY,
+    V1KnowledgeBaseService,
+    V1_KNOWLEDGE_BASE_REPOSITORY,
+  ],
 })
 export class KnowledgeModule {}

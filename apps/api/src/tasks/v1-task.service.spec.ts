@@ -1,21 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import {
-  V1_ERROR_CODES,
-  WorkmeshError,
-  type Principal,
-  type Scope,
-} from '@workmesh/shared';
+import { V1_ERROR_CODES, WorkmeshError, type Principal, type Scope } from '@workmesh/shared';
 import { V1TaskService, type V1TaskActionContext } from './v1-task.service';
 import {
   type V1TaskRepository,
   type V1TaskSnapshot,
   type V1ClaimSnapshot,
 } from './v1-task.repository';
-import {
-  type V1IdempotencyRepository,
-  type V1OperationRecord,
-} from '../common/v1-idempotency';
+import { type V1IdempotencyRepository, type V1OperationRecord } from '../common/v1-idempotency';
 import type { V1AuthorizationService } from '../auth/v1-authorization';
 
 type Store = {
@@ -37,9 +29,20 @@ class InMemoryTaskRepository implements V1TaskRepository {
 
   async claim(input: Parameters<V1TaskRepository['claim']>[0]): Promise<V1TaskSnapshot> {
     const task = this.store.tasks.get(input.taskId);
-    if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId: input.taskId }, 404);
+    if (!task)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'TASK_NOT_FOUND',
+        { taskId: input.taskId },
+        404,
+      );
     if (task.currentClaim && task.currentClaim.releasedAt === null)
-      throw new WorkmeshError(V1_ERROR_CODES.CLAIM_CONFLICT, 'CLAIM_CONFLICT', { taskId: task.id }, 409);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.CLAIM_CONFLICT,
+        'CLAIM_CONFLICT',
+        { taskId: task.id },
+        409,
+      );
     const nextGeneration = task.generation + 1;
     const claimId = randomUUID();
     const claim: V1ClaimSnapshot = {
@@ -52,61 +55,106 @@ class InMemoryTaskRepository implements V1TaskRepository {
     task.currentClaim = claim;
     task.generation = nextGeneration;
     task.version += 1;
-    this.store.operations.set(opKey(input.operation.projectScopeKey, input.operation.principalScopeKey, input.operation.key), {
-      id: input.operation.id,
-      projectScopeKey: input.operation.projectScopeKey,
-      principalScopeKey: input.operation.principalScopeKey,
-      key: input.operation.key,
-      method: input.operation.method,
-      route: input.operation.route,
-      requestDigest: input.operation.requestDigest,
-      resultRefs: { claimId },
-      committedAt: input.now,
-    });
+    this.store.operations.set(
+      opKey(
+        input.operation.projectScopeKey,
+        input.operation.principalScopeKey,
+        input.operation.key,
+      ),
+      {
+        id: input.operation.id,
+        projectScopeKey: input.operation.projectScopeKey,
+        principalScopeKey: input.operation.principalScopeKey,
+        key: input.operation.key,
+        method: input.operation.method,
+        route: input.operation.route,
+        requestDigest: input.operation.requestDigest,
+        resultRefs: { claimId },
+        committedAt: input.now,
+      },
+    );
     return structuredClone(task);
   }
 
   async release(input: Parameters<V1TaskRepository['release']>[0]): Promise<V1TaskSnapshot> {
     const task = this.store.tasks.get(input.taskId);
-    if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId: input.taskId }, 404);
+    if (!task)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'TASK_NOT_FOUND',
+        { taskId: input.taskId },
+        404,
+      );
     const claim = task.currentClaim;
     if (!claim || claim.releasedAt !== null || claim.id !== input.claimId)
-      throw new WorkmeshError(V1_ERROR_CODES.CLAIM_INVALID, 'CLAIM_INVALID', { taskId: task.id, claimId: input.claimId }, 409);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.CLAIM_INVALID,
+        'CLAIM_INVALID',
+        { taskId: task.id, claimId: input.claimId },
+        409,
+      );
     claim.releasedAt = input.now.toISOString();
     task.version += 1;
-    this.store.operations.set(opKey(input.operation.projectScopeKey, input.operation.principalScopeKey, input.operation.key), {
-      id: input.operation.id,
-      projectScopeKey: input.operation.projectScopeKey,
-      principalScopeKey: input.operation.principalScopeKey,
-      key: input.operation.key,
-      method: input.operation.method,
-      route: input.operation.route,
-      requestDigest: input.operation.requestDigest,
-      resultRefs: { claimId: claim.id, released: true },
-      committedAt: input.now,
-    });
+    this.store.operations.set(
+      opKey(
+        input.operation.projectScopeKey,
+        input.operation.principalScopeKey,
+        input.operation.key,
+      ),
+      {
+        id: input.operation.id,
+        projectScopeKey: input.operation.projectScopeKey,
+        principalScopeKey: input.operation.principalScopeKey,
+        key: input.operation.key,
+        method: input.operation.method,
+        route: input.operation.route,
+        requestDigest: input.operation.requestDigest,
+        resultRefs: { claimId: claim.id, released: true },
+        committedAt: input.now,
+      },
+    );
     return structuredClone(task);
   }
 
-  async setWorkStatus(input: Parameters<V1TaskRepository['setWorkStatus']>[0]): Promise<V1TaskSnapshot> {
+  async setWorkStatus(
+    input: Parameters<V1TaskRepository['setWorkStatus']>[0],
+  ): Promise<V1TaskSnapshot> {
     const task = this.store.tasks.get(input.taskId);
-    if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId: input.taskId }, 404);
+    if (!task)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'TASK_NOT_FOUND',
+        { taskId: input.taskId },
+        404,
+      );
     const claim = task.currentClaim;
     if (!claim || claim.releasedAt !== null || claim.id !== input.claimId)
-      throw new WorkmeshError(V1_ERROR_CODES.CLAIM_INVALID, 'CLAIM_INVALID', { taskId: task.id, claimId: input.claimId }, 409);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.CLAIM_INVALID,
+        'CLAIM_INVALID',
+        { taskId: task.id, claimId: input.claimId },
+        409,
+      );
     task.workStatus = input.workStatus;
     task.version += 1;
-    this.store.operations.set(opKey(input.operation.projectScopeKey, input.operation.principalScopeKey, input.operation.key), {
-      id: input.operation.id,
-      projectScopeKey: input.operation.projectScopeKey,
-      principalScopeKey: input.operation.principalScopeKey,
-      key: input.operation.key,
-      method: input.operation.method,
-      route: input.operation.route,
-      requestDigest: input.operation.requestDigest,
-      resultRefs: { claimId: claim.id, workStatus: input.workStatus },
-      committedAt: input.now,
-    });
+    this.store.operations.set(
+      opKey(
+        input.operation.projectScopeKey,
+        input.operation.principalScopeKey,
+        input.operation.key,
+      ),
+      {
+        id: input.operation.id,
+        projectScopeKey: input.operation.projectScopeKey,
+        principalScopeKey: input.operation.principalScopeKey,
+        key: input.operation.key,
+        method: input.operation.method,
+        route: input.operation.route,
+        requestDigest: input.operation.requestDigest,
+        resultRefs: { claimId: claim.id, workStatus: input.workStatus },
+        committedAt: input.now,
+      },
+    );
     return structuredClone(task);
   }
 }
@@ -118,7 +166,9 @@ class InMemoryIdempotencyRepository implements V1IdempotencyRepository {
     principalScopeKey: string;
     key: string;
   }): Promise<V1OperationRecord | null> {
-    const op = this.store.operations.get(opKey(input.projectScopeKey, input.principalScopeKey, input.key));
+    const op = this.store.operations.get(
+      opKey(input.projectScopeKey, input.principalScopeKey, input.key),
+    );
     return op ? structuredClone(op) : null;
   }
 }
@@ -127,8 +177,18 @@ function makeAuthStub(opts: { denyProjectAccess?: boolean } = {}): V1Authorizati
   return {
     async resolveProjectContext(_principal: Principal, projectId: string) {
       if (opts.denyProjectAccess)
-        throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'PROJECT_NOT_FOUND', { projectId }, 404);
-      return { project: { id: projectId }, membership: {} as never, activeRoleIds: [], selectableRoleIds: [] } as never;
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+          'PROJECT_NOT_FOUND',
+          { projectId },
+          404,
+        );
+      return {
+        project: { id: projectId },
+        membership: {} as never,
+        activeRoleIds: [],
+        selectableRoleIds: [],
+      } as never;
     },
     async requireScope(principal: Principal, _projectId: string, scope: Scope): Promise<void> {
       if (principal.kind !== 'AGENT') return;
@@ -159,7 +219,14 @@ function human(userId = 'u1'): Principal {
 }
 
 function agent(userId = 'u2', credentialId = 'c1', scopes: Scope[] = ['task:claim']): Principal {
-  return { kind: 'AGENT', userId, agentCredentialId: credentialId, projectId: 'p1', roleIds: ['r1'], scopes };
+  return {
+    kind: 'AGENT',
+    userId,
+    agentCredentialId: credentialId,
+    projectId: 'p1',
+    roleIds: ['r1'],
+    scopes,
+  };
 }
 
 function ctx(over: Partial<V1TaskActionContext> = {}): V1TaskActionContext {
@@ -200,24 +267,42 @@ describe('V1TaskService (T04 task-claim domain)', () => {
 
   it('claim: 已有活跃认领再次认领（不同键）返回 CLAIM_CONFLICT 409', async () => {
     await service.claim(human(), 't1', ctx({ idempotencyKey: 'k1', operationId: randomUUID() }));
-    await expect(service.claim(human(), 't1', ctx({ idempotencyKey: 'k2', operationId: randomUUID() }))).rejects.toMatchObject({
+    await expect(
+      service.claim(human(), 't1', ctx({ idempotencyKey: 'k2', operationId: randomUUID() })),
+    ).rejects.toMatchObject({
       code: V1_ERROR_CODES.CLAIM_CONFLICT,
       status: 409,
     });
   });
 
   it('claim: 同 Idempotency-Key 重放返回 replayed=true 且认领不变', async () => {
-    const first = await service.claim(human(), 't1', ctx({ idempotencyKey: 'k1', operationId: randomUUID() }));
-    const second = await service.claim(human(), 't1', ctx({ idempotencyKey: 'k1', operationId: randomUUID() }));
+    const first = await service.claim(
+      human(),
+      't1',
+      ctx({ idempotencyKey: 'k1', operationId: randomUUID() }),
+    );
+    const second = await service.claim(
+      human(),
+      't1',
+      ctx({ idempotencyKey: 'k1', operationId: randomUUID() }),
+    );
     expect(second.replayed).toBe(true);
     expect(second.claimId).toBe(first.claimId);
     expect(second.task.generation).toBe(first.task.generation);
   });
 
   it('claim: 同键异 body（异摘要）重放返回 IDEMPOTENCY_CONFLICT 409', async () => {
-    await service.claim(human(), 't1', ctx({ idempotencyKey: 'k1', body: { a: 1 }, operationId: randomUUID() }));
+    await service.claim(
+      human(),
+      't1',
+      ctx({ idempotencyKey: 'k1', body: { a: 1 }, operationId: randomUUID() }),
+    );
     await expect(
-      service.claim(human(), 't1', ctx({ idempotencyKey: 'k1', body: { a: 2 }, operationId: randomUUID() })),
+      service.claim(
+        human(),
+        't1',
+        ctx({ idempotencyKey: 'k1', body: { a: 2 }, operationId: randomUUID() }),
+      ),
     ).rejects.toMatchObject({ code: V1_ERROR_CODES.IDEMPOTENCY_CONFLICT, status: 409 });
   });
 
@@ -241,24 +326,56 @@ describe('V1TaskService (T04 task-claim domain)', () => {
   });
 
   it('release: 释放非本人/错误认领返回 CLAIM_INVALID 409', async () => {
-    const claimed = await service.claim(human(), 't1', ctx({ idempotencyKey: 'k1', operationId: randomUUID() }));
+    const claimed = await service.claim(
+      human(),
+      't1',
+      ctx({ idempotencyKey: 'k1', operationId: randomUUID() }),
+    );
     await expect(
-      service.release(human(), 't1', 'wrong-claim', ctx({ idempotencyKey: 'k2', operationId: randomUUID() })),
+      service.release(
+        human(),
+        't1',
+        'wrong-claim',
+        ctx({ idempotencyKey: 'k2', operationId: randomUUID() }),
+      ),
     ).rejects.toMatchObject({ code: V1_ERROR_CODES.CLAIM_INVALID, status: 409 });
     expect(claimed.task.currentClaim!.releasedAt).toBeNull();
   });
 
   it('release: 释放当前活跃认领成功，released=true', async () => {
-    const claimed = await service.claim(human(), 't1', ctx({ idempotencyKey: 'k1', operationId: randomUUID() }));
-    const released = await service.release(human(), 't1', claimed.claimId, ctx({ idempotencyKey: 'k2', operationId: randomUUID() }));
+    const claimed = await service.claim(
+      human(),
+      't1',
+      ctx({ idempotencyKey: 'k1', operationId: randomUUID() }),
+    );
+    const released = await service.release(
+      human(),
+      't1',
+      claimed.claimId,
+      ctx({ idempotencyKey: 'k2', operationId: randomUUID() }),
+    );
     expect(released.released).toBe(true);
     expect(released.task.currentClaim!.releasedAt).not.toBeNull();
   });
 
   it('release: 释放后同键重放仍 replayed=true', async () => {
-    const claimed = await service.claim(human(), 't1', ctx({ idempotencyKey: 'k1', operationId: randomUUID() }));
-    await service.release(human(), 't1', claimed.claimId, ctx({ idempotencyKey: 'k2', operationId: randomUUID() }));
-    const replay = await service.release(human(), 't1', claimed.claimId, ctx({ idempotencyKey: 'k2', operationId: randomUUID() }));
+    const claimed = await service.claim(
+      human(),
+      't1',
+      ctx({ idempotencyKey: 'k1', operationId: randomUUID() }),
+    );
+    await service.release(
+      human(),
+      't1',
+      claimed.claimId,
+      ctx({ idempotencyKey: 'k2', operationId: randomUUID() }),
+    );
+    const replay = await service.release(
+      human(),
+      't1',
+      claimed.claimId,
+      ctx({ idempotencyKey: 'k2', operationId: randomUUID() }),
+    );
     expect(replay.replayed).toBe(true);
     expect(replay.released).toBe(true);
   });
@@ -266,20 +383,40 @@ describe('V1TaskService (T04 task-claim domain)', () => {
   it('setWorkStatus: 非活跃认领返回 CLAIM_INVALID 409', async () => {
     await service.claim(human(), 't1', ctx({ idempotencyKey: 'k1', operationId: randomUUID() }));
     await expect(
-      service.setWorkStatus(human(), 't1', 'wrong-claim', 'BLOCKED', ctx({ idempotencyKey: 'k3', operationId: randomUUID() })),
+      service.setWorkStatus(
+        human(),
+        't1',
+        'wrong-claim',
+        'BLOCKED',
+        ctx({ idempotencyKey: 'k3', operationId: randomUUID() }),
+      ),
     ).rejects.toMatchObject({ code: V1_ERROR_CODES.CLAIM_INVALID, status: 409 });
   });
 
   it('setWorkStatus: 活跃认领可推进工作态', async () => {
-    const claimed = await service.claim(human(), 't1', ctx({ idempotencyKey: 'k1', operationId: randomUUID() }));
-    const updated = await service.setWorkStatus(human(), 't1', claimed.claimId, 'BLOCKED', ctx({ idempotencyKey: 'k3', operationId: randomUUID() }));
+    const claimed = await service.claim(
+      human(),
+      't1',
+      ctx({ idempotencyKey: 'k1', operationId: randomUUID() }),
+    );
+    const updated = await service.setWorkStatus(
+      human(),
+      't1',
+      claimed.claimId,
+      'BLOCKED',
+      ctx({ idempotencyKey: 'k3', operationId: randomUUID() }),
+    );
     expect(updated.task.workStatus).toBe('BLOCKED');
     expect(updated.replayed).toBe(false);
   });
 
   it('claim: AGENT 缺 task:claim scope 返回 SCOPE_DENIED 403', async () => {
     await expect(
-      service.claim(agent('u2', 'c1', ['task:read']), 't1', ctx({ idempotencyKey: 'k1', operationId: randomUUID() })),
+      service.claim(
+        agent('u2', 'c1', ['task:read']),
+        't1',
+        ctx({ idempotencyKey: 'k1', operationId: randomUUID() }),
+      ),
     ).rejects.toMatchObject({ code: V1_ERROR_CODES.SCOPE_DENIED, status: 403 });
   });
 });

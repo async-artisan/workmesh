@@ -31,7 +31,9 @@ type DefinitionStep = {
 type DefinitionRoleSlot = { key?: unknown; kind?: unknown };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 /**
@@ -47,7 +49,9 @@ export function taskAcceptanceSlotBindings(
 ): V1AcceptanceSlotBinding[] {
   const definitionRecord = asRecord(definition);
   if (!definitionRecord) return [];
-  const steps = Array.isArray(definitionRecord.steps) ? (definitionRecord.steps as DefinitionStep[]) : [];
+  const steps = Array.isArray(definitionRecord.steps)
+    ? (definitionRecord.steps as DefinitionStep[])
+    : [];
   const roleSlots = Array.isArray(definitionRecord.roleSlots)
     ? (definitionRecord.roleSlots as DefinitionRoleSlot[])
     : [];
@@ -57,14 +61,16 @@ export function taskAcceptanceSlotBindings(
 
   const slotKinds = new Map<string, string>();
   for (const slot of roleSlots) {
-    if (typeof slot.key === 'string' && typeof slot.kind === 'string') slotKinds.set(slot.key, slot.kind);
+    if (typeof slot.key === 'string' && typeof slot.kind === 'string')
+      slotKinds.set(slot.key, slot.kind);
   }
 
   const reviewerSlots = new Set<string>();
   for (const gate of Array.isArray(step.gates) ? step.gates : []) {
     const reviewerEntries = Array.isArray(gate?.reviewerSlots) ? gate.reviewerSlots : [];
     for (const reviewer of reviewerEntries) {
-      if (typeof reviewer === 'string' && slotKinds.get(reviewer) === 'TASK_ACCEPTANCE') reviewerSlots.add(reviewer);
+      if (typeof reviewer === 'string' && slotKinds.get(reviewer) === 'TASK_ACCEPTANCE')
+        reviewerSlots.add(reviewer);
     }
   }
 
@@ -92,12 +98,18 @@ export function taskAcceptanceSlotBindings(
 }
 
 export function encodeReviewCursor(value: { createdAt: Date; id: string }): string {
-  return Buffer.from(JSON.stringify({ t: value.createdAt.toISOString(), i: value.id }), 'utf8').toString('base64url');
+  return Buffer.from(
+    JSON.stringify({ t: value.createdAt.toISOString(), i: value.id }),
+    'utf8',
+  ).toString('base64url');
 }
 
 export function decodeReviewCursor(cursor: string): { createdAt: Date; id: string } {
   try {
-    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { t?: unknown; i?: unknown };
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+      t?: unknown;
+      i?: unknown;
+    };
     if (typeof parsed.t !== 'string' || typeof parsed.i !== 'string') throw new Error('bad cursor');
     const createdAt = new Date(parsed.t);
     if (Number.isNaN(createdAt.getTime())) throw new Error('bad cursor');
@@ -110,7 +122,12 @@ export function decodeReviewCursor(cursor: string): { createdAt: Date; id: strin
 /** 项目/可见性/角色与游标条件在 SQL 层完成，先过滤再分页，避免分页后裁剪。 */
 function knowledgeBaseReadableWhere(query: V1ReviewListQuery): Prisma.KnowledgeBaseWhereInput {
   const grants: Prisma.KnowledgeBaseGrantWhereInput[] = [
-    { subjectKind: 'USER', subjectUserId: query.userId, revokedAt: null, permissions: { has: 'READ' } },
+    {
+      subjectKind: 'USER',
+      subjectUserId: query.userId,
+      revokedAt: null,
+      permissions: { has: 'READ' },
+    },
   ];
   if (query.activeRoleIds.length > 0) {
     grants.push({
@@ -126,7 +143,8 @@ function knowledgeBaseReadableWhere(query: V1ReviewListQuery): Prisma.KnowledgeB
 function slotAssignmentWhere(query: V1ReviewListQuery): Prisma.ReviewRequestWhereInput {
   const slots: Prisma.ApprovalSlotWhereInput[] = [{ requiredUserId: query.userId }];
   if (query.agentRoleId) slots.push({ requiredRoleId: query.agentRoleId });
-  else if (query.activeRoleIds.length > 0) slots.push({ requiredRoleId: { in: [...query.activeRoleIds] } });
+  else if (query.activeRoleIds.length > 0)
+    slots.push({ requiredRoleId: { in: [...query.activeRoleIds] } });
   return { approvalSlots: { some: { OR: slots } } };
 }
 
@@ -148,7 +166,8 @@ export function reviewListWhere(query: V1ReviewListQuery): Prisma.ReviewRequestW
   }
 
   // AGENT 无条件限制在本凭据角色或直接指派；HUMAN 仅在 assignedToMe 时限制到当前角色/本人。
-  if (query.principalKind === 'AGENT' || query.assignedToMe) conditions.push(slotAssignmentWhere(query));
+  if (query.principalKind === 'AGENT' || query.assignedToMe)
+    conditions.push(slotAssignmentWhere(query));
 
   if (query.cursor) {
     const cursor = decodeReviewCursor(query.cursor);

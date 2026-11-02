@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { base64ToUtf8, documentApi, type DocumentDetail, type RevisionView } from '../api/resources';
+import {
+  base64ToUtf8,
+  documentApi,
+  type DocumentDetail,
+  type RevisionView,
+} from '../api/resources';
 import { formatApiError } from '../api/client';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { ProjectSelect } from '../components/ProjectSelect';
@@ -62,7 +67,8 @@ export function Knowledge() {
   const [withdrawReason, setWithdrawReason] = useState('');
 
   const selected = docs.find((item) => item.document.id === selectedId) ?? null;
-  const candidateCount = selected?.revisions.filter((revision) => revision.state === 'CANDIDATE').length ?? 0;
+  const candidateCount =
+    selected?.revisions.filter((revision) => revision.state === 'CANDIDATE').length ?? 0;
   const diff = useMemo(
     () => (content?.baseText === undefined ? [] : diffLines(content.baseText, content.text)),
     [content],
@@ -80,7 +86,9 @@ export function Knowledge() {
       setDocs(page.items);
       setError('');
       setSelectedId((current) =>
-        page.items.some((item) => item.document.id === current) ? current : (page.items[0]?.document.id ?? ''),
+        page.items.some((item) => item.document.id === current)
+          ? current
+          : (page.items[0]?.document.id ?? ''),
       );
       setContent(null);
     } catch (caught) {
@@ -138,7 +146,8 @@ export function Knowledge() {
         <div>
           <h2>知识库</h2>
           <p className="page-sub">
-            文档由本地 Agent 生成并提交。此页面用于查看版本、正文、差异和评审状态，人工只在关键决策和高风险操作处介入。
+            文档由本地 Agent
+            生成并提交。此页面用于查看版本、正文、差异和评审状态，人工只在关键决策和高风险操作处介入。
           </p>
         </div>
         <div className="page-actions">
@@ -159,7 +168,9 @@ export function Knowledge() {
       {notice && <p className="kb-notice">{notice}</p>}
 
       <div className="page-card muted">
-        Agent 生成的候选会自动出现在这里。页面不提供手动新建文档、手写正文或追加修订入口；需要返修时，请在评审中提出意见，由本地 Agent 生成下一版。
+        Agent
+        生成的候选会自动出现在这里。页面不提供手动新建文档、手写正文或追加修订入口；需要返修时，请在评审中提出意见，由本地
+        Agent 生成下一版。
       </div>
 
       <div className="table-card">
@@ -182,7 +193,10 @@ export function Knowledge() {
             </thead>
             <tbody>
               {docs.map((item) => (
-                <tr key={item.document.id} className={selectedId === item.document.id ? 'is-selected' : undefined}>
+                <tr
+                  key={item.document.id}
+                  className={selectedId === item.document.id ? 'is-selected' : undefined}
+                >
                   <td>
                     <span className="status-tag">{KIND_LABELS[item.document.kind]}</span>
                   </td>
@@ -191,7 +205,9 @@ export function Knowledge() {
                     <div className="cell-mono cell-truncate">{item.document.id}</div>
                   </td>
                   <td>
-                    <span className="cell-mono cell-truncate">{item.document.requirementId ?? '—'}</span>
+                    <span className="cell-mono cell-truncate">
+                      {item.document.requirementId ?? '—'}
+                    </span>
                   </td>
                   <td className="cell-num">v{item.document.version}</td>
                   <td className="cell-num">
@@ -212,7 +228,9 @@ export function Knowledge() {
               ))}
               {docs.length === 0 && (
                 <tr className="table-empty">
-                  <td colSpan={6}>{projectId ? '该项目还没有文档，等待本地 Agent 提交候选。' : '先选择项目。'}</td>
+                  <td colSpan={6}>
+                    {projectId ? '该项目还没有文档，等待本地 Agent 提交候选。' : '先选择项目。'}
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -256,7 +274,9 @@ export function Knowledge() {
                         <span className="status-tag">{revision.state}</span>
                       </td>
                       <td>
-                        <span className="cell-mono cell-truncate">{revision.basisUnderstandingRevisionId ?? '—'}</span>
+                        <span className="cell-mono cell-truncate">
+                          {revision.basisUnderstandingRevisionId ?? '—'}
+                        </span>
                       </td>
                       <td className="cell-num">{revision.acceptance?.length ?? 0}</td>
                       <td className="col-actions">

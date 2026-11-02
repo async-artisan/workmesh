@@ -1,4 +1,9 @@
-import type { V1SnapshotAuthority, V1SnapshotManifest, V1SnapshotManifestResource, V1SnapshotRefKind } from './v1-snapshot-policy';
+import type {
+  V1SnapshotAuthority,
+  V1SnapshotManifest,
+  V1SnapshotManifestResource,
+  V1SnapshotRefKind,
+} from './v1-snapshot-policy';
 
 export const V1_SNAPSHOT_REPOSITORY = Symbol('V1_SNAPSHOT_REPOSITORY');
 
@@ -107,11 +112,13 @@ export type V1CreateSnapshotInput = {
   claimId: string;
   manifest: V1SnapshotManifest;
   manifestDigest: string;
-  resources: Array<V1SnapshotManifestResource & {
-    documentRevisionId?: string | null;
-    artifactId?: string | null;
-    rolePackageResourceId?: string | null;
-  }>;
+  resources: Array<
+    V1SnapshotManifestResource & {
+      documentRevisionId?: string | null;
+      artifactId?: string | null;
+      rolePackageResourceId?: string | null;
+    }
+  >;
   expectedTaskVersion: number;
   actorUserId: string;
   actorStamp: {

@@ -130,7 +130,11 @@ export function Authorization() {
             aria-label="设备授权码"
             placeholder="XXXX-XXXX"
           />
-          <button className="primary" disabled={busy || !userCode.trim()} onClick={() => void doLookup()}>
+          <button
+            className="primary"
+            disabled={busy || !userCode.trim()}
+            onClick={() => void doLookup()}
+          >
             查询授权请求
           </button>
         </div>

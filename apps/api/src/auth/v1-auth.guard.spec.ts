@@ -120,7 +120,11 @@ async function authenticate(request: Partial<V1Request>) {
 describe('V1AuthGuard real request path', () => {
   it('rejects a HUMAN cookie write without Origin', async () => {
     await expect(
-      authenticate({ method: 'POST', url: '/v1/tasks/t1/claims', headers: { cookie: sessionCookieWm } }),
+      authenticate({
+        method: 'POST',
+        url: '/v1/tasks/t1/claims',
+        headers: { cookie: sessionCookieWm },
+      }),
     ).rejects.toMatchObject({ code: 'UNSAFE_ORIGIN', status: 403 });
   });
 
@@ -144,14 +148,21 @@ describe('V1AuthGuard real request path', () => {
     ).rejects.toMatchObject({ code: 'CSRF_FAILED', status: 403 });
   });
 
-  it.each([
-    '/v1/tasks/t1/claims',
-    '/v1/tasks/t1/context',
-    '/v1/tasks/t1/deliveries',
-  ])('lets an AGENT Bearer write to %s without Origin', async (url) => {
-    const principal = await authenticate({ method: 'POST', url, headers: { authorization: agentBearer } });
-    expect(principal).toMatchObject({ kind: 'AGENT', projectId: 'project-1', roleIds: ['role-1'] });
-  });
+  it.each(['/v1/tasks/t1/claims', '/v1/tasks/t1/context', '/v1/tasks/t1/deliveries'])(
+    'lets an AGENT Bearer write to %s without Origin',
+    async (url) => {
+      const principal = await authenticate({
+        method: 'POST',
+        url,
+        headers: { authorization: agentBearer },
+      });
+      expect(principal).toMatchObject({
+        kind: 'AGENT',
+        projectId: 'project-1',
+        roleIds: ['role-1'],
+      });
+    },
+  );
 
   it('rejects mixing HUMAN session cookie and AGENT Bearer', async () => {
     await expect(
@@ -176,7 +187,13 @@ describe('V1AuthGuard real request path', () => {
     process.env.WORKMESH_PUBLIC_ORIGIN = PUBLIC_ORIGIN;
     const guard = new V1AuthGuard(new V1AuthService(revokedRepo));
     await expect(
-      guard.canActivate(executionContext({ method: 'POST', url: '/v1/tasks/t1/claims', headers: { authorization: agentBearer } })),
+      guard.canActivate(
+        executionContext({
+          method: 'POST',
+          url: '/v1/tasks/t1/claims',
+          headers: { authorization: agentBearer },
+        }),
+      ),
     ).rejects.toMatchObject({ code: 'AUTH_REQUIRED', status: 401 });
   });
 });

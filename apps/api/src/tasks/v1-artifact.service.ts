@@ -1,5 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { canonicalJson, principalScopeKey, sha256Bytes, V1_ERROR_CODES, WorkmeshError, type Principal } from '@workmesh/shared';
+import {
+  canonicalJson,
+  principalScopeKey,
+  sha256Bytes,
+  V1_ERROR_CODES,
+  WorkmeshError,
+  type Principal,
+} from '@workmesh/shared';
 import { V1AuthorizationService } from '../auth/v1-authorization';
 import { assertClaimForAction, type Claim } from './v1-collaboration-policy';
 import {
@@ -87,9 +94,21 @@ export class V1ArtifactService {
 
   async getArtifactSet(principal: Principal, id: string): Promise<V1ArtifactSetSnapshot> {
     const set = await this.artifacts.findArtifactSet(id);
-    if (!set) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'ARTIFACT_SET_NOT_FOUND', { id }, 404);
+    if (!set)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'ARTIFACT_SET_NOT_FOUND',
+        { id },
+        404,
+      );
     const task = await this.tasks.findTask(set.taskId);
-    if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId: set.taskId }, 404);
+    if (!task)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'TASK_NOT_FOUND',
+        { taskId: set.taskId },
+        404,
+      );
     await this.authorization.resolveProjectContext(principal, task.projectId);
     return set;
   }
@@ -101,13 +120,18 @@ export class V1ArtifactService {
     context: V1DeliverContext,
   ): Promise<V1DeliverResult> {
     const task = await this.tasks.findTask(taskId);
-    if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
+    if (!task)
+      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
     const resolved = await this.authorization.resolveProjectContext(principal, task.projectId);
     await this.authorization.requireScope(principal, resolved.project.id, 'task:deliver');
 
     const ownerScopeKey = principalScopeKey(principal);
     const projectScopeKey = `project:${task.projectId}`;
-    const requestDigest = requestDigestOf({ method: context.method, route: context.route, body: context.body });
+    const requestDigest = requestDigestOf({
+      method: context.method,
+      route: context.route,
+      body: context.body,
+    });
 
     // 幂等重放：已提交则返回既有 ArtifactSet 与当前任务，不产生重复。
     const existing = await this.operations.findOperation({
@@ -116,12 +140,28 @@ export class V1ArtifactService {
       key: context.idempotencyKey,
     });
     if (existing) {
-      assertReplayable(existing, { method: context.method, route: context.route, digest: requestDigest });
+      assertReplayable(existing, {
+        method: context.method,
+        route: context.route,
+        digest: requestDigest,
+      });
       const setId = String(existing.resultRefs.artifactSetId ?? '');
       const set = await this.artifacts.findArtifactSet(setId);
-      if (!set) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'ARTIFACT_SET_NOT_FOUND', { id: setId }, 404);
+      if (!set)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+          'ARTIFACT_SET_NOT_FOUND',
+          { id: setId },
+          404,
+        );
       const current = await this.tasks.findTask(taskId);
-      if (!current) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
+      if (!current)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+          'TASK_NOT_FOUND',
+          { taskId },
+          404,
+        );
       return {
         artifactSet: set,
         task: current,
@@ -134,7 +174,12 @@ export class V1ArtifactService {
     this.applyCanDeliver(task, body.claimId, ownerScopeKey);
 
     if (!Number.isSafeInteger(body.expectedVersion) || body.expectedVersion < 1)
-      throw new WorkmeshError(V1_ERROR_CODES.EXPECTED_VERSION_REQUIRED, 'EXPECTED_VERSION_REQUIRED', { taskId }, 400);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.EXPECTED_VERSION_REQUIRED,
+        'EXPECTED_VERSION_REQUIRED',
+        { taskId },
+        400,
+      );
     if (task.version !== body.expectedVersion)
       throw new WorkmeshError(
         V1_ERROR_CODES.VERSION_CONFLICT,
@@ -146,7 +191,12 @@ export class V1ArtifactService {
     const candidateRevisionIds = this.normalizeCandidates(body.candidateRevisionIds);
     const items = await this.normalizeItems(taskId, body.items);
     if (items.length === 0 && candidateRevisionIds.length === 0)
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_SET_EMPTY', { taskId }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_SET_EMPTY',
+        { taskId },
+        422,
+      );
 
     const subjectDigest = await this.subjectDigestOf(body, candidateRevisionIds, items);
 
@@ -165,7 +215,8 @@ export class V1ArtifactService {
       actorStamp: {
         kind: principal.kind,
         webSessionId: principal.kind === 'HUMAN' ? context.webSessionId : null,
-        agentCredentialId: principal.kind === 'AGENT' ? principal.agentCredentialId ?? null : null,
+        agentCredentialId:
+          principal.kind === 'AGENT' ? (principal.agentCredentialId ?? null) : null,
         roleId: task.roleId,
         roleKeySnapshot: null,
         scopeSnapshot: [...principal.scopes].sort(),
@@ -188,11 +239,21 @@ export class V1ArtifactService {
   private normalizeCandidates(value: unknown): string[] {
     if (value === undefined || value === null) return [];
     if (!Array.isArray(value))
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'CANDIDATE_REVISION_IDS_INVALID', undefined, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'CANDIDATE_REVISION_IDS_INVALID',
+        undefined,
+        422,
+      );
     const ids: string[] = [];
     for (const entry of value) {
       if (typeof entry !== 'string' || !/^[0-9a-fA-F-]{36}$/.test(entry))
-        throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'CANDIDATE_REVISION_IDS_INVALID', { value: entry }, 422);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.ARTIFACT_INVALID,
+          'CANDIDATE_REVISION_IDS_INVALID',
+          { value: entry },
+          422,
+        );
       const normalized = entry.toLowerCase();
       if (!ids.includes(normalized)) ids.push(normalized);
     }
@@ -202,7 +263,12 @@ export class V1ArtifactService {
   private async normalizeItems(taskId: string, raw: unknown): Promise<V1DeliverItem[]> {
     if (raw === undefined) return [];
     if (!Array.isArray(raw))
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_ITEMS_INVALID', { taskId }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_ITEMS_INVALID',
+        { taskId },
+        422,
+      );
     const items: V1DeliverItem[] = [];
     for (const entry of raw) items.push(await this.normalizeItem(taskId, entry));
 
@@ -210,7 +276,12 @@ export class V1ArtifactService {
     for (const item of items) {
       const key = `${item.kind}:${item.projectRepositoryId ?? ''}:${item.repoPath ?? ''}`;
       if (seen.has(key))
-        throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_ITEM_DUPLICATE', { taskId, kind: item.kind }, 422);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.ARTIFACT_INVALID,
+          'ARTIFACT_ITEM_DUPLICATE',
+          { taskId, kind: item.kind },
+          422,
+        );
       seen.add(key);
     }
     return items;
@@ -218,18 +289,52 @@ export class V1ArtifactService {
 
   private async normalizeItem(taskId: string, value: unknown): Promise<V1DeliverItem> {
     if (!value || typeof value !== 'object' || Array.isArray(value))
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_ITEM_INVALID', { taskId }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_ITEM_INVALID',
+        { taskId },
+        422,
+      );
     const item = value as Record<string, unknown>;
     if (typeof item.kind !== 'string' || !KINDS.has(item.kind as V1ArtifactKind))
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_ITEM_INVALID', { taskId, field: 'kind' }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_ITEM_INVALID',
+        { taskId, field: 'kind' },
+        422,
+      );
     if (item.schemaVersion !== '1.0')
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_SCHEMA_VERSION_UNSUPPORTED', { taskId }, 422);
-    if (typeof item.mediaType !== 'string' || item.mediaType.length === 0 || item.mediaType.length > 100)
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_ITEM_INVALID', { taskId, field: 'mediaType' }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_SCHEMA_VERSION_UNSUPPORTED',
+        { taskId },
+        422,
+      );
+    if (
+      typeof item.mediaType !== 'string' ||
+      item.mediaType.length === 0 ||
+      item.mediaType.length > 100
+    )
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_ITEM_INVALID',
+        { taskId, field: 'mediaType' },
+        422,
+      );
     if (typeof item.sha256 !== 'string' || !DIGEST.test(item.sha256))
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_ITEM_INVALID', { taskId, field: 'sha256' }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_ITEM_INVALID',
+        { taskId, field: 'sha256' },
+        422,
+      );
     if (!Number.isSafeInteger(item.byteLength) || (item.byteLength as number) < 0)
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_ITEM_INVALID', { taskId, field: 'byteLength' }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_ITEM_INVALID',
+        { taskId, field: 'byteLength' },
+        422,
+      );
 
     const checks = this.normalizeChecks(taskId, item.checks);
     const summary =
@@ -239,23 +344,49 @@ export class V1ArtifactService {
           ? item.summary
           : null;
     if (item.summary !== undefined && item.summary !== null && summary === null)
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_ITEM_INVALID', { taskId, field: 'summary' }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_ITEM_INVALID',
+        { taskId, field: 'summary' },
+        422,
+      );
 
     if (item.storage === 'HOSTED') {
       if (typeof item.bodyBase64 !== 'string' || !BASE64.test(item.bodyBase64))
-        throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_BODY_REQUIRED', { taskId }, 422);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.ARTIFACT_INVALID,
+          'ARTIFACT_BODY_REQUIRED',
+          { taskId },
+          422,
+        );
       if (item.projectRepositoryId != null || item.commitSha != null || item.repoPath != null)
-        throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_STORAGE_CONFLICT', { taskId }, 422);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.ARTIFACT_INVALID,
+          'ARTIFACT_STORAGE_CONFLICT',
+          { taskId },
+          422,
+        );
       const bytes = Buffer.from(item.bodyBase64, 'base64');
       if (bytes.toString('base64') !== item.bodyBase64)
-        throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_BODY_INVALID', { taskId }, 422);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.ARTIFACT_INVALID,
+          'ARTIFACT_BODY_INVALID',
+          { taskId },
+          422,
+        );
       const sha256 = await sha256Bytes(new Uint8Array(bytes));
       // 服务端重算，客户端声明值仅用于发现传输/截断错误。
       if (sha256 !== item.sha256 || bytes.byteLength !== item.byteLength)
         throw new WorkmeshError(
           V1_ERROR_CODES.ARTIFACT_INVALID,
           'ARTIFACT_DIGEST_MISMATCH',
-          { taskId, declaredSha256: item.sha256, computedSha256: sha256, declaredByteLength: item.byteLength, computedByteLength: bytes.byteLength },
+          {
+            taskId,
+            declaredSha256: item.sha256,
+            computedSha256: sha256,
+            declaredByteLength: item.byteLength,
+            computedByteLength: bytes.byteLength,
+          },
           422,
         );
       return {
@@ -275,13 +406,36 @@ export class V1ArtifactService {
     }
 
     if (item.storage !== 'GIT_REF')
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_STORAGE_UNSUPPORTED', { taskId }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_STORAGE_UNSUPPORTED',
+        { taskId },
+        422,
+      );
     if (item.bodyBase64 !== undefined && item.bodyBase64 !== null)
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_STORAGE_CONFLICT', { taskId }, 422);
-    if (typeof item.projectRepositoryId !== 'string' || !/^[0-9a-fA-F-]{36}$/.test(item.projectRepositoryId))
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_REPOSITORY_REQUIRED', { taskId }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_STORAGE_CONFLICT',
+        { taskId },
+        422,
+      );
+    if (
+      typeof item.projectRepositoryId !== 'string' ||
+      !/^[0-9a-fA-F-]{36}$/.test(item.projectRepositoryId)
+    )
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_REPOSITORY_REQUIRED',
+        { taskId },
+        422,
+      );
     if (typeof item.commitSha !== 'string' || !COMMIT_SHA.test(item.commitSha))
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_COMMIT_SHA_INVALID', { taskId }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_COMMIT_SHA_INVALID',
+        { taskId },
+        422,
+      );
     if (
       typeof item.repoPath !== 'string' ||
       item.repoPath.length === 0 ||
@@ -289,7 +443,12 @@ export class V1ArtifactService {
       item.repoPath.startsWith('/') ||
       item.repoPath.includes('\\')
     )
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_REPO_PATH_INVALID', { taskId }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_REPO_PATH_INVALID',
+        { taskId },
+        422,
+      );
 
     return {
       kind: item.kind as V1ArtifactKind,
@@ -310,17 +469,45 @@ export class V1ArtifactService {
   private normalizeChecks(taskId: string, value: unknown): V1ArtifactCheck[] {
     if (value === undefined) return [];
     if (!Array.isArray(value))
-      throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_CHECKS_INVALID', { taskId }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_CHECKS_INVALID',
+        { taskId },
+        422,
+      );
     return value.map((entry, index) => {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry))
-        throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_CHECKS_INVALID', { taskId, index }, 422);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.ARTIFACT_INVALID,
+          'ARTIFACT_CHECKS_INVALID',
+          { taskId, index },
+          422,
+        );
       const check = entry as Record<string, unknown>;
       if (typeof check.code !== 'string' || check.code.length === 0 || check.code.length > 100)
-        throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_CHECKS_INVALID', { taskId, index }, 422);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.ARTIFACT_INVALID,
+          'ARTIFACT_CHECKS_INVALID',
+          { taskId, index },
+          422,
+        );
       if (typeof check.passed !== 'boolean')
-        throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_CHECKS_INVALID', { taskId, index }, 422);
-      if (check.message !== undefined && (typeof check.message !== 'string' || check.message.length > 500))
-        throw new WorkmeshError(V1_ERROR_CODES.ARTIFACT_INVALID, 'ARTIFACT_CHECKS_INVALID', { taskId, index }, 422);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.ARTIFACT_INVALID,
+          'ARTIFACT_CHECKS_INVALID',
+          { taskId, index },
+          422,
+        );
+      if (
+        check.message !== undefined &&
+        (typeof check.message !== 'string' || check.message.length > 500)
+      )
+        throw new WorkmeshError(
+          V1_ERROR_CODES.ARTIFACT_INVALID,
+          'ARTIFACT_CHECKS_INVALID',
+          { taskId, index },
+          422,
+        );
       return {
         code: check.code,
         passed: check.passed,
@@ -376,11 +563,26 @@ export class V1ArtifactService {
       if (error instanceof Error) {
         switch (error.message) {
           case 'CLAIM_CONFLICT':
-            throw new WorkmeshError(V1_ERROR_CODES.CLAIM_CONFLICT, 'CLAIM_CONFLICT', { taskId: task.id, claimId }, 409);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.CLAIM_CONFLICT,
+              'CLAIM_CONFLICT',
+              { taskId: task.id, claimId },
+              409,
+            );
           case 'CLAIM_INVALID':
-            throw new WorkmeshError(V1_ERROR_CODES.CLAIM_INVALID, 'CLAIM_INVALID', { taskId: task.id, claimId }, 409);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.CLAIM_INVALID,
+              'CLAIM_INVALID',
+              { taskId: task.id, claimId },
+              409,
+            );
           case 'BASELINE_STALE':
-            throw new WorkmeshError(V1_ERROR_CODES.BASELINE_STALE, 'BASELINE_STALE', { taskId: task.id, claimId }, 409);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.BASELINE_STALE,
+              'BASELINE_STALE',
+              { taskId: task.id, claimId },
+              409,
+            );
           default:
             throw error;
         }

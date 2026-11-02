@@ -163,15 +163,15 @@ ChangeEvent {
 
 ### 4.1 命令面
 
-| 命令                            | 作用                                                                                               | 使用者     |
-| ------------------------------- | -------------------------------------------------------------------------------------------------- | ---------- |
-| `workmesh roles install --package <dir> --project <uuid> --host <host>` | 安装角色包，下发规范与 agent 入口（内置包随服务启动播种，不再有 init 命令） | 人（一次） |
-| `workmesh claim --task <taskId>` | 领取本角色可执行的任务（唯一取得执行权的方式）                                                     | agent      |
-| `workmesh context --task <taskId> --claim <claimId> --expected-version <n> --materialize` | 拉取并物化上下文快照 | agent      |
-| `workmesh deliver`               | 提交工件（本地 schema 自检后上传指针与校验结果）                                                   | agent      |
-| 已移除                           | 本地知识索引上报已下线                                                                             | agent      |
-| 无 CLI 命令                      | 人工签字在 Web 评审页完成（HUMAN + 一次性票据；代码任务以 GIT_REF 交付为证据）                      | 人         |
-| `workmesh ack <eventId>`         | 确认需求变更已处理                                                                                 | 人/agent   |
+| 命令                                                                                      | 作用                                                                           | 使用者     |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ---------- |
+| `workmesh roles install --package <dir> --project <uuid> --host <host>`                   | 安装角色包，下发规范与 agent 入口（内置包随服务启动播种，不再有 init 命令）    | 人（一次） |
+| `workmesh claim --task <taskId>`                                                          | 领取本角色可执行的任务（唯一取得执行权的方式）                                 | agent      |
+| `workmesh context --task <taskId> --claim <claimId> --expected-version <n> --materialize` | 拉取并物化上下文快照                                                           | agent      |
+| `workmesh deliver`                                                                        | 提交工件（本地 schema 自检后上传指针与校验结果）                               | agent      |
+| 已移除                                                                                    | 本地知识索引上报已下线                                                         | agent      |
+| 无 CLI 命令                                                                               | 人工签字在 Web 评审页完成（HUMAN + 一次性票据；代码任务以 GIT_REF 交付为证据） | 人         |
+| `workmesh ack <eventId>`                                                                  | 确认需求变更已处理                                                             | 人/agent   |
 
 原则（对齐 beads）：**默认非交互、输出可 JSON 解析、ID 稳定防冲突**。
 

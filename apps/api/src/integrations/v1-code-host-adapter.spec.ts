@@ -50,7 +50,11 @@ function stubFetch(handler: (url: URL, callIndex: number) => Response): FetchStu
 }
 
 const locator: RepositoryLocator = { provider: 'GITHUB', owner: 'octocat', name: 'Hello-World' };
-const secondLocator: RepositoryLocator = { provider: 'GITHUB', owner: 'octocat', name: 'Second-Repo' };
+const secondLocator: RepositoryLocator = {
+  provider: 'GITHUB',
+  owner: 'octocat',
+  name: 'Second-Repo',
+};
 
 function nextLink(path: string, page: number): string {
   return `<https://api.github.com${path}?per_page=100&page=${page}>; rel="next"`;
@@ -94,7 +98,8 @@ describe('github code host adapter', () => {
   it('merges multiple repositories with stable ordering and rejects stale cursors', async () => {
     const stub = stubFetch((url) => {
       if (url.pathname === '/repos/octocat/Hello-World') return jsonResponse(fixture.repository);
-      if (url.pathname === '/repos/octocat/Second-Repo') return jsonResponse(fixture.secondRepository);
+      if (url.pathname === '/repos/octocat/Second-Repo')
+        return jsonResponse(fixture.secondRepository);
       if (url.pathname === '/repos/octocat/Hello-World/pulls') {
         const page = Number(url.searchParams.get('page'));
         if (page === 1)
@@ -103,14 +108,18 @@ describe('github code host adapter', () => {
           });
         return jsonResponse(fixture.pullsPage2);
       }
-      if (url.pathname === '/repos/octocat/Second-Repo/pulls') return jsonResponse(fixture.secondPulls);
+      if (url.pathname === '/repos/octocat/Second-Repo/pulls')
+        return jsonResponse(fixture.secondPulls);
       return jsonResponse({ message: 'not found' }, { status: 404 });
     });
     const adapter = new GithubCodeHostAdapter({ token: 'test-token', fetchImpl: stub });
 
     const first = await adapter.listChangeRequests([secondLocator, locator], { perPage: 2 });
     expect(first.items).toHaveLength(2);
-    expect(first.items.map((item) => item.repository.externalRepositoryId)).toEqual(['555001', '1296269']);
+    expect(first.items.map((item) => item.repository.externalRepositoryId)).toEqual([
+      '555001',
+      '1296269',
+    ]);
     expect(first.nextCursor).not.toBeNull();
 
     const second = await adapter.listChangeRequests([secondLocator, locator], {
@@ -142,7 +151,8 @@ describe('github code host adapter', () => {
   it('reads every review page instead of only the first page', async () => {
     const stub = stubFetch((url) => {
       if (url.pathname === '/repos/octocat/Hello-World') return jsonResponse(fixture.repository);
-      if (url.pathname === '/repos/octocat/Hello-World/pulls/42') return jsonResponse(fixture.pullRequest);
+      if (url.pathname === '/repos/octocat/Hello-World/pulls/42')
+        return jsonResponse(fixture.pullRequest);
       if (url.pathname === '/repos/octocat/Hello-World/pulls/42/reviews') {
         const page = Number(url.searchParams.get('page'));
         if (page === 1)
@@ -167,7 +177,11 @@ describe('github code host adapter', () => {
       if (url.pathname === '/repos/octocat/Hello-World') return jsonResponse(fixture.repository);
       if (url.pathname === '/repos/octocat/Hello-World/pulls/42') {
         pullRead += 1;
-        if (pullRead === 2) return jsonResponse({ ...fixture.pullRequest, head: { sha: 'head-sha-moved', ref: 'feature/evidence' } });
+        if (pullRead === 2)
+          return jsonResponse({
+            ...fixture.pullRequest,
+            head: { sha: 'head-sha-moved', ref: 'feature/evidence' },
+          });
         return jsonResponse(fixture.pullRequest);
       }
       if (url.pathname === '/repos/octocat/Hello-World/pulls/42/reviews') {
@@ -205,7 +219,9 @@ describe('github code host adapter', () => {
       details: { retryAfterSeconds: 60 },
     });
 
-    const unavailableStub = stubFetch(() => jsonResponse({ message: 'unavailable' }, { status: 503 }));
+    const unavailableStub = stubFetch(() =>
+      jsonResponse({ message: 'unavailable' }, { status: 503 }),
+    );
     const unavailable = new GithubCodeHostAdapter({
       token: 'test-token',
       fetchImpl: unavailableStub,

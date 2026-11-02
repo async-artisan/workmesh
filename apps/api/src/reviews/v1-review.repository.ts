@@ -16,6 +16,8 @@ export type V1ReviewSlotRecord = {
   requiredRoleId: string | null;
   requiredUserId: string;
   sourceSlotBindingId: string | null;
+  /** 由服务端按当前 principal 派生；列表查询可缺省。 */
+  viewerCanDecide?: boolean;
 };
 
 export type V1ReviewDecisionRecord = {
@@ -26,6 +28,8 @@ export type V1ReviewDecisionRecord = {
   comment: string | null;
   createdById: string;
   createdAt: Date;
+  /** 决定人；由仓储 join PrincipalStamp → User 派生。 */
+  actor?: { id: string; email: string } | null;
 };
 
 export type V1ReviewSubject = {
@@ -88,7 +92,12 @@ export type V1RequirementState = {
 /** 一次决定的客观效应；响应只暴露语义结果，不暴露内部事务细节。 */
 export type V1SubjectResult =
   | { kind: 'PUBLISHED'; publicationId: string; documentVersion: number }
-  | { kind: 'ACCEPTED'; taskId: string; taskVersion: number; requirement: V1RequirementState | null }
+  | {
+      kind: 'ACCEPTED';
+      taskId: string;
+      taskVersion: number;
+      requirement: V1RequirementState | null;
+    }
   | { kind: 'REWORK'; affectedTaskIds: string[] }
   | { kind: 'REJECTED'; affectedTaskIds: string[] }
   | { kind: 'RECORDED'; approvedSlotIds: string[]; remainingSlotIds: string[] };

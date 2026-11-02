@@ -22,8 +22,7 @@ export type OperationReceipt = {
   updatedAt: string;
 };
 
-const UUID =
-  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 /** 幂等摘要：方法、相对路由与语义 body；绝不含 bearer、verifier 或票据秘密。 */
 export async function requestDigestOf(
@@ -73,10 +72,7 @@ function assertReceipt(value: unknown, path: string): asserts value is Operation
     throw new CliError('CONTENT_INTEGRITY_FAILED', `receipt ${path} operationId 非法`);
   if (!['PENDING', 'COMMITTED', 'REJECTED'].includes(String(record.status)))
     throw new CliError('CONTENT_INTEGRITY_FAILED', `receipt ${path} status 非法`);
-  if (
-    typeof record.requestDigest !== 'string' ||
-    !/^[0-9a-f]{64}$/.test(record.requestDigest)
-  )
+  if (typeof record.requestDigest !== 'string' || !/^[0-9a-f]{64}$/.test(record.requestDigest))
     throw new CliError('CONTENT_INTEGRITY_FAILED', `receipt ${path} digest 非法`);
   if (record.body !== undefined || record.response !== undefined)
     throw new CliError('CONTENT_INTEGRITY_FAILED', `receipt ${path} 不得保存请求/响应正文`);

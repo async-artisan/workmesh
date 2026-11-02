@@ -1,5 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { Body, Controller, Get, Headers, Inject, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Inject,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
 import { V1AuthGuard, type V1Request } from '../auth/v1-auth.guard';
@@ -21,7 +32,8 @@ class ListQueryDto {
 }
 
 function principalOf(request: V1Request) {
-  if (!request.v1Principal) throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
+  if (!request.v1Principal)
+    throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
   return request.v1Principal;
 }
 
@@ -56,7 +68,8 @@ export class V1ChangeRecipientController {
     const principal = principalOf(request);
     const input: V1ListServiceInput = {
       projectId: query.projectId,
-      ackedOnly: query.ackedOnly === 'true' ? true : query.ackedOnly === 'false' ? false : undefined,
+      ackedOnly:
+        query.ackedOnly === 'true' ? true : query.ackedOnly === 'false' ? false : undefined,
       cursor: query.cursor,
       limit: query.limit ?? 50,
     };

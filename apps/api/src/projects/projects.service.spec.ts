@@ -18,7 +18,11 @@ import type {
   ProjectRoleMutationView,
   ProjectRoleRepository,
 } from './project-role.repository';
-import { ProjectsService, DEFAULT_KNOWLEDGE_BASE_KEY, type ProjectRoleChangeContext } from './projects.service';
+import {
+  ProjectsService,
+  DEFAULT_KNOWLEDGE_BASE_KEY,
+  type ProjectRoleChangeContext,
+} from './projects.service';
 
 const NOW = new Date('2026-11-01T00:00:00.000Z');
 const PROJECT_ID = '11111111-1111-4111-8111-111111111111';
@@ -46,11 +50,17 @@ class FakeOperations {
     principalScopeKey: string;
     key: string;
   }): Promise<V1OperationRecord | null> {
-    return this.records.get(operationsKey(input.projectScopeKey, input.principalScopeKey, input.key)) ?? null;
+    return (
+      this.records.get(operationsKey(input.projectScopeKey, input.principalScopeKey, input.key)) ??
+      null
+    );
   }
 
   record(record: V1OperationRecord): void {
-    this.records.set(operationsKey(record.projectScopeKey, record.principalScopeKey, record.key), record);
+    this.records.set(
+      operationsKey(record.projectScopeKey, record.principalScopeKey, record.key),
+      record,
+    );
   }
 }
 
@@ -272,7 +282,10 @@ class FakePrisma {
 
   readonly project = {
     findMany: async (args?: {
-      where?: { archivedAt?: Date | null; members?: { some?: { userId?: string; revokedAt?: Date | null } } };
+      where?: {
+        archivedAt?: Date | null;
+        members?: { some?: { userId?: string; revokedAt?: Date | null } };
+      };
     }): Promise<FakeProjectRow[]> => {
       const userId = args?.where?.members?.some?.userId;
       return [...this.projects.values()]
@@ -282,7 +295,9 @@ class FakePrisma {
             !userId ||
             this.members.some(
               (member) =>
-                member.projectId === project.id && member.userId === userId && member.revokedAt === null,
+                member.projectId === project.id &&
+                member.userId === userId &&
+                member.revokedAt === null,
             ),
         )
         .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime());
@@ -306,7 +321,12 @@ class FakePrisma {
     },
     update: async (args: {
       where: { id: string };
-      data: { name?: string; description?: string; archivedAt?: Date; version: { increment: number } };
+      data: {
+        name?: string;
+        description?: string;
+        archivedAt?: Date;
+        version: { increment: number };
+      };
     }): Promise<FakeProjectRow> => {
       const row = this.projects.get(args.where.id);
       if (!row) throw new Error('project missing');
@@ -324,14 +344,21 @@ class FakePrisma {
   };
 
   readonly projectMember = {
-    findUnique: async (args: { where: { projectId_userId: { projectId: string; userId: string } } }) =>
+    findUnique: async (args: {
+      where: { projectId_userId: { projectId: string; userId: string } };
+    }) =>
       this.members.find(
         (member) =>
           member.projectId === args.where.projectId_userId.projectId &&
           member.userId === args.where.projectId_userId.userId,
       ) ?? null,
     create: async (args: {
-      data: { projectId: string; userId: string; role: 'OWNER' | 'ADMIN' | 'MEMBER'; version?: number };
+      data: {
+        projectId: string;
+        userId: string;
+        role: 'OWNER' | 'ADMIN' | 'MEMBER';
+        version?: number;
+      };
     }) => {
       const row = {
         projectId: args.data.projectId,
@@ -346,7 +373,11 @@ class FakePrisma {
     },
     update: async (args: {
       where: { projectId_userId: { projectId: string; userId: string } };
-      data: { role?: 'OWNER' | 'ADMIN' | 'MEMBER'; revokedAt?: Date | null; version?: { increment: number } };
+      data: {
+        role?: 'OWNER' | 'ADMIN' | 'MEMBER';
+        revokedAt?: Date | null;
+        version?: { increment: number };
+      };
     }) => {
       const row = this.members.find(
         (member) =>
@@ -362,7 +393,9 @@ class FakePrisma {
   };
 
   readonly projectRole = {
-    create: async (args: { data: { projectId: string; key: string; title: string; isActive?: boolean } }) => ({
+    create: async (args: {
+      data: { projectId: string; key: string; title: string; isActive?: boolean };
+    }) => ({
       id: randomUUID(),
       projectId: args.data.projectId,
       key: args.data.key,
@@ -374,7 +407,9 @@ class FakePrisma {
   };
 
   readonly projectRoleAssignment = {
-    createMany: async (args: { data: Array<{ projectId: string; userId: string; roleId: string }> }) => ({
+    createMany: async (args: {
+      data: Array<{ projectId: string; userId: string; roleId: string }>;
+    }) => ({
       count: args.data.length,
     }),
   };
@@ -512,7 +547,14 @@ function bootstrap() {
     [MEMBER_ID, 'MEMBER'],
     [TARGET_ID, 'MEMBER'],
   ] as const)
-    prisma.members.push({ projectId: PROJECT_ID, userId, role, version: 1, revokedAt: null, grantedAt: NOW });
+    prisma.members.push({
+      projectId: PROJECT_ID,
+      userId,
+      role,
+      version: 1,
+      revokedAt: null,
+      grantedAt: NOW,
+    });
   prisma.addKnowledgeBase(PROJECT_ID, 'kb-default', DEFAULT_KNOWLEDGE_BASE_KEY);
   roles.addRole({ id: ROLE_ACTIVE_ID, projectId: PROJECT_ID, isActive: true });
   roles.addRole({ id: ROLE_INACTIVE_ID, projectId: PROJECT_ID, isActive: false });
@@ -529,7 +571,12 @@ function bootstrap() {
       revokedAt: null,
       email: `${role.toLowerCase()}-${userId.slice(0, 4)}@example.com`,
     });
-  const service = new ProjectsService(prisma as unknown as PrismaService, roles, tickets, operations);
+  const service = new ProjectsService(
+    prisma as unknown as PrismaService,
+    roles,
+    tickets,
+    operations,
+  );
   return { service, prisma, roles, tickets, operations };
 }
 
@@ -568,7 +615,14 @@ describe('ProjectsService role grants', () => {
       authVersion: 1,
     };
     await expectRejection(
-      env.service.assignRole(principal, PROJECT_ID, TARGET_ID, ROLE_ACTIVE_ID, assignRequest(1), context()),
+      env.service.assignRole(
+        principal,
+        PROJECT_ID,
+        TARGET_ID,
+        ROLE_ACTIVE_ID,
+        assignRequest(1),
+        context(),
+      ),
       V1_ERROR_CODES.RESOURCE_NOT_FOUND,
       'PROJECT_NOT_FOUND',
       404,
@@ -585,7 +639,14 @@ describe('ProjectsService role grants', () => {
       scopes: [],
     };
     await expectRejection(
-      env.service.assignRole(principal, PROJECT_ID, TARGET_ID, ROLE_ACTIVE_ID, assignRequest(1), context()),
+      env.service.assignRole(
+        principal,
+        PROJECT_ID,
+        TARGET_ID,
+        ROLE_ACTIVE_ID,
+        assignRequest(1),
+        context(),
+      ),
       V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
       'HUMAN_SESSION_REQUIRED',
       403,
@@ -595,7 +656,14 @@ describe('ProjectsService role grants', () => {
   it('rejects HUMAN principals without a WebSession id', async () => {
     const principal: V1Principal = { kind: 'HUMAN', userId: OWNER_ID, scopes: [], authVersion: 1 };
     await expectRejection(
-      env.service.assignRole(principal, PROJECT_ID, TARGET_ID, ROLE_ACTIVE_ID, assignRequest(1), context()),
+      env.service.assignRole(
+        principal,
+        PROJECT_ID,
+        TARGET_ID,
+        ROLE_ACTIVE_ID,
+        assignRequest(1),
+        context(),
+      ),
       V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
       'HUMAN_SESSION_REQUIRED',
       403,
@@ -604,7 +672,14 @@ describe('ProjectsService role grants', () => {
 
   it('rejects a missing confirmation ticket with 403', async () => {
     await expectRejection(
-      env.service.assignRole(ownerPrincipal(), PROJECT_ID, TARGET_ID, ROLE_ACTIVE_ID, assignRequest(1), context()),
+      env.service.assignRole(
+        ownerPrincipal(),
+        PROJECT_ID,
+        TARGET_ID,
+        ROLE_ACTIVE_ID,
+        assignRequest(1),
+        context(),
+      ),
       V1_ERROR_CODES.CONFIRMATION_INVALID,
       'CONFIRMATION_NOT_FOUND',
       403,
@@ -622,7 +697,14 @@ describe('ProjectsService role grants', () => {
       }),
     );
     await expectRejection(
-      env.service.assignRole(ownerPrincipal(), PROJECT_ID, TARGET_ID, ROLE_ACTIVE_ID, assignRequest(1), context()),
+      env.service.assignRole(
+        ownerPrincipal(),
+        PROJECT_ID,
+        TARGET_ID,
+        ROLE_ACTIVE_ID,
+        assignRequest(1),
+        context(),
+      ),
       V1_ERROR_CODES.CONFIRMATION_INVALID,
       'CONFIRMATION_ACTION_MISMATCH',
       403,
@@ -647,7 +729,14 @@ describe('ProjectsService role grants', () => {
 
   it('rejects an inactive project role with 404', async () => {
     await expectRejection(
-      env.service.assignRole(ownerPrincipal(), PROJECT_ID, TARGET_ID, ROLE_INACTIVE_ID, assignRequest(1), context()),
+      env.service.assignRole(
+        ownerPrincipal(),
+        PROJECT_ID,
+        TARGET_ID,
+        ROLE_INACTIVE_ID,
+        assignRequest(1),
+        context(),
+      ),
       V1_ERROR_CODES.RESOURCE_NOT_FOUND,
       'PROJECT_ROLE_NOT_FOUND',
       404,
@@ -842,7 +931,11 @@ describe('ProjectsService project views', () => {
 describe('ProjectsService description contract', () => {
   it('persists description on create and keeps it when only the name changes', async () => {
     const env = bootstrap();
-    const created = await env.service.create(OWNER_ID, { name: 'Second', key: 'SEC', description: '试点项目' });
+    const created = await env.service.create(OWNER_ID, {
+      name: 'Second',
+      key: 'SEC',
+      description: '试点项目',
+    });
     expect(created.description).toBe('试点项目');
     const updated = await env.service.update(OWNER_ID, created.id, { name: 'Second v2' });
     expect(updated.name).toBe('Second v2');
@@ -865,7 +958,12 @@ describe('ProjectsService addMemberByEmail', () => {
     const env = bootstrap();
     env.prisma.addUser({ id: NEW_ID, email: 'new@example.com' });
     const first = await env.service.addMemberByEmail(OWNER_ID, PROJECT_ID, '  NEW@example.com ');
-    expect(first).toMatchObject({ id: NEW_ID, email: 'new@example.com', role: 'MEMBER', version: 1 });
+    expect(first).toMatchObject({
+      id: NEW_ID,
+      email: 'new@example.com',
+      role: 'MEMBER',
+      version: 1,
+    });
     const stored = env.prisma.members.find((member) => member.userId === NEW_ID);
     expect(stored?.revokedAt).toBeNull();
 
@@ -885,7 +983,11 @@ describe('ProjectsService addMemberByEmail', () => {
       revokedAt: new Date('2026-10-01T00:00:00.000Z'),
       grantedAt: NOW,
     });
-    const revived = await env.service.addMemberByEmail(OWNER_ID, PROJECT_ID, 'returning@example.com');
+    const revived = await env.service.addMemberByEmail(
+      OWNER_ID,
+      PROJECT_ID,
+      'returning@example.com',
+    );
     expect(revived.role).toBe('MEMBER');
     expect(revived.version).toBe(4);
     expect(env.prisma.members.find((member) => member.userId === NEW_ID)?.revokedAt).toBeNull();

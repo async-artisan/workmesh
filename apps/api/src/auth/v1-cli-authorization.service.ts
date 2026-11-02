@@ -31,7 +31,8 @@ function safeEqualHex(a: string, b: string): boolean {
 
 export function newUserCode(): string {
   let code = '';
-  for (let index = 0; index < 8; index += 1) code += USER_CODE_ALPHABET[randomInt(USER_CODE_ALPHABET.length)];
+  for (let index = 0; index < 8; index += 1)
+    code += USER_CODE_ALPHABET[randomInt(USER_CODE_ALPHABET.length)];
   return `${code.slice(0, 4)}-${code.slice(4)}`;
 }
 
@@ -43,7 +44,10 @@ export function userCodeHashOf(code: string): string {
 export function verifyPkce(verifier: string, challenge: string): boolean {
   if (typeof verifier !== 'string' || verifier.length < 43 || verifier.length > 128) return false;
   const computed = createHash('sha256').update(verifier, 'utf8').digest('base64url');
-  return computed.length === challenge.length && timingSafeEqual(Buffer.from(computed), Buffer.from(challenge));
+  return (
+    computed.length === challenge.length &&
+    timingSafeEqual(Buffer.from(computed), Buffer.from(challenge))
+  );
 }
 
 export type V1CredentialView = {
@@ -72,14 +76,36 @@ export class V1CliAuthorizationService {
   }): Promise<Record<string, unknown>> {
     const now = input.now ?? new Date();
     await this.consumeRate('cli-create-ip', input.ip, 10, 10 * 60 * 1000, now);
-    if (typeof input.clientName !== 'string' || input.clientName.length < 1 || input.clientName.length > 80)
-      throw new WorkmeshError(V1_ERROR_CODES.INVALID_REQUEST, 'clientName 长度必须为 1–80', undefined, 400);
+    if (
+      typeof input.clientName !== 'string' ||
+      input.clientName.length < 1 ||
+      input.clientName.length > 80
+    )
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INVALID_REQUEST,
+        'clientName 长度必须为 1–80',
+        undefined,
+        400,
+      );
     if (input.codeChallengeMethod !== 'S256')
       throw new WorkmeshError(V1_ERROR_CODES.INVALID_REQUEST, '仅支持 PKCE S256', undefined, 400);
     if (typeof input.codeChallenge !== 'string' || input.codeChallenge.length !== 43)
-      throw new WorkmeshError(V1_ERROR_CODES.INVALID_REQUEST, 'codeChallenge 必须是 43 字符 base64url', undefined, 400);
-    if (typeof input.credentialSecretHash !== 'string' || !/^[0-9a-f]{64}$/.test(input.credentialSecretHash))
-      throw new WorkmeshError(V1_ERROR_CODES.INVALID_REQUEST, 'credentialSecretHash 必须是 64 位小写 hex', undefined, 400);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INVALID_REQUEST,
+        'codeChallenge 必须是 43 字符 base64url',
+        undefined,
+        400,
+      );
+    if (
+      typeof input.credentialSecretHash !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(input.credentialSecretHash)
+    )
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INVALID_REQUEST,
+        'credentialSecretHash 必须是 64 位小写 hex',
+        undefined,
+        400,
+      );
 
     const deviceCode = randomBytes(32).toString('base64url');
     const userCode = newUserCode();
@@ -102,14 +128,20 @@ export class V1CliAuthorizationService {
     };
   }
 
-  async lookup(input: { userCode: string; principal: Principal; now?: Date }): Promise<Record<string, unknown>> {
+  async lookup(input: {
+    userCode: string;
+    principal: Principal;
+    now?: Date;
+  }): Promise<Record<string, unknown>> {
     const principal = requireHuman(input.principal);
     const now = input.now ?? new Date();
     const sessionId = requireSessionId(principal);
     await this.consumeRate('cli-lookup-session', sessionId, 10, 10 * 60 * 1000, now);
     if (typeof input.userCode !== 'string')
       throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, '授权请求不存在', undefined, 404);
-    const request = await this.repository.findCliAuthorizationByUserCodeHash(userCodeHashOf(input.userCode));
+    const request = await this.repository.findCliAuthorizationByUserCodeHash(
+      userCodeHashOf(input.userCode),
+    );
     if (!request || request.expiresAt <= now)
       throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, '授权请求不存在', undefined, 404);
     await this.repository.recordCliAuthorizationView({
@@ -142,25 +174,64 @@ export class V1CliAuthorizationService {
     const now = input.now ?? new Date();
     const sessionId = requireSessionId(principal);
     const request = await this.repository.findCliAuthorizationById(input.authorizationId);
-    if (!request) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, '授权请求不存在', undefined, 404);
+    if (!request)
+      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, '授权请求不存在', undefined, 404);
     if (request.expiresAt <= now)
-      throw new WorkmeshError(V1_ERROR_CODES.AUTHORIZATION_EXPIRED, '授权请求已过期', undefined, 410);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.AUTHORIZATION_EXPIRED,
+        '授权请求已过期',
+        undefined,
+        410,
+      );
     await this.assertView(request.id, sessionId, principal.userId, now);
 
-    if (!Number.isInteger(input.expiresInDays) || input.expiresInDays < 1 || input.expiresInDays > 365)
-      throw new WorkmeshError(V1_ERROR_CODES.INVALID_REQUEST, 'expiresInDays 必须为 1–365', undefined, 400);
+    if (
+      !Number.isInteger(input.expiresInDays) ||
+      input.expiresInDays < 1 ||
+      input.expiresInDays > 365
+    )
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INVALID_REQUEST,
+        'expiresInDays 必须为 1–365',
+        undefined,
+        400,
+      );
     if (!Array.isArray(input.scopes) || input.scopes.length === 0)
-      throw new WorkmeshError(V1_ERROR_CODES.UNSUPPORTED_SCOPE, '必须选择至少一个 scope', undefined, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.UNSUPPORTED_SCOPE,
+        '必须选择至少一个 scope',
+        undefined,
+        422,
+      );
     const invalid = input.scopes.filter((scope) => !isKnownScope(scope));
     if (invalid.length > 0)
-      throw new WorkmeshError(V1_ERROR_CODES.UNSUPPORTED_SCOPE, '包含未注册的 scope', { scopes: invalid }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.UNSUPPORTED_SCOPE,
+        '包含未注册的 scope',
+        { scopes: invalid },
+        422,
+      );
     if (containsForbiddenAgentScope(input.scopes))
-      throw new WorkmeshError(V1_ERROR_CODES.UNSUPPORTED_SCOPE, 'AGENT_SCOPE_REGISTRY_VIOLATION', undefined, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.UNSUPPORTED_SCOPE,
+        'AGENT_SCOPE_REGISTRY_VIOLATION',
+        undefined,
+        422,
+      );
 
     await this.authorization.resolveProjectContext(principal, input.projectId);
-    const holdsRole = await this.authorization.hasBusinessRole(principal, input.projectId, input.roleId);
+    const holdsRole = await this.authorization.hasBusinessRole(
+      principal,
+      input.projectId,
+      input.roleId,
+    );
     if (!holdsRole)
-      throw new WorkmeshError(V1_ERROR_CODES.FORBIDDEN, '不具备所选业务角色', { roleId: input.roleId }, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.FORBIDDEN,
+        '不具备所选业务角色',
+        { roleId: input.roleId },
+        403,
+      );
 
     const approved = await this.repository.approveCliAuthorization({
       id: request.id,
@@ -176,7 +247,12 @@ export class V1CliAuthorizationService {
     if (!approved) {
       const current = await this.repository.findCliAuthorizationById(request.id);
       if (current && current.expiresAt <= now)
-        throw new WorkmeshError(V1_ERROR_CODES.AUTHORIZATION_EXPIRED, '授权请求已过期', undefined, 410);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.AUTHORIZATION_EXPIRED,
+          '授权请求已过期',
+          undefined,
+          410,
+        );
       throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, '授权请求已变更', undefined, 409);
     }
     return {
@@ -197,9 +273,15 @@ export class V1CliAuthorizationService {
     const now = input.now ?? new Date();
     const sessionId = requireSessionId(principal);
     const request = await this.repository.findCliAuthorizationById(input.authorizationId);
-    if (!request) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, '授权请求不存在', undefined, 404);
+    if (!request)
+      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, '授权请求不存在', undefined, 404);
     if (request.expiresAt <= now)
-      throw new WorkmeshError(V1_ERROR_CODES.AUTHORIZATION_EXPIRED, '授权请求已过期', undefined, 410);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.AUTHORIZATION_EXPIRED,
+        '授权请求已过期',
+        undefined,
+        410,
+      );
     await this.assertView(request.id, sessionId, principal.userId, now);
     const denied = await this.repository.denyCliAuthorization({
       id: request.id,
@@ -208,7 +290,8 @@ export class V1CliAuthorizationService {
       expectedVersion: input.expectedVersion,
       now,
     });
-    if (!denied) throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, '授权请求已变更', undefined, 409);
+    if (!denied)
+      throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, '授权请求已变更', undefined, 409);
     return { authorizationId: denied.id, status: denied.status, version: denied.version };
   }
 
@@ -226,10 +309,20 @@ export class V1CliAuthorizationService {
       throw unauthorized('设备码无效');
     if (!verifyPkce(input.codeVerifier, request.codeChallenge)) throw unauthorized('PKCE 校验失败');
     if (request.expiresAt <= now)
-      throw new WorkmeshError(V1_ERROR_CODES.AUTHORIZATION_EXPIRED, '授权请求已过期', undefined, 410);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.AUTHORIZATION_EXPIRED,
+        '授权请求已过期',
+        undefined,
+        410,
+      );
 
     if (request.status === 'DENIED')
-      throw new WorkmeshError(V1_ERROR_CODES.AUTHORIZATION_DENIED, '授权请求已被拒绝', undefined, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.AUTHORIZATION_DENIED,
+        '授权请求已被拒绝',
+        undefined,
+        403,
+      );
     if (request.status === 'ISSUED') {
       const credential = request.issuedCredentialId
         ? await this.repository.findCredential(request.issuedCredentialId)
@@ -247,7 +340,12 @@ export class V1CliAuthorizationService {
     request: V1CliAuthorizationRecord,
     now: Date,
   ): Promise<Record<string, unknown>> {
-    if (!request.approvedUserId || !request.approvedProjectId || !request.approvedRoleId || !request.approvedExpiresInDays)
+    if (
+      !request.approvedUserId ||
+      !request.approvedProjectId ||
+      !request.approvedRoleId ||
+      !request.approvedExpiresInDays
+    )
       throw unauthorized('授权请求状态无效');
     const user = await this.repository.findUser(request.approvedUserId);
     if (!user || !user.isActive) throw unauthorized('授权账号已停用');
@@ -270,7 +368,12 @@ export class V1CliAuthorizationService {
         const existing = await this.repository.findCredential(current.issuedCredentialId);
         if (existing) return { status: 'ISSUED', credential: credentialView(existing) };
       }
-      throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, '授权请求状态已变更', undefined, 409);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.VERSION_CONFLICT,
+        '授权请求状态已变更',
+        undefined,
+        409,
+      );
     }
     const issued = await this.repository.markCliAuthorizationIssued(request.id, credential.id, now);
     if (!issued) {
@@ -283,7 +386,12 @@ export class V1CliAuthorizationService {
         const existing = await this.repository.findCredential(issuedCredentialId);
         if (existing) return { status: 'ISSUED', credential: credentialView(existing) };
       }
-      throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, '授权请求状态已变更', undefined, 409);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.VERSION_CONFLICT,
+        '授权请求状态已变更',
+        undefined,
+        409,
+      );
     }
     return { status: 'ISSUED', credential: credentialView(credential) };
   }
@@ -301,7 +409,12 @@ export class V1CliAuthorizationService {
       now,
     });
     if (!exists)
-      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, '授权请求不存在', { authorizationRequestId }, 404);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        '授权请求不存在',
+        { authorizationRequestId },
+        404,
+      );
   }
 
   private async consumeRate(
@@ -311,7 +424,12 @@ export class V1CliAuthorizationService {
     windowMs: number,
     now: Date,
   ): Promise<void> {
-    const attempts = await this.repository.bumpRateWindow({ kind, keyHash: hashSecret(key), now, windowMs });
+    const attempts = await this.repository.bumpRateWindow({
+      kind,
+      keyHash: hashSecret(key),
+      now,
+      windowMs,
+    });
     if (attempts > limit)
       throw new WorkmeshError(
         V1_ERROR_CODES.RATE_LIMITED,
@@ -341,7 +459,13 @@ function credentialView(credential: {
 }
 
 function requireSessionId(principal: V1Principal): string {
-  if (!principal.sessionId) throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, '缺少 WebSession', undefined, 403);
+  if (!principal.sessionId)
+    throw new WorkmeshError(
+      V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+      '缺少 WebSession',
+      undefined,
+      403,
+    );
   return principal.sessionId;
 }
 

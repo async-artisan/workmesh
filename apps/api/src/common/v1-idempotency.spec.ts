@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { assertReplayable, normalizeRoute, requestDigestOf, requireExpectedVersion, requireIdempotencyKey, type V1OperationRecord } from './v1-idempotency';
+import {
+  assertReplayable,
+  normalizeRoute,
+  requestDigestOf,
+  requireExpectedVersion,
+  requireIdempotencyKey,
+  type V1OperationRecord,
+} from './v1-idempotency';
 
 const operation = (overrides: Partial<V1OperationRecord> = {}): V1OperationRecord => ({
   id: 'op-1',
@@ -67,15 +74,25 @@ describe('idempotency policy', () => {
       requestId: 'r',
     };
     expect(
-      requestDigestOf({ method: 'POST', route: '/api/v1/review-requests/rr-1/decisions', body: withSecrets }),
-    ).toBe(requestDigestOf({ method: 'POST', route: '/api/v1/review-requests/rr-1/decisions', body: base }));
+      requestDigestOf({
+        method: 'POST',
+        route: '/api/v1/review-requests/rr-1/decisions',
+        body: withSecrets,
+      }),
+    ).toBe(
+      requestDigestOf({
+        method: 'POST',
+        route: '/api/v1/review-requests/rr-1/decisions',
+        body: base,
+      }),
+    );
   });
 
   it('still binds business content that must not silently change', () => {
     const base = { slotId: 'slot-1', decision: 'APPROVE', expectedVersion: 3 };
-    expect(
-      requestDigestOf({ method: 'POST', route: '/r', body: base }),
-    ).not.toBe(requestDigestOf({ method: 'POST', route: '/r', body: { ...base, expectedVersion: 4 } }));
+    expect(requestDigestOf({ method: 'POST', route: '/r', body: base })).not.toBe(
+      requestDigestOf({ method: 'POST', route: '/r', body: { ...base, expectedVersion: 4 } }),
+    );
     expect(normalizeRoute('/api/v1/x/?a=1')).toBe('/api/v1/x');
   });
 
@@ -99,14 +116,27 @@ describe('idempotency policy', () => {
       responsibleUserId = 'u-1';
       repositoryIds = ['repo-1'];
     }
-    const plain = { stepKey: 'impl', roleId: 'r-1', responsibleUserId: 'u-1', repositoryIds: ['repo-1'] };
+    const plain = {
+      stepKey: 'impl',
+      roleId: 'r-1',
+      responsibleUserId: 'u-1',
+      repositoryIds: ['repo-1'],
+    };
     const route = '/api/v1/requirements/r-1/workflow-instances';
-    const viaInstance = requestDigestOf({ method: 'POST', route, body: { stepBindings: [new StepBindingDto()] } });
+    const viaInstance = requestDigestOf({
+      method: 'POST',
+      route,
+      body: { stepBindings: [new StepBindingDto()] },
+    });
     const viaPlain = requestDigestOf({ method: 'POST', route, body: { stepBindings: [plain] } });
     expect(viaInstance).toBe(viaPlain);
     // 归一化不得削弱绑定强度：嵌套内容变化仍然改变摘要。
     expect(viaInstance).not.toBe(
-      requestDigestOf({ method: 'POST', route, body: { stepBindings: [{ ...plain, roleId: 'r-2' }] } }),
+      requestDigestOf({
+        method: 'POST',
+        route,
+        body: { stepBindings: [{ ...plain, roleId: 'r-2' }] },
+      }),
     );
   });
 });

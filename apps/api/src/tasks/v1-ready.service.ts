@@ -49,7 +49,10 @@ function validCursorField(value: unknown): value is string {
 }
 
 function encodeCursor(cursor: V1ReadyCursor): string {
-  return Buffer.from(JSON.stringify({ v: 1, stepKey: cursor.stepKey, id: cursor.id }), 'utf8').toString('base64url');
+  return Buffer.from(
+    JSON.stringify({ v: 1, stepKey: cursor.stepKey, id: cursor.id }),
+    'utf8',
+  ).toString('base64url');
 }
 
 function decodeCursor(raw: string | null | undefined): V1ReadyCursor | null {
@@ -63,7 +66,8 @@ function decodeCursor(raw: string | null | undefined): V1ReadyCursor | null {
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw invalidCursor(raw);
   const value = parsed as { v?: unknown; stepKey?: unknown; id?: unknown };
-  if (value.v !== 1 || !validCursorField(value.stepKey) || !validCursorField(value.id)) throw invalidCursor(raw);
+  if (value.v !== 1 || !validCursorField(value.stepKey) || !validCursorField(value.id))
+    throw invalidCursor(raw);
   return { stepKey: value.stepKey, id: value.id };
 }
 
@@ -97,7 +101,13 @@ export class V1ReadyService {
     while (true) {
       let page;
       try {
-        page = await this.repository.listCandidates({ projectId, roleId, ownership, after: scanCursor, take: limit });
+        page = await this.repository.listCandidates({
+          projectId,
+          roleId,
+          ownership,
+          after: scanCursor,
+          take: limit,
+        });
       } catch {
         break;
       }
@@ -130,13 +140,27 @@ export class V1ReadyService {
     return { items, nextCursor, hasMore };
   }
 
-  private roleFilter(principal: Principal, requestedRoleId: string | null, projectId: string): string | null {
+  private roleFilter(
+    principal: Principal,
+    requestedRoleId: string | null,
+    projectId: string,
+  ): string | null {
     if (principal.kind !== 'AGENT') return requestedRoleId;
     const credentialRoleId = principal.roleIds?.[0];
     if (!credentialRoleId)
-      throw new WorkmeshError(V1_ERROR_CODES.ROLE_INACTIVE, 'AGENT_ROLE_ASSIGNMENT_INACTIVE', { projectId }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ROLE_INACTIVE,
+        'AGENT_ROLE_ASSIGNMENT_INACTIVE',
+        { projectId },
+        422,
+      );
     if (requestedRoleId !== null && requestedRoleId !== credentialRoleId)
-      throw new WorkmeshError(V1_ERROR_CODES.SCOPE_DENIED, 'SCOPE_DENIED', { scope: 'task:read', projectId }, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.SCOPE_DENIED,
+        'SCOPE_DENIED',
+        { scope: 'task:read', projectId },
+        403,
+      );
     return credentialRoleId;
   }
 
@@ -146,7 +170,8 @@ export class V1ReadyService {
       if (!roleId) return { kind: 'AGENT', roleId: '' };
       return { kind: 'AGENT', roleId };
     }
-    if (context.membership.role === 'OWNER' || context.membership.role === 'ADMIN') return { kind: 'ALL' };
+    if (context.membership.role === 'OWNER' || context.membership.role === 'ADMIN')
+      return { kind: 'ALL' };
     return { kind: 'HUMAN', userId: principal.userId, roleIds: context.activeRoleIds };
   }
 
@@ -166,12 +191,19 @@ export class V1ReadyService {
 
     const stepsByRevision = new Map(revisions.map((revision) => [revision.revisionId, revision]));
     const statusByInstanceStep = new Map(
-      instanceTasks.map((task) => [`${task.workflowInstanceId}:${task.stepKey}`, task.executionStatus]),
+      instanceTasks.map((task) => [
+        `${task.workflowInstanceId}:${task.stepKey}`,
+        task.executionStatus,
+      ]),
     );
 
     const ready = new Set<string>();
     for (const candidate of candidates) {
-      if (candidate.executionStatus !== 'OPEN' || candidate.workStatus !== 'ACTIVE' || candidate.currentClaimId !== null)
+      if (
+        candidate.executionStatus !== 'OPEN' ||
+        candidate.workStatus !== 'ACTIVE' ||
+        candidate.currentClaimId !== null
+      )
         continue;
       if (!candidate.definitionRevisionId) continue;
       const revision = stepsByRevision.get(candidate.definitionRevisionId);
