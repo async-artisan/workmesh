@@ -11,6 +11,9 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsIn,
   IsInt,
   IsOptional,
@@ -55,6 +58,31 @@ class DecideDto {
   @IsOptional() @IsString() @MaxLength(2000) comment?: string | null;
 
   @ValidateNested() @Type(() => ConfirmationDto) confirmation!: ConfirmationDto;
+}
+
+class BatchDecisionItemDto {
+  @IsUUID() reviewId!: string;
+
+  @IsUUID() slotId!: string;
+
+  @IsInt() @Min(1) expectedVersion!: number;
+
+  @IsOptional() @IsString() @MaxLength(2000) comment?: string | null;
+
+  @ValidateNested() @Type(() => ConfirmationDto) confirmation!: ConfirmationDto;
+}
+
+class BatchDecisionDto {
+  @IsIn(['APPROVE', 'CHANGES_REQUESTED', 'REJECT']) decision!:
+    'APPROVE' | 'CHANGES_REQUESTED' | 'REJECT';
+
+  /** 逐条独立校验；部分失败不影响其他条目。 */
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => BatchDecisionItemDto)
+  items!: BatchDecisionItemDto[];
 }
 
 class RevokeDto {
@@ -239,6 +267,77 @@ export class V1ReviewController {
         userAuthVersion: principal.authVersion ?? 0,
       },
     );
+  }
+
+  /**
+   * 批量决定：逐条独立校验与授权，返回每条结果；不提供整批回滚。
+   * 票据是一次性的，批量重放会因票据已消费失败，属预期行为。
+   */
+  @Post('batch-decisions')
+  async batchDecide(
+    @Req() request: V1Request,
+    @Body() dto: BatchDecisionDto,
+    @Headers('idempotency-key') idempotencyKey: string,
+  ) {
+    const principal = principalOf(request);
+    requireIdempotencyKey(idempotencyKey);
+    if (!principal.sessionId)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+        'HUMAN_SESSION_REQUIRED',
+        undefined,
+        403,
+      );
+
+    const results: Array<{
+      reviewId: string;
+      status: string;
+      decisionId?: string;
+      message?: string;
+    }> = [];
+    for (const item of dto.items) {
+      try {
+        const result = await this.reviews.decide(
+          principal,
+          item.reviewId,
+          {
+            slotId: item.slotId,
+            decision: dto.decision,
+            expectedVersion: item.expectedVersion,
+            comment: item.comment ?? null,
+            confirmation: {
+              ticketId: item.confirmation.ticketId,
+              ticketSecret: item.confirmation.ticketSecret,
+            },
+          },
+          {
+            idempotencyKey: crypto.randomUUID(),
+            method: request.method,
+            route: request.originalUrl ?? '/api/v1/review-requests/batch-decisions',
+            body: {
+              reviewId: item.reviewId,
+              slotId: item.slotId,
+              decision: dto.decision,
+              expectedVersion: item.expectedVersion,
+            },
+            requestId: request.requestId ?? '',
+            now: new Date(),
+            operationId: crypto.randomUUID(),
+            webSessionId: principal.sessionId,
+            userAuthVersion: principal.authVersion ?? 0,
+          },
+        );
+        results.push({ reviewId: item.reviewId, status: 'APPLIED', decisionId: result.decisionId });
+      } catch (error) {
+        const failure = error as { code?: string; message?: string };
+        results.push({
+          reviewId: item.reviewId,
+          status: failure.code ?? 'FAILED',
+          message: failure.message,
+        });
+      }
+    }
+    return { results };
   }
 }
 

@@ -96,6 +96,7 @@ PRD 的生产入口在本地 Product Agent。Web 负责读取候选、查看正�
 - `GET /api/v1/projects/:projectId/review-requests?assignedToMe&status&limit&cursor` — 项目评审待办分页；按主体可见范围、指派/业务角色与状态过滤。
 - `GET /api/v1/review-requests/:reviewId` — 读取评审请求、槽位与已作决定。
 - `POST /api/v1/review-requests/:reviewId/decisions` — 提交 `APPROVE` / `CHANGES_REQUESTED` / `REJECT`；仅当前槽位资格的 HUMAN，携带父请求 `expectedVersion`、一次性票据与幂等键。`CHANGES_REQUESTED` 与 `REJECT` 必须提供非空 `comment`，让本地 Agent 能据此生成下一版；`APPROVE` 的说明可选。全部槽位批准时在同一事务完成发布或任务验收效应。
+- `POST /api/v1/review-requests/batch-decisions` — 批量决定：`{ decision, items: [{ reviewId, slotId, expectedVersion, comment?, confirmation }] }`；逐条独立校验与授权，最多 20 条，返回每条 `APPLIED` 或错误码，部分失败不回滚已成功条目。
 - `POST /api/v1/review-decisions/:decisionId/revoke` — 撤销批准；`expectedVersion` 指所属评审请求版本。追加撤销记录，失效发布指针与受影响任务，不删除历史。
 
 ## 任务与工件
