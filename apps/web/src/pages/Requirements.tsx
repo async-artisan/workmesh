@@ -127,7 +127,7 @@ export function Requirements() {
         <div className="card-head">
           <h3>新建需求</h3>
         </div>
-        <div className="form-grid">
+        <div className="form-grid req-create-grid">
           <div className="field">
             <span>标题</span>
             <input
@@ -196,7 +196,7 @@ export function Requirements() {
                       >
                         详情
                       </button>
-                      {isAdmin && (
+                      {isAdmin && item.phase === 'DISCOVERY' && (
                         <button className="ghost" onClick={() => setWorkflowTarget(item)}>
                           初始化流程
                         </button>

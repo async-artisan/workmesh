@@ -1,12 +1,25 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { formatApiError } from '../api/client';
-import { reviewApi, type ReviewDecision, type ReviewSlot, type ReviewView } from '../api/resources';
+import {
+  reviewApi,
+  workbenchApi,
+  type ReviewDecision,
+  type ReviewSlot,
+  type ReviewView,
+  type WorkbenchReviewItem,
+} from '../api/resources';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
-import { DECISION_LABELS, REVIEW_KIND_LABELS, REVIEW_STATUS_LABELS, labelFor } from '../lib/labels';
+import {
+  DECISION_LABELS,
+  REVIEW_KIND_LABELS,
+  REVIEW_STATUS_LABELS,
+  STEP_LABELS,
+  labelFor,
+} from '../lib/labels';
 
 type DecisionValue = 'APPROVE' | 'CHANGES_REQUESTED' | 'REJECT';
 
@@ -32,6 +45,7 @@ export function Reviews() {
   const reviewId = params.get('id') ?? '';
   const [review, setReview] = useState<ReviewView | null>(null);
   const [reviews, setReviews] = useState<ReviewView[]>([]);
+  const [reviewHints, setReviewHints] = useState<Map<string, WorkbenchReviewItem>>(new Map());
   const [listLoading, setListLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -53,11 +67,16 @@ export function Reviews() {
         };
       }
       setListLoading(true);
-      reviewApi
-        .list(projectId, { assignedToMe: true, status: 'OPEN' })
-        .then((page) => {
+      Promise.all([
+        reviewApi.list(projectId, { assignedToMe: true, status: 'OPEN' }),
+        workbenchApi.get(projectId).catch(() => null),
+      ])
+        .then(([page, snapshot]) => {
           if (!alive) return;
           setReviews(page.items);
+          setReviewHints(
+            new Map((snapshot?.reviews ?? []).map((item) => [item.reviewId, item])),
+          );
           setNotice('');
         })
         .catch((caught: unknown) => {
@@ -167,7 +186,12 @@ export function Reviews() {
           </p>
         </div>
         <div className="page-actions">
-          <ProjectSelect onChange={() => setReviews([])} />
+          <ProjectSelect
+            onChange={() => {
+              setReviews([]);
+              setReviewHints(new Map());
+            }}
+          />
           {reviewId ? (
             <button className="ghost" onClick={backToInbox}>
               返回待评审
@@ -219,38 +243,47 @@ export function Reviews() {
               <thead>
                 <tr>
                   <th>类型</th>
-                  <th>评审请求</th>
-                  <th>候选版本</th>
+                  <th>评审对象</th>
+                  <th>角色 / 版本</th>
                   <th>状态</th>
                   <th className="col-actions">操作</th>
                 </tr>
               </thead>
               <tbody>
-                {reviews.map((item) => (
-                  <tr key={item.id}>
-                    <td>{labelFor(REVIEW_KIND_LABELS, item.kind)}</td>
-                    <td>
-                      <span className="cell-mono cell-truncate" title={item.id}>
-                        {item.id}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="cell-mono cell-truncate">
-                        {item.documentRevisionId ?? item.artifactSetId ?? '—'}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="status-tag">
-                        {labelFor(REVIEW_STATUS_LABELS, item.status)}
-                      </span>
-                    </td>
-                    <td className="col-actions">
-                      <button className="ghost" onClick={() => openReview(item)}>
-                        打开评审
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {reviews.map((item) => {
+                  const hint = reviewHints.get(item.id);
+                  return (
+                    <tr key={item.id}>
+                      <td>{labelFor(REVIEW_KIND_LABELS, item.kind)}</td>
+                      <td>
+                        <strong>
+                          {hint?.requirement
+                            ? `${hint.requirement.code} · ${hint.requirement.title}`
+                            : item.id.slice(0, 8)}
+                        </strong>
+                        <div className="task-row-meta">
+                          {hint
+                            ? labelFor(STEP_LABELS, hint.subjectLabel)
+                            : `摘要 ${item.subjectDigest.slice(0, 10)}`}
+                        </div>
+                      </td>
+                      <td>
+                        {hint?.role?.title ?? '—'}
+                        <span className="cell-mono"> · v{item.version}</span>
+                      </td>
+                      <td>
+                        <span className="status-tag">
+                          {labelFor(REVIEW_STATUS_LABELS, item.status)}
+                        </span>
+                      </td>
+                      <td className="col-actions">
+                        <button className="ghost" onClick={() => openReview(item)}>
+                          打开评审
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {reviews.length === 0 && (
                   <tr className="table-empty">
                     <td colSpan={5}>{listLoading ? '加载中…' : '当前没有待评审请求。'}</td>

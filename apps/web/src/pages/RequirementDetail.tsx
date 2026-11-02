@@ -158,7 +158,11 @@ function buildGates(tasks: RequirementTaskDetail[]): GateNode[] {
  * 需求详情：把散落在任务、工件、评审、变更里的证据收进一个页面。
  * 页面本身只读；签字仍进入评审页，由服务端票据与版本校验。
  */
-export function RequirementDetail() {
+export function RequirementDetail({
+  requirementId: requirementIdProp,
+}: {
+  requirementId?: string;
+} = {}) {
   const navigate = useNavigate();
   const params = useParams<{ requirementId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -169,7 +173,7 @@ export function RequirementDetail() {
     loading: projectsLoading,
     error: projectsError,
   } = useProjectContext();
-  const routeKey = params.requirementId ?? '';
+  const routeKey = requirementIdProp ?? params.requirementId ?? '';
   const routePrefix = routeKey.includes('-') ? routeKey.split('-')[0] : '';
   const routeProject = projects.find((project) => project.key === routePrefix);
   const effectiveProjectId = routeProject?.id ?? selectedProjectId;

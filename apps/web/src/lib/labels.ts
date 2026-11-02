@@ -56,9 +56,24 @@ export const ARTIFACT_STORAGE_LABELS: Record<string, string> = {
   GIT_REF: '代码引用',
 };
 
+export const STEP_LABELS: Record<string, string> = {
+  prd: '产品 PRD',
+  design: 'UI 设计',
+  'impl-fe': '前端实现',
+  'impl-be': '后端实现',
+  'frontend-impl': '前端实现',
+  'backend-impl': '后端实现',
+  verify: '测试验证',
+  release: '发布上线',
+};
+
 export const ACTION_LABELS: Record<string, string> = {
   REVIEW_DECIDE: '评审决定',
+  REVIEW_DECISION_REVOKE: '撤销评审决定',
   REVIEW_REVOKE: '撤销批准',
+  ARTIFACT_SET_DELIVER: '交付工件',
+  CONTEXT_SNAPSHOT_CREATE: '生成上下文快照',
+  WORKFLOW_INSTANCE_CREATE: '初始化流程',
   KNOWLEDGE_WITHDRAW: '撤销发布',
   PROJECT_ROLE_ASSIGN: '授予角色',
   PROJECT_ROLE_UNASSIGN: '撤销角色',

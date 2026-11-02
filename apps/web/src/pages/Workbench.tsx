@@ -2,11 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowRight, Inbox, RefreshCw } from 'lucide-react';
 import { formatApiError } from '../api/client';
-import { authApi } from '../api/auth';
 import {
   activityApi,
   changeApi,
-  reviewApi,
   workbenchApi,
   type ActivityItem,
   type WorkbenchChangeItem,
@@ -15,10 +13,10 @@ import {
   type WorkbenchSnapshot,
 } from '../api/resources';
 import { ChangeDrawer } from '../components/ChangeDrawer';
-import { ConfirmDialog, Modal } from '../components/Modal';
+import { ConfirmDialog } from '../components/Modal';
 import { ReviewDecisionDrawer } from '../components/ReviewDecisionDrawer';
 import { useProjectContext } from '../hooks/useProjectContext';
-import { ACTION_LABELS, labelFor } from '../lib/labels';
+import { ACTION_LABELS, STEP_LABELS, labelFor } from '../lib/labels';
 
 type Tab = 'all' | 'signOffs' | 'approvals' | 'changes' | 'ready';
 type SortKey = 'oldest' | 'newest' | 'project' | 'type';
@@ -125,16 +123,6 @@ export function Workbench() {
   const [selectedChanges, setSelectedChanges] = useState<Set<string>>(new Set());
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchBusy, setBatchBusy] = useState(false);
-  const [selectedReviews, setSelectedReviews] = useState<Set<string>>(new Set());
-  const [reviewBatchOpen, setReviewBatchOpen] = useState(false);
-  const [reviewBatchBusy, setReviewBatchBusy] = useState(false);
-  const [reviewBatchPassword, setReviewBatchPassword] = useState('');
-  const [reviewBatchError, setReviewBatchError] = useState('');
-  const [reviewBatchResults, setReviewBatchResults] = useState<Array<{
-    reviewId: string;
-    status: string;
-    message?: string;
-  }> | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
 
   async function load() {
@@ -200,85 +188,6 @@ export function Workbench() {
       setError(formatApiError(caught));
     } finally {
       setBatchBusy(false);
-    }
-  }
-
-  function toggleReviewSelected(reviewId: string) {
-    setSelectedReviews((current) => {
-      const next = new Set(current);
-      if (next.has(reviewId)) next.delete(reviewId);
-      else next.add(reviewId);
-      return next;
-    });
-  }
-
-  async function batchApprove() {
-    const targets = (snapshot?.reviews ?? []).filter((review) =>
-      selectedReviews.has(review.reviewId),
-    );
-    if (targets.length === 0) return;
-    setReviewBatchBusy(true);
-    setReviewBatchError('');
-    setReviewBatchResults(null);
-    try {
-      const items: Array<{
-        reviewId: string;
-        slotId: string;
-        expectedVersion: number;
-        confirmation: { ticketId: string; ticketSecret: string };
-      }> = [];
-      const skipped: Array<{ reviewId: string; status: string; message?: string }> = [];
-      for (const target of targets) {
-        const review = await reviewApi.get(target.reviewId);
-        const decided = new Set(review.decisions.map((decision) => decision.approvalSlotId));
-        const slot = review.slots.find((item) => item.viewerCanDecide && !decided.has(item.id));
-        if (!slot) {
-          skipped.push({
-            reviewId: target.reviewId,
-            status: 'NO_SLOT',
-            message: '已没有待你决定的槽位',
-          });
-          continue;
-        }
-        const binding = {
-          action: 'REVIEW_DECIDE' as const,
-          projectId: review.projectId,
-          targetType: 'REVIEW_REQUEST',
-          targetId: review.id,
-          expectedVersion: review.version,
-          roleSlot: slot.requiredRoleId
-            ? { roleId: slot.requiredRoleId, approvalSlotId: slot.id }
-            : null,
-          payload: {
-            slotId: slot.id,
-            decision: 'APPROVE',
-            subjectDigest: review.subjectDigest,
-            comment: null,
-          },
-        };
-        const preview = await authApi.preview(binding);
-        const ticket = await authApi.issueTicket(
-          binding,
-          preview.actionDigest,
-          reviewBatchPassword,
-        );
-        items.push({
-          reviewId: review.id,
-          slotId: slot.id,
-          expectedVersion: review.version,
-          confirmation: { ticketId: ticket.ticketId, ticketSecret: ticket.ticketSecret },
-        });
-      }
-      if (items.length === 0) throw new Error('没有可提交的评审');
-      const response = await reviewApi.batchDecide('APPROVE', items);
-      setReviewBatchResults([...skipped, ...response.results]);
-      setSelectedReviews(new Set());
-      setNotice(`已提交 ${items.length} 条评审决定。`);
-      await load();
-    } catch (caught) {
-      setReviewBatchError(formatApiError(caught));
-    } finally {
-      setReviewBatchBusy(false);
     }
   }
 
@@ -417,22 +326,13 @@ export function Workbench() {
           }
         }}
       >
-        {review.slots.some((slot) => slot.viewerCanDecide && !slot.decided) && (
-          <input
-            type="checkbox"
-            aria-label={`选择评审 ${requirementLabel(review)}`}
-            checked={selectedReviews.has(review.reviewId)}
-            onChange={() => toggleReviewSelected(review.reviewId)}
-            onClick={(event) => event.stopPropagation()}
-          />
-        )}
         <div className="wb-row-main">
           <div className="wb-row-top">
             <span className="wb-type">{isSignOffKind(review.kind) ? '签字' : '审批'}</span>
             <span className="wb-row-context">{requirementLabel(review)}</span>
           </div>
           <div className="wb-row-detail">
-            {review.subjectLabel} · {review.role?.title ?? '未指定角色'} · 等待{' '}
+            {labelFor(STEP_LABELS, review.subjectLabel)} · {review.role?.title ?? '未指定角色'} · 等待{' '}
             {ageLabel(review.ageSeconds)}
           </div>
           <div className="wb-row-context">
@@ -586,6 +486,9 @@ export function Workbench() {
 
   const share = (value: number) => Math.round((value / Math.max(1, counts.total)) * 100);
   const scopeProjectName = projects.find((project) => project.id === scope)?.name;
+  const systemDate = new Date()
+    .toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
+    .replaceAll('/', '.');
 
   const spectrum = [
     { key: 'signOffs', label: '签字', value: counts.signOffs, className: 'is-sign' },
@@ -602,9 +505,7 @@ export function Workbench() {
             <i className="pulse-dot" />
             WORKMESH / AUTHORITY CONSOLE
           </span>
-          <span className="command-date">
-            SYS {new Date().toISOString().slice(0, 10).replaceAll('-', '.')}
-          </span>
+          <span className="command-date">SYS {systemDate}</span>
         </div>
         <div className="command-row">
           <div>
@@ -731,17 +632,6 @@ export function Workbench() {
             批量确认 {selectedChanges.size} 条
           </button>
           <button className="ghost" onClick={() => setSelectedChanges(new Set())}>
-            清空选择
-          </button>
-        </div>
-      )}
-
-      {selectedReviews.size > 0 && (
-        <div className="toolbar">
-          <button className="primary" onClick={() => setReviewBatchOpen(true)}>
-            批量通过 {selectedReviews.size} 条
-          </button>
-          <button className="ghost" onClick={() => setSelectedReviews(new Set())}>
             清空选择
           </button>
         </div>
@@ -971,59 +861,6 @@ export function Workbench() {
         }}
         onConfirm={() => void batchAck()}
       />
-
-      <Modal
-        open={reviewBatchOpen}
-        title="批量通过"
-        description={`将对 ${selectedReviews.size} 条评审提交 APPROVE；每条仍按自己的版本与票据校验。`}
-        onClose={() => {
-          if (!reviewBatchBusy) setReviewBatchOpen(false);
-        }}
-        footer={
-          <>
-            <button
-              className="ghost"
-              disabled={reviewBatchBusy}
-              onClick={() => setReviewBatchOpen(false)}
-            >
-              取消
-            </button>
-            <button
-              className="primary"
-              disabled={reviewBatchBusy || !reviewBatchPassword}
-              onClick={() => void batchApprove()}
-            >
-              {reviewBatchBusy ? '提交中…' : '确认批量通过'}
-            </button>
-          </>
-        }
-      >
-        <p>批量提交需要重新输入登录密码；每条会单独签发一次性票据。</p>
-        <label>
-          <span>登录密码</span>
-          <input
-            type="password"
-            autoComplete="current-password"
-            value={reviewBatchPassword}
-            onChange={(event) => setReviewBatchPassword(event.target.value)}
-          />
-        </label>
-        {reviewBatchError && (
-          <p className="error" role="alert">
-            {reviewBatchError}
-          </p>
-        )}
-        {reviewBatchResults && reviewBatchResults.length > 0 && (
-          <ul>
-            {reviewBatchResults.map((result) => (
-              <li key={result.reviewId}>
-                {result.reviewId.slice(0, 8)}：{result.status}
-                {result.message ? ` · ${result.message}` : ''}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Modal>
 
       <ReviewDecisionDrawer reviewId={reviewTarget} onClose={() => setReviewTarget(null)} />
 

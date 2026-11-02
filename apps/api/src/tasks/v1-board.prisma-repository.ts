@@ -10,9 +10,19 @@ export class V1BoardPrismaRepository implements V1BoardRepository {
     const tasks = await this.prisma.task.findMany({
       where: { projectId },
       orderBy: [{ generation: 'desc' }, { id: 'asc' }],
+      include: {
+        role: { select: { key: true, title: true } },
+        instance: {
+          select: {
+            requirement: { select: { id: true, code: true, title: true } },
+          },
+        },
+        responsibleUser: { select: { email: true } },
+      },
     });
     const claims = await this.prisma.taskClaim.findMany({
       where: { taskId: { in: tasks.map((t) => t.id) }, releasedAt: null },
+      include: { user: { select: { email: true } } },
     });
     const claimByTask = new Map(claims.map((c) => [c.taskId, c]));
     return tasks.map((task) => {
@@ -22,6 +32,13 @@ export class V1BoardPrismaRepository implements V1BoardRepository {
         projectId: task.projectId,
         stepKey: task.stepKey,
         roleId: task.roleId,
+        requirementId: task.instance.requirement.id,
+        requirementCode: task.instance.requirement.code,
+        requirementTitle: task.instance.requirement.title,
+        roleKey: task.role.key,
+        roleTitle: task.role.title,
+        responsibleUserEmail: task.responsibleUser.email,
+        claimedUserEmail: claim?.user.email,
         executionStatus: task.executionStatus,
         workStatus: task.workStatus,
         currentClaimId: task.currentClaimId,

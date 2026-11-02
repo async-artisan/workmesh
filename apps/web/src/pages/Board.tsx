@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { formatApiError } from '../api/client';
 import { boardApi, type BoardSnapshot } from '../api/resources';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
+import { STEP_LABELS, labelFor } from '../lib/labels';
 
 const COLUMN_LABELS: Record<string, string> = {
   BACKLOG: '待认领',
@@ -19,11 +21,14 @@ const WORK_STATUS_LABELS: Record<string, string> = {
   CANCELLED: '已取消',
 };
 
+
+
 /**
  * 看板只读：按服务端派生列展示任务与工作态。
  * 认领与交付属于执行动作，由本地 Agent 通过 CLI 完成；Web 不提供认领入口。
  */
 export function Board() {
+  const navigate = useNavigate();
   const { projectId } = useProjectContext();
   const [snapshot, setSnapshot] = useState<BoardSnapshot | null>(null);
   const [error, setError] = useState('');
@@ -90,22 +95,48 @@ export function Board() {
               {column.cards.length === 0 ? (
                 <p className="board-empty">暂无任务</p>
               ) : (
-                column.cards.map((card) => (
-                  <article className="board-card" key={card.taskId}>
-                    <div className="board-card-top">
-                      <span className="board-code">{card.stepKey}</span>
-                      {card.claimedUserId && (
-                        <span className="status-tag">
-                          {WORK_STATUS_LABELS[card.workStatus ?? ''] ?? card.workStatus}
+                column.cards.map((card) => {
+                  const requirementLabel = card.requirementCode
+                    ? `${card.requirementCode} · ${card.requirementTitle ?? ''}`
+                    : card.taskId.slice(0, 8);
+                  return (
+                    <article
+                      className="board-card"
+                      key={card.taskId}
+                      title={card.taskId}
+                      tabIndex={card.requirementCode ? 0 : undefined}
+                      onClick={() => {
+                        if (card.requirementCode)
+                          navigate(`/requirements/${encodeURIComponent(card.requirementCode)}`);
+                      }}
+                      onKeyDown={(event) => {
+                        if (!card.requirementCode) return;
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          navigate(`/requirements/${encodeURIComponent(card.requirementCode)}`);
+                        }
+                      }}
+                    >
+                      <div className="board-card-top">
+                        <span className="board-code">
+                          {labelFor(STEP_LABELS, card.stepKey)}
                         </span>
-                      )}
-                    </div>
-                    <h4 className="board-title cell-mono">{card.taskId.slice(0, 8)}</h4>
-                    <div className="board-foot">
-                      <span className="board-meta">角色 {card.roleId}</span>
-                    </div>
-                  </article>
-                ))
+                        {card.claimedUserId && (
+                          <span className="status-tag">
+                            {WORK_STATUS_LABELS[card.workStatus ?? ''] ?? card.workStatus}
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="board-title">{requirementLabel}</h4>
+                      <div className="board-foot">
+                        <span className="board-meta">
+                          角色 {card.roleTitle ?? '—'}
+                          {card.claimedUserEmail ? ` · ${card.claimedUserEmail}` : ''}
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })
               )}
             </div>
           ))}

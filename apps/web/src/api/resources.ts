@@ -105,6 +105,13 @@ export interface BoardCard {
   projectId: string;
   stepKey: string;
   roleId: string;
+  requirementId?: string;
+  requirementCode?: string;
+  requirementTitle?: string;
+  roleKey?: string;
+  roleTitle?: string;
+  responsibleUserEmail?: string;
+  claimedUserEmail?: string;
   executionStatus: string;
   workStatus: string | null;
   currentClaimId: string | null;

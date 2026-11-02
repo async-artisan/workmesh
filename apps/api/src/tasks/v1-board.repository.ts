@@ -4,6 +4,14 @@ export interface V1BoardCard {
   projectId: string;
   stepKey: string;
   roleId: string;
+  /** 人类可读标签；旧调用方可忽略。 */
+  requirementId?: string;
+  requirementCode?: string;
+  requirementTitle?: string;
+  roleKey?: string;
+  roleTitle?: string;
+  responsibleUserEmail?: string;
+  claimedUserEmail?: string;
   executionStatus: string;
   workStatus: string | null;
   currentClaimId: string | null;

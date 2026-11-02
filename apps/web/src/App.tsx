@@ -31,6 +31,8 @@ export function App() {
   const navigate = useNavigate();
   const current = findNav(location.pathname);
   const legacyReviewId = new URLSearchParams(location.search).get('id');
+  const requirementMatch = matchPath('/requirements/:requirementId', location.pathname);
+  const reviewMatch = matchPath('/reviews/:reviewId', location.pathname);
   const [apiStatus, setApiStatus] = useState<'checking' | 'ready' | 'offline'>('checking');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -447,8 +449,8 @@ export function App() {
               <Projects />
             ) : location.pathname === '/requirements' ? (
               <Requirements />
-            ) : matchPath('/requirements/:requirementId', location.pathname) ? (
-              <RequirementDetail />
+            ) : requirementMatch ? (
+              <RequirementDetail requirementId={requirementMatch.params.requirementId ?? ''} />
             ) : location.pathname === '/workflows' ? (
               <Workflows />
             ) : location.pathname === '/knowledge' ? (
@@ -461,8 +463,8 @@ export function App() {
               ) : (
                 <Reviews />
               )
-            ) : matchPath('/reviews/:reviewId', location.pathname) ? (
-              <ReviewDecision />
+            ) : reviewMatch ? (
+              <ReviewDecision reviewId={reviewMatch.params.reviewId ?? ''} />
             ) : location.pathname === '/board' ? (
               <Board />
             ) : location.pathname === '/roles' ? (
