@@ -39,8 +39,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     if (status >= 500)
+      // 未映射异常必须留堆栈：只记一行 message 会让 500 无法定位（A3 首跑就撞上过）。
       this.logger.error(
         `${request?.method ?? 'UNKNOWN'} ${request?.path ?? 'UNKNOWN'} returned ${status}: ${message}`,
+        error instanceof Error ? error.stack : String(error),
       );
     response?.setHeader?.('X-Request-Id', requestId);
     response?.status?.(status).json({
