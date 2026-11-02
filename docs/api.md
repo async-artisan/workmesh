@@ -29,6 +29,7 @@
 - `POST /api/v1/projects/:projectId/roles`、`PATCH /api/v1/projects/:projectId/roles/:roleId`、`DELETE /api/v1/projects/:projectId/roles/:roleId` — 自定义业务角色：`key` 创建后不可变；重命名需 `expectedVersion`，冲突返回 `409 ROLE_VERSION_CONFLICT`；停用用 `isActive`，有在任成员时返回 `409 ROLE_IN_USE`，停用不删除历史任务与工作流引用。
 - `GET/POST /api/v1/projects/:projectId/units`、`PATCH /api/v1/projects/:projectId/units/:unitId` — 工作单元（`SERVICE` / `APP` / `DATASET` / `EXTERNAL`）；`key` 创建后不可变，重复返回 `409 UNIT_EXISTS`，停用用 `status=DEPRECATED`。
 - `GET/POST /api/v1/projects/:projectId/unit-dependencies`、`DELETE /api/v1/projects/:projectId/unit-dependencies/:dependencyId` — 单元依赖边（`CALLS` / `READS` / `PUBLISHES` / `UPSTREAM`）；`source` 区分 `DECLARED` / `INFERRED` / `RUNTIME`，`DECLARED` 优先；自环返回 `422 SELF_DEPENDENCY`，重复返回 `409 DEPENDENCY_EXISTS`。
+- `GET/POST /api/v1/projects/:projectId/change-requests`、`GET /api/v1/projects/:projectId/change-requests/:changeId`、`POST /api/v1/projects/:projectId/change-requests/:changeId/decisions` — 变更请求：等级由受影响面取最大值（`COPY`→L0、`SCOPE`/`ACCEPTANCE`→L1、`CONTRACT`→L2、`GOAL`→L3）；需求冻结时非 L3 变更落为 `DEFERRED`；通过后生成 `ChangeEvent` 与收件人（按等级 24–168h 到期）。提案允许成员，决定需 OWNER/ADMIN。
 - `GET/POST /api/v1/projects/:projectId/knowledge-bases` — 知识库分页列表（PROJECT 库默认可读，RESTRICTED 库按当前用户/活动角色 grant 过滤）与创建（OWNER/ADMIN，需幂等键）。
 - `GET/PUT /api/v1/knowledge-bases/:knowledgeBaseId/access` — 读取/替换知识库 ACL；替换需 `expectedVersion`、`expectedAuthzVersion`、`KB_ACCESS_REPLACE` 票据与幂等键，撤销的 grant 保留历史。
 - `GET /api/v1/knowledge-bases/:knowledgeBaseId/search?q` — 只在当前已发布修订中做标题/正文包含检索，返回摘要片段与稳定游标。
