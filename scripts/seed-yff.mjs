@@ -296,6 +296,21 @@ async function phaseAccounts() {
       log('  member added admin@qq.com');
     });
   }
+  // 新成员默认是 MEMBER，而授予/撤销业务角色要求 OWNER/ADMIN。服务端为了不泄露
+  // 项目是否存在，会把「不是管理者」也报成 PROJECT_NOT_FOUND，界面上看着像“项目不存在”。
+  // 演示账号要能操作角色页，所以这里把本机已有账号提到 ADMIN。
+  await attempt('promote admin@qq.com to ADMIN', async () => {
+    const admin = await prisma.user.findUnique({
+      where: { email: 'admin@qq.com' },
+      select: { id: true },
+    });
+    if (!admin) throw new Error('admin@qq.com 用户不存在');
+    await prisma.projectMember.update({
+      where: { projectId_userId: { projectId: project.id, userId: admin.id } },
+      data: { role: 'ADMIN' },
+    });
+    log('  admin@qq.com promoted to ADMIN');
+  });
 
   const repos = await owner.call('GET', `/projects/${project.id}/repositories`);
   for (const name of ['backend', 'base', 'front', 'service']) {

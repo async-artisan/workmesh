@@ -30,8 +30,21 @@ interface RoleGrantTarget {
  * 角色与 ACL 管理页。授予/撤销业务角色与替换知识库访问集合都是票据动作：
  * 客户端只提供输入，权限与角色边界由服务端判定，403/409 原样展示。
  */
+/**
+ * 服务端为了不泄露项目是否存在，把「不是 OWNER/ADMIN」也报成 PROJECT_NOT_FOUND。
+ * 直接展示给用户是“资源不存在”，实际大概率是权限问题，这里补一句能照做的提示。
+ */
+function explainRoleError(caught: unknown): never {
+  const message = caught instanceof Error ? caught.message : String(caught);
+  if (message.includes('PROJECT_NOT_FOUND'))
+    throw new Error(
+      '操作被拒绝：需要本项目的 OWNER/ADMIN 权限。若权限确认无误，请刷新页面后确认项目仍在列表中。',
+    );
+  throw caught;
+}
+
 export function Roles() {
-  const { projectId } = useProjectContext();
+  const { projectId, projects } = useProjectContext();
   const [members, setMembers] = useState<MemberView[]>([]);
   const [roles, setRoles] = useState<RoleView[]>([]);
   const [error, setError] = useState('');
@@ -85,19 +98,31 @@ export function Roles() {
   async function submitGrant(confirmation: { ticketId: string; ticketSecret: string }) {
     if (!projectId || !grantTarget) throw new Error('缺少角色授予目标');
     if (!grantTarget.reason.trim()) throw new Error('原因不能为空');
+    // 项目可能在页面停留期间被删除，或本地记住的项目 ID 已失效：
+    // 先挡在本地，避免变成服务端一个看不懂的 404。
+    if (!projects.some((item) => item.id === projectId))
+      throw new Error('当前项目已不在项目列表中，请刷新页面后重试。');
     if (grantTarget.revoke) {
-      await projectApi.revokeRole(projectId, grantTarget.member.id, grantTarget.role.id, {
-        expectedVersion: grantTarget.member.version,
-        reason: grantTarget.reason.trim(),
-        confirmation,
-      });
+      try {
+        await projectApi.revokeRole(projectId, grantTarget.member.id, grantTarget.role.id, {
+          expectedVersion: grantTarget.member.version,
+          reason: grantTarget.reason.trim(),
+          confirmation,
+        });
+      } catch (caught) {
+        throw explainRoleError(caught);
+      }
       toast.success('业务角色已撤销。');
     } else {
-      await projectApi.assignRole(projectId, grantTarget.member.id, grantTarget.role.id, {
-        expectedVersion: grantTarget.member.version,
-        reason: grantTarget.reason.trim(),
-        confirmation,
-      });
+      try {
+        await projectApi.assignRole(projectId, grantTarget.member.id, grantTarget.role.id, {
+          expectedVersion: grantTarget.member.version,
+          reason: grantTarget.reason.trim(),
+          confirmation,
+        });
+      } catch (caught) {
+        throw explainRoleError(caught);
+      }
       toast.success('业务角色已授予。');
     }
     await load();
