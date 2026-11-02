@@ -7,6 +7,7 @@ export * from './strict-json';
 export * from './schemas';
 export * from './test-database';
 export * from './workflow';
+export * from './workflow-template';
 
 export type Role = 'USER' | 'ADMIN' | 'SUPER_ADMIN';
 export type RequirementStatus =

@@ -19,6 +19,7 @@ import { Register } from './pages/Register';
 import { Reviews } from './pages/Reviews';
 import { Roles } from './pages/Roles';
 import { Workbench } from './pages/Workbench';
+import { Workflows } from './pages/Workflows';
 import { toast } from './store/toast';
 
 export function App() {
@@ -209,7 +210,11 @@ export function App() {
                 >
                   用户中心
                 </button>
-                <button className="user-menu-item is-danger" role="menuitem" onClick={() => void logout()}>
+                <button
+                  className="user-menu-item is-danger"
+                  role="menuitem"
+                  onClick={() => void logout()}
+                >
                   退出登录
                 </button>
               </div>
@@ -242,6 +247,8 @@ export function App() {
               <Projects />
             ) : location.pathname === '/requirements' ? (
               <Requirements />
+            ) : location.pathname === '/workflows' ? (
+              <Workflows />
             ) : location.pathname === '/knowledge' ? (
               <Knowledge />
             ) : location.pathname === '/prd' ? (

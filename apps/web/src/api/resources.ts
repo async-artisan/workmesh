@@ -273,7 +273,80 @@ export const requirementApi = {
     }),
 };
 
+/** 工作流定义摘要：不含定义体，只看当前修订号与已发布指针。 */
+export interface WorkflowDefinitionView {
+  workflowKey: string;
+  title: string;
+  version: number;
+  currentPublishedRevisionId: string | null;
+  currentRevision: number;
+}
+
+/** 角色包锁：把某个业务角色固定到一个已登记、不可变的角色包版本上。 */
+export interface WorkflowPackageLock {
+  roleKey: string;
+  packageId: string;
+  version: string;
+  packageDigest: string;
+}
+
+export interface WorkflowIssue {
+  path: string;
+  code: string;
+  message: string;
+}
+
+export interface WorkflowCompileResult {
+  valid: boolean;
+  issues: WorkflowIssue[];
+  digest: string | null;
+}
+
+export interface RolePackageListItem {
+  id: string;
+  packageId: string;
+  version: string;
+  roleKey: string;
+  manifestDigest: string;
+  scope: 'BUILTIN' | 'PROJECT';
+}
+
 export const workflowApi = {
+  listDefinitions: (projectId: string) =>
+    apiRequest<ListPage<WorkflowDefinitionView>>(
+      `${projectPath(projectId)}/workflow-definitions?limit=50`,
+    ),
+  /** 只校验不落库；返回的 digest 必须原样进入发布票据的 payload。 */
+  validate: (
+    projectId: string,
+    input: { definition: Record<string, unknown>; packageLocks: WorkflowPackageLock[] },
+  ) =>
+    apiRequest<WorkflowCompileResult>(`${projectPath(projectId)}/workflow-definitions/validate`, {
+      method: 'POST',
+      body: input,
+    }),
+  publish: (
+    projectId: string,
+    workflowKey: string,
+    input: {
+      expectedVersion: number;
+      expectedCurrentRevision: number;
+      definition: Record<string, unknown>;
+      packageLocks: WorkflowPackageLock[];
+      confirmation: Confirmation;
+    },
+  ) =>
+    apiRequest<{
+      definitionRevisionId: string;
+      revision: number;
+      digest: string;
+      projectVersion: number;
+      replayed: boolean;
+    }>(`${projectPath(projectId)}/workflow-definitions/${enc(workflowKey)}/publish`, {
+      method: 'POST',
+      body: input,
+      idempotencyKey: 'auto',
+    }),
   revision: (revisionId: string) =>
     apiRequest<{
       id: string;
@@ -301,6 +374,12 @@ export const workflowApi = {
       `/requirements/${enc(requirementId)}/workflow-instances`,
       { method: 'POST', body: input, idempotencyKey: 'auto' },
     ),
+};
+
+/** 已登记的角色包版本（含内置）；发布工作流时为每个被引用角色挑选一个版本作锁。 */
+export const rolePackageApi = {
+  list: (projectId: string) =>
+    apiRequest<ListPage<RolePackageListItem>>(`${projectPath(projectId)}/role-packages?limit=100`),
 };
 
 export const documentApi = {
