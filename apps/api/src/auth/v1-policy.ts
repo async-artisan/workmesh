@@ -50,8 +50,13 @@ export function validateCsrf(
   return equalSecret(header, csrfTokenHash);
 }
 
+/**
+ * 只拦截“主体身份”类字段。`kind` 不在此列：文档创建、工件项等 DTO 的 `kind`
+ * 是业务枚举（DocumentKind / ArtifactKind），身份 kind 始终来自凭据本身，
+ * 把顶层 `kind` 一律拉黑会直接打死 `POST /projects/:id/documents`。
+ */
 export function rejectSelfAssertedIdentity(body: Record<string, unknown>): void {
-  const forbidden = ['actorType', 'kind', 'userId', 'roleIds', 'isAdmin', 'createdById', 'status'];
+  const forbidden = ['actorType', 'userId', 'roleIds', 'isAdmin', 'createdById', 'status'];
   const found = forbidden.filter((key) => key in body);
   if (found.length > 0)
     throw new Error(`self-asserted identity fields are not accepted: ${found.join(',')}`);
