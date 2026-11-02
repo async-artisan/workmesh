@@ -1,6 +1,6 @@
 {
-  "id": "workmesh.ops",
-  "version": "0.1.0",
+  "id": "workmesh.role.ops",
+  "version": "1.1.0",
   "title": "运维角色包",
   "description": "准备发布、验证回滚、执行冒烟，把上线从「发出去」变成「可证明地发出去」。",
   "license": "MIT",
@@ -60,7 +60,9 @@
       "kind": "RELEASE",
       "contractVersion": "1.0",
       "templateResourceId": "template-release",
-      "evidence": ["INSPECTION"]
+      "evidence": [
+        "INSPECTION"
+      ]
     },
     {
       "key": "rollback",
@@ -68,7 +70,9 @@
       "kind": "RELEASE",
       "contractVersion": "1.0",
       "templateResourceId": "template-rollback",
-      "evidence": ["TEST"]
+      "evidence": [
+        "TEST"
+      ]
     },
     {
       "key": "smoke",
@@ -76,7 +80,10 @@
       "kind": "RELEASE",
       "contractVersion": "1.0",
       "templateResourceId": "template-smoke",
-      "evidence": ["TEST", "INSPECTION"]
+      "evidence": [
+        "TEST",
+        "INSPECTION"
+      ]
     }
   ],
   "agentEntries": [

@@ -1,6 +1,6 @@
 {
-  "id": "workmesh.qa",
-  "version": "0.1.0",
+  "id": "workmesh.role.qa",
+  "version": "1.1.0",
   "title": "测试角色包",
   "description": "从验收派生用例与评测集，执行后把失败归因为可追踪的缺陷。",
   "license": "MIT",
@@ -60,7 +60,10 @@
       "kind": "CASES",
       "contractVersion": "1.0",
       "templateResourceId": "template-cases",
-      "evidence": ["TEST", "INSPECTION"]
+      "evidence": [
+        "TEST",
+        "INSPECTION"
+      ]
     },
     {
       "key": "evals",
@@ -68,7 +71,9 @@
       "kind": "CASES",
       "contractVersion": "1.0",
       "templateResourceId": "template-evals",
-      "evidence": ["TEST"]
+      "evidence": [
+        "TEST"
+      ]
     },
     {
       "key": "defects",
@@ -76,7 +81,9 @@
       "kind": "CASES",
       "contractVersion": "1.0",
       "templateResourceId": "template-defect",
-      "evidence": ["INSPECTION"]
+      "evidence": [
+        "INSPECTION"
+      ]
     }
   ],
   "agentEntries": [

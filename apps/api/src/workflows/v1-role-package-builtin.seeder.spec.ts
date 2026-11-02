@@ -75,7 +75,11 @@ describe('内置角色包播种', () => {
     expect(result.created).toBe(BUILTIN_ROLE_PACKAGES.length);
     expect(result.existing).toBe(0);
     expect(versions).toHaveLength(BUILTIN_ROLE_PACKAGES.length);
-    expect(resources).toHaveLength(BUILTIN_ROLE_PACKAGES.length);
+    const expectedResources = BUILTIN_ROLE_PACKAGES.reduce(
+      (sum, entry) => sum + entry.resources.length,
+      0,
+    );
+    expect(resources).toHaveLength(expectedResources);
 
     for (const entry of BUILTIN_ROLE_PACKAGES) {
       const row = versions.find((item) => item.packageId === entry.packageId);
@@ -89,9 +93,11 @@ describe('内置角色包播种', () => {
       expect(row?.roleKey).toBe(entry.roleKey);
     }
     // 资源字节必须是可解码的真实 markdown，而不是占位符。
-    const guide = resources[0];
-    expect(guide?.bodyBytes.byteLength).toBeGreaterThan(200);
-    expect(guide?.bodyBytes.toString('utf8')).toContain('# ');
+    const markdown = resources.filter((item) =>
+      item.bodyBytes.toString('utf8').trimStart().startsWith('#'),
+    );
+    expect(markdown.length).toBeGreaterThan(0);
+    expect(markdown.some((item) => item.bodyBytes.byteLength > 200)).toBe(true);
   });
 
   it('重复播种保持不变：不新增版本、不重复插入资源', async () => {
@@ -115,7 +121,11 @@ describe('内置角色包播种', () => {
     const result = await seedBuiltinRolePackages(prisma);
     expect(result.created).toBe(0);
     expect(versions).toHaveLength(BUILTIN_ROLE_PACKAGES.length);
-    expect(resources).toHaveLength(BUILTIN_ROLE_PACKAGES.length);
+    const expectedResources = BUILTIN_ROLE_PACKAGES.reduce(
+      (sum, entry) => sum + entry.resources.length,
+      0,
+    );
+    expect(resources).toHaveLength(expectedResources);
   });
 
   it('同版本内容变化但摘要不同时拒绝覆盖，提示提升 SemVer', async () => {

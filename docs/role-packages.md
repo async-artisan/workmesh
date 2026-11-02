@@ -30,8 +30,10 @@
 ## 3. 目录骨架
 
 ```
-role-packages/product/
+packages/role-packages/roles/product/
+├── package.meta.json
 ├── manifest.json
+├── guide.md
 ├── skills/
 │   ├── clarify-intent/SKILL.md
 │   ├── write-prd/SKILL.md
@@ -254,8 +256,9 @@ metadata:
 
 ## 10. 构建与分发
 
-- 源目录：`role-packages/<role>/`，提交源文件，不提交生成的摘要。
-- 构建：`pnpm build:role-packages` 读取目录、计算 sha256/byteLength、写回 `manifest.json`、校验 schema。
+- 源目录：`packages/role-packages/roles/<role>/`，提交源文件，不提交生成的摘要。
+- 构建：`pnpm build:role-packages` 读取 `package.meta.json` 与目录内容，计算 sha256/byteLength，生成 `manifest.json` 与 `src/generated.ts`。
+- 登记：服务端 seeder 读取 `src/generated.ts`，内置包 `projectId=null`、对所有项目可见；同版本摘要变化会拒绝覆盖，必须升 SemVer。
 - 分发：git tag = `<packageId>@<version>`；安装走本地目录，服务端登记同一 digest。
 - 升级：SemVer；major 变更输出契约，minor 新增可选资源，patch 文案修正。
 - 在途任务锁旧版本，升级不静默生效。

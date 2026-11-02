@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 生成内置角色包：把 `roles/<roleKey>/guide.md` 转成带摘要的 manifest 与资源字节。
+ * 生成内置角色包：把 `roles/<roleKey>/` 下的内容转成带摘要的 manifest 与资源字节。
  *
  * 为什么需要生成而不是手写：manifest 里的 `sha256` / `byteLength` 必须与真实字节一致，
  * 而 `validateRolePackageInput` 会逐项复核；手写必然漂移。生成的 `src/generated.ts` 会被提交，
@@ -8,134 +8,140 @@
  *
  * 摘要算法在服务端（shared 的 canonicalJson + sha256）再算一次并比对，
  * 所以这里只负责「算出资源摘要」，不负责 manifestDigest。
+ *
+ * 目录约定：
+ *   roles/<roleKey>/
+ *   ├── package.meta.json      # 身份、兼容性、inputs/outputs、agentEntries
+ *   ├── guide.md               # 角色入口（短）
+ *   ├── skills/<skill>/SKILL.md
+ *   ├── assets/templates/*     # 工件模板
+ *   ├── checklists/*           # 交付前自检
+ *   └── references/*.json      # 只放指针
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(here, '..');
+const rolesRoot = join(packageRoot, 'roles');
+const SKIP = new Set(['manifest.json', 'package.meta.json']);
 
-/** 每个角色的输出契约：kind 与 WorkMesh 的工件/文档类型一一对应。 */
-const ROLE_SPECS = [
-  {
-    roleKey: 'product',
-    title: '产品',
-    inputs: [{ key: 'requirement', source: 'platform', kind: 'json', required: true }],
-    outputs: [
-      { key: 'understanding', channel: 'document', kind: 'UNDERSTANDING' },
-      { key: 'prd', channel: 'document', kind: 'PRD' },
-    ],
-  },
-  {
-    roleKey: 'ui',
-    title: 'UI 设计',
-    inputs: [
-      { key: 'published-prd', source: 'platform', kind: 'document-revision', required: true },
-    ],
-    outputs: [{ key: 'design', channel: 'artifact', kind: 'DESIGN' }],
-  },
-  {
-    roleKey: 'frontend',
-    title: '前端',
-    inputs: [{ key: 'context-snapshot', source: 'platform', kind: 'json', required: true }],
-    outputs: [{ key: 'impl', channel: 'artifact', kind: 'IMPL' }],
-  },
-  {
-    roleKey: 'backend',
-    title: '后端',
-    inputs: [{ key: 'context-snapshot', source: 'platform', kind: 'json', required: true }],
-    outputs: [{ key: 'impl', channel: 'artifact', kind: 'IMPL' }],
-  },
-  {
-    roleKey: 'qa',
-    title: '测试',
-    inputs: [{ key: 'context-snapshot', source: 'platform', kind: 'json', required: true }],
-    outputs: [{ key: 'cases', channel: 'artifact', kind: 'CASES' }],
-  },
-  {
-    roleKey: 'ops',
-    title: '运维',
-    inputs: [{ key: 'context-snapshot', source: 'platform', kind: 'json', required: true }],
-    outputs: [{ key: 'release', channel: 'artifact', kind: 'RELEASE' }],
-  },
-];
-
-const VERSION = '1.0.0';
-const PROTOCOL_VERSION = '1.0';
-const CONTRACT_VERSION = '1.0';
-
-function resourceOf(roleKey) {
-  const relativePath = `roles/${roleKey}/guide.md`;
-  const bytes = readFileSync(join(packageRoot, relativePath));
-  return {
-    id: 'guide',
-    kind: 'prompt',
-    path: relativePath,
-    sha256: createHash('sha256').update(bytes).digest('hex'),
-    byteLength: bytes.byteLength,
-    mediaType: 'text/markdown',
-    bodyBase64: bytes.toString('base64'),
-  };
+function slug(value) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
-const packages = ROLE_SPECS.map((spec) => {
-  const resource = resourceOf(spec.roleKey);
+function mediaTypeOf(file) {
+  switch (extname(file).toLowerCase()) {
+    case '.md':
+      return 'text/markdown';
+    case '.yaml':
+    case '.yml':
+      return 'application/yaml';
+    case '.json':
+      return 'application/json';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+function walk(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (SKIP.has(entry.name)) continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walk(full));
+    else if (entry.isFile()) out.push(full);
+  }
+  return out;
+}
+
+/** 路径 → 资源 id / kind，规则固定，避免每个包各自命名。 */
+function classify(rel) {
+  const parts = rel.split('/');
+  const base = parts[parts.length - 1].replace(/\.[^.]+$/, '');
+  if (rel === 'guide.md') return { id: 'guide', kind: 'prompt' };
+  if (rel === 'skills/index.md') return { id: 'skills-index', kind: 'index' };
+  if (parts[0] === 'skills' && parts.length === 3 && base === 'SKILL')
+    return { id: `skill-${slug(parts[1])}`, kind: 'skill' };
+  if (parts[0] === 'assets' && parts[1] === 'templates')
+    return { id: `template-${slug(base)}`, kind: 'template' };
+  if (parts[0] === 'assets' && parts[1] === 'examples')
+    return { id: `example-${slug(base)}`, kind: 'example' };
+  if (parts[0] === 'checklists') return { id: `checklist-${slug(base)}`, kind: 'checklist' };
+  if (parts[0] === 'references') return { id: `reference-${slug(base)}`, kind: 'reference' };
+  return { id: `resource-${slug(rel)}`, kind: 'other' };
+}
+
+const roleDirs = readdirSync(rolesRoot, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+  .filter((name) => {
+    try {
+      return statSync(join(rolesRoot, name, 'package.meta.json')).isFile();
+    } catch {
+      return false;
+    }
+  })
+  .sort();
+
+const packages = roleDirs.map((roleKey) => {
+  const roleRoot = join(rolesRoot, roleKey);
+  const meta = JSON.parse(readFileSync(join(roleRoot, 'package.meta.json'), 'utf8'));
+  const resources = walk(roleRoot)
+    .map((file) => {
+      const rel = relative(roleRoot, file).split(sep).join('/');
+      const bytes = readFileSync(file);
+      const { id, kind } = classify(rel);
+      return {
+        id,
+        kind,
+        path: `roles/${roleKey}/${rel}`,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        byteLength: bytes.byteLength,
+        mediaType: mediaTypeOf(rel),
+        bodyBase64: bytes.toString('base64'),
+      };
+    })
+    .sort((left, right) => left.path.localeCompare(right.path));
+
   const manifest = {
     packageSchemaVersion: '1.0',
-    id: `workmesh.role.${spec.roleKey}`,
-    version: VERSION,
-    protocolVersion: PROTOCOL_VERSION,
-    title: `${spec.title}角色包`,
-    roleKey: spec.roleKey,
-    compatibility: {
-      minCliVersion: '1.0.0',
-      maxCliVersionExclusive: '2.0.0',
-      contractVersion: CONTRACT_VERSION,
-    },
-    inputs: spec.inputs.map((input) => ({ ...input, contractVersion: CONTRACT_VERSION })),
-    outputs: spec.outputs.map((output) => ({ ...output, contractVersion: CONTRACT_VERSION })),
-    resources: [
-      {
-        id: resource.id,
-        kind: resource.kind,
-        path: resource.path,
-        sha256: resource.sha256,
-        byteLength: resource.byteLength,
-        mediaType: resource.mediaType,
-      },
-    ],
-    agentEntries: [
-      { host: 'codex', type: 'instructions', resourceId: resource.id, adapterVersion: VERSION },
-      {
-        host: 'claude-code',
-        type: 'instructions',
-        resourceId: resource.id,
-        adapterVersion: VERSION,
-      },
-    ],
+    id: meta.id,
+    version: meta.version,
+    protocolVersion: '1.0',
+    title: meta.title,
+    roleKey,
+    compatibility: meta.compatibility,
+    inputs: meta.inputs,
+    outputs: meta.outputs.map(({ evidence, ...rest }) => rest),
+    // CLI 从 roles/<role> 目录安装，资源路径必须相对该目录；
+    // generated.ts 里的路径保留 `roles/<role>/` 前缀，供服务端登记时定位。
+    resources: resources.map(({ bodyBase64, ...rest }) => ({
+      ...rest,
+      path: rest.path.replace(`roles/${roleKey}/`, ''),
+    })),
+    agentEntries: meta.agentEntries,
   };
+
+  // 供 `workmesh roles install --package packages/role-packages/roles/<role>` 直接安装。
+  writeFileSync(join(roleRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+
   return {
     packageId: manifest.id,
-    version: VERSION,
-    roleKey: spec.roleKey,
+    version: manifest.version,
+    roleKey,
     manifest,
-    resources: [
-      {
-        resourceId: resource.id,
-        path: resource.path,
-        mediaType: resource.mediaType,
-        sha256: resource.sha256,
-        byteLength: resource.byteLength,
-        bodyBase64: resource.bodyBase64,
-      },
-    ],
+    resources: resources.map(({ id: resourceId, kind, ...rest }) => ({ resourceId, ...rest })),
   };
 });
 
 const header = `// 由 scripts/build.mjs 生成，请勿手改。
-// 修改 roles/<roleKey>/guide.md 后运行：pnpm --filter @workmesh/role-packages build
+// 修改 roles/<roleKey>/ 下的内容后运行：pnpm --filter @workmesh/role-packages build
 import type { RolePackageManifest } from '@workmesh/shared';
 
 export type BuiltinRolePackageResource = {

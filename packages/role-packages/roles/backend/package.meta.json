@@ -1,6 +1,6 @@
 {
-  "id": "workmesh.backend",
-  "version": "0.1.0",
+  "id": "workmesh.role.backend",
+  "version": "1.1.0",
   "title": "后端角色包",
   "description": "把 PRD 转成可并行的接口契约，按契约实现并交付可验证证据。",
   "license": "MIT",
@@ -60,7 +60,9 @@
       "kind": "KNOWLEDGE",
       "contractVersion": "1.0",
       "templateResourceId": "template-contract",
-      "evidence": ["INSPECTION"]
+      "evidence": [
+        "INSPECTION"
+      ]
     },
     {
       "key": "impl",
@@ -68,7 +70,10 @@
       "kind": "IMPL",
       "contractVersion": "1.0",
       "templateResourceId": "template-impl",
-      "evidence": ["TEST", "INSPECTION"]
+      "evidence": [
+        "TEST",
+        "INSPECTION"
+      ]
     }
   ],
   "agentEntries": [

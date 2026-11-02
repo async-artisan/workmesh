@@ -1,7 +1,7 @@
 {
   "packageSchemaVersion": "1.0",
-  "id": "workmesh.ops",
-  "version": "0.1.0",
+  "id": "workmesh.role.ops",
+  "version": "1.1.0",
   "protocolVersion": "1.0",
   "title": "运维角色包",
   "roleKey": "ops",
@@ -59,7 +59,7 @@
   "resources": [
     {
       "id": "template-release",
-      "kind": "TEMPLATE",
+      "kind": "template",
       "path": "assets/templates/release.md",
       "sha256": "f40c705938e56ef9dac4497c3b15693f6f89b8a237d21b9d0306d80495b47e7f",
       "byteLength": 920,
@@ -67,7 +67,7 @@
     },
     {
       "id": "template-rollback",
-      "kind": "TEMPLATE",
+      "kind": "template",
       "path": "assets/templates/rollback.md",
       "sha256": "e14255113c45b1bcfa7634c45e904c59b668f356fa5eab29865adab16e30b672",
       "byteLength": 790,
@@ -75,7 +75,7 @@
     },
     {
       "id": "template-smoke",
-      "kind": "TEMPLATE",
+      "kind": "template",
       "path": "assets/templates/smoke.md",
       "sha256": "e5be94404d5f5681ea9100e400dcaf0e5019fb50fc63de63923ec279f3341a4e",
       "byteLength": 716,
@@ -83,15 +83,23 @@
     },
     {
       "id": "checklist-release-readiness",
-      "kind": "CHECKLIST",
+      "kind": "checklist",
       "path": "checklists/release-readiness.md",
       "sha256": "e44a73126fa9b55ad7af1d73fb3c45bf474a739dd3b5785a1b00caadbf39708c",
       "byteLength": 735,
       "mediaType": "text/markdown"
     },
     {
+      "id": "guide",
+      "kind": "prompt",
+      "path": "guide.md",
+      "sha256": "bfd9571000f4aa5eb7486d0e685e61b986b183bdfe5ab610e2ea8a28a7d47fe1",
+      "byteLength": 2124,
+      "mediaType": "text/markdown"
+    },
+    {
       "id": "reference-references",
-      "kind": "REFERENCE",
+      "kind": "reference",
       "path": "references/references.json",
       "sha256": "b6112bd5141b5fbe94a11c9144d8045ca53fbd6a5f5d5175b7112982f450ddfd",
       "byteLength": 656,
@@ -99,7 +107,7 @@
     },
     {
       "id": "skills-index",
-      "kind": "INDEX",
+      "kind": "index",
       "path": "skills/index.md",
       "sha256": "105614d40dbe2015faa78d7326c3dae37f1b29a422f7acc6537d2ce1a7ac3b9e",
       "byteLength": 781,
@@ -107,7 +115,7 @@
     },
     {
       "id": "skill-prepare-release",
-      "kind": "SKILL",
+      "kind": "skill",
       "path": "skills/prepare-release/SKILL.md",
       "sha256": "bc9481e37f406f49877d82cc390cb38f05c7c61ebc38ce4979b6cdfb64556fae",
       "byteLength": 1127,
@@ -115,7 +123,7 @@
     },
     {
       "id": "skill-rollback-plan",
-      "kind": "SKILL",
+      "kind": "skill",
       "path": "skills/rollback-plan/SKILL.md",
       "sha256": "def32c2500d6519cce425e4bb2e141a447842435172ef0d5b442d83bbd3b3523",
       "byteLength": 1089,
@@ -123,7 +131,7 @@
     },
     {
       "id": "skill-smoke-check",
-      "kind": "SKILL",
+      "kind": "skill",
       "path": "skills/smoke-check/SKILL.md",
       "sha256": "21057e6f7ab46e3d16508f6c7878e9a4ff4f94f9ed166b05abc52b4db4d7c56a",
       "byteLength": 895,

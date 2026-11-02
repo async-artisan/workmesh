@@ -35,18 +35,24 @@ describe('builtin role packages', () => {
         expect(bytes.byteLength).toBe(declared?.byteLength);
         expect(bytes.byteLength).toBe(resource.byteLength);
         expect(await sha256Bytes(new Uint8Array(bytes))).toBe(declared?.sha256);
-        expect(declared?.path).toBe(resource.path);
+        // CLI manifest 的路径相对 roles/<role>/；generated 保留完整路径供服务端定位。
+        expect(declared?.path).toBe(resource.path.replace(`roles/${item.roleKey}/`, ''));
       }
     }
   });
 
-  it('every resource is a non-empty markdown guide under its role directory', () => {
+  it('every resource lives under its role directory and carries real bytes', () => {
     for (const item of BUILTIN_ROLE_PACKAGES) {
+      const paths = item.resources.map((resource) => resource.path);
+      expect(paths).toContain(`roles/${item.roleKey}/guide.md`);
+      expect(paths.some((path) => path.includes('/skills/'))).toBe(true);
       for (const resource of item.resources) {
-        expect(resource.byteLength).toBeGreaterThan(200);
-        expect(resource.mediaType).toBe('text/markdown');
-        expect(resource.path).toBe(`roles/${item.roleKey}/guide.md`);
+        expect(resource.byteLength).toBeGreaterThan(0);
+        expect(resource.path.startsWith(`roles/${item.roleKey}/`)).toBe(true);
+        if (resource.path.endsWith('.md')) expect(resource.mediaType).toBe('text/markdown');
       }
+      const declared = new Set(item.manifest.resources.map((resource) => resource.id));
+      expect(declared.size).toBe(item.manifest.resources.length);
     }
   });
 
