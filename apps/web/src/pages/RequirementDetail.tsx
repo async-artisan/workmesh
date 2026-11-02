@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, ArrowRight, Copy, Link2, MoreHorizontal, Terminal } from 'lucide-react';
 import { formatApiError } from '../api/client';
 import {
   documentApi,
@@ -11,7 +11,7 @@ import {
   type RequirementReviewDetail,
   type RequirementTaskDetail,
 } from '../api/resources';
-import { Modal } from '../components/Modal';
+import { ConfirmDialog, Modal } from '../components/Modal';
 import { useProjectContext } from '../hooks/useProjectContext';
 import {
   ARTIFACT_KIND_LABELS,
@@ -20,6 +20,7 @@ import {
   PHASE_LABELS,
   REVIEW_KIND_LABELS,
   REVIEW_STATUS_LABELS,
+  REVISION_STATE_LABELS,
   WORK_STATUS_LABELS,
   labelFor,
 } from '../lib/labels';
@@ -35,6 +36,10 @@ const DETAIL_TABS: Array<{ key: DetailTab; label: string }> = [
   { key: 'reviews', label: '评审' },
   { key: 'trace', label: '追溯' },
 ];
+
+function isDetailTab(value: string | null): value is DetailTab {
+  return value !== null && DETAIL_TABS.some((item) => item.key === value);
+}
 
 type GateState = 'done' | 'current' | 'todo' | 'na';
 
@@ -156,6 +161,7 @@ function buildGates(tasks: RequirementTaskDetail[]): GateNode[] {
 export function RequirementDetail() {
   const navigate = useNavigate();
   const params = useParams<{ requirementId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { projects, projectId: selectedProjectId, setProjectId } = useProjectContext();
   const routeKey = params.requirementId ?? '';
   const routePrefix = routeKey.includes('-') ? routeKey.split('-')[0] : '';
@@ -164,7 +170,9 @@ export function RequirementDetail() {
 
   const [detail, setDetail] = useState<RequirementDetailView | null>(null);
   const [prdDocs, setPrdDocs] = useState<DocumentDetail[]>([]);
-  const [tab, setTab] = useState<DetailTab>('overview');
+  const [tab, setTab] = useState<DetailTab>(
+    isDetailTab(searchParams.get('tab')) ? (searchParams.get('tab') as DetailTab) : 'overview',
+  );
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
@@ -172,6 +180,10 @@ export function RequirementDetail() {
   const [editDescription, setEditDescription] = useState('');
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState('');
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [editDiscardOpen, setEditDiscardOpen] = useState(false);
+  const [traceKind, setTraceKind] = useState('all');
 
   useEffect(() => {
     if (routeProject && routeProject.id !== selectedProjectId) setProjectId(routeProject.id);
@@ -240,18 +252,41 @@ export function RequirementDetail() {
     return [...map.values()];
   }, [detail]);
 
+  const artifactGroups = useMemo(() => {
+    const map = new Map<string, RequirementArtifactDetail[]>();
+    for (const artifact of detail?.artifacts ?? []) {
+      const group = map.get(artifact.kind) ?? [];
+      group.push(artifact);
+      map.set(artifact.kind, group);
+    }
+    return [...map.entries()].map(([kind, items]) => ({ kind, items }));
+  }, [detail]);
+
+  const missingArtifactKinds = useMemo(() => {
+    const expected = ['PRD', 'DESIGN', 'IMPL', 'CASES', 'RELEASE'];
+    const present = new Set((detail?.artifacts ?? []).map((artifact) => artifact.kind));
+    return expected.filter((kind) => !present.has(kind));
+  }, [detail]);
+
   const gates = useMemo(() => buildGates(detail?.tasks ?? []), [detail]);
 
   const trace = useMemo(() => {
     if (!detail) return [];
-    const items: Array<{ id: string; kind: string; title: string; at: string; actor?: string }> =
-      [];
+    const items: Array<{
+      id: string;
+      kind: string;
+      title: string;
+      at: string;
+      actor?: string;
+      detail?: string;
+    }> = [];
     for (const artifact of detail.artifacts) {
       items.push({
         id: `artifact-${artifact.id}`,
         kind: '交付物',
-        title: `${labelFor(ARTIFACT_KIND_LABELS, artifact.kind)} · ${shortDigest(artifact.sha256)}`,
+        title: `${labelFor(ARTIFACT_KIND_LABELS, artifact.kind)} · ${artifact.repoPath ?? shortDigest(artifact.sha256)}`,
         at: artifact.createdAt,
+        detail: artifact.commitSha ? `commit ${artifact.commitSha.slice(0, 8)}` : undefined,
       });
     }
     for (const review of detail.reviews) {
@@ -282,11 +317,20 @@ export function RequirementDetail() {
     return items.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
   }, [detail]);
 
+  const visibleTrace =
+    traceKind === 'all' ? trace : trace.filter((item) => item.kind === traceKind);
+
   const openReviews = detail?.reviews.filter((review) => review.status === 'OPEN') ?? [];
   const readyTasks = detail?.tasks.filter((task) => task.executionStatus === 'OPEN') ?? [];
 
   const next = useMemo(() => {
     if (!detail) return null;
+    if (detail.requirement.workStatus === 'CANCELLED')
+      return {
+        title: '需求已取消',
+        text: '只保留历史证据，不再提供签字或编辑入口。',
+        action: null,
+      };
     if (detail.tasks.length === 0)
       return {
         title: '等待初始化流程',
@@ -312,12 +356,38 @@ export function RequirementDetail() {
     };
   }, [detail, openReviews, readyTasks, navigate]);
 
+  async function copyText(text: string, label: string) {
+    try {
+      if (!navigator.clipboard) throw new Error('clipboard unavailable');
+      await navigator.clipboard.writeText(text);
+      setNotice(`已复制${label}。`);
+    } catch {
+      setNotice(`复制失败，请手动选择${label}。`);
+    }
+  }
+
+  function changeTab(next: DetailTab) {
+    setTab(next);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('tab', next);
+    setSearchParams(nextParams, { replace: true });
+  }
+
   function openEdit() {
     if (!detail) return;
     setEditTitle(detail.requirement.title);
     setEditDescription(detail.requirement.description ?? '');
     setEditError('');
     setEditOpen(true);
+  }
+
+  function requestCloseEdit() {
+    if (!detail || editBusy) return;
+    const dirty =
+      editTitle !== detail.requirement.title ||
+      editDescription !== (detail.requirement.description ?? '');
+    if (dirty) setEditDiscardOpen(true);
+    else setEditOpen(false);
   }
 
   async function saveEdit() {
@@ -386,25 +456,75 @@ export function RequirementDetail() {
   }
 
   const { requirement } = detail;
+  const projectName = projects.find((project) => project.id === requirement.projectId)?.name;
+  const readOnly = requirement.workStatus === 'CANCELLED';
 
   return (
     <section>
       <header className="req-head">
         <div className="req-head-main">
           <div className="req-head-title">
-            <span className="req-code">{requirement.code}</span>
+            <span className="req-code">
+              {requirement.code}
+              <button
+                className="icon-btn"
+                aria-label="复制需求编号"
+                onClick={() => void copyText(requirement.code, '需求编号')}
+              >
+                <Copy size={13} />
+              </button>
+            </span>
             <h2>{requirement.title}</h2>
             <span className="status-tag">{labelFor(PHASE_LABELS, requirement.phase)}</span>
             <span className="status-tag">v{requirement.version}</span>
+            {readOnly && <span className="status-tag">已取消</span>}
           </div>
           <div className="req-head-meta">
-            创建于 {dateTime(requirement.createdAt)} · 更新于 {dateTime(requirement.updatedAt)}
+            {projectName ? `${projectName} · ` : ''}创建于 {dateTime(requirement.createdAt)} · 更新于{' '}
+            {dateTime(requirement.updatedAt)}
           </div>
         </div>
         <div className="page-actions">
-          <button className="ghost" onClick={openEdit}>
-            编辑需求
-          </button>
+          {!readOnly && (
+            <button className="ghost" onClick={openEdit}>
+              编辑需求
+            </button>
+          )}
+          <div className="page-more">
+            <button
+              className="ghost"
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((value) => !value)}
+            >
+              <MoreHorizontal size={15} />
+              更多
+            </button>
+            {moreOpen && (
+              <div className="page-more-panel" role="menu">
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    void copyText(window.location.href, '链接');
+                    setMoreOpen(false);
+                  }}
+                >
+                  <Link2 size={14} />
+                  复制链接
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    void copyText(`workmesh context ${requirement.code}`, 'CLI 命令');
+                    setMoreOpen(false);
+                  }}
+                >
+                  <Terminal size={14} />
+                  复制 CLI 命令
+                </button>
+              </div>
+            )}
+          </div>
           <button className="ghost" onClick={() => navigate('/requirements')}>
             <ArrowLeft size={14} />
             返回需求
@@ -412,13 +532,23 @@ export function RequirementDetail() {
         </div>
       </header>
 
+      {readOnly && (
+        <div className="readonly-banner" role="status">
+          这条需求已取消，页面只读；签字与编辑入口已隐藏。
+        </div>
+      )}
+      {notice && <p className="kb-notice">{notice}</p>}
+
       <div className="gate-bar">
         {gates.map((gate) => (
           <button
             type="button"
             className={`gate-step is-${gate.state}`}
             key={gate.key}
-            onClick={() => scrollToRole(gate.roleKeys)}
+            onClick={() => {
+              changeTab('tasks');
+              window.setTimeout(() => scrollToRole(gate.roleKeys), 0);
+            }}
           >
             <span className="gate-dot" />
             <span className="gate-label">{gate.label}</span>
@@ -435,7 +565,7 @@ export function RequirementDetail() {
             role="tab"
             aria-selected={tab === item.key}
             className={`req-tab${tab === item.key ? ' is-active' : ''}`}
-            onClick={() => setTab(item.key)}
+            onClick={() => changeTab(item.key)}
           >
             {item.label}
             {item.key !== 'overview' && (
@@ -463,6 +593,29 @@ export function RequirementDetail() {
             <div className="detail-card">
               <h3>需求描述</h3>
               <p className="detail-text">{requirement.description || '暂无描述。'}</p>
+              {detail.changes.length > 0 && (
+                <div className="overview-recent">
+                  <div className="detail-card-head">
+                    <h3>最近变更</h3>
+                    <button className="ghost" onClick={() => changeTab('changes')}>
+                      查看全部
+                    </button>
+                  </div>
+                  {detail.changes.slice(0, 3).map((change) => (
+                    <div className="task-row" key={change.id}>
+                      <div className="task-row-main">
+                        <div className="task-row-top">
+                          <span className="status-tag">{change.sourceKind}</span>
+                          <strong>
+                            {change.changedFields.join(' / ') || '未标注字段'}
+                          </strong>
+                        </div>
+                        <div className="task-row-meta">{dateTime(change.createdAt)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -511,7 +664,7 @@ export function RequirementDetail() {
                             </div>
                           </div>
                           <div className="task-row-actions">
-                            {task.review?.status === 'OPEN' ? (
+                            {!readOnly && task.review?.status === 'OPEN' ? (
                               <button
                                 className="primary"
                                 onClick={() => navigate(`/reviews/${task.review!.id}`)}
@@ -541,27 +694,52 @@ export function RequirementDetail() {
                   交付物<small>{detail.counts.artifacts}</small>
                 </h3>
               </div>
-              {detail.artifacts.length === 0 ? (
+              {artifactGroups.length === 0 ? (
                 <p className="detail-empty">还没有交付物；Agent 交付后会出现在这里。</p>
               ) : (
-                <div className="artifact-group">
-                  {detail.artifacts.map((artifact: RequirementArtifactDetail) => (
-                    <div className="task-row" key={artifact.id}>
-                      <div className="task-row-main">
-                        <div className="task-row-top">
-                          <strong>{labelFor(ARTIFACT_KIND_LABELS, artifact.kind)}</strong>
-                          <span className="status-tag">{artifact.mediaType}</span>
-                          <span className="task-row-meta">{artifact.byteLength} B</span>
-                        </div>
-                        <div className="task-row-meta cell-mono" title={artifact.sha256}>
-                          sha256 {shortDigest(artifact.sha256)}
-                          {artifact.commitSha ? ` · commit ${artifact.commitSha.slice(0, 8)}` : ''}
-                          {artifact.repoPath ? ` · ${artifact.repoPath}` : ''}
-                        </div>
-                        {artifact.summary && (
-                          <div className="task-row-meta">{artifact.summary}</div>
-                        )}
+                <div className="artifact-groups">
+                  {artifactGroups.map((group) => (
+                    <div className="artifact-group" key={group.kind}>
+                      <div className="task-group-head">
+                        <strong>{labelFor(ARTIFACT_KIND_LABELS, group.kind)}</strong>
+                        <span className="task-row-meta">{group.items.length} 件</span>
                       </div>
+                      {group.items.map((artifact) => (
+                        <div className="task-row" key={artifact.id}>
+                          <div className="task-row-main">
+                            <div className="task-row-top">
+                              <strong className="cell-mono">{artifact.repoPath ?? artifact.mediaType}</strong>
+                              <span className="status-tag">{artifact.mediaType}</span>
+                              <span className="task-row-meta">{artifact.byteLength} B</span>
+                            </div>
+                            <div className="task-row-meta cell-mono" title={artifact.sha256}>
+                              sha256 {shortDigest(artifact.sha256)}
+                              {artifact.commitSha
+                                ? ` · commit ${artifact.commitSha.slice(0, 8)}`
+                                : ''}
+                            </div>
+                            {artifact.summary && (
+                              <div className="task-row-meta">{artifact.summary}</div>
+                            )}
+                          </div>
+                          {artifact.repoPath && (
+                            <div className="task-row-actions">
+                              <button
+                                className="ghost"
+                                onClick={() => void copyText(artifact.repoPath!, '交付物路径')}
+                              >
+                                复制路径
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                  {missingArtifactKinds.map((kind) => (
+                    <div className="artifact-missing" key={kind}>
+                      <strong>{labelFor(ARTIFACT_KIND_LABELS, kind)}</strong>
+                      <span>缺失 · 等待对应任务交付</span>
                     </div>
                   ))}
                 </div>
@@ -655,8 +833,18 @@ export function RequirementDetail() {
                         <div className="task-row-meta">
                           确认 {change.recipients.filter((item) => item.ackedAt).length}/
                           {change.recipients.length}
+                          {change.recipients.some((item) => !item.ackedAt)
+                            ? ' · 仍有角色待确认'
+                            : ' · 全部已确认'}
                         </div>
                       </div>
+                      {change.recipients.some((item) => !item.ackedAt) && (
+                        <div className="task-row-actions">
+                          <button className="ghost" onClick={() => navigate('/?type=changes')}>
+                            去工作台确认
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -696,6 +884,25 @@ export function RequirementDetail() {
                         <div className="task-row-meta">
                           修订 {item.revisions.length} 个 · 文档 {shortDigest(item.document.id)}
                         </div>
+                        <div className="revision-list">
+                          {item.revisions.slice(0, 5).map((revision) => (
+                            <div className="revision-row" key={revision.id}>
+                              <span className="cell-mono">v{revision.seq}</span>
+                              <span>{labelFor(REVISION_STATE_LABELS, revision.state)}</span>
+                              <span className="cell-truncate" title={revision.title}>
+                                {revision.title}
+                              </span>
+                              {revision.reviewRequestId && (
+                                <button
+                                  className="ghost"
+                                  onClick={() => navigate(`/reviews/${revision.reviewRequestId}`)}
+                                >
+                                  评审
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                       <div className="task-row-actions">
                         <button className="ghost" onClick={() => navigate('/prd')}>
@@ -713,14 +920,26 @@ export function RequirementDetail() {
             <div className="detail-card">
               <div className="detail-card-head">
                 <h3>
-                  追溯<small>{trace.length}</small>
+                  追溯<small>{visibleTrace.length}</small>
                 </h3>
+                <select
+                  className="select"
+                  aria-label="追溯类型筛选"
+                  value={traceKind}
+                  onChange={(event) => setTraceKind(event.target.value)}
+                >
+                  <option value="all">全部类型</option>
+                  <option value="交付物">交付物</option>
+                  <option value="评审">评审</option>
+                  <option value="决定">决定</option>
+                  <option value="变更">变更</option>
+                </select>
               </div>
-              {trace.length === 0 ? (
+              {visibleTrace.length === 0 ? (
                 <p className="detail-empty">还没有可追溯的事件。</p>
               ) : (
                 <div className="task-groups">
-                  {trace.map((item) => (
+                  {visibleTrace.map((item) => (
                     <div className="task-row" key={item.id}>
                       <div className="task-row-main">
                         <div className="task-row-top">
@@ -728,6 +947,7 @@ export function RequirementDetail() {
                           <strong>{item.title}</strong>
                         </div>
                         <div className="task-row-meta">
+                          {item.detail ? `${item.detail} · ` : ''}
                           {item.actor ? `${item.actor} · ` : ''}
                           {dateTime(item.at)}
                         </div>
@@ -787,12 +1007,10 @@ export function RequirementDetail() {
         description={`${requirement.code} · v${requirement.version}`}
         variant="drawer"
         size="md"
-        onClose={() => {
-          if (!editBusy) setEditOpen(false);
-        }}
+        onClose={requestCloseEdit}
         footer={
           <>
-            <button className="ghost" onClick={() => setEditOpen(false)} disabled={editBusy}>
+            <button className="ghost" onClick={requestCloseEdit} disabled={editBusy}>
               取消
             </button>
             <button className="primary" onClick={() => void saveEdit()} disabled={editBusy}>
@@ -829,6 +1047,19 @@ export function RequirementDetail() {
           )}
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={editDiscardOpen}
+        title="放弃未保存修改？"
+        description="标题或描述已经改动，关闭后不会保存。"
+        tone="danger"
+        confirmLabel="放弃修改"
+        onCancel={() => setEditDiscardOpen(false)}
+        onConfirm={() => {
+          setEditDiscardOpen(false);
+          setEditOpen(false);
+        }}
+      />
     </section>
   );
 }

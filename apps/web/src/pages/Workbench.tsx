@@ -19,7 +19,9 @@ import { useProjectContext } from '../hooks/useProjectContext';
 import { ACTION_LABELS, labelFor } from '../lib/labels';
 
 type Tab = 'all' | 'signOffs' | 'approvals' | 'changes' | 'ready';
-type SortKey = 'oldest' | 'newest' | 'type';
+type SortKey = 'oldest' | 'newest' | 'project' | 'type';
+
+const ROLE_PREF_KEY = 'workmesh.workbench.role';
 
 const TAB_KEYS: Tab[] = ['all', 'signOffs', 'approvals', 'changes', 'ready'];
 
@@ -59,6 +61,19 @@ function itemSearchText(item: WorkbenchItem): string {
   return parts.join(' ').toLowerCase();
 }
 
+function itemRequirementPath(item: WorkbenchItem): string | null {
+  const code = item.data.requirement?.code;
+  if (!code) return null;
+  const tab = item.type === 'review' ? 'tasks' : item.type === 'change' ? 'changes' : 'overview';
+  return `/requirements/${encodeURIComponent(code)}?tab=${tab}`;
+}
+
+function itemRank(item: WorkbenchItem): number {
+  if (item.type === 'review') return isSignOffKind(item.data.kind) ? 0 : 2;
+  if (item.type === 'change') return 1;
+  return 3;
+}
+
 function ageLabel(seconds: number | null): string {
   if (seconds === null) return '—';
   if (seconds < 60) return '刚刚';
@@ -93,7 +108,13 @@ export function Workbench() {
     isTab(params.get('type')) ? (params.get('type') as Tab) : 'all',
   );
   const [query, setQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState('');
+  const [roleFilter, setRoleFilter] = useState(() => {
+    try {
+      return localStorage.getItem(ROLE_PREF_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  });
   const [sort, setSort] = useState<SortKey>('oldest');
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [reviewTarget, setReviewTarget] = useState<string | null>(null);
@@ -112,7 +133,7 @@ export function Workbench() {
       setUpdatedAt(new Date());
       setError('');
     } catch (caught) {
-      setSnapshot(null);
+      // 保留上次成功结果；只有首次失败才显示整页错误。
       setError(formatApiError(caught));
     } finally {
       setLoading(false);
@@ -122,6 +143,15 @@ export function Workbench() {
   useEffect(() => {
     void load();
   }, [scope]);
+
+  useEffect(() => {
+    try {
+      if (roleFilter) localStorage.setItem(ROLE_PREF_KEY, roleFilter);
+      else localStorage.removeItem(ROLE_PREF_KEY);
+    } catch {
+      // 隐私模式下 localStorage 可能不可写，忽略即可。
+    }
+  }, [roleFilter]);
 
   useEffect(() => {
     activityApi
@@ -158,6 +188,18 @@ export function Workbench() {
       setError(formatApiError(caught));
     } finally {
       setBatchBusy(false);
+    }
+  }
+
+  async function copyCli(code: string) {
+    const command = `workmesh context ${code}`;
+    try {
+      if (!navigator.clipboard) throw new Error('clipboard unavailable');
+      await navigator.clipboard.writeText(command);
+      setNotice(`已复制：${command}`);
+      setError('');
+    } catch {
+      setError(`无法写入剪贴板，请手动复制：${command}`);
     }
   }
 
@@ -231,10 +273,10 @@ export function Workbench() {
     });
 
     const ageOf = (item: WorkbenchItem) => item.data.ageSeconds ?? -1;
-    const typeOrder: Record<WorkbenchItem['type'], number> = { review: 0, change: 1, ready: 2 };
     return [...filtered].sort((a, b) => {
       if (sort === 'newest') return ageOf(a) - ageOf(b);
-      if (sort === 'type') return typeOrder[a.type] - typeOrder[b.type];
+      if (sort === 'type') return itemRank(a) - itemRank(b) || ageOf(b) - ageOf(a);
+      // "按项目"的组顺序在 groups 里排；组内仍按最久未处理。
       return ageOf(b) - ageOf(a);
     });
   }, [snapshot, tab, query, roleFilter, sort]);
@@ -251,21 +293,32 @@ export function Workbench() {
       group.items.push(item);
       map.set(item.data.projectId, group);
     }
-    return [...map.values()];
-  }, [items]);
+    const result = [...map.values()];
+    if (sort === 'project') {
+      result.sort((a, b) => a.projectName.localeCompare(b.projectName, 'zh-CN'));
+    }
+    return result;
+  }, [items, sort]);
 
   function renderReview(review: WorkbenchReviewItem) {
+    const item: WorkbenchItem = { type: 'review', data: review };
+    const path = itemRequirementPath(item);
     return (
       <article
         className="wb-row is-signOff"
         key={review.reviewId}
         tabIndex={0}
-        aria-label={`打开评审：${requirementLabel(review)}`}
+        aria-label={`打开需求：${requirementLabel(review)}`}
+        onClick={(event) => {
+          if ((event.target as HTMLElement).closest('button, input, a')) return;
+          if (path) navigate(path);
+        }}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return;
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            setReviewTarget(review.reviewId);
+            if (path) navigate(path);
+            else setReviewTarget(review.reviewId);
           }
         }}
       >
@@ -284,7 +337,13 @@ export function Workbench() {
           </div>
         </div>
         <div className="wb-row-actions">
-          <button className="primary" onClick={() => setReviewTarget(review.reviewId)}>
+          <button
+            className="primary"
+            onClick={(event) => {
+              event.stopPropagation();
+              setReviewTarget(review.reviewId);
+            }}
+          >
             打开决定
             <ArrowRight size={14} />
           </button>
@@ -298,17 +357,24 @@ export function Workbench() {
     const roles = change.pendingRoles.length
       ? change.pendingRoles.map((role) => role.title).join(' / ')
       : '—';
+    const item: WorkbenchItem = { type: 'change', data: change };
+    const path = itemRequirementPath(item);
     return (
       <article
         className="wb-row is-change"
         key={change.recipientId}
         tabIndex={0}
-        aria-label={`打开变更：${requirementLabel(change)}`}
+        aria-label={`打开需求：${requirementLabel(change)}`}
+        onClick={(event) => {
+          if ((event.target as HTMLElement).closest('button, input, a')) return;
+          if (path) navigate(path);
+        }}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return;
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            setChangeTarget(change);
+            if (path) navigate(path);
+            else setChangeTarget(change);
           }
         }}
       >
@@ -330,7 +396,13 @@ export function Workbench() {
           <div className="wb-row-context">变更版本 v{change.version}</div>
         </div>
         <div className="wb-row-actions">
-          <button className="ghost" onClick={() => setChangeTarget(change)}>
+          <button
+            className="ghost"
+            onClick={(event) => {
+              event.stopPropagation();
+              setChangeTarget(change);
+            }}
+          >
             去确认
           </button>
         </div>
@@ -339,17 +411,25 @@ export function Workbench() {
   }
 
   function renderReady(task: WorkbenchReadyTaskItem) {
+    const item: WorkbenchItem = { type: 'ready', data: task };
+    const path = itemRequirementPath(item);
+    const code = task.requirement?.code;
     return (
       <article
         className="wb-row is-ready"
         key={task.taskId}
         tabIndex={0}
-        aria-label={`打开任务：${requirementLabel(task)}`}
+        aria-label={`打开需求：${requirementLabel(task)}`}
+        onClick={(event) => {
+          if ((event.target as HTMLElement).closest('button, input, a')) return;
+          if (path) navigate(path);
+        }}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return;
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            navigate('/board');
+            if (path) navigate(path);
+            else navigate('/board');
           }
         }}
       >
@@ -363,12 +443,38 @@ export function Workbench() {
           </div>
         </div>
         <div className="wb-row-actions">
-          <button className="ghost" onClick={() => navigate('/board')}>
-            查看看板
+          <button
+            className="ghost"
+            onClick={(event) => {
+              event.stopPropagation();
+              if (path) navigate(path);
+              else navigate('/board');
+            }}
+          >
+            查看上下文
           </button>
+          {code && (
+            <button
+              className="ghost"
+              onClick={(event) => {
+                event.stopPropagation();
+                void copyCli(code);
+              }}
+            >
+              复制命令
+            </button>
+          )}
         </div>
       </article>
     );
+  }
+
+  function renderItem(item: WorkbenchItem) {
+    return item.type === 'review'
+      ? renderReview(item.data)
+      : item.type === 'change'
+        ? renderChange(item.data)
+        : renderReady(item.data);
   }
 
   return (
@@ -402,9 +508,12 @@ export function Workbench() {
       </header>
 
       {error && !changeTarget && (
-        <p className="error" role="alert">
-          {error}
-        </p>
+        <div className="wb-error" role="alert">
+          <span>{error}</span>
+          <button className="ghost" onClick={() => void load()} disabled={loading}>
+            重试
+          </button>
+        </div>
       )}
       {notice && <p className="kb-notice">{notice}</p>}
       {snapshot && snapshot.warnings.length > 0 && (
@@ -426,7 +535,16 @@ export function Workbench() {
           <select
             aria-label="角色筛选"
             value={roleFilter}
-            onChange={(event) => setRoleFilter(event.target.value)}
+            onChange={(event) => {
+              const value = event.target.value;
+              setRoleFilter(value);
+              try {
+                if (value) localStorage.setItem(ROLE_PREF_KEY, value);
+                else localStorage.removeItem(ROLE_PREF_KEY);
+              } catch {
+                // localStorage 不可写时只影响记忆，不影响筛选。
+              }
+            }}
           >
             <option value="">全部角色</option>
             {roleOptions.map((role) => (
@@ -444,6 +562,7 @@ export function Workbench() {
           >
             <option value="oldest">最久未处理</option>
             <option value="newest">最近更新</option>
+            <option value="project">按项目</option>
             <option value="type">按类型</option>
           </select>
         </div>
@@ -536,7 +655,17 @@ export function Workbench() {
         </div>
       )}
 
-      {!loading && groups.length === 0 && (
+      {!loading && projects.length === 0 && (
+        <div className="wb-empty">
+          <span className="wb-empty-icon">
+            <Inbox size={20} />
+          </span>
+          <h3>你还不是任何项目的成员</h3>
+          <p>让项目管理员把你加入项目后，待办才会出现在这里。</p>
+        </div>
+      )}
+
+      {!loading && projects.length > 0 && items.length === 0 && (
         <div className="wb-empty">
           <span className="wb-empty-icon">
             <Inbox size={20} />
@@ -551,7 +680,11 @@ export function Workbench() {
         </div>
       )}
 
-      {groups.length > 0 && (
+      {items.length > 0 && scope && (
+        <div className="wb-list">{items.map((item) => renderItem(item))}</div>
+      )}
+
+      {items.length > 0 && !scope && (
         <div className="wb-list">
           {groups.map((group) => (
             <section className="wb-group" key={group.projectName}>
@@ -559,13 +692,7 @@ export function Workbench() {
                 <h3>{group.projectName}</h3>
                 <span>{group.items.length} 件</span>
               </div>
-              {group.items.map((item) =>
-                item.type === 'review'
-                  ? renderReview(item.data)
-                  : item.type === 'change'
-                    ? renderChange(item.data)
-                    : renderReady(item.data),
-              )}
+              {group.items.map((item) => renderItem(item))}
             </section>
           ))}
         </div>

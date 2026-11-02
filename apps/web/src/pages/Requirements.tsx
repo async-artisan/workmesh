@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { formatApiError } from '../api/client';
 import {
   projectApi,
@@ -23,6 +23,7 @@ import { PHASE_LABELS, labelFor } from '../lib/labels';
  */
 export function Requirements() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { projectId } = useProjectContext();
   const user = useAuthStore((state) => state.user);
   const [items, setItems] = useState<RequirementView[]>([]);
@@ -36,6 +37,13 @@ export function Requirements() {
   const [busy, setBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [workflowTarget, setWorkflowTarget] = useState<RequirementView | null>(null);
+
+  useEffect(() => {
+    const legacy = searchParams.get('req');
+    if (legacy) {
+      navigate(`/requirements/${encodeURIComponent(legacy)}`, { replace: true });
+    }
+  }, [navigate, searchParams]);
 
   const currentMember = members.find((member) => member.id === user?.id);
   const isAdmin = currentMember?.role === 'OWNER' || currentMember?.role === 'ADMIN';

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Workbench } from './Workbench';
@@ -133,6 +133,18 @@ describe('Workbench（跨项目待办聚合）', () => {
     expect(screen.getByText(/证据 2 件 · 含 PR/)).toBeInTheDocument();
     expect(screen.queryByText('review-1')).not.toBeInTheDocument();
     expect(screen.queryByText('evt-1')).not.toBeInTheDocument();
+  });
+
+  it('记住角色筛选，下次打开继续生效', async () => {
+    mockFetch(handler());
+    renderWorkbench();
+
+    const select = await screen.findByLabelText('角色筛选');
+    fireEvent.change(select, { target: { value: 'backend' } });
+
+    await waitFor(() =>
+      expect(localStorage.getItem('workmesh.workbench.role')).toBe('backend'),
+    );
   });
 
   it('确认变更提交收件人版本；旧版本 409 原样展示', async () => {
