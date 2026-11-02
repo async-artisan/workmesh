@@ -26,11 +26,22 @@
 ## 命令
 
 ```bash
-workmesh ready --role BACKEND --json
-workmesh context YFF-REQ-123 --json
-workmesh deliver --task <taskId> --kind IMPL --file impl.md --uri server/YFF-REQ-123/impl.md
-workmesh sign <taskId> --pr 42        # 由人执行
+# 1) 领取任务（待办任务 UUID 由平台/看板给出；CLI 没有 ready 子命令）
+workmesh claim --task <taskId>
+
+# 2) 物化上下文：角色包资源、已发布基线与上游已验收工件都在里面
+workmesh context --task <taskId> --claim <claimId> --expected-version <taskVersion> --materialize
+
+# 3) 产出后按 manifest 交付；IMPL 是 backend 的产物类型
+workmesh deliver --task <taskId> --claim <claimId> --snapshot <snapshotId> \
+  --expected-version <taskVersion> --manifest deliver-manifest.json
+
+# 4) 请求人工验收
+workmesh review --artifact-set <artifactSetId> --expected-version <artifactSetVersion>
 ```
+
+签字只发生在 Web 评审页（HUMAN 会话 + 一次性票据）。Agent 侧没有签字命令：
+`ready` / `sign` / `sync` 均已从 CLI 移除，不要按旧文档执行。
 
 ## 交接与协同
 

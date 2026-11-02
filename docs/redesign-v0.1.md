@@ -115,7 +115,7 @@ KnowledgeEntry {              // 只存索引，不存正文
 }
 ```
 
-同步契约：`workmesh sync` 只上报 `{externalId, title, path, contentHash, anchors, updatedAt}`，**正文字段不存在于接口中**。
+同步契约（已下线）：本地知识索引上报不再存在；需要进入平台事实的内容必须走知识库候选修订与人工评审。
 
 ### 3.5 SignOff（新增，统一签字）
 
@@ -165,12 +165,12 @@ ChangeEvent {
 
 | 命令                            | 作用                                                                                               | 使用者     |
 | ------------------------------- | -------------------------------------------------------------------------------------------------- | ---------- |
-| `workmesh init --role <role>`    | 初始化本地工作区，下发 `.workmesh/` 规范与目录骨架（规范源在仓库根 `spec/`，版本见 `spec/VERSION`） | 人（一次） |
-| `workmesh ready --json`          | 返回本角色未被阻塞的任务队列                                                                       | agent      |
-| `workmesh context <CODE> --json` | 拉取上下文包                                                                                       | agent      |
+| `workmesh roles install --package <dir> --project <uuid> --host <host>` | 安装角色包，下发规范与 agent 入口（内置包随服务启动播种，不再有 init 命令） | 人（一次） |
+| `workmesh claim --task <taskId>` | 领取本角色可执行的任务（唯一取得执行权的方式）                                                     | agent      |
+| `workmesh context --task <taskId> --claim <claimId> --expected-version <n> --materialize` | 拉取并物化上下文快照 | agent      |
 | `workmesh deliver`               | 提交工件（本地 schema 自检后上传指针与校验结果）                                                   | agent      |
-| `workmesh sync`                  | 上报本地知识索引与挂靠关系                                                                         | agent      |
-| `workmesh sign <taskId>`         | 签字关门（代码任务须带已合并且 APPROVED 的 PR）                                                    | 人         |
+| 已移除                           | 本地知识索引上报已下线                                                                             | agent      |
+| 无 CLI 命令                      | 人工签字在 Web 评审页完成（HUMAN + 一次性票据；代码任务以 GIT_REF 交付为证据）                      | 人         |
 | `workmesh ack <eventId>`         | 确认需求变更已处理                                                                                 | 人/agent   |
 
 原则（对齐 beads）：**默认非交互、输出可 JSON 解析、ID 稳定防冲突**。
@@ -222,7 +222,7 @@ ChangeEvent {
 
 ## 5. 校验与推进流程
 
-1. agent 执行 `workmesh ready` 取任务 → 置 `IN_PROGRESS`
+1. agent 执行 `workmesh claim --task <taskId>` 取任务 → 置 `IN_PROGRESS`
 2. `workmesh context` 取上下文 → 本地生产
 3. `workmesh deliver` → **本地 schema 自检**（锚点、必填字段、格式）→ 上传指针 + 校验结果
 4. 平台侧二次校验 → 不通过则拒收并回执失败项
@@ -242,7 +242,7 @@ ChangeEvent {
 | S6   | `ChangeEvent` + 变更传播                              | 杀手锏能力                   |
 | S7   | Web 进度视图改造（项目维度看板）                      | 给人看                       |
 
-**进度**：S1–S7 全部落地。知识索引只含指针；`workmesh deliver` 本地自检 + 平台二次校验，通过后任务自动进 `REVIEW_PENDING`；`workmesh sign` 由人关门，代码任务须带已合并且 APPROVED 的 PR 证据，签字后任务 DONE 并按角色梯队推进需求状态；PRD 全数审批通过后生成 `ChangeEvent`，按挂靠的知识与任务分角色推送，支持 `workmesh changes`/`ack`；`workmesh init --role` 把规范与工件 schema 下发到各角色工作区并写入 AGENTS.md / CLAUDE.md 入口；Web 新增「进度看板」（`GET /projects/:id/board`），按需求状态分列展示各角色签字与待确认变更。
+**进度**：S1–S7 全部落地。知识索引只含指针；`workmesh deliver` 本地自检 + 平台二次校验，通过后任务自动进 `REVIEW_PENDING`；人工验收在 Web 评审页完成（HUMAN 会话 + 一次性票据），代码任务以 `GIT_REF` 交付的完整 commit 为证据，批准后任务 DONE 并按角色梯队推进需求状态；PRD 全数审批通过后生成 `ChangeEvent`，按挂靠的知识与任务分角色推送，支持 `workmesh changes`/`ack`；`workmesh roles install` 把内置角色包（随服务启动播种）的规范与工件 schema 写入各角色工作区并落 AGENTS.md / CLAUDE.md 入口；Web 包含「流程配置」与「任务看板」（`GET /projects/:id/board`），按需求状态分列展示各角色验收与待确认变更。
 
 **Dogfooding**：S1–S2 完成后，立即用一条真实需求（建议：本地模型接入）在自己机器上跑通"建需求 → 定稿 PRD → 拉上下文 → 编码 → commit 回链"，验证后再继续 S3 之后。
 

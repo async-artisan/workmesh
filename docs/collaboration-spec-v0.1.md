@@ -122,7 +122,7 @@ WorkMesh 不是一个"需求管理系统"，而是**项目事实的联邦层**�
 - **依赖关系**：`blocks / blocked-by / related / discovered-from`，平台据此计算可执行队列；
 - **状态**：`OPEN → IN_PROGRESS → REVIEW_PENDING → DONE`，**agent 只能推进到 `REVIEW_PENDING`，不得自行置为 DONE**；
 - **回链**：commit / PR 优先挂任务编号（`YFF-REQ-123-T01`），平台自动向上聚合到需求；
-- **查询**：`workmesh ready --json` 返回的是本角色"未被阻塞的任务"，而非需求。
+- **取活**：`workmesh claim --task <taskId>` 领取本角色可执行的任务（唯一取得执行权的方式），随后用 `context` 物化输入。
 
 ## 6. 上下文获取规范
 
@@ -180,7 +180,7 @@ updated: 2026-10-31
 
 ### 7.3 上报与传播
 
-- 本地 agent 执行 `workmesh sync` 时，**只上报索引**（条目标题、路径哈希、挂靠需求、更新时间），不上报正文；
+- 本地知识索引上报能力已下线：**正文与索引都不入平台**，需要共享的知识走知识库候选修订；
 - 平台据此建立「知识条目 ↔ 需求」挂靠边，用于上下文装配与变更传播；
 - **变更传播**：产品更新 `YFF-REQ-123` 并定稿后，平台向所有挂靠该需求的知识、代码、用例所属角色推送变更通知，要求确认或更新。
 
@@ -241,12 +241,12 @@ DRAFT → PRD_READY → DESIGN_READY → IN_DEV → CODE_LINKED → TESTED → R
 
 | 命令                             | 用途                                          |
 | -------------------------------- | --------------------------------------------- |
-| `workmesh init --role <role>`     | 初始化本地工作区，下发规范文件与 agent 入口   |
-| `workmesh ready --json`           | 查询本角色可执行的工作（未被阻塞的需求/任务） |
-| `workmesh context REQ-xxx --json` | 拉取上下文包                                  |
+| `workmesh roles install --package <dir> --project <uuid> --host <host>` | 安装角色包，下发规范与 agent 入口 |
+| `workmesh claim --task <taskId>`  | 领取本角色可执行的任务；这是取得执行权的唯一方式 |
+| `workmesh context --task <taskId> --claim <claimId> --expected-version <n> --materialize` | 拉取并物化上下文快照 |
 | `workmesh deliver`                | 提交工件与证据（本地自检 + 平台二次校验）     |
-| `workmesh sign <taskId>`          | 人签字关门（代码任务带 `--pr`，agent 不可用） |
-| `workmesh sync`                   | 上报本地知识索引与挂靠关系（正文不上平台）    |
+| 无 CLI 命令                       | 人工签字只在 Web 评审页完成：HUMAN 会话 + 一次性票据 |
+| 已移除                            | 本地知识索引上报已下线；正文与索引都不入平台  |
 | `workmesh changes --role <role>`  | 查看本角色待确认的产品变更                    |
 | `workmesh ack <eventId> --role`   | 确认已按变更处理完本角色受影响的内容          |
 | `workmesh pull`                   | 导出需求 JSON 本地快照（非知识同步）          |
@@ -273,8 +273,8 @@ DRAFT → PRD_READY → DESIGN_READY → IN_DEV → CODE_LINKED → TESTED → R
     cases.schema.yaml
 ```
 
-`workmesh init --role <role>` 写入工作区，并写入 agent 入口文件（AGENTS.md / CLAUDE.md）的规范指针块，
-使该角色的 AI 每次开工自动加载本规范；重复执行幂等，规范升级后本地随 CLI 一起更新。规范源在仓库根 `spec/`。
+`workmesh roles install --package <dir> --project <uuid> --host <host>` 写入工作区，并写入 agent 入口文件（AGENTS.md / CLAUDE.md）的规范指针块，
+使该角色的 AI 每次开工自动加载本规范；内置角色包随服务启动播种，可直接安装；规范升级必须通过提升包 SemVer 表达。
 
 ## 12. 落地路径（v0.1 验证）
 

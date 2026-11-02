@@ -11,7 +11,7 @@
 任何角色、任何 agent，接手一项工作时都按同一骨架执行：
 
 ```
-① 取活      workmesh ready                  → 拿到未被阻塞的任务
+① 取活      workmesh claim --task <taskId>  → 拿到本角色可执行的任务
 ② 取上下文  workmesh context <需求编号>      → 拿到权威上下文包（禁止凭记忆臆测）
 ③ 生产      按本角色阶段推进
 ④ 自检      逐条过 DoD 清单（缺一不得交付）
@@ -182,7 +182,7 @@
 
 ### 7.1 交接触发
 
-交接**不靠通知，靠状态门**：上游签字通过 → 需求状态推进 → 下游角色的任务自动出现在其 `workmesh ready` 队列中。任何"口头说做完了"都不产生交接效力。
+交接**不靠通知，靠状态门**：上游签字通过 → 需求状态推进 → 下游角色的任务自动出现在其可领取队列中（`workmesh claim --task <taskId>`）。任何"口头说做完了"都不产生交接效力。
 
 ### 7.2 回问机制（NEEDS_CLARIFY）
 
@@ -230,6 +230,6 @@ NEEDS_CLARIFY
 ## 8. 规范的落地方式
 
 - 本文与《协作规范》随 `.workmesh/` 下发到每个角色的本地工作区；
-- `workmesh init --role <role>` 写入该角色目录，并写入 agent 入口文件（AGENTS.md / slash command）；
+- `workmesh roles install --package <dir> --project <uuid> --host <host>` 写入该角色目录，并写入 agent 入口文件（AGENTS.md / slash command）；
 - 每个角色的 agent 每次开工自动加载本角色的 SOP；
 - 平台对工件做 schema 校验，不合格拒收——规范因此是硬约束而非建议。

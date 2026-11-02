@@ -28,6 +28,7 @@
     "@nestjs/platform-express": "^10.4.5",
     "@nestjs/swagger": "^7.4.2",
     "@prisma/client": "^5.21.1",
+    "@workmesh/role-packages": "workspace:*",
     "@workmesh/shared": "workspace:*",
     "bcryptjs": "^2.4.3",
     "class-transformer": "^0.5.1",

@@ -36,4 +36,4 @@
 3. 存在 `APPROVED` 的 review 且有 reviewer；
 4. PR 与该需求存在追溯（PR 标题或正文带过需求编号）。
 
-命令：`workmesh sign <taskId> --pr <number>`，**只能由人执行**；agent 发起的签字一律被拒。
+验收：**只能由 HUMAN 在 Web 评审页批准**（HUMAN 会话 + 一次性票据）。Agent 侧没有签字命令；代码类任务以 `GIT_REF` 交付（完整 commit）作为 PR 证据，而不是自报合并状态。

@@ -3,3 +3,5 @@
 node_modules
 dist
 coverage
+# 由 scripts/build.mjs 生成；重新生成会覆盖，格式化只会制造噪声 diff。
+packages/role-packages/src/generated.ts

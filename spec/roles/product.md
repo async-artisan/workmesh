@@ -34,8 +34,8 @@
 示例：
 
 ```bash
-workmesh ready --role PRODUCT --json
-workmesh context <requirement-id> --json
+workmesh claim --task <taskId>
+workmesh context --task <taskId> --claim <claimId> --expected-version <taskVersion> --materialize
 workmesh candidate \
   --kb <knowledge-base-id> \
   --kind PRD \
