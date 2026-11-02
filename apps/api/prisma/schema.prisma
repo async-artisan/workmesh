@@ -730,6 +730,22 @@ model ReviewRequest {
   @@schema("workmesh_v1")
 }
 
+/// 槽位级临时委托：原责任人不变，委托到期自动失效。
+model ApprovalSlotDelegation {
+  id              String @id @default(uuid()) @db.Uuid
+  projectId       String @db.Uuid
+  slotId          String @db.Uuid
+  delegatorUserId String @db.Uuid
+  delegateUserId  String @db.Uuid
+  expiresAt       DateTime @db.Timestamptz(3)
+  revokedAt       DateTime? @db.Timestamptz(3)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([slotId, revokedAt])
+  @@index([delegateUserId, expiresAt])
+  @@schema("workmesh_v1")
+}
+
 model ApprovalSlot {
   id              String @id @default(uuid()) @db.Uuid
   projectId       String @db.Uuid
@@ -740,6 +756,8 @@ model ApprovalSlot {
   requiredRoleId  String? @db.Uuid
   sourceSlotBindingId String? @db.Uuid
   createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  /// 超时升级截止时间；到期只提醒与升级，不自动批准
+  dueAt           DateTime? @db.Timestamptz(3)
   reviewRequest   ReviewRequest @relation(fields: [reviewRequestId, projectId], references: [id, projectId], onDelete: Restrict)
   requiredUser    User? @relation("ApprovalSlotUser", fields: [requiredUserId], references: [id], onDelete: Restrict)
   requiredRole    ProjectRole? @relation(fields: [requiredRoleId], references: [id], onDelete: Restrict)
