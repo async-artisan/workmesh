@@ -182,6 +182,19 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
     return review ? toSnapshot(review) : null;
   }
 
+  async hasActiveDelegation(slotId: string, userId: string): Promise<boolean> {
+    const delegation = await this.prisma.approvalSlotDelegation.findFirst({
+      where: {
+        slotId,
+        delegateUserId: userId,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true },
+    });
+    return Boolean(delegation);
+  }
+
   async findDecisionContext(decisionId: string): Promise<V1DecisionContext | null> {
     const decision = await this.prisma.reviewDecision.findUnique({
       where: { id: decisionId },

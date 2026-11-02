@@ -558,7 +558,12 @@ export class V1ReviewService {
     const hasRole = slot.requiredRoleId
       ? await this.authorization.hasBusinessRole(principal, review.projectId, slot.requiredRoleId)
       : false;
-    if (!isAssignedUser && !hasRole)
+    // 有效委托：原责任人不变，被委托人可代为决定；到期或撤销即失效。
+    const isDelegate =
+      !isAssignedUser && !hasRole && this.reviews.hasActiveDelegation
+        ? await this.reviews.hasActiveDelegation(slot.id, principal.userId)
+        : false;
+    if (!isAssignedUser && !hasRole && !isDelegate)
       throw new WorkmeshError(
         V1_ERROR_CODES.FORBIDDEN,
         'REVIEW_SLOT_NOT_ASSIGNED',

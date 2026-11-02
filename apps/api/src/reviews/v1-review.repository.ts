@@ -248,6 +248,8 @@ export type V1ReviewListResult = {
 
 export interface V1ReviewRepository {
   findReview(reviewId: string): Promise<V1ReviewSnapshot | null>;
+  /** 有效委托：槽位被临时委派给该用户且未到期、未撤销。旧实现可缺省。 */
+  hasActiveDelegation?(slotId: string, userId: string): Promise<boolean>;
   /** 撤销资格与绑定所需的决定上下文；不存在返回 null。 */
   findDecisionContext(decisionId: string): Promise<V1DecisionContext | null>;
   /** 文档修订主体：用于创建前授权与版本前置检查。 */
