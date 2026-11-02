@@ -13,37 +13,29 @@ type VersionRow = {
 };
 type ResourceRow = { rolePackageVersionId: string; resourceKey: string; bodyBytes: Buffer };
 
-/** 只实现 seeder 用到的四个操作；不引入真实 Prisma。 */
+/** 只实现 seeder 用到的操作；不引入真实 Prisma。 */
 function fakePrisma() {
   const versions: VersionRow[] = [];
   const resources: ResourceRow[] = [];
   let sequence = 0;
-
-  const tx = {
-    async $queryRaw() {
-      return [{ pg_advisory_xact_lock: null }];
-    },
-    async rolePackageVersionFindFirst() {
-      return null;
-    },
-    async findFirst(input: { where: { packageId: string; version: string } }) {
-      return (
-        versions.find(
-          (row) => row.packageId === input.where.packageId && row.version === input.where.version,
-        ) ?? null
-      );
-    },
-  };
 
   const prisma = {
     versions,
     resources,
     async $transaction<T>(run: (client: unknown) => Promise<T>): Promise<T> {
       const client = {
-        $queryRaw: tx.$queryRaw,
+        // 咨询锁用 executeRaw：pg_advisory_xact_lock 返回 void，queryRaw 无法反序列化。
+        async $executeRaw() {
+          return 1;
+        },
         rolePackageVersion: {
-          findFirst: async (input: { where: { packageId: string; version: string } }) =>
-            tx.findFirst(input),
+          findFirst: async (input: { where: { packageId: string; version: string } }) => {
+            return (
+              versions.find(
+                (row) => row.packageId === input.where.packageId && row.version === input.where.version,
+              ) ?? null
+            );
+          },
           create: async (input: {
             data: { packageId: string; version: string; manifestDigest: string; roleKey: string };
           }) => {
@@ -88,9 +80,7 @@ describe('内置角色包播种', () => {
       const row = versions.find((item) => item.packageId === entry.packageId);
       expect(row).toBeDefined();
       const expected = await sha256Bytes(
-        new TextEncoder().encode(
-          canonicalJson(entry.manifest as unknown as Record<string, unknown>),
-        ),
+        new TextEncoder().encode(canonicalJson(entry.manifest as unknown as Record<string, unknown>)),
       );
       expect(row?.manifestDigest).toBe(expected);
       expect(row?.roleKey).toBe(entry.roleKey);

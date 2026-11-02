@@ -40,7 +40,9 @@ export async function seedBuiltinRolePackages(prisma: PrismaService): Promise<V1
 
   return prisma.$transaction(async (tx) => {
     // 咨询锁：两个实例同时启动时，第二个在锁释放后才判断"已存在"。
-    await tx.$queryRaw(
+    // 用 $executeRaw 而不是 $queryRaw：pg_advisory_xact_lock 返回 void，
+    // Prisma 无法反序列化 void 列（P2010）；executeRaw 只关心影响行数。
+    await tx.$executeRaw(
       Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${SEED_LOCK_KEY})::bigint)`,
     );
 
