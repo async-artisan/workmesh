@@ -99,6 +99,118 @@ export function buildStandardWorkflowTemplate(
 }
 
 /**
+ * 软件交付默认模板：PRD 之后 UI / 用例 / 前后端并行，最后合流验收再发布。
+ * 与 `standard` 的区别是显式包含 backend 与 ui，用于真实的多角色团队。
+ */
+export const SOFTWARE_DELIVERY_WORKFLOW_KEY = 'software-delivery';
+export const SOFTWARE_DELIVERY_ROLE_KEYS = [
+  'product',
+  'ui',
+  'frontend',
+  'backend',
+  'qa',
+  'ops',
+] as const;
+
+export type SoftwareDeliveryTemplateOptions = {
+  workflowKey?: string;
+  title?: string;
+  /** 复用既有设计、无新增视觉时排除 ui，并移除 design 步骤。 */
+  excludeUi?: boolean;
+};
+
+export function buildSoftwareDeliveryWorkflowTemplate(
+  options: SoftwareDeliveryTemplateOptions = {},
+): Record<string, unknown> {
+  const excludeUi = options.excludeUi === true;
+  const implGates = [{ mode: 'ALL', reviewerSlots: ['task-acceptance'] }];
+  return {
+    schemaVersion: '1.0',
+    protocolVersion: '1.0',
+    workflowKey: options.workflowKey ?? SOFTWARE_DELIVERY_WORKFLOW_KEY,
+    title: options.title ?? '软件交付流程',
+    baseRevisionId: null,
+    roleExclusions: excludeUi
+      ? [{ roleKey: 'ui', reason: '本次不涉及新视觉或新交互，复用现有设计' }]
+      : [],
+    stepRemovals: [],
+    roleSlots: [
+      { key: 'prd-owner', roleKey: 'product', kind: 'PRD_PUBLICATION' },
+      { key: 'task-acceptance', roleKey: 'qa', kind: 'TASK_ACCEPTANCE' },
+      { key: 'release-acceptance', roleKey: 'product', kind: 'RELEASE_ACCEPTANCE' },
+    ],
+    steps: [
+      {
+        key: 'prd',
+        roleKey: 'product',
+        kind: 'PRODUCT',
+        deps: [],
+        outputKinds: ['PRD'],
+        baselinePolicy: 'NONE',
+        gates: [{ mode: 'ALL', reviewerSlots: ['prd-owner'] }],
+      },
+      ...(excludeUi
+        ? []
+        : [
+            {
+              key: 'design',
+              roleKey: 'ui',
+              kind: 'PRODUCT',
+              deps: ['prd'],
+              outputKinds: ['DESIGN'],
+              baselinePolicy: 'NONE',
+              gates: implGates,
+            },
+          ]),
+      {
+        key: 'cases',
+        roleKey: 'qa',
+        kind: 'VERIFY',
+        deps: ['prd'],
+        outputKinds: ['CASES'],
+        baselinePolicy: 'PUBLISHED_PRD',
+        gates: implGates,
+      },
+      {
+        key: 'backend',
+        roleKey: 'backend',
+        kind: 'DELIVERY',
+        deps: ['prd'],
+        outputKinds: ['IMPL'],
+        baselinePolicy: 'PUBLISHED_PRD',
+        gates: implGates,
+      },
+      {
+        key: 'frontend',
+        roleKey: 'frontend',
+        kind: 'DELIVERY',
+        deps: excludeUi ? ['prd'] : ['prd', 'design'],
+        outputKinds: ['IMPL'],
+        baselinePolicy: 'PUBLISHED_PRD',
+        gates: implGates,
+      },
+      {
+        key: 'accept',
+        roleKey: 'qa',
+        kind: 'VERIFY',
+        deps: ['backend', 'frontend', 'cases'],
+        outputKinds: [],
+        baselinePolicy: 'PUBLISHED_PRD',
+        gates: implGates,
+      },
+      {
+        key: 'release',
+        roleKey: 'ops',
+        kind: 'RELEASE',
+        deps: ['accept'],
+        outputKinds: ['RELEASE'],
+        gates: [{ mode: 'ALL', reviewerSlots: ['task-acceptance', 'release-acceptance'] }],
+      },
+    ],
+  };
+}
+
+/**
  * 从任意流程定义里取出被引用的角色 key（步骤 + 审批槽），去重后按字典序返回。
  * 用于在发布前判断哪些角色缺少角色包锁——缺锁是编译期就会失败的硬条件。
  */

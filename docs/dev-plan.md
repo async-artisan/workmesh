@@ -39,7 +39,7 @@
 | WP6  | 角色包 schema 1.1（`skills[]` / `evidence`） | 无                  | ✅ 已完成 |
 | WP7  | 审批批处理（同类型、逐条校验）               | 无                  | 待做      |
 | WP8  | 委托与超时升级                               | WP3（槽位 `dueAt`） | 待做      |
-| WP9  | 默认模板 `software-delivery` + 角色排除变体  | WP6                 | 待做      |
+| WP9  | 默认模板 `software-delivery` + 角色排除变体  | WP6                 | ✅ 已完成 |
 | WP10 | 文档/度量收尾与导航                          | 全部                | 待做      |
 
 ## 3. 工作包明细

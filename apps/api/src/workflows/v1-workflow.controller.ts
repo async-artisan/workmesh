@@ -154,6 +154,11 @@ export class V1WorkflowController {
     });
   }
 
+  @Get('projects/:projectId/workflow-templates')
+  templates(@Req() request: V1Request, @Param('projectId') projectId: string) {
+    return this.workflows.templates(principalOf(request), projectId);
+  }
+
   @Post('projects/:projectId/workflow-definitions/validate')
   validate(
     @Req() request: V1Request,

@@ -10,6 +10,12 @@ import {
   type WorkflowPackageLock,
 } from '@workmesh/shared';
 import {
+  buildSoftwareDeliveryWorkflowTemplate,
+  buildStandardWorkflowTemplate,
+  SOFTWARE_DELIVERY_WORKFLOW_KEY,
+  STANDARD_WORKFLOW_KEY,
+} from '@workmesh/shared';
+import {
   verifyTicketBinding,
   V1_CONFIRMATION_REPOSITORY,
   type V1ConfirmationRepository,
@@ -136,6 +142,32 @@ export class V1WorkflowService {
         403,
       );
     return this.compile(projectId, input.definition, input.packageLocks);
+  }
+
+  /** 内置流程模板：供 Web 编辑器载入，仍需走 validate → publish 的正式流程。 */
+  async templates(principal: Principal, projectId: string) {
+    await this.requireManager(principal, projectId);
+    return [
+      {
+        key: STANDARD_WORKFLOW_KEY,
+        title: '标准交付流程',
+        definition: buildStandardWorkflowTemplate(),
+      },
+      {
+        key: SOFTWARE_DELIVERY_WORKFLOW_KEY,
+        title: '软件交付流程',
+        definition: buildSoftwareDeliveryWorkflowTemplate(),
+      },
+      {
+        key: 'software-delivery-no-ui',
+        title: '软件交付（复用设计）',
+        definition: buildSoftwareDeliveryWorkflowTemplate({
+          workflowKey: 'software-delivery-no-ui',
+          title: '软件交付（复用设计）',
+          excludeUi: true,
+        }),
+      },
+    ];
   }
 
   async publish(

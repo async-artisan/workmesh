@@ -86,6 +86,7 @@ PRD 的生产入口在本地 Product Agent。Web 负责读取候选、查看正�
 ## 流程与角色包
 
 - `GET/POST /api/v1/projects/:projectId/workflow-definitions`、`POST /api/v1/projects/:projectId/workflow-definitions/validate`、`POST /api/v1/projects/:projectId/workflow-definitions/:workflowKey/publish`、`GET /api/v1/workflow-definition-revisions/:revisionId` — 受限 DAG 定义校验与发布。
+- `GET /api/v1/projects/:projectId/workflow-templates` — 内置流程模板（`standard`、`software-delivery`、`software-delivery-no-ui`）；返回可直接提交 validate 的定义，仍需人工确认票据后发布。
 - `POST /api/v1/requirements/:requirementId/workflow-instances`、`GET /api/v1/workflow-instances/:instanceId` — 为需求创建流程实例并读取步骤/任务状态。
 - `GET/POST /api/v1/projects/:projectId/role-packages`、`GET /api/v1/projects/:projectId/role-packages/:packageId/versions/:version`、`GET /api/v1/projects/:projectId/role-packages/:packageId/versions/:version/resources/:resourceId` — 角色包清单与锁定版本资源。
 
