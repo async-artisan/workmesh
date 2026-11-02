@@ -24,6 +24,8 @@ import { V1_READY_REPOSITORY } from './v1-ready.repository';
 import { V1ReadyPrismaRepository } from './v1-ready.prisma-repository';
 import { V1ReadyService } from './v1-ready.service';
 import { V1ReadyController } from './v1-ready.controller';
+import { V1FlowMetricsController } from './v1-flow-metrics.controller';
+import { V1FlowMetricsService } from './v1-flow-metrics.service';
 
 @Module({
   controllers: [
@@ -33,6 +35,7 @@ import { V1ReadyController } from './v1-ready.controller';
     V1BoardController,
     V1SnapshotController,
     V1ReadyController,
+    V1FlowMetricsController,
   ],
   providers: [
     { provide: V1_IDEMPOTENCY_REPOSITORY, useClass: V1IdempotencyPrismaRepository },
@@ -48,6 +51,7 @@ import { V1ReadyController } from './v1-ready.controller';
     V1ChangeService,
     V1BoardService,
     V1SnapshotService,
+    V1FlowMetricsService,
   ],
   exports: [
     V1TaskService,
