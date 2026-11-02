@@ -162,7 +162,13 @@ export function RequirementDetail() {
   const navigate = useNavigate();
   const params = useParams<{ requirementId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { projects, projectId: selectedProjectId, setProjectId } = useProjectContext();
+  const {
+    projects,
+    projectId: selectedProjectId,
+    setProjectId,
+    loading: projectsLoading,
+    error: projectsError,
+  } = useProjectContext();
   const routeKey = params.requirementId ?? '';
   const routePrefix = routeKey.includes('-') ? routeKey.split('-')[0] : '';
   const routeProject = projects.find((project) => project.key === routePrefix);
@@ -413,7 +419,7 @@ export function RequirementDetail() {
     }
   }
 
-  if (loading && !detail) {
+  if ((loading || projectsLoading) && !detail) {
     return (
       <section>
         <div className="req-head req-head-skeleton">
@@ -421,6 +427,27 @@ export function RequirementDetail() {
           <div className="skeleton-line short" />
         </div>
         <div className="gate-bar gate-skeleton" />
+      </section>
+    );
+  }
+
+  if (projectsError && !effectiveProjectId) {
+    return (
+      <section>
+        <header className="page-head">
+          <div>
+            <h2>需求详情</h2>
+            <p className="page-sub">项目上下文没有加载成功。</p>
+          </div>
+          <div className="page-actions">
+            <button className="primary" onClick={() => navigate('/login')}>
+              重新登录
+            </button>
+          </div>
+        </header>
+        <p className="error" role="alert">
+          {projectsError}
+        </p>
       </section>
     );
   }

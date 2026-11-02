@@ -1,5 +1,6 @@
 import { apiRequest, setCsrfToken } from './client';
 import { useAuthStore } from '../store/auth';
+import { invalidateProjects } from '../store/project';
 
 export interface SessionView {
   authenticated: boolean;
@@ -16,6 +17,8 @@ export async function bootstrapSession(): Promise<SessionView> {
   setCsrfToken(view.csrfToken);
   if (view.authenticated && view.user) useAuthStore.getState().setSession(view.user);
   else useAuthStore.getState().clearAuth();
+  // 会话变化后项目可见范围可能变化，清掉模块级项目缓存。
+  invalidateProjects();
   return view;
 }
 
@@ -71,6 +74,7 @@ export const authApi = {
     await apiRequest('/auth/logout', { method: 'POST', body: {} });
     setCsrfToken(null);
     useAuthStore.getState().clearAuth();
+    invalidateProjects();
   },
   me: () => apiRequest<Record<string, unknown>>('/auth/me'),
   credentials: () =>
