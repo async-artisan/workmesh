@@ -3,10 +3,25 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sha256Bytes } from '@workmesh/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildProgram, main } from './index';
+import { buildProgram, main, readOption } from './index';
 
 const PROJECT = '2f6c1c4b-6b0e-4f5d-9c2d-2b1b4b0f9b4a';
 const API = 'https://workmesh.example.com/api/v1';
+
+describe('多词参数的键名兼容', () => {
+  // commander 12 只把 --credential-store 存成 credentialStore；
+  // 曾经因为按 kebab 键取值，这类参数会被静默忽略（包括 --expected-version）。
+  it('kebab 与 camelCase 两种键名都能取到值', () => {
+    expect(readOption({ credentialStore: 'file' }, 'credential-store')).toBe('file');
+    expect(readOption({ 'credential-store': 'file' }, 'credential-store')).toBe('file');
+    expect(readOption({}, 'credential-store')).toBeUndefined();
+  });
+
+  it('多段连字符同样兼容', () => {
+    expect(readOption({ localRunId: 'run-1' }, 'local-run-id')).toBe('run-1');
+    expect(readOption({ 'local-run-id': 'run-1' }, 'local-run-id')).toBe('run-1');
+  });
+});
 
 afterEach(() => {
   vi.restoreAllMocks();

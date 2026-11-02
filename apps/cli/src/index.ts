@@ -1110,7 +1110,7 @@ function report(error: CliError, json: boolean): void {
     );
 }
 
-export { buildProgram };
+export { buildProgram, readOption };
 
 const invokedDirectly = process.argv[1] !== undefined && /index\.(ts|js)$/.test(process.argv[1]);
 if (invokedDirectly) {
