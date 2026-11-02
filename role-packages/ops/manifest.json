@@ -1,0 +1,147 @@
+{
+  "packageSchemaVersion": "1.0",
+  "id": "workmesh.ops",
+  "version": "0.1.0",
+  "protocolVersion": "1.0",
+  "title": "运维角色包",
+  "roleKey": "ops",
+  "compatibility": {
+    "minCliVersion": "1.0.0",
+    "maxCliVersionExclusive": "2.0.0",
+    "contractVersion": "1.0"
+  },
+  "inputs": [
+    {
+      "key": "context",
+      "source": "TASK_SNAPSHOT",
+      "kind": "CONTEXT",
+      "required": true,
+      "contractVersion": "1.0"
+    },
+    {
+      "key": "prd",
+      "source": "KNOWLEDGE",
+      "kind": "PRD",
+      "required": true,
+      "contractVersion": "1.0"
+    },
+    {
+      "key": "unit-card",
+      "source": "KNOWLEDGE",
+      "kind": "UNIT_CARD",
+      "required": false,
+      "contractVersion": "1.0"
+    }
+  ],
+  "outputs": [
+    {
+      "key": "release",
+      "channel": "CANDIDATE",
+      "kind": "RELEASE",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-release"
+    },
+    {
+      "key": "rollback",
+      "channel": "CANDIDATE",
+      "kind": "RELEASE",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-rollback"
+    },
+    {
+      "key": "smoke",
+      "channel": "CANDIDATE",
+      "kind": "RELEASE",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-smoke"
+    }
+  ],
+  "resources": [
+    {
+      "id": "template-release",
+      "kind": "TEMPLATE",
+      "path": "assets/templates/release.md",
+      "sha256": "f40c705938e56ef9dac4497c3b15693f6f89b8a237d21b9d0306d80495b47e7f",
+      "byteLength": 920,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "template-rollback",
+      "kind": "TEMPLATE",
+      "path": "assets/templates/rollback.md",
+      "sha256": "e14255113c45b1bcfa7634c45e904c59b668f356fa5eab29865adab16e30b672",
+      "byteLength": 790,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "template-smoke",
+      "kind": "TEMPLATE",
+      "path": "assets/templates/smoke.md",
+      "sha256": "e5be94404d5f5681ea9100e400dcaf0e5019fb50fc63de63923ec279f3341a4e",
+      "byteLength": 716,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "checklist-release-readiness",
+      "kind": "CHECKLIST",
+      "path": "checklists/release-readiness.md",
+      "sha256": "e44a73126fa9b55ad7af1d73fb3c45bf474a739dd3b5785a1b00caadbf39708c",
+      "byteLength": 735,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "reference-references",
+      "kind": "REFERENCE",
+      "path": "references/references.json",
+      "sha256": "b6112bd5141b5fbe94a11c9144d8045ca53fbd6a5f5d5175b7112982f450ddfd",
+      "byteLength": 656,
+      "mediaType": "application/json"
+    },
+    {
+      "id": "skills-index",
+      "kind": "INDEX",
+      "path": "skills/index.md",
+      "sha256": "105614d40dbe2015faa78d7326c3dae37f1b29a422f7acc6537d2ce1a7ac3b9e",
+      "byteLength": 781,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "skill-prepare-release",
+      "kind": "SKILL",
+      "path": "skills/prepare-release/SKILL.md",
+      "sha256": "bc9481e37f406f49877d82cc390cb38f05c7c61ebc38ce4979b6cdfb64556fae",
+      "byteLength": 1127,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "skill-rollback-plan",
+      "kind": "SKILL",
+      "path": "skills/rollback-plan/SKILL.md",
+      "sha256": "def32c2500d6519cce425e4bb2e141a447842435172ef0d5b442d83bbd3b3523",
+      "byteLength": 1089,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "skill-smoke-check",
+      "kind": "SKILL",
+      "path": "skills/smoke-check/SKILL.md",
+      "sha256": "21057e6f7ab46e3d16508f6c7878e9a4ff4f94f9ed166b05abc52b4db4d7c56a",
+      "byteLength": 895,
+      "mediaType": "text/markdown"
+    }
+  ],
+  "agentEntries": [
+    {
+      "host": "codex",
+      "type": "AGENTS_MD_POINTER",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    },
+    {
+      "host": "claude-code",
+      "type": "SKILLS_DIRECTORY",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "note": "只放指针，不放正文。scope: PROJECT | UNIT | ROLE。路径在运行时由快照解析。",
+  "entries": [
+    {
+      "key": "unit-card",
+      "scope": "UNIT",
+      "ref": "knowledge://<project-key>/system/<unit-key>/card"
+    },
+    {
+      "key": "runbook",
+      "scope": "UNIT",
+      "ref": "knowledge://<project-key>/system/<unit-key>/runbook"
+    },
+    {
+      "key": "conventions",
+      "scope": "PROJECT",
+      "ref": "knowledge://<project-key>/system/conventions"
+    },
+    {
+      "key": "release-log",
+      "scope": "PROJECT",
+      "ref": "knowledge://<project-key>/system/release-log"
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "id": "workmesh.ui",
+  "version": "0.1.0",
+  "title": "UI 角色包",
+  "description": "产出页面与交互规格，或声明复用现有设计，让前端拿到确定的视觉与交互依据。",
+  "license": "MIT",
+  "roleKey": "ui",
+  "compatibility": {
+    "minCliVersion": "1.0.0",
+    "maxCliVersionExclusive": "2.0.0",
+    "contractVersion": "1.0"
+  },
+  "skills": [
+    {
+      "key": "write-design-spec",
+      "path": "skills/write-design-spec/SKILL.md",
+      "description": "为涉及新页面或新交互的需求产出设计规格，覆盖状态、边界与异常。",
+      "whenToUse": "需求涉及新页面、新交互或视觉变更时。"
+    },
+    {
+      "key": "declare-reuse",
+      "path": "skills/declare-reuse/SKILL.md",
+      "description": "声明复用现有组件或模式，给前端一个明确的指针，而不是重新设计。",
+      "whenToUse": "需求可复用既有设计、无需新增视觉状态时。"
+    }
+  ],
+  "inputs": [
+    {
+      "key": "context",
+      "source": "TASK_SNAPSHOT",
+      "kind": "CONTEXT",
+      "required": true,
+      "contractVersion": "1.0"
+    },
+    {
+      "key": "prd",
+      "source": "KNOWLEDGE",
+      "kind": "PRD",
+      "required": true,
+      "contractVersion": "1.0"
+    }
+  ],
+  "outputs": [
+    {
+      "key": "design",
+      "channel": "CANDIDATE",
+      "kind": "DESIGN",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-design-spec",
+      "evidence": ["INSPECTION"]
+    },
+    {
+      "key": "reuse",
+      "channel": "CANDIDATE",
+      "kind": "KNOWLEDGE",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-reuse-declaration",
+      "evidence": ["INSPECTION"]
+    }
+  ],
+  "agentEntries": [
+    {
+      "host": "codex",
+      "type": "AGENTS_MD_POINTER",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    },
+    {
+      "host": "claude-code",
+      "type": "SKILLS_DIRECTORY",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    }
+  ]
+}

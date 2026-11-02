@@ -1,0 +1,116 @@
+{
+  "packageSchemaVersion": "1.0",
+  "id": "workmesh.frontend",
+  "version": "0.1.0",
+  "protocolVersion": "1.0",
+  "title": "前端角色包",
+  "roleKey": "frontend",
+  "compatibility": {
+    "minCliVersion": "1.0.0",
+    "maxCliVersionExclusive": "2.0.0",
+    "contractVersion": "1.0"
+  },
+  "inputs": [
+    {
+      "key": "context",
+      "source": "TASK_SNAPSHOT",
+      "kind": "CONTEXT",
+      "required": true,
+      "contractVersion": "1.0"
+    },
+    {
+      "key": "prd",
+      "source": "KNOWLEDGE",
+      "kind": "PRD",
+      "required": true,
+      "contractVersion": "1.0"
+    },
+    {
+      "key": "contract",
+      "source": "KNOWLEDGE",
+      "kind": "KNOWLEDGE",
+      "required": true,
+      "contractVersion": "1.0"
+    },
+    {
+      "key": "design",
+      "source": "KNOWLEDGE",
+      "kind": "DESIGN",
+      "required": false,
+      "contractVersion": "1.0"
+    }
+  ],
+  "outputs": [
+    {
+      "key": "impl",
+      "channel": "CANDIDATE",
+      "kind": "IMPL",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-impl"
+    }
+  ],
+  "resources": [
+    {
+      "id": "template-impl",
+      "kind": "TEMPLATE",
+      "path": "assets/templates/impl.md",
+      "sha256": "ff7fda170ccab8abb0c23c1b6689a0d8cc1292fe45bda0dc28c15cb385c4de32",
+      "byteLength": 962,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "checklist-impl-selfcheck",
+      "kind": "CHECKLIST",
+      "path": "checklists/impl-selfcheck.md",
+      "sha256": "ec1a09251b31bd9cb0a78e641f3fbaf3d5c08956e062c4f4cc6d4536f9592165",
+      "byteLength": 703,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "reference-references",
+      "kind": "REFERENCE",
+      "path": "references/references.json",
+      "sha256": "2cdd11e887066d0901aec56bde5539dc86c36223cf6fd54f38569831d459448d",
+      "byteLength": 541,
+      "mediaType": "application/json"
+    },
+    {
+      "id": "skill-consume-contract",
+      "kind": "SKILL",
+      "path": "skills/consume-contract/SKILL.md",
+      "sha256": "f8ac134a9e270e335a1d2275aa0800dd52e5febfbbc84bc715978f322ab884ba",
+      "byteLength": 1107,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "skill-implement-ui",
+      "kind": "SKILL",
+      "path": "skills/implement-ui/SKILL.md",
+      "sha256": "7e202cb1e166e1aac04f32cde8ac158884989e18c3b710140fbc5c07d43070a6",
+      "byteLength": 1353,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "skills-index",
+      "kind": "INDEX",
+      "path": "skills/index.md",
+      "sha256": "70490b65a3141bfb3cf9a71a68ba7d924d94e8545514ae9272fd971ce0ac80e8",
+      "byteLength": 749,
+      "mediaType": "text/markdown"
+    }
+  ],
+  "agentEntries": [
+    {
+      "host": "codex",
+      "type": "AGENTS_MD_POINTER",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    },
+    {
+      "host": "claude-code",
+      "type": "SKILLS_DIRECTORY",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    }
+  ]
+}

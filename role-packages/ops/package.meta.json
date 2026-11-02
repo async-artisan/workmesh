@@ -1,0 +1,96 @@
+{
+  "id": "workmesh.ops",
+  "version": "0.1.0",
+  "title": "运维角色包",
+  "description": "准备发布、验证回滚、执行冒烟，把上线从「发出去」变成「可证明地发出去」。",
+  "license": "MIT",
+  "roleKey": "ops",
+  "compatibility": {
+    "minCliVersion": "1.0.0",
+    "maxCliVersionExclusive": "2.0.0",
+    "contractVersion": "1.0"
+  },
+  "skills": [
+    {
+      "key": "prepare-release",
+      "path": "skills/prepare-release/SKILL.md",
+      "description": "生成发布计划：依赖、顺序、灰度、监控与回滚触发条件。",
+      "whenToUse": "需求进入发布候选、测试通过后。"
+    },
+    {
+      "key": "rollback-plan",
+      "path": "skills/rollback-plan/SKILL.md",
+      "description": "编写并验证回滚方案，确保发布前就知道怎么退。",
+      "whenToUse": "发布计划确定后、执行发布前。"
+    },
+    {
+      "key": "smoke-check",
+      "path": "skills/smoke-check/SKILL.md",
+      "description": "按验收做生产冒烟，记录结果与异常，给出发布结论。",
+      "whenToUse": "发布完成后。"
+    }
+  ],
+  "inputs": [
+    {
+      "key": "context",
+      "source": "TASK_SNAPSHOT",
+      "kind": "CONTEXT",
+      "required": true,
+      "contractVersion": "1.0"
+    },
+    {
+      "key": "prd",
+      "source": "KNOWLEDGE",
+      "kind": "PRD",
+      "required": true,
+      "contractVersion": "1.0"
+    },
+    {
+      "key": "unit-card",
+      "source": "KNOWLEDGE",
+      "kind": "UNIT_CARD",
+      "required": false,
+      "contractVersion": "1.0"
+    }
+  ],
+  "outputs": [
+    {
+      "key": "release",
+      "channel": "CANDIDATE",
+      "kind": "RELEASE",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-release",
+      "evidence": ["INSPECTION"]
+    },
+    {
+      "key": "rollback",
+      "channel": "CANDIDATE",
+      "kind": "RELEASE",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-rollback",
+      "evidence": ["TEST"]
+    },
+    {
+      "key": "smoke",
+      "channel": "CANDIDATE",
+      "kind": "RELEASE",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-smoke",
+      "evidence": ["TEST", "INSPECTION"]
+    }
+  ],
+  "agentEntries": [
+    {
+      "host": "codex",
+      "type": "AGENTS_MD_POINTER",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    },
+    {
+      "host": "claude-code",
+      "type": "SKILLS_DIRECTORY",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    }
+  ]
+}
