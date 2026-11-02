@@ -477,33 +477,83 @@ export function Workbench() {
         : renderReady(item.data);
   }
 
+  const share = (value: number) =>
+    Math.round((value / Math.max(1, counts.total)) * 100);
+  const scopeProjectName = projects.find((project) => project.id === scope)?.name;
+
+  const spectrum = [
+    { key: 'signOffs', label: '签字', value: counts.signOffs, className: 'is-sign' },
+    { key: 'approvals', label: '审批', value: counts.approvals, className: 'is-approval' },
+    { key: 'changes', label: '变更', value: counts.changes, className: 'is-change' },
+    { key: 'ready', label: '可开工', value: counts.readyTasks, className: 'is-ready' },
+  ];
+
   return (
-    <section>
-      <header className="page-head">
-        <div>
-          <h2>工作台</h2>
-          <p className="page-sub">
-            只回答一件事：现在有什么在等我。签字与确认仍由服务端校验版本与权限。
-          </p>
+    <section className="wb-page">
+      <header className="command-head">
+        <div className="command-topline">
+          <span className="command-kicker">
+            <i className="pulse-dot" />
+            WORKMESH / AUTHORITY CONSOLE
+          </span>
+          <span className="command-date">
+            SYS {new Date().toISOString().slice(0, 10).replaceAll('-', '.')}
+          </span>
         </div>
-        <div className="page-actions">
-          <select
-            className="select"
-            aria-label="项目范围"
-            value={scope}
-            onChange={(event) => setScope(event.target.value)}
-          >
-            <option value="">全部项目</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}（{project.key}）
-              </option>
-            ))}
-          </select>
-          <button className="ghost" onClick={() => void load()} disabled={loading}>
-            <RefreshCw size={14} />
-            {loading ? '加载中…' : '刷新'}
-          </button>
+        <div className="command-row">
+          <div>
+            <h2>工作台</h2>
+            <p className="page-sub">
+              只回答一件事：现在有什么在等我。签字与确认仍由服务端校验版本与权限。
+            </p>
+          </div>
+          <div className="page-actions">
+            <select
+              className="select"
+              aria-label="项目范围"
+              value={scope}
+              onChange={(event) => setScope(event.target.value)}
+            >
+              <option value="">全部项目</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}（{project.key}）
+                </option>
+              ))}
+            </select>
+            <button className="ghost" onClick={() => void load()} disabled={loading}>
+              <RefreshCw size={14} />
+              {loading ? '加载中…' : '刷新'}
+            </button>
+          </div>
+        </div>
+        <div className="command-hero">
+          <div className="hero-total">
+            <span className="hero-label">OPEN SIGNALS</span>
+            <strong>{String(counts.total).padStart(2, '0')}</strong>
+            <span className="hero-unit">件待办 · 当前范围</span>
+          </div>
+          <div className="hero-spectrum">
+            <div className="spectrum-bar" aria-label="待办类型构成">
+              {spectrum.map((item) => (
+                <span
+                  key={item.key}
+                  className={`spectrum-seg ${item.className}`}
+                  style={{ flexGrow: item.value }}
+                  title={`${item.label} ${item.value}`}
+                />
+              ))}
+            </div>
+            <div className="spectrum-legend">
+              {spectrum.map((item) => (
+                <span key={item.key} className={`legend-item ${item.className}`}>
+                  <i />
+                  {item.label}
+                  <strong>{item.value}</strong>
+                </span>
+              ))}
+            </div>
+          </div>
         </div>
       </header>
 
@@ -522,8 +572,9 @@ export function Workbench() {
         </p>
       )}
 
-      <div className="wb-toolbar">
-        <div className="wb-field">
+      <div className="wb-commandbar">
+        <span className="cmd-prompt">QUERY</span>
+        <div className="wb-field wb-field-grow">
           <input
             aria-label="搜索待办"
             placeholder="搜索需求编号 / 标题 / 角色"
@@ -579,11 +630,20 @@ export function Workbench() {
         </div>
       )}
 
-      <div className="wb-stats">
+      <div className="wb-workspace">
+        <div className="wb-stream">
+          <div className="wb-stats">
         <button
           className={`wb-stat${tab === 'signOffs' ? ' is-active' : ''}`}
           onClick={() => setTab('signOffs')}
         >
+          <span className="wb-stat-index">01</span>
+          <span
+            className="wb-stat-orbit"
+            style={{
+              background: `conic-gradient(#22d3ee ${share(counts.signOffs)}%, #1b2a40 0)`,
+            }}
+          />
           <span className="wb-stat-value">{counts.signOffs}</span>
           <span className="wb-stat-label">待签字</span>
           <span className="wb-stat-hint">任务验收等你落锤</span>
@@ -592,6 +652,13 @@ export function Workbench() {
           className={`wb-stat${tab === 'approvals' ? ' is-active' : ''}`}
           onClick={() => setTab('approvals')}
         >
+          <span className="wb-stat-index">02</span>
+          <span
+            className="wb-stat-orbit"
+            style={{
+              background: `conic-gradient(#3b82f6 ${share(counts.approvals)}%, #1b2a40 0)`,
+            }}
+          />
           <span className="wb-stat-value">{counts.approvals}</span>
           <span className="wb-stat-label">待审批</span>
           <span className="wb-stat-hint">PRD / 知识发布</span>
@@ -600,6 +667,13 @@ export function Workbench() {
           className={`wb-stat${tab === 'changes' ? ' is-active' : ''}`}
           onClick={() => setTab('changes')}
         >
+          <span className="wb-stat-index">03</span>
+          <span
+            className="wb-stat-orbit"
+            style={{
+              background: `conic-gradient(#fbbf24 ${share(counts.changes)}%, #1b2a40 0)`,
+            }}
+          />
           <span className="wb-stat-value">{counts.changes}</span>
           <span className="wb-stat-label">待确认变更</span>
           <span className="wb-stat-hint">角色确认已处理</span>
@@ -608,6 +682,13 @@ export function Workbench() {
           className={`wb-stat${tab === 'ready' ? ' is-active' : ''}`}
           onClick={() => setTab('ready')}
         >
+          <span className="wb-stat-index">04</span>
+          <span
+            className="wb-stat-orbit"
+            style={{
+              background: `conic-gradient(#34d399 ${share(counts.readyTasks)}%, #1b2a40 0)`,
+            }}
+          />
           <span className="wb-stat-value">{counts.readyTasks}</span>
           <span className="wb-stat-label">可开工</span>
           <span className="wb-stat-hint">依赖已满足</span>
@@ -698,30 +779,65 @@ export function Workbench() {
         </div>
       )}
 
-      <div className="detail-card" style={{ marginTop: 18 }}>
-        <div className="detail-card-head">
-          <h3>最近活动</h3>
         </div>
-        {visibleActivity.length === 0 ? (
-          <p className="detail-empty">还没有审计事件。</p>
-        ) : (
-          <div className="task-groups">
-            {visibleActivity.slice(0, 10).map((item) => (
-              <div className="task-row" key={item.id}>
-                <div className="task-row-main">
-                  <div className="task-row-top">
-                    <span className="status-tag">{labelFor(ACTION_LABELS, item.action)}</span>
-                    <strong>{item.projectName ?? '—'}</strong>
-                  </div>
-                  <div className="task-row-meta">
-                    {item.actor?.email ?? '系统'} ·{' '}
-                    {new Date(item.createdAt).toLocaleString('zh-CN')}
-                  </div>
-                </div>
+
+        <aside className="wb-rail">
+          <div className="rail-card">
+            <div className="rail-head">
+              <span className="rail-label">SYSTEM STATUS</span>
+              <span className="rail-code">SYS.OK</span>
+            </div>
+            <div className="rail-status">
+              <i className="pulse-dot" />
+              WORKBENCH ONLINE
+            </div>
+            <dl className="rail-meta">
+              <div>
+                <dt>SCOPE</dt>
+                <dd>{scope ? (scopeProjectName ?? 'SINGLE PROJECT') : 'ALL PROJECTS'}</dd>
               </div>
-            ))}
+              <div>
+                <dt>PROJECTS</dt>
+                <dd>{projects.length}</dd>
+              </div>
+              <div>
+                <dt>UPDATED</dt>
+                <dd>{updatedAt ? updatedAt.toLocaleTimeString('zh-CN') : '—'}</dd>
+              </div>
+            </dl>
           </div>
-        )}
+
+          <div className="rail-card">
+            <div className="rail-head">
+              <span className="rail-label">ACTIVITY FEED</span>
+              <span className="rail-code">{visibleActivity.length}</span>
+            </div>
+            {visibleActivity.length === 0 ? (
+              <p className="detail-empty">还没有审计事件。</p>
+            ) : (
+              <div className="rail-feed">
+                {visibleActivity.slice(0, 6).map((item) => (
+                  <div className="rail-feed-item" key={item.id}>
+                    <span className="rail-feed-time">
+                      {new Date(item.createdAt).toLocaleTimeString('zh-CN', {
+                        hour12: false,
+                      })}
+                    </span>
+                    <span className="rail-feed-body">
+                      <strong>{labelFor(ACTION_LABELS, item.action)}</strong>
+                      <small>{item.projectName ?? '—'} · {item.actor?.email ?? '系统'}</small>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rail-card rail-command">
+            <span className="rail-label">CLI</span>
+            <code>workmesh context &lt;code&gt;</code>
+          </div>
+        </aside>
       </div>
 
       <ConfirmDialog

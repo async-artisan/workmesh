@@ -540,7 +540,7 @@ export function RequirementDetail() {
       {notice && <p className="kb-notice">{notice}</p>}
 
       <div className="gate-bar">
-        {gates.map((gate) => (
+        {gates.map((gate, index) => (
           <button
             type="button"
             className={`gate-step is-${gate.state}`}
@@ -550,6 +550,7 @@ export function RequirementDetail() {
               window.setTimeout(() => scrollToRole(gate.roleKeys), 0);
             }}
           >
+            <span className="gate-index">{String(index + 1).padStart(2, '0')}</span>
             <span className="gate-dot" />
             <span className="gate-label">{gate.label}</span>
             <span className="gate-roles">{gate.roleLabel}</span>

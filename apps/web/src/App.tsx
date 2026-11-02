@@ -43,6 +43,7 @@ export function App() {
   });
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+  const [clock, setClock] = useState(() => new Date());
   const [mailBusy, setMailBusy] = useState(false);
   const [mailNotice, setMailNotice] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
@@ -107,6 +108,11 @@ export function App() {
       alive = false;
     };
   }, [notificationsOpen]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(new Date()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     fetch('/api/health')
@@ -203,15 +209,20 @@ export function App() {
 
   const menuItems = (onNavigate?: () => void) => {
     let lastGroup: string | null = null;
+    let groupIndex = 0;
     return navItems.map((item) => {
       const Icon = item.icon;
       const isActive = current.key === item.key;
       const showGroup = item.group !== lastGroup;
       lastGroup = item.group;
+      if (showGroup) groupIndex += 1;
       return (
         <Fragment key={item.key}>
           {showGroup && (
-            <div className="menu-group-label">{NAV_GROUP_LABELS[item.group]}</div>
+            <div className="menu-group-label">
+              <span>{String(groupIndex).padStart(2, '0')}</span>
+              {NAV_GROUP_LABELS[item.group]}
+            </div>
           )}
           <button
             className={`menu-item${isActive ? ' active' : ''}`}
@@ -265,6 +276,15 @@ export function App() {
             </span>
             <span>WorkMesh</span>
           </button>
+        </div>
+        <div className="nav-console" aria-hidden="true">
+          <span className={`console-dot ${apiStatus}`} />
+          <span className="console-label">
+            {apiStatus === 'ready' ? 'AUTHORITY LINK' : 'LINK OFFLINE'}
+          </span>
+          <span className="console-clock">
+            {clock.toLocaleTimeString('zh-CN', { hour12: false })}
+          </span>
         </div>
         <div className="navbar-right">
           <div className="nav-notifications">
