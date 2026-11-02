@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { collectDownstreamStepKeys } from './v1-review-policy';
+import {
+  artifactClaimsCode,
+  collectDownstreamStepKeys,
+  isCodeEvidenceAcceptable,
+  needsCodeEvidence,
+} from './v1-review-policy';
 
 function definition(steps: Array<{ key: string; deps?: unknown }>) {
   return { schemaVersion: '1.0', steps };
@@ -87,5 +92,59 @@ describe('collectDownstreamStepKeys', () => {
       'root',
     );
     expect(downstream).toEqual(['a', 'm', 'z']);
+  });
+});
+
+describe('代码评审证据的适用范围', () => {
+  it('HOSTED 且没有 commitSha 的实现说明不算代码交付', () => {
+    expect(artifactClaimsCode({ storage: 'HOSTED', commitSha: null })).toBe(false);
+    expect(artifactClaimsCode({ storage: 'HOSTED' })).toBe(false);
+    expect(needsCodeEvidence([{ storage: 'HOSTED', commitSha: null }])).toBe(false);
+  });
+
+  it('GIT_REF 或带 commitSha 的工件算代码交付', () => {
+    expect(artifactClaimsCode({ storage: 'GIT_REF' })).toBe(true);
+    expect(artifactClaimsCode({ storage: 'HOSTED', commitSha: 'a'.repeat(40) })).toBe(true);
+    expect(needsCodeEvidence([{ storage: 'GIT_REF', commitSha: null }])).toBe(true);
+  });
+
+  it('空交付集不要求证据；混合交付只要含代码就要求', () => {
+    expect(needsCodeEvidence([])).toBe(false);
+    expect(
+      needsCodeEvidence([
+        { storage: 'HOSTED', commitSha: null },
+        { storage: 'GIT_REF', commitSha: null },
+      ]),
+    ).toBe(true);
+  });
+});
+
+describe('代码评审证据是否可接受', () => {
+  it('空证据不通过', () => {
+    expect(isCodeEvidenceAcceptable([])).toBe(false);
+  });
+
+  it('全部 APPROVED 且非 Bot 才通过', () => {
+    expect(isCodeEvidenceAcceptable([{ state: 'APPROVED', reviewerKind: 'USER' }])).toBe(true);
+    expect(
+      isCodeEvidenceAcceptable([
+        { state: 'APPROVED', reviewerKind: 'USER' },
+        { state: 'APPROVED', reviewerKind: 'USER' },
+      ]),
+    ).toBe(true);
+  });
+
+  it('机器人评审、待定、被驳回、混合状态一律不通过', () => {
+    expect(isCodeEvidenceAcceptable([{ state: 'APPROVED', reviewerKind: 'BOT' }])).toBe(false);
+    expect(isCodeEvidenceAcceptable([{ state: 'PENDING', reviewerKind: 'USER' }])).toBe(false);
+    expect(
+      isCodeEvidenceAcceptable([{ state: 'CHANGES_REQUESTED', reviewerKind: 'USER' }]),
+    ).toBe(false);
+    expect(
+      isCodeEvidenceAcceptable([
+        { state: 'APPROVED', reviewerKind: 'USER' },
+        { state: 'DISMISSED', reviewerKind: 'USER' },
+      ]),
+    ).toBe(false);
   });
 });

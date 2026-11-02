@@ -30,7 +30,11 @@ import type {
   V1SubjectResult,
   V1TaskState,
 } from './v1-review.repository';
-import { collectDownstreamStepKeys } from './v1-review-policy';
+import {
+  collectDownstreamStepKeys,
+  isCodeEvidenceAcceptable,
+  needsCodeEvidence,
+} from './v1-review-policy';
 import {
   documentReviewKindOf,
   encodeReviewCursor,
@@ -1726,19 +1730,13 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
         where: { artifactSetId: ctx.set.id },
         select: { storage: true, commitSha: true },
       });
-      const claimsCode = artifacts.some(
-        (item) => item.storage === 'GIT_REF' || Boolean(item.commitSha),
-      );
-      if (claimsCode) {
+      if (needsCodeEvidence(artifacts)) {
         const evidence = await tx.codeReviewEvidence.findMany({
           where: { projectId: ctx.input.projectId, artifactSetId: ctx.set.id },
           select: { state: true, reviewerKind: true },
         });
         // 证据必须全部为 APPROVED 且非 Bot；任一 changes_requested/dismissed/pending 都拒绝。
-        if (
-          evidence.length === 0 ||
-          evidence.some((item) => item.state !== 'APPROVED' || item.reviewerKind === 'BOT')
-        )
+        if (!isCodeEvidenceAcceptable(evidence))
           throw new WorkmeshError(
             V1_ERROR_CODES.CODE_EVIDENCE_MISSING,
             'CODE_REVIEW_EVIDENCE_MISSING',
