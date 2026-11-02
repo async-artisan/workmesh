@@ -14,7 +14,6 @@ import {
   assertWorkflowInstanceActive,
 } from './v1-task-consistency-policy';
 import {
-  V1_ARTIFACT_REPOSITORY,
   type V1ArtifactRepository,
   type V1ArtifactSetSnapshot,
   type V1ArtifactCheck,
@@ -30,7 +29,11 @@ function isRetryable(error: unknown): boolean {
   const code = (error as { code?: string })?.code;
   if (code === 'P2034') return true;
   const message = String((error as Error)?.message ?? '');
-  return message.includes('40001') || message.includes('40P01') || message.includes('could not serialize');
+  return (
+    message.includes('40001') ||
+    message.includes('40P01') ||
+    message.includes('could not serialize')
+  );
 }
 
 function claimScopeKeyOf(userId: string, credentialId: string | null): string {
@@ -79,10 +82,18 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
     return this.prisma.$transaction(
       async (tx) => {
         const task = await tx.task.findUnique({ where: { id: input.taskId } });
-        if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId: input.taskId }, 404);
+        if (!task)
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'TASK_NOT_FOUND',
+            { taskId: input.taskId },
+            404,
+          );
 
         // 项目级串行写边界。
-        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${task.projectId}::uuid FOR UPDATE`);
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${task.projectId}::uuid FOR UPDATE`,
+        );
 
         // retired workflow 的任务不得继续交付，历史交付仍可读取。
         const instance = await tx.workflowInstance.findFirst({
@@ -98,18 +109,41 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
           throw new WorkmeshError(
             V1_ERROR_CODES.VERSION_CONFLICT,
             'VERSION_CONFLICT',
-            { taskId: task.id, expectedVersion: input.expectedVersion, currentVersion: task.version },
+            {
+              taskId: task.id,
+              expectedVersion: input.expectedVersion,
+              currentVersion: task.version,
+            },
             409,
           );
 
         // 交付必须在有效认领下进行，且认领代次与当前任务代次一致。
-        const activeClaim = await tx.taskClaim.findFirst({ where: { taskId: task.id, releasedAt: null } });
+        const activeClaim = await tx.taskClaim.findFirst({
+          where: { taskId: task.id, releasedAt: null },
+        });
         if (!activeClaim || activeClaim.id !== input.claimId || activeClaim.releasedAt !== null)
-          throw new WorkmeshError(V1_ERROR_CODES.CLAIM_INVALID, 'CLAIM_INVALID', { taskId: task.id, claimId: input.claimId }, 409);
-        if (claimScopeKeyOf(activeClaim.userId, activeClaim.credentialId) !== input.principalScopeKey)
-          throw new WorkmeshError(V1_ERROR_CODES.CLAIM_INVALID, 'CLAIM_INVALID', { taskId: task.id, claimId: input.claimId }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CLAIM_INVALID,
+            'CLAIM_INVALID',
+            { taskId: task.id, claimId: input.claimId },
+            409,
+          );
+        if (
+          claimScopeKeyOf(activeClaim.userId, activeClaim.credentialId) !== input.principalScopeKey
+        )
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CLAIM_INVALID,
+            'CLAIM_INVALID',
+            { taskId: task.id, claimId: input.claimId },
+            409,
+          );
         if (activeClaim.taskGeneration !== task.generation)
-          throw new WorkmeshError(V1_ERROR_CODES.BASELINE_STALE, 'BASELINE_STALE', { taskId: task.id, claimId: input.claimId }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.BASELINE_STALE,
+            'BASELINE_STALE',
+            { taskId: task.id, claimId: input.claimId },
+            409,
+          );
 
         // 交付必须引用任务的当前快照；旧快照、旧需求代次或他人快照一律按基线过期拒绝。
         const snapshot = await tx.contextSnapshot.findUnique({
@@ -117,7 +151,10 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
           include: { resources: true },
         });
         const requirement = snapshot
-          ? await tx.requirement.findUnique({ where: { id: snapshot.requirementId }, select: { generation: true } })
+          ? await tx.requirement.findUnique({
+              where: { id: snapshot.requirementId },
+              select: { generation: true },
+            })
           : null;
         if (snapshot) {
           assertCurrentRequirementGeneration({
@@ -140,13 +177,20 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
           throw new WorkmeshError(
             V1_ERROR_CODES.BASELINE_STALE,
             'SNAPSHOT_STALE',
-            { taskId: task.id, snapshotId: input.snapshotId, currentSnapshotId: task.currentSnapshotId },
+            {
+              taskId: task.id,
+              snapshotId: input.snapshotId,
+              currentSnapshotId: task.currentSnapshotId,
+            },
             409,
           );
 
         // 候选必须确实是该快照中显式选入的 CANDIDATE 文档修订，不能被交付时临时追加。
         const candidateRefs = snapshot.resources
-          .filter((resource) => resource.kind === 'DOCUMENT_REVISION' && resource.authority === 'CANDIDATE')
+          .filter(
+            (resource) =>
+              resource.kind === 'DOCUMENT_REVISION' && resource.authority === 'CANDIDATE',
+          )
           .map((resource) => resource.documentRevisionId)
           .filter((id): id is string => Boolean(id));
         for (const candidateRevisionId of input.candidateRevisionIds) {
@@ -160,9 +204,17 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
         }
 
         // GIT_REF 只允许本项目已登记的代码仓库，拒绝临时引入仓库。
-        const repositoryIds = [...new Set(input.items.map((item) => item.projectRepositoryId).filter((id): id is string => Boolean(id)))];
+        const repositoryIds = [
+          ...new Set(
+            input.items
+              .map((item) => item.projectRepositoryId)
+              .filter((id): id is string => Boolean(id)),
+          ),
+        ];
         for (const repositoryId of repositoryIds) {
-          const repository = await tx.projectRepository.findFirst({ where: { id: repositoryId, projectId: task.projectId } });
+          const repository = await tx.projectRepository.findFirst({
+            where: { id: repositoryId, projectId: task.projectId },
+          });
           if (!repository)
             throw new WorkmeshError(
               V1_ERROR_CODES.ARTIFACT_INVALID,
@@ -244,7 +296,13 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
         }
         if (itemRows.length > 0) await tx.artifactSetItem.createMany({ data: itemRows });
 
-        const slots = await this.acceptanceSlots(tx, task.id, task.workflowInstanceId, snapshot.workflowDefinitionRevisionId, task.stepKey);
+        const slots = await this.acceptanceSlots(
+          tx,
+          task.id,
+          task.workflowInstanceId,
+          snapshot.workflowDefinitionRevisionId,
+          task.stepKey,
+        );
         if (slots.length === 0)
           throw new WorkmeshError(
             V1_ERROR_CODES.REVIEW_PRECONDITION_FAILED,
@@ -255,7 +313,12 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
 
         // 同一任务同一时刻只保留一个 OPEN 的任务验收请求。
         await tx.reviewRequest.updateMany({
-          where: { projectId: task.projectId, taskId: task.id, kind: 'TASK_ACCEPTANCE', status: 'OPEN' },
+          where: {
+            projectId: task.projectId,
+            taskId: task.id,
+            kind: 'TASK_ACCEPTANCE',
+            status: 'OPEN',
+          },
           data: { status: 'INVALIDATED' },
         });
         const review = await tx.reviewRequest.create({
@@ -283,7 +346,12 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
         });
 
         const updated = await tx.task.updateMany({
-          where: { id: task.id, version: input.expectedVersion, generation: task.generation, currentClaimId: activeClaim.id },
+          where: {
+            id: task.id,
+            version: input.expectedVersion,
+            generation: task.generation,
+            currentClaimId: activeClaim.id,
+          },
           data: {
             version: { increment: 1 },
             executionStatus: 'REVIEW_PENDING',
@@ -291,7 +359,12 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
           },
         });
         if (updated.count !== 1)
-          throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'TASK_VERSION_CONFLICT', { taskId: task.id }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.VERSION_CONFLICT,
+            'TASK_VERSION_CONFLICT',
+            { taskId: task.id },
+            409,
+          );
 
         await tx.auditEvent.create({
           data: {
@@ -302,7 +375,12 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
             targetId: task.id,
             targetVersion: input.expectedVersion,
             outcome: 'SUCCESS',
-            details: { artifactSetId: set.id, reviewRequestId: review.id, snapshotId: snapshot.id, subjectDigest: input.subjectDigest },
+            details: {
+              artifactSetId: set.id,
+              reviewRequestId: review.id,
+              snapshotId: snapshot.id,
+              subjectDigest: input.subjectDigest,
+            },
           },
         });
 
@@ -316,7 +394,11 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
             method: input.operation.method,
             route: input.operation.route,
             requestDigest: input.operation.requestDigest,
-            resultRefs: { artifactSetId: set.id, snapshotId: snapshot.id, reviewRequestId: review.id },
+            resultRefs: {
+              artifactSetId: set.id,
+              snapshotId: snapshot.id,
+              reviewRequestId: review.id,
+            },
             responseMetadata: { subjectDigest: input.subjectDigest },
             committedAt: input.now,
           },
@@ -327,7 +409,11 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
           include: { artifacts: true, items: true },
         });
         const taskSnapshot = await this.toTaskSnapshot(tx, task.id);
-        return { artifactSet: this.toSetSnapshot(created), task: taskSnapshot, reviewRequestId: review.id };
+        return {
+          artifactSet: this.toSetSnapshot(created),
+          task: taskSnapshot,
+          reviewRequestId: review.id,
+        };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
@@ -360,12 +446,14 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
     if (!step) return [];
     const slotKinds = new Map<string, string>();
     for (const slot of definition.roleSlots ?? []) {
-      if (typeof slot.key === 'string' && typeof slot.kind === 'string') slotKinds.set(slot.key, slot.kind);
+      if (typeof slot.key === 'string' && typeof slot.kind === 'string')
+        slotKinds.set(slot.key, slot.kind);
     }
     const reviewerSlots = new Set<string>();
     for (const gate of step.gates ?? []) {
       for (const reviewer of Array.isArray(gate.reviewerSlots) ? gate.reviewerSlots : []) {
-        if (typeof reviewer === 'string' && slotKinds.get(reviewer) === 'TASK_ACCEPTANCE') reviewerSlots.add(reviewer);
+        if (typeof reviewer === 'string' && slotKinds.get(reviewer) === 'TASK_ACCEPTANCE')
+          reviewerSlots.add(reviewer);
       }
     }
     const resolved: SlotBinding[] = [];
@@ -441,7 +529,10 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
   private checksOf(value: unknown): V1ArtifactCheck[] {
     if (!Array.isArray(value)) return [];
     return value
-      .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
+      .filter(
+        (entry): entry is Record<string, unknown> =>
+          Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry),
+      )
       .map((entry) => ({
         code: String(entry.code ?? ''),
         passed: entry.passed === true,
@@ -451,7 +542,8 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
 
   private async toTaskSnapshot(tx: V1TransactionClient, taskId: string): Promise<V1TaskSnapshot> {
     const task = await tx.task.findUnique({ where: { id: taskId } });
-    if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
+    if (!task)
+      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
     let currentClaim: V1TaskSnapshot['currentClaim'] = null;
     if (task.currentClaimId) {
       const claim = await tx.taskClaim.findUnique({ where: { id: task.currentClaimId } });

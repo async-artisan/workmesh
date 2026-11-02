@@ -1,7 +1,29 @@
-import { Body, Controller, Get, Headers, Inject, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Inject,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
-import { V1_ERROR_CODES, WorkmeshError, type Confirmation } from '@workmesh/shared';
+import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
 import { V1AuthGuard, type V1Request } from '../auth/v1-auth.guard';
 import { requireIdempotencyKey } from '../common/v1-idempotency';
 import type { V1ReviewStatus, V1ReviewSubjectKind } from './v1-review.repository';
@@ -24,7 +46,8 @@ class ConfirmationDto {
 class DecideDto {
   @IsUUID() slotId!: string;
 
-  @IsIn(['APPROVE', 'CHANGES_REQUESTED', 'REJECT']) decision!: 'APPROVE' | 'CHANGES_REQUESTED' | 'REJECT';
+  @IsIn(['APPROVE', 'CHANGES_REQUESTED', 'REJECT']) decision!:
+    'APPROVE' | 'CHANGES_REQUESTED' | 'REJECT';
 
   /** expectedVersion 指 ReviewRequest 自身 version；不接受 0 或缺失。 */
   @IsInt() @Min(1) expectedVersion!: number;
@@ -69,7 +92,8 @@ class ListReviewRequestsQueryDto {
 }
 
 function principalOf(request: V1Request) {
-  if (!request.v1Principal) throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
+  if (!request.v1Principal)
+    throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
   return request.v1Principal;
 }
 
@@ -92,14 +116,22 @@ export class V1ReviewDecisionController {
     const principal = principalOf(request);
     const key = requireIdempotencyKey(idempotencyKey);
     if (!principal.sessionId)
-      throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, 'HUMAN_SESSION_REQUIRED', undefined, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+        'HUMAN_SESSION_REQUIRED',
+        undefined,
+        403,
+      );
     return this.reviews.revoke(
       principal,
       decisionId,
       {
         expectedVersion: dto.expectedVersion,
         reason: dto.reason,
-        confirmation: { ticketId: dto.confirmation.ticketId, ticketSecret: dto.confirmation.ticketSecret },
+        confirmation: {
+          ticketId: dto.confirmation.ticketId,
+          ticketSecret: dto.confirmation.ticketSecret,
+        },
       },
       {
         idempotencyKey: key,
@@ -170,7 +202,12 @@ export class V1ReviewController {
     const principal = principalOf(request);
     const key = requireIdempotencyKey(idempotencyKey);
     if (!principal.sessionId)
-      throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, 'HUMAN_SESSION_REQUIRED', undefined, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+        'HUMAN_SESSION_REQUIRED',
+        undefined,
+        403,
+      );
     return this.reviews.decide(
       principal,
       reviewId,
@@ -179,7 +216,10 @@ export class V1ReviewController {
         decision: dto.decision,
         expectedVersion: dto.expectedVersion,
         comment: dto.comment ?? null,
-        confirmation: { ticketId: dto.confirmation.ticketId, ticketSecret: dto.confirmation.ticketSecret },
+        confirmation: {
+          ticketId: dto.confirmation.ticketId,
+          ticketSecret: dto.confirmation.ticketSecret,
+        },
       },
       {
         idempotencyKey: key,

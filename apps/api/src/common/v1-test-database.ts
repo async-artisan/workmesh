@@ -58,7 +58,7 @@ export function verifiedTestDatabase(env: TestEnvSource = process.env): TestData
       code: result.rejection.code,
       reason: result.rejection.message,
     };
-    // eslint-disable-next-line no-console
+
     process.stderr.write(`${JSON.stringify(payload, null, 2)}\n`);
     process.exit(2);
   }

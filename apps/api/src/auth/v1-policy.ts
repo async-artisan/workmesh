@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { containsForbiddenAgentScope, type Principal, type Scope } from '@workmesh/shared';
+import { type Principal, type Scope } from '@workmesh/shared';
 
 /**
  * 运行时主体沿用共享契约；`sessionId` 只是服务端内部溯源用的会话标识，
@@ -21,14 +21,18 @@ export function randomSecret(): string {
   return randomBytes(32).toString('base64url');
 }
 
-export function parseOpaqueSessionCookie(value: string): { sessionId: string; secret: string } | null {
+export function parseOpaqueSessionCookie(
+  value: string,
+): { sessionId: string; secret: string } | null {
   const match = /^wm_s1\.([0-9a-f-]{36})\.([A-Za-z0-9_-]{43})$/.exec(value);
   return match ? { sessionId: match[1], secret: match[2] } : null;
 }
 
 export function validateOrigin(origin: string | undefined, publicOrigin: string): boolean {
   // Origin 必须完整精确匹配；缺失、null、额外端口或相似子域一律拒绝。
-  return typeof origin === 'string' && origin.length > 0 && origin !== 'null' && origin === publicOrigin;
+  return (
+    typeof origin === 'string' && origin.length > 0 && origin !== 'null' && origin === publicOrigin
+  );
 }
 
 /**
@@ -49,7 +53,8 @@ export function validateCsrf(
 export function rejectSelfAssertedIdentity(body: Record<string, unknown>): void {
   const forbidden = ['actorType', 'kind', 'userId', 'roleIds', 'isAdmin', 'createdById', 'status'];
   const found = forbidden.filter((key) => key in body);
-  if (found.length > 0) throw new Error(`self-asserted identity fields are not accepted: ${found.join(',')}`);
+  if (found.length > 0)
+    throw new Error(`self-asserted identity fields are not accepted: ${found.join(',')}`);
 }
 
 export function hasScope(principal: V1Principal, scope: Scope): boolean {

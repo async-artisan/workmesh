@@ -15,7 +15,6 @@ import {
   type V1ChangeListQuery,
   type V1ChangeRecipientSnapshot,
   type V1RecordChangeInput,
-  type V1RecordChangeResult,
 } from './v1-change.repository';
 
 export interface V1AckServiceInput {
@@ -72,7 +71,8 @@ export interface V1RecordChangeServiceResult {
 @Injectable()
 export class V1ChangeService {
   constructor(
-    @Inject(V1_CHANGE_REPOSITORY) private readonly repository: import('./v1-change.repository').V1ChangeRepository,
+    @Inject(V1_CHANGE_REPOSITORY)
+    private readonly repository: import('./v1-change.repository').V1ChangeRepository,
     private readonly authorization: V1AuthorizationService,
     @Inject(V1_IDEMPOTENCY_REPOSITORY) private readonly operations: V1IdempotencyRepository,
   ) {}
@@ -81,9 +81,19 @@ export class V1ChangeService {
    * 收件人确认收到变更。并发确认不会丢失：乐观锁 + 幂等重放。
    * 仅收件人本人才可确认（HUMAN 必须 userId 匹配；AGENT 同样按 userId 匹配，不匹配则不泄露存在性）。
    */
-  async ack(principal: Principal, recipientId: string, input: V1AckServiceInput): Promise<V1AckServiceResult> {
+  async ack(
+    principal: Principal,
+    recipientId: string,
+    input: V1AckServiceInput,
+  ): Promise<V1AckServiceResult> {
     const recipient = await this.repository.findRecipient(recipientId);
-    if (!recipient) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'CHANGE_RECIPIENT_NOT_FOUND', { recipientId }, 404);
+    if (!recipient)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'CHANGE_RECIPIENT_NOT_FOUND',
+        { recipientId },
+        404,
+      );
 
     // 授权：必须是该项目活动成员；Agent 受项目/角色边界约束。
     await this.authorization.resolveProjectContext(principal, recipient.projectId);
@@ -91,15 +101,32 @@ export class V1ChangeService {
 
     // 仅收件人本人可确认；不匹配时按 404 处理，不泄露存在性。
     if (principal.userId !== recipient.userId)
-      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'CHANGE_RECIPIENT_NOT_FOUND', { recipientId }, 404);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'CHANGE_RECIPIENT_NOT_FOUND',
+        { recipientId },
+        404,
+      );
 
     const projectScopeKey = `project:${recipient.projectId}`;
     const principalScopeKeyVal = principalScopeKey(principal);
-    const requestDigest = requestDigestOf({ method: input.method, route: input.route, body: input.body });
+    const requestDigest = requestDigestOf({
+      method: input.method,
+      route: input.route,
+      body: input.body,
+    });
 
-    const existing = await this.operations.findOperation({ projectScopeKey, principalScopeKey: principalScopeKeyVal, key: input.idempotencyKey });
+    const existing = await this.operations.findOperation({
+      projectScopeKey,
+      principalScopeKey: principalScopeKeyVal,
+      key: input.idempotencyKey,
+    });
     if (existing) {
-      assertReplayable(existing, { method: input.method, route: input.route, digest: requestDigest });
+      assertReplayable(existing, {
+        method: input.method,
+        route: input.route,
+        digest: requestDigest,
+      });
       const current = await this.repository.findRecipient(recipientId);
       return { recipient: current!, replayed: true };
     }
@@ -124,7 +151,10 @@ export class V1ChangeService {
   }
 
   /** 列出当前主体作为收件人的变更通知；keyset 分页，>100 不丢。 */
-  async listRecipients(principal: Principal, input: V1ListServiceInput): Promise<V1ListServiceResult> {
+  async listRecipients(
+    principal: Principal,
+    input: V1ListServiceInput,
+  ): Promise<V1ListServiceResult> {
     await this.authorization.resolveProjectContext(principal, input.projectId);
     await this.authorization.requireScope(principal, input.projectId, 'change:read');
 
@@ -140,20 +170,39 @@ export class V1ChangeService {
   }
 
   /** 记录一次变更事件并通知相关收件人（由 T03 发布流程在同一步骤调用）。 */
-  async recordChange(principal: Principal, input: V1RecordChangeServiceInput): Promise<V1RecordChangeServiceResult> {
+  async recordChange(
+    principal: Principal,
+    input: V1RecordChangeServiceInput,
+  ): Promise<V1RecordChangeServiceResult> {
     await this.authorization.resolveProjectContext(principal, input.projectId);
 
     const projectScopeKey = `project:${input.projectId}`;
     const principalScopeKeyValue = principalScopeKey(principal);
-    const requestDigest = requestDigestOf({ method: input.method, route: input.route, body: input.body });
+    const requestDigest = requestDigestOf({
+      method: input.method,
+      route: input.route,
+      body: input.body,
+    });
 
-    const existing = await this.operations.findOperation({ projectScopeKey, principalScopeKey: principalScopeKeyValue, key: input.idempotencyKey });
+    const existing = await this.operations.findOperation({
+      projectScopeKey,
+      principalScopeKey: principalScopeKeyValue,
+      key: input.idempotencyKey,
+    });
     if (existing) {
-      assertReplayable(existing, { method: input.method, route: input.route, digest: requestDigest });
+      assertReplayable(existing, {
+        method: input.method,
+        route: input.route,
+        digest: requestDigest,
+      });
       const eventId = String(existing.resultRefs.eventId ?? '');
       const event = await this.repository.findEvent(eventId);
       if (event)
-        return { event, recipients: event.recipients, replayed: true } satisfies V1RecordChangeServiceResult;
+        return {
+          event,
+          recipients: event.recipients,
+          replayed: true,
+        } satisfies V1RecordChangeServiceResult;
     }
 
     const repoInput: V1RecordChangeInput = {
@@ -176,6 +225,10 @@ export class V1ChangeService {
       },
     };
     const result = await this.repository.recordChange(repoInput);
-    return { event: result.event, recipients: result.recipients, replayed: false } satisfies V1RecordChangeServiceResult;
+    return {
+      event: result.event,
+      recipients: result.recipients,
+      replayed: false,
+    } satisfies V1RecordChangeServiceResult;
   }
 }

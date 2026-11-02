@@ -2,15 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
 import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
-import { PrismaClient as V1PrismaClient } from '../../../node_modules/.prisma/workmesh-v1-client';
 import type { V1OperationRecord } from '../common/v1-idempotency';
-type V1TransactionClient = Omit<
-  V1PrismaClient,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
->;
 
 import {
-  V1_CHANGE_REPOSITORY,
   type V1AckInput,
   type V1AckResult,
   type V1ChangeEventSnapshot,
@@ -30,7 +24,11 @@ function isRetryable(error: unknown): boolean {
   const code = (error as { code?: string })?.code;
   if (code === 'P2034') return true;
   const message = String((error as Error)?.message ?? '');
-  return message.includes('40001') || message.includes('40P01') || message.includes('could not serialize');
+  return (
+    message.includes('40001') ||
+    message.includes('40P01') ||
+    message.includes('could not serialize')
+  );
 }
 
 function toRecipientSnapshot(row: {
@@ -88,8 +86,16 @@ export class V1ChangePrismaRepository implements V1ChangeRepository {
         return await this.prisma.$transaction(
           async (tx) => {
             const project = await tx.project.findUnique({ where: { id: input.projectId } });
-            if (!project) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'PROJECT_NOT_FOUND', { projectId: input.projectId }, 404);
-            await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.projectId}::uuid FOR UPDATE`);
+            if (!project)
+              throw new WorkmeshError(
+                V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+                'PROJECT_NOT_FOUND',
+                { projectId: input.projectId },
+                404,
+              );
+            await tx.$queryRaw(
+              Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.projectId}::uuid FOR UPDATE`,
+            );
 
             const event = await tx.changeEvent.create({
               data: {
@@ -171,9 +177,16 @@ export class V1ChangePrismaRepository implements V1ChangeRepository {
           async (tx) => {
             const recipient = await tx.changeRecipient.findUnique({ where: { id: input.id } });
             if (!recipient)
-              throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'CHANGE_RECIPIENT_NOT_FOUND', { recipientId: input.id }, 404);
+              throw new WorkmeshError(
+                V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+                'CHANGE_RECIPIENT_NOT_FOUND',
+                { recipientId: input.id },
+                404,
+              );
 
-            await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${recipient.projectId}::uuid FOR UPDATE`);
+            await tx.$queryRaw(
+              Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${recipient.projectId}::uuid FOR UPDATE`,
+            );
 
             // 已确认：幂等返回，无需重复写入。
             if (recipient.ackedAt !== null) {
@@ -187,12 +200,19 @@ export class V1ChangePrismaRepository implements V1ChangeRepository {
                   method: input.operation.method,
                   route: input.operation.route,
                   requestDigest: input.operation.requestDigest,
-                  resultRefs: { recipientId: recipient.id, ackedAt: recipient.ackedAt.toISOString(), replayed: true },
+                  resultRefs: {
+                    recipientId: recipient.id,
+                    ackedAt: recipient.ackedAt.toISOString(),
+                    replayed: true,
+                  },
                   responseMetadata: {},
                   committedAt: input.operation.now,
                 },
               });
-              return { recipient: toRecipientSnapshot(recipient), idempotency: this.toOperationRecord(op) } satisfies V1AckResult;
+              return {
+                recipient: toRecipientSnapshot(recipient),
+                idempotency: this.toOperationRecord(op),
+              } satisfies V1AckResult;
             }
 
             // 乐观并发：expectedVersion 提供且与当前不一致时拒绝。
@@ -200,7 +220,11 @@ export class V1ChangePrismaRepository implements V1ChangeRepository {
               throw new WorkmeshError(
                 V1_ERROR_CODES.VERSION_CONFLICT,
                 'CHANGE_RECIPIENT_VERSION_CONFLICT',
-                { recipientId: recipient.id, expectedVersion: input.expectedVersion, currentVersion: recipient.version },
+                {
+                  recipientId: recipient.id,
+                  expectedVersion: input.expectedVersion,
+                  currentVersion: recipient.version,
+                },
                 409,
               );
 
@@ -225,18 +249,33 @@ export class V1ChangePrismaRepository implements V1ChangeRepository {
                         method: input.operation.method,
                         route: input.operation.route,
                         requestDigest: input.operation.requestDigest,
-                        resultRefs: { recipientId: recipient.id, ackedAt: reloaded.ackedAt.toISOString(), replayed: true },
+                        resultRefs: {
+                          recipientId: recipient.id,
+                          ackedAt: reloaded.ackedAt.toISOString(),
+                          replayed: true,
+                        },
                         responseMetadata: {},
                         committedAt: input.operation.now,
                       },
                     }),
                   ),
                 } satisfies V1AckResult;
-              throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'CHANGE_RECIPIENT_VERSION_CONFLICT', { recipientId: recipient.id }, 409);
+              throw new WorkmeshError(
+                V1_ERROR_CODES.VERSION_CONFLICT,
+                'CHANGE_RECIPIENT_VERSION_CONFLICT',
+                { recipientId: recipient.id },
+                409,
+              );
             }
 
             const acked = await tx.changeRecipient.findUnique({ where: { id: recipient.id } });
-            if (!acked) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'CHANGE_RECIPIENT_NOT_FOUND', { recipientId: recipient.id }, 404);
+            if (!acked)
+              throw new WorkmeshError(
+                V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+                'CHANGE_RECIPIENT_NOT_FOUND',
+                { recipientId: recipient.id },
+                404,
+              );
 
             const op = await tx.idempotentOperation.create({
               data: {
@@ -254,7 +293,10 @@ export class V1ChangePrismaRepository implements V1ChangeRepository {
               },
             });
 
-            return { recipient: toRecipientSnapshot(acked), idempotency: this.toOperationRecord(op) } satisfies V1AckResult;
+            return {
+              recipient: toRecipientSnapshot(acked),
+              idempotency: this.toOperationRecord(op),
+            } satisfies V1AckResult;
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         );
@@ -272,7 +314,9 @@ export class V1ChangePrismaRepository implements V1ChangeRepository {
     if (query.ackedOnly) where.ackedAt = { not: null };
 
     if (query.cursor) {
-      const cursorRow = await this.prisma.changeRecipient.findUnique({ where: { id: query.cursor } });
+      const cursorRow = await this.prisma.changeRecipient.findUnique({
+        where: { id: query.cursor },
+      });
       if (cursorRow) {
         where.OR = [
           { createdAt: { lt: cursorRow.createdAt } },

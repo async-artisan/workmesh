@@ -1,13 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
-  V1_OPERATION_RECEIPT_REPOSITORY,
   type V1OperationReceiptRecord,
   type V1OperationReceiptRepository,
 } from './v1-operation-receipt.repository';
 
 function resultRefsOf(value: unknown): Record<string, unknown> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (value && typeof value === 'object' && !Array.isArray(value))
+    return value as Record<string, unknown>;
   return {};
 }
 
@@ -15,7 +15,10 @@ function resultRefsOf(value: unknown): Record<string, unknown> {
 export class V1OperationReceiptPrismaRepository implements V1OperationReceiptRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findOperations(input: { projectScopeKey: string; key: string }): Promise<V1OperationReceiptRecord[]> {
+  async findOperations(input: {
+    projectScopeKey: string;
+    key: string;
+  }): Promise<V1OperationReceiptRecord[]> {
     const rows = await this.prisma.idempotentOperation.findMany({
       where: { projectScopeKey: input.projectScopeKey, key: input.key },
       orderBy: { createdAt: 'asc' },

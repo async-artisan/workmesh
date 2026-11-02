@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
-  type V1ReadyCandidate,
   type V1ReadyCandidatePage,
   type V1ReadyInstanceStep,
   type V1ReadyOwnership,
@@ -36,7 +35,10 @@ function parseSteps(definition: unknown): Array<{ key: string; deps: string[] }>
     const key = (raw as { key?: unknown }).key;
     if (typeof key !== 'string') continue;
     const deps = (raw as { deps?: unknown }).deps;
-    parsed.push({ key, deps: Array.isArray(deps) ? deps.filter((dep): dep is string => typeof dep === 'string') : [] });
+    parsed.push({
+      key,
+      deps: Array.isArray(deps) ? deps.filter((dep): dep is string => typeof dep === 'string') : [],
+    });
   }
   return parsed;
 }
@@ -100,7 +102,11 @@ export class V1ReadyPrismaRepository implements V1ReadyRepository {
       where: { id: { in: [...revisionIds] } },
       select: { id: true, projectId: true, definition: true },
     });
-    return rows.map((row) => ({ revisionId: row.id, projectId: row.projectId, steps: parseSteps(row.definition) }));
+    return rows.map((row) => ({
+      revisionId: row.id,
+      projectId: row.projectId,
+      steps: parseSteps(row.definition),
+    }));
   }
 
   async listInstanceTasks(instanceIds: readonly string[]): Promise<V1ReadyInstanceStep[]> {

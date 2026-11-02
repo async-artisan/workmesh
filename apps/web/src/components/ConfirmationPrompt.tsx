@@ -1,5 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { authApi, type ActionBindingInput, type ActionPreviewView, type ConfirmationTicketView } from '../api/auth';
+import {
+  authApi,
+  type ActionBindingInput,
+  type ActionPreviewView,
+  type ConfirmationTicketView,
+} from '../api/auth';
 import { formatApiError } from '../api/client';
 import type { Confirmation } from '../api/resources';
 import { Modal } from './Modal';
@@ -57,7 +62,6 @@ export function ConfirmationPrompt({
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, bindingKey]);
 
   async function issueTicket() {

@@ -25,12 +25,12 @@ import { StrictJsonInterceptor } from '../src/common/strict-json.interceptor';
 import { evaluateSuiteTestDatabase, verifiedTestDatabase } from '../src/common/v1-test-database';
 import { cookieNames, resolveCookieMode } from '../src/auth/v1-cookie-policy';
 import { hashSecret } from '../src/auth/v1-policy';
-import { V1AuthGuard } from '../src/auth/v1-auth.guard';
+
 import { V1AuthService, V1_AUTH_REPOSITORY } from '../src/auth/v1-auth.service';
 import { V1AuthPrismaRepository } from '../src/auth/v1-auth.prisma-repository';
 import { V1AuthorizationService, V1_AUTHORIZATION_REPOSITORY } from '../src/auth/v1-authorization';
 import { V1AuthorizationPrismaRepository } from '../src/auth/v1-authorization.prisma-repository';
-import { V1ConfirmationRepository, V1_CONFIRMATION_REPOSITORY } from '../src/auth/v1-confirmation';
+import { V1_CONFIRMATION_REPOSITORY } from '../src/auth/v1-confirmation';
 import { V1ConfirmationPrismaRepository } from '../src/auth/v1-confirmation.prisma-repository';
 import { V1ReviewController } from '../src/reviews/v1-review.controller';
 import {

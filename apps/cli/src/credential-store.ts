@@ -4,7 +4,6 @@ import { dirname, join } from 'node:path';
 import { canonicalJson } from '@workmesh/shared';
 import { CliError } from './errors';
 import { credentialsDir, ensurePrivateDir, pendingAuthorizationsDir } from './config';
-import type { Platform } from './platform';
 
 export type AgentCredential = {
   version: '1.0';
@@ -37,8 +36,7 @@ export type PendingAuthorization = {
   createdAt: string;
 };
 
-const UUID =
-  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const SCOPE = /^[a-z][a-z0-9:-]{0,47}$/;
 const SECRET = /^[A-Za-z0-9_-]{43}$/;
 
@@ -102,8 +100,7 @@ async function readProtectedFile(path: string): Promise<string> {
   }
   if (info.isSymbolicLink())
     throw new CliError('CREDENTIAL_STORE_UNSAFE', `${path} 是符号链接，拒绝读取`);
-  if (!info.isFile())
-    throw new CliError('CREDENTIAL_STORE_UNSAFE', `${path} 不是普通文件`);
+  if (!info.isFile()) throw new CliError('CREDENTIAL_STORE_UNSAFE', `${path} 不是普通文件`);
   const owner = typeof process.getuid === 'function' ? process.getuid() : info.uid;
   if (info.uid !== owner)
     throw new CliError('CREDENTIAL_STORE_UNSAFE', `${path} 不属于当前用户，拒绝读取`);
@@ -199,7 +196,11 @@ export function pendingProofPath(home: string, id: string): string {
   return join(pendingAuthorizationsDir(home), `${id}.json`);
 }
 
-export async function savePendingProof(home: string, id: string, proof: PendingAuthorization): Promise<string> {
+export async function savePendingProof(
+  home: string,
+  id: string,
+  proof: PendingAuthorization,
+): Promise<string> {
   await ensurePrivateDir(pendingAuthorizationsDir(home));
   const path = pendingProofPath(home, id);
   await writeProtectedFile(path, `${JSON.stringify(proof)}\n`);

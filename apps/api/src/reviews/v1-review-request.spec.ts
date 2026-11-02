@@ -40,7 +40,10 @@ type State = {
   reviews: V1ReviewSnapshot[];
   createdAt: Record<string, Date>;
   documents: Record<string, V1DocumentReviewSubject>;
-  documentSlots: Record<string, Array<{ slotKey: string; requiredUserId: string; requiredRoleId: string | null }>>;
+  documentSlots: Record<
+    string,
+    Array<{ slotKey: string; requiredUserId: string; requiredRoleId: string | null }>
+  >;
   artifacts: Record<string, FakeArtifact>;
   operations: V1OperationRecord[];
 };
@@ -163,7 +166,12 @@ function reviewRepository(store: State): V1ReviewRepository {
     }
 
     const artifact = store.artifacts[input.subject.id];
-    const bindings = taskAcceptanceSlotBindings(artifact.definition, artifact.bindings, artifact.stepKey, artifact.taskId);
+    const bindings = taskAcceptanceSlotBindings(
+      artifact.definition,
+      artifact.bindings,
+      artifact.stepKey,
+      artifact.taskId,
+    );
     return {
       id,
       projectId: input.projectId,
@@ -202,7 +210,12 @@ function reviewRepository(store: State): V1ReviewRepository {
     async findArtifactReviewSubject(artifactSetId) {
       const artifact = store.artifacts[artifactSetId];
       if (!artifact) return null;
-      const { stepKey: _stepKey, definition: _definition, bindings: _bindings, ...subject } = artifact;
+      const {
+        stepKey: _stepKey,
+        definition: _definition,
+        bindings: _bindings,
+        ...subject
+      } = artifact;
       return clone(subject);
     },
     async createReviewRequest(input): Promise<V1CreateReviewRequestResult> {
@@ -214,18 +227,31 @@ function reviewRepository(store: State): V1ReviewRepository {
           : item.artifactSetId === input.subject.id;
       });
       if (existing) {
-        store.operations.push(operationOf(input, { reviewRequestId: existing.id, version: existing.version, created: false }));
+        store.operations.push(
+          operationOf(input, {
+            reviewRequestId: existing.id,
+            version: existing.version,
+            created: false,
+          }),
+        );
         return { review: clone(existing), created: false };
       }
 
       if (isDocument ? !store.documents[input.subject.id] : !store.artifacts[input.subject.id])
-        throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REVIEW_SUBJECT_NOT_FOUND', undefined, 404);
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+          'REVIEW_SUBJECT_NOT_FOUND',
+          undefined,
+          404,
+        );
 
       const id = `rr-${store.reviews.length + 1}`;
       const review = newSnapshot(input, id);
       store.reviews.push(review);
       store.createdAt[id] = input.operation.now;
-      store.operations.push(operationOf(input, { reviewRequestId: id, version: review.version, created: true }));
+      store.operations.push(
+        operationOf(input, { reviewRequestId: id, version: review.version, created: true }),
+      );
       return { review: clone(review), created: true };
     },
     async listReviews(query): Promise<V1ReviewListResult> {
@@ -269,7 +295,9 @@ function reviewRepository(store: State): V1ReviewRepository {
       return {
         items: page.map((review) => clone(review)),
         nextCursor:
-          hasMore && last ? encodeReviewCursor({ createdAt: store.createdAt[last.id], id: last.id }) : null,
+          hasMore && last
+            ? encodeReviewCursor({ createdAt: store.createdAt[last.id], id: last.id })
+            : null,
         hasMore,
       };
     },
@@ -282,7 +310,10 @@ function reviewRepository(store: State): V1ReviewRepository {
   };
 }
 
-function operationOf(input: V1CreateReviewRequestInput, resultRefs: Record<string, unknown>): V1OperationRecord {
+function operationOf(
+  input: V1CreateReviewRequestInput,
+  resultRefs: Record<string, unknown>,
+): V1OperationRecord {
   return {
     id: input.operation.id,
     projectScopeKey: input.operation.projectScopeKey,
@@ -335,17 +366,16 @@ function makeReview(
     documentRevisionId: overrides.documentRevisionId ?? null,
     artifactSetId: overrides.artifactSetId ?? `set-${id}`,
     taskId: `task-${id}`,
-    slots:
-      overrides.slots ?? [
-        {
-          id: `slot-${id}`,
-          slotKey: 'qa',
-          kind: 'TASK_ACCEPTANCE',
-          requiredUserId: 'bob',
-          requiredRoleId: 'role-qa',
-          sourceSlotBindingId: null,
-        },
-      ],
+    slots: overrides.slots ?? [
+      {
+        id: `slot-${id}`,
+        slotKey: 'qa',
+        kind: 'TASK_ACCEPTANCE',
+        requiredUserId: 'bob',
+        requiredRoleId: 'role-qa',
+        sourceSlotBindingId: null,
+      },
+    ],
     decisions: [],
     subject: null,
   };
@@ -398,7 +428,9 @@ function seedDocument(store: State): void {
     revisionDigest: DIGEST,
     archived: false,
   };
-  store.documentSlots['rev-1'] = [{ slotKey: 'publication', requiredUserId: 'alice', requiredRoleId: null }];
+  store.documentSlots['rev-1'] = [
+    { slotKey: 'publication', requiredUserId: 'alice', requiredRoleId: null },
+  ];
 }
 
 function seedArtifact(store: State, overrides: Partial<FakeArtifact> = {}): FakeArtifact {
@@ -455,9 +487,17 @@ describe('V1ReviewService.requestReview', () => {
         sourceSlotBindingId: null,
       },
     ]);
-    expect(result.subject).toMatchObject({ documentId: 'doc-1', revisionId: 'rev-1', documentVersion: 3 });
+    expect(result.subject).toMatchObject({
+      documentId: 'doc-1',
+      revisionId: 'rev-1',
+      documentVersion: 3,
+    });
     expect(store.reviews).toHaveLength(1);
-    expect(store.operations[0].resultRefs).toMatchObject({ reviewRequestId: result.id, version: 1, created: true });
+    expect(store.operations[0].resultRefs).toMatchObject({
+      reviewRequestId: result.id,
+      version: 1,
+      created: true,
+    });
   });
 
   it('maps every document kind to its distinct review kind', () => {
@@ -472,7 +512,13 @@ describe('V1ReviewService.requestReview', () => {
       service.requestReview(
         alice,
         { subject: { kind: 'DOCUMENT_REVISION', id: 'rev-1' }, expectedVersion: 2 },
-        requestContext({ body: { subject: { kind: 'DOCUMENT_REVISION', id: 'rev-1' }, expectedVersion: 2, taskId: null } }),
+        requestContext({
+          body: {
+            subject: { kind: 'DOCUMENT_REVISION', id: 'rev-1' },
+            expectedVersion: 2,
+            taskId: null,
+          },
+        }),
       ),
     ).rejects.toMatchObject({ code: 'VERSION_CONFLICT', status: 409 });
     expect(store.reviews).toHaveLength(0);
@@ -494,7 +540,10 @@ describe('V1ReviewService.requestReview', () => {
     expect(second.id).toBe(first.id);
     expect(store.reviews).toHaveLength(1);
     expect(store.operations).toHaveLength(2);
-    expect(store.operations[1].resultRefs).toMatchObject({ reviewRequestId: first.id, created: false });
+    expect(store.operations[1].resultRefs).toMatchObject({
+      reviewRequestId: first.id,
+      created: false,
+    });
   });
 
   it('returns the original result for a replayed idempotency key', async () => {
@@ -523,8 +572,18 @@ describe('V1ReviewService.requestReview', () => {
     await expect(
       service.requestReview(
         alice,
-        { subject: { kind: 'DOCUMENT_REVISION', id: 'rev-1' }, expectedVersion: 3, taskId: 'task-1' },
-        requestContext({ body: { subject: { kind: 'DOCUMENT_REVISION', id: 'rev-1' }, expectedVersion: 3, taskId: 'task-1' } }),
+        {
+          subject: { kind: 'DOCUMENT_REVISION', id: 'rev-1' },
+          expectedVersion: 3,
+          taskId: 'task-1',
+        },
+        requestContext({
+          body: {
+            subject: { kind: 'DOCUMENT_REVISION', id: 'rev-1' },
+            expectedVersion: 3,
+            taskId: 'task-1',
+          },
+        }),
       ),
     ).rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' });
   });
@@ -535,7 +594,11 @@ describe('V1ReviewService.requestReview', () => {
       alice,
       { subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' }, expectedVersion: 3, taskId: 'task-1' },
       requestContext({
-        body: { subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' }, expectedVersion: 3, taskId: 'task-1' },
+        body: {
+          subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' },
+          expectedVersion: 3,
+          taskId: 'task-1',
+        },
       }),
     );
 
@@ -561,12 +624,24 @@ describe('V1ReviewService.requestReview', () => {
     await expect(
       service.requestReview(
         alice,
-        { subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' }, expectedVersion: 3, taskId: 'task-2' },
+        {
+          subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' },
+          expectedVersion: 3,
+          taskId: 'task-2',
+        },
         requestContext({
-          body: { subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' }, expectedVersion: 3, taskId: 'task-2' },
+          body: {
+            subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' },
+            expectedVersion: 3,
+            taskId: 'task-2',
+          },
         }),
       ),
-    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', status: 422, message: 'TASK_SUBJECT_MISMATCH' });
+    ).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      status: 422,
+      message: 'TASK_SUBJECT_MISMATCH',
+    });
     expect(store.reviews).toHaveLength(0);
   });
 
@@ -577,11 +652,19 @@ describe('V1ReviewService.requestReview', () => {
         agentWrongRole,
         { subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' }, expectedVersion: 3 },
         requestContext({
-          body: { subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' }, expectedVersion: 3, taskId: null },
+          body: {
+            subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' },
+            expectedVersion: 3,
+            taskId: null,
+          },
           webSessionId: null,
         }),
       ),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN', status: 403, message: 'REVIEW_SUBJECT_NOT_IN_RESPONSIBILITY' });
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      status: 403,
+      message: 'REVIEW_SUBJECT_NOT_IN_RESPONSIBILITY',
+    });
     expect(store.reviews).toHaveLength(0);
   });
 
@@ -600,7 +683,11 @@ describe('V1ReviewService.requestReview', () => {
         agentWithoutScope,
         { subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' }, expectedVersion: 3 },
         requestContext({
-          body: { subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' }, expectedVersion: 3, taskId: null },
+          body: {
+            subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' },
+            expectedVersion: 3,
+            taskId: null,
+          },
           webSessionId: null,
         }),
       ),
@@ -614,7 +701,11 @@ describe('V1ReviewService.requestReview', () => {
       agentMatchingRole,
       { subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' }, expectedVersion: 3 },
       requestContext({
-        body: { subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' }, expectedVersion: 3, taskId: null },
+        body: {
+          subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' },
+          expectedVersion: 3,
+          taskId: null,
+        },
         webSessionId: null,
       }),
     );
@@ -630,10 +721,18 @@ describe('V1ReviewService.requestReview', () => {
         bob,
         { subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' }, expectedVersion: 3 },
         requestContext({
-          body: { subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' }, expectedVersion: 3, taskId: null },
+          body: {
+            subject: { kind: 'TASK_ARTIFACT_SET', id: 'set-1' },
+            expectedVersion: 3,
+            taskId: null,
+          },
         }),
       ),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN', status: 403, message: 'REVIEW_SUBJECT_NOT_IN_RESPONSIBILITY' });
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      status: 403,
+      message: 'REVIEW_SUBJECT_NOT_IN_RESPONSIBILITY',
+    });
     expect(store.reviews).toHaveLength(0);
   });
 });
@@ -667,7 +766,12 @@ describe('taskAcceptanceSlotBindings', () => {
 
   it('rejects a referenced acceptance slot without a current binding', () => {
     expect(() =>
-      taskAcceptanceSlotBindings(definition, { roleSlotBindings: [{ slotKey: 'qa', roleId: 'role-qa', userId: 'bob' }] }, 'impl', 'task-1'),
+      taskAcceptanceSlotBindings(
+        definition,
+        { roleSlotBindings: [{ slotKey: 'qa', roleId: 'role-qa', userId: 'bob' }] },
+        'impl',
+        'task-1',
+      ),
     ).toThrowError(/TASK_ACCEPTANCE_BINDING_MISSING/);
   });
 });
@@ -684,7 +788,14 @@ describe('V1ReviewService.listReviews', () => {
       makeReview('rr-1', {
         status: 'OPEN',
         slots: [
-          { id: 's-1', slotKey: 'qa', kind: 'TASK_ACCEPTANCE', requiredUserId: 'alice', requiredRoleId: null, sourceSlotBindingId: null },
+          {
+            id: 's-1',
+            slotKey: 'qa',
+            kind: 'TASK_ACCEPTANCE',
+            requiredUserId: 'alice',
+            requiredRoleId: null,
+            sourceSlotBindingId: null,
+          },
         ],
       }),
       new Date('2026-10-31T10:00:00.000Z'),
@@ -694,7 +805,14 @@ describe('V1ReviewService.listReviews', () => {
       makeReview('rr-2', {
         status: 'OPEN',
         slots: [
-          { id: 's-2', slotKey: 'qa', kind: 'TASK_ACCEPTANCE', requiredUserId: 'bob', requiredRoleId: 'role-qa', sourceSlotBindingId: null },
+          {
+            id: 's-2',
+            slotKey: 'qa',
+            kind: 'TASK_ACCEPTANCE',
+            requiredUserId: 'bob',
+            requiredRoleId: 'role-qa',
+            sourceSlotBindingId: null,
+          },
         ],
       }),
       new Date('2026-10-31T11:00:00.000Z'),
@@ -704,7 +822,14 @@ describe('V1ReviewService.listReviews', () => {
       makeReview('rr-3', {
         status: 'APPROVED',
         slots: [
-          { id: 's-3', slotKey: 'qa', kind: 'TASK_ACCEPTANCE', requiredUserId: 'bob', requiredRoleId: 'role-product', sourceSlotBindingId: null },
+          {
+            id: 's-3',
+            slotKey: 'qa',
+            kind: 'TASK_ACCEPTANCE',
+            requiredUserId: 'bob',
+            requiredRoleId: 'role-product',
+            sourceSlotBindingId: null,
+          },
         ],
       }),
       new Date('2026-10-31T12:00:00.000Z'),
@@ -729,7 +854,11 @@ describe('V1ReviewService.listReviews', () => {
     expect(first.hasMore).toBe(true);
     expect(first.nextCursor).not.toBeNull();
 
-    const second = await service.listReviews(alice, { projectId: 'p1', limit: 2, cursor: first.nextCursor ?? undefined });
+    const second = await service.listReviews(alice, {
+      projectId: 'p1',
+      limit: 2,
+      cursor: first.nextCursor ?? undefined,
+    });
     expect(second.items.map((item) => item.id)).toEqual(['rr-1']);
     expect(second.hasMore).toBe(false);
     expect(second.nextCursor).toBeNull();
@@ -796,8 +925,14 @@ describe('reviewListWhere', () => {
   });
 
   it('round-trips the keyset cursor', () => {
-    const cursor = encodeReviewCursor({ createdAt: new Date('2026-10-31T12:00:00.000Z'), id: 'rr-3' });
-    expect(decodeReviewCursor(cursor)).toEqual({ createdAt: new Date('2026-10-31T12:00:00.000Z'), id: 'rr-3' });
+    const cursor = encodeReviewCursor({
+      createdAt: new Date('2026-10-31T12:00:00.000Z'),
+      id: 'rr-3',
+    });
+    expect(decodeReviewCursor(cursor)).toEqual({
+      createdAt: new Date('2026-10-31T12:00:00.000Z'),
+      id: 'rr-3',
+    });
   });
 
   it('rejects a malformed cursor with 422', () => {

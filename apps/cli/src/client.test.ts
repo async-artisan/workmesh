@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { V1Client, type FetchLike } from './client';
 import { CliError } from './errors';
 import type { Platform } from './platform';
@@ -11,7 +11,10 @@ const UUID = '2f6c1c4b-6b0e-4f5d-9c2d-2b1b4b0f9b4a';
 
 type Call = { url: string; init: RequestInit };
 
-function stub(responses: Array<() => Response | Promise<Response>>): { fetch: FetchLike; calls: Call[] } {
+function stub(responses: Array<() => Response | Promise<Response>>): {
+  fetch: FetchLike;
+  calls: Call[];
+} {
   const calls: Call[] = [];
   let index = 0;
   const fetch: FetchLike = async (url, init) => {
@@ -44,7 +47,9 @@ function makeClient(fetch: FetchLike, bearer?: string): V1Client {
 
 describe('V1Client', () => {
   it('只打 /api/v1 并解析成功 envelope 的 requestId', async () => {
-    const { fetch, calls } = stub([() => json(200, { data: { ok: true }, meta: { requestId: 'req-1' } })]);
+    const { fetch, calls } = stub([
+      () => json(200, { data: { ok: true }, meta: { requestId: 'req-1' } }),
+    ]);
     const client = makeClient(fetch, 'wm_a1.credential.secret');
     const response = await client.request<{ ok: boolean }>('GET', '/tasks/1', { query: { a: 1 } });
     expect(response).toEqual({ data: { ok: true }, requestId: 'req-1' });
@@ -114,7 +119,11 @@ describe('V1Client', () => {
   it('GET 对 503 退避后重试，最终返回成功结果', async () => {
     const { fetch, calls } = stub([
       () =>
-        json(503, { error: { code: 'SERVER_ERROR', message: '暂不可用', requestId: 'req-4' } }, { 'retry-after': '1' }),
+        json(
+          503,
+          { error: { code: 'SERVER_ERROR', message: '暂不可用', requestId: 'req-4' } },
+          { 'retry-after': '1' },
+        ),
       () => json(200, { data: { ok: true }, meta: { requestId: 'req-5' } }),
     ]);
     const client = makeClient(fetch);

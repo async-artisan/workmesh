@@ -14,6 +14,8 @@ describe('canonicalJson', () => {
   });
 
   it('keeps stable escaping and null values', () => {
-    expect(canonicalJson({ text: '引号"\\\n', empty: {}, list: [], nil: null })).toBe('{"empty":{},"list":[],"nil":null,"text":"引号\\\"\\\\\\n"}');
+    expect(canonicalJson({ text: '引号"\\\n', empty: {}, list: [], nil: null })).toBe(
+      '{"empty":{},"list":[],"nil":null,"text":"引号\\"\\\\\\n"}',
+    );
   });
 });

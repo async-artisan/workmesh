@@ -8,12 +8,8 @@ type V1TransactionClient = Omit<
   '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
 >;
 
+import { assertWorkflowInstanceActive, taskReleasePatch } from './v1-task-consistency-policy';
 import {
-  assertWorkflowInstanceActive,
-  taskReleasePatch,
-} from './v1-task-consistency-policy';
-import {
-  V1_TASK_REPOSITORY,
   type V1ClaimInput,
   type V1ReleaseInput,
   type V1SetWorkStatusInput,
@@ -29,7 +25,11 @@ function isRetryable(error: unknown): boolean {
   const code = (error as { code?: string })?.code;
   if (code === 'P2034') return true;
   const message = String((error as Error)?.message ?? '');
-  return message.includes('40001') || message.includes('40P01') || message.includes('could not serialize');
+  return (
+    message.includes('40001') ||
+    message.includes('40P01') ||
+    message.includes('could not serialize')
+  );
 }
 
 function claimScopeKeyOf(userId: string, credentialId: string | null): string {
@@ -102,10 +102,18 @@ export class V1TaskPrismaRepository implements V1TaskRepository {
     return this.prisma.$transaction(
       async (tx) => {
         const task = await tx.task.findUnique({ where: { id: input.taskId } });
-        if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId: input.taskId }, 404);
+        if (!task)
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'TASK_NOT_FOUND',
+            { taskId: input.taskId },
+            404,
+          );
 
         // 项目级串行写边界。
-        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${task.projectId}::uuid FOR UPDATE`);
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${task.projectId}::uuid FOR UPDATE`,
+        );
 
         const instance = await tx.workflowInstance.findFirst({
           where: { id: task.workflowInstanceId, projectId: task.projectId },
@@ -121,12 +129,18 @@ export class V1TaskPrismaRepository implements V1TaskRepository {
           throw new WorkmeshError(
             V1_ERROR_CODES.BASELINE_STALE,
             'BASELINE_STALE',
-            { taskId: task.id, expectedGeneration: input.expectedGeneration, currentGeneration: task.generation },
+            {
+              taskId: task.id,
+              expectedGeneration: input.expectedGeneration,
+              currentGeneration: task.generation,
+            },
             409,
           );
 
         // 双认领单胜：已有未释放认领则拒绝，另一并发事务在锁释放后会看到该认领。
-        const activeClaim = await tx.taskClaim.findFirst({ where: { taskId: task.id, releasedAt: null } });
+        const activeClaim = await tx.taskClaim.findFirst({
+          where: { taskId: task.id, releasedAt: null },
+        });
         if (activeClaim)
           throw new WorkmeshError(
             V1_ERROR_CODES.CLAIM_CONFLICT,
@@ -150,7 +164,11 @@ export class V1TaskPrismaRepository implements V1TaskRepository {
         });
         await tx.task.update({
           where: { id: task.id },
-          data: { generation: { increment: 1 }, currentClaimId: claim.id, version: { increment: 1 } },
+          data: {
+            generation: { increment: 1 },
+            currentClaimId: claim.id,
+            version: { increment: 1 },
+          },
         });
 
         await tx.idempotentOperation.create({
@@ -179,25 +197,56 @@ export class V1TaskPrismaRepository implements V1TaskRepository {
     return this.prisma.$transaction(
       async (tx) => {
         const task = await tx.task.findUnique({ where: { id: input.taskId } });
-        if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId: input.taskId }, 404);
+        if (!task)
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'TASK_NOT_FOUND',
+            { taskId: input.taskId },
+            404,
+          );
 
-        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${task.projectId}::uuid FOR UPDATE`);
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${task.projectId}::uuid FOR UPDATE`,
+        );
 
         if (task.generation !== input.expectedGeneration)
           throw new WorkmeshError(
             V1_ERROR_CODES.BASELINE_STALE,
             'BASELINE_STALE',
-            { taskId: task.id, expectedGeneration: input.expectedGeneration, currentGeneration: task.generation },
+            {
+              taskId: task.id,
+              expectedGeneration: input.expectedGeneration,
+              currentGeneration: task.generation,
+            },
             409,
           );
 
-        const activeClaim = await tx.taskClaim.findFirst({ where: { taskId: task.id, releasedAt: null } });
+        const activeClaim = await tx.taskClaim.findFirst({
+          where: { taskId: task.id, releasedAt: null },
+        });
         if (!activeClaim || activeClaim.id !== input.claimId || activeClaim.releasedAt !== null)
-          throw new WorkmeshError(V1_ERROR_CODES.CLAIM_INVALID, 'CLAIM_INVALID', { taskId: task.id, claimId: input.claimId }, 409);
-        if (claimScopeKeyOf(activeClaim.userId, activeClaim.credentialId) !== input.principalScopeKey)
-          throw new WorkmeshError(V1_ERROR_CODES.CLAIM_INVALID, 'CLAIM_INVALID', { taskId: task.id, claimId: input.claimId }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CLAIM_INVALID,
+            'CLAIM_INVALID',
+            { taskId: task.id, claimId: input.claimId },
+            409,
+          );
+        if (
+          claimScopeKeyOf(activeClaim.userId, activeClaim.credentialId) !== input.principalScopeKey
+        )
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CLAIM_INVALID,
+            'CLAIM_INVALID',
+            { taskId: task.id, claimId: input.claimId },
+            409,
+          );
         if (activeClaim.taskGeneration !== input.expectedGeneration)
-          throw new WorkmeshError(V1_ERROR_CODES.BASELINE_STALE, 'BASELINE_STALE', { taskId: task.id, claimId: input.claimId }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.BASELINE_STALE,
+            'BASELINE_STALE',
+            { taskId: task.id, claimId: input.claimId },
+            409,
+          );
 
         await tx.taskClaim.update({
           where: { id: activeClaim.id },
@@ -232,31 +281,73 @@ export class V1TaskPrismaRepository implements V1TaskRepository {
 
   private async runSetWorkStatus(input: V1SetWorkStatusInput): Promise<V1TaskSnapshot> {
     if (!WORK_STATUSES.has(input.workStatus))
-      throw new WorkmeshError(V1_ERROR_CODES.VALIDATION_FAILED, 'WORK_STATUS_INVALID', { workStatus: input.workStatus }, 422);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.VALIDATION_FAILED,
+        'WORK_STATUS_INVALID',
+        { workStatus: input.workStatus },
+        422,
+      );
     return this.prisma.$transaction(
       async (tx) => {
         const task = await tx.task.findUnique({ where: { id: input.taskId } });
-        if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId: input.taskId }, 404);
+        if (!task)
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'TASK_NOT_FOUND',
+            { taskId: input.taskId },
+            404,
+          );
 
-        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${task.projectId}::uuid FOR UPDATE`);
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${task.projectId}::uuid FOR UPDATE`,
+        );
 
         if (task.generation !== input.expectedGeneration)
           throw new WorkmeshError(
             V1_ERROR_CODES.BASELINE_STALE,
             'BASELINE_STALE',
-            { taskId: task.id, expectedGeneration: input.expectedGeneration, currentGeneration: task.generation },
+            {
+              taskId: task.id,
+              expectedGeneration: input.expectedGeneration,
+              currentGeneration: task.generation,
+            },
             409,
           );
 
-        const activeClaim = await tx.taskClaim.findFirst({ where: { taskId: task.id, releasedAt: null } });
+        const activeClaim = await tx.taskClaim.findFirst({
+          where: { taskId: task.id, releasedAt: null },
+        });
         if (!activeClaim || activeClaim.id !== input.claimId || activeClaim.releasedAt !== null)
-          throw new WorkmeshError(V1_ERROR_CODES.CLAIM_INVALID, 'CLAIM_INVALID', { taskId: task.id, claimId: input.claimId }, 409);
-        if (claimScopeKeyOf(activeClaim.userId, activeClaim.credentialId) !== input.principalScopeKey)
-          throw new WorkmeshError(V1_ERROR_CODES.CLAIM_INVALID, 'CLAIM_INVALID', { taskId: task.id, claimId: input.claimId }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CLAIM_INVALID,
+            'CLAIM_INVALID',
+            { taskId: task.id, claimId: input.claimId },
+            409,
+          );
+        if (
+          claimScopeKeyOf(activeClaim.userId, activeClaim.credentialId) !== input.principalScopeKey
+        )
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CLAIM_INVALID,
+            'CLAIM_INVALID',
+            { taskId: task.id, claimId: input.claimId },
+            409,
+          );
         if (activeClaim.taskGeneration !== input.expectedGeneration)
-          throw new WorkmeshError(V1_ERROR_CODES.BASELINE_STALE, 'BASELINE_STALE', { taskId: task.id, claimId: input.claimId }, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.BASELINE_STALE,
+            'BASELINE_STALE',
+            { taskId: task.id, claimId: input.claimId },
+            409,
+          );
 
-        await tx.task.update({ where: { id: task.id }, data: { workStatus: input.workStatus as Prisma.TaskUpdateInput['workStatus'], version: { increment: 1 } } });
+        await tx.task.update({
+          where: { id: task.id },
+          data: {
+            workStatus: input.workStatus as Prisma.TaskUpdateInput['workStatus'],
+            version: { increment: 1 },
+          },
+        });
 
         await tx.idempotentOperation.create({
           data: {
@@ -281,7 +372,19 @@ export class V1TaskPrismaRepository implements V1TaskRepository {
   }
 
   private toSnapshot(
-    task: { id: string; projectId: string; workflowInstanceId: string; stepKey: string; roleId: string; responsibleUserId: string; version: number; generation: number; executionStatus: string; workStatus: string; currentClaimId: string | null },
+    task: {
+      id: string;
+      projectId: string;
+      workflowInstanceId: string;
+      stepKey: string;
+      roleId: string;
+      responsibleUserId: string;
+      version: number;
+      generation: number;
+      executionStatus: string;
+      workStatus: string;
+      currentClaimId: string | null;
+    },
     currentClaim: V1TaskSnapshot['currentClaim'],
   ): V1TaskSnapshot {
     return {
@@ -299,9 +402,13 @@ export class V1TaskPrismaRepository implements V1TaskRepository {
     };
   }
 
-  private async snapshotInTransaction(tx: V1TransactionClient, taskId: string): Promise<V1TaskSnapshot> {
+  private async snapshotInTransaction(
+    tx: V1TransactionClient,
+    taskId: string,
+  ): Promise<V1TaskSnapshot> {
     const task = await tx.task.findUnique({ where: { id: taskId } });
-    if (!task) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
+    if (!task)
+      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
     let currentClaim: V1TaskSnapshot['currentClaim'] = null;
     if (task.currentClaimId) {
       const claim = await tx.taskClaim.findUnique({ where: { id: task.currentClaimId } });

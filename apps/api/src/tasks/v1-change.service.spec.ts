@@ -1,16 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import {
-  V1_ERROR_CODES,
-  WorkmeshError,
-  type Principal,
-  type Scope,
-} from '@workmesh/shared';
+import { V1_ERROR_CODES, WorkmeshError, type Principal, type Scope } from '@workmesh/shared';
 import type { V1AuthorizationRepository } from '../auth/v1-authorization';
-import {
-  type V1IdempotencyRepository,
-  type V1OperationRecord,
-} from '../common/v1-idempotency';
+import { type V1IdempotencyRepository, type V1OperationRecord } from '../common/v1-idempotency';
 import { V1ChangeService } from './v1-change.service';
 import {
   type V1AckInput,
@@ -27,7 +19,14 @@ function human(userId = 'u1'): Principal {
   return { kind: 'HUMAN', userId, scopes: [] };
 }
 function agent(userId = 'u2', credentialId = 'c1', scopes: Scope[] = ['change:ack']): Principal {
-  return { kind: 'AGENT', userId, agentCredentialId: credentialId, projectId: 'p1', roleIds: ['r1'], scopes };
+  return {
+    kind: 'AGENT',
+    userId,
+    agentCredentialId: credentialId,
+    projectId: 'p1',
+    roleIds: ['r1'],
+    scopes,
+  };
 }
 
 class InMemoryChangeRepo implements V1ChangeRepository {
@@ -74,7 +73,11 @@ class InMemoryChangeRepo implements V1ChangeRepository {
       resultRefs: { eventId },
       committedAt: input.operation.now,
     });
-    return { event, recipients: event.recipients, idempotency: this.operations.get(input.operation.key)! };
+    return {
+      event,
+      recipients: event.recipients,
+      idempotency: this.operations.get(input.operation.key)!,
+    };
   }
 
   async findEvent(id: string): Promise<V1ChangeEventWithRecipients | null> {
@@ -85,11 +88,24 @@ class InMemoryChangeRepo implements V1ChangeRepository {
     return this.recipients.get(id) ?? null;
   }
 
-  async ack(input: V1AckInput): Promise<{ recipient: V1ChangeRecipientSnapshot; idempotency: V1OperationRecord }> {
+  async ack(
+    input: V1AckInput,
+  ): Promise<{ recipient: V1ChangeRecipientSnapshot; idempotency: V1OperationRecord }> {
     const r = this.recipients.get(input.id);
-    if (!r) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'CHANGE_RECIPIENT_NOT_FOUND', { recipientId: input.id }, 404);
+    if (!r)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'CHANGE_RECIPIENT_NOT_FOUND',
+        { recipientId: input.id },
+        404,
+      );
     if (input.expectedVersion !== undefined && input.expectedVersion !== r.version)
-      throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'CHANGE_RECIPIENT_VERSION_CONFLICT', { recipientId: r.id }, 409);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.VERSION_CONFLICT,
+        'CHANGE_RECIPIENT_VERSION_CONFLICT',
+        { recipientId: r.id },
+        409,
+      );
     if (r.ackedAt !== null) {
       const op = this.storeOp(input, r.ackedAt);
       return { recipient: r, idempotency: op };
@@ -120,7 +136,9 @@ class InMemoryChangeRepo implements V1ChangeRepository {
     let rows = [...this.recipients.values()].filter((r) => r.userId === query.userId);
     if (query.projectId) rows = rows.filter((r) => r.projectId === query.projectId);
     if (query.ackedOnly) rows = rows.filter((r) => r.ackedAt !== null);
-    rows.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.id < b.id ? 1 : -1));
+    rows.sort((a, b) =>
+      a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.id < b.id ? 1 : -1,
+    );
     if (query.cursor) {
       const idx = rows.findIndex((r) => r.id === query.cursor);
       if (idx >= 0) rows = rows.slice(idx + 1);
@@ -133,7 +151,11 @@ class InMemoryChangeRepo implements V1ChangeRepository {
 
 class InMemoryAuthz implements V1AuthorizationRepository {
   async resolveProjectContext(_p: Principal, projectId: string) {
-    return { project: { id: projectId }, membership: { userId: _p.userId, revokedAt: null }, activeRoleIds: ['r1'] };
+    return {
+      project: { id: projectId },
+      membership: { userId: _p.userId, revokedAt: null },
+      activeRoleIds: ['r1'],
+    };
   }
   async requireScope(p: Principal, _projectId: string, scope: Scope): Promise<void> {
     if (p.kind === 'AGENT' && !p.scopes.includes(scope))
@@ -172,7 +194,7 @@ function build(repo: InMemoryChangeRepo, authz: InMemoryAuthz) {
   return { service, repo, authz, idem };
 }
 
-function ackInput(recipientId: string, key: string, principal: Principal) {
+function ackInput(recipientId: string, key: string, _principal: Principal) {
   return {
     idempotencyKey: key,
     expectedVersion: undefined as number | undefined,
@@ -199,7 +221,9 @@ describe('V1ChangeService.ack', () => {
 
   it('returns 404 for a non-existent recipient (no existence leak)', async () => {
     const { service } = build(new InMemoryChangeRepo(), new InMemoryAuthz());
-    await expect(service.ack(human('u1'), randomUUID(), ackInput('x', 'k1', human('u1')))).rejects.toMatchObject({
+    await expect(
+      service.ack(human('u1'), randomUUID(), ackInput('x', 'k1', human('u1'))),
+    ).rejects.toMatchObject({
       status: 404,
       code: V1_ERROR_CODES.RESOURCE_NOT_FOUND,
     });
@@ -209,7 +233,9 @@ describe('V1ChangeService.ack', () => {
     const repo = new InMemoryChangeRepo();
     const { service } = build(repo, new InMemoryAuthz());
     const rec = await seedRecipient(repo, 'p1', 'u-other');
-    await expect(service.ack(human('u1'), rec.id, ackInput(rec.id, 'k1', human('u1')))).rejects.toMatchObject({
+    await expect(
+      service.ack(human('u1'), rec.id, ackInput(rec.id, 'k1', human('u1'))),
+    ).rejects.toMatchObject({
       status: 404,
       code: V1_ERROR_CODES.RESOURCE_NOT_FOUND,
     });
@@ -219,7 +245,9 @@ describe('V1ChangeService.ack', () => {
     const repo = new InMemoryChangeRepo();
     const { service } = build(repo, new InMemoryAuthz());
     const rec = await seedRecipient(repo, 'p1', 'u2');
-    await expect(service.ack(agent('u2', 'c1', []), rec.id, ackInput(rec.id, 'k1', agent('u2', 'c1', [])))).rejects.toMatchObject({
+    await expect(
+      service.ack(agent('u2', 'c1', []), rec.id, ackInput(rec.id, 'k1', agent('u2', 'c1', []))),
+    ).rejects.toMatchObject({
       status: 403,
       code: V1_ERROR_CODES.SCOPE_DENIED,
     });
@@ -231,7 +259,11 @@ describe('V1ChangeService.ack', () => {
     const rec = await seedRecipient(repo, 'p1', 'u1');
 
     const first = await service.ack(human('u1'), rec.id, ackInput(rec.id, 'same-key', human('u1')));
-    const second = await service.ack(human('u1'), rec.id, ackInput(rec.id, 'same-key', human('u1')));
+    const second = await service.ack(
+      human('u1'),
+      rec.id,
+      ackInput(rec.id, 'same-key', human('u1')),
+    );
     expect(first.replayed).toBe(false);
     expect(second.replayed).toBe(true);
     expect(second.recipient.ackedAt).toBe(first.recipient.ackedAt);

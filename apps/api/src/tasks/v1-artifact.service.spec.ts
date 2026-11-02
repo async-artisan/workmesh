@@ -1,16 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
-import { V1ArtifactService, type V1DeliverBody, type V1DeliverContext, type V1RawDeliverItem } from './v1-artifact.service';
 import {
-  V1_ARTIFACT_REPOSITORY,
+  V1ArtifactService,
+  type V1DeliverBody,
+  type V1DeliverContext,
+  type V1RawDeliverItem,
+} from './v1-artifact.service';
+import {
   type V1ArtifactRepository,
   type V1ArtifactSetSnapshot,
   type V1DeliverInput,
   type V1DeliverResultRow,
 } from './v1-artifact.repository';
-import { V1_TASK_REPOSITORY, type V1TaskRepository, type V1TaskSnapshot } from './v1-task.repository';
-import { requestDigestOf, type V1IdempotencyRepository, type V1OperationRecord } from '../common/v1-idempotency';
+import { type V1TaskRepository, type V1TaskSnapshot } from './v1-task.repository';
+import {
+  requestDigestOf,
+  type V1IdempotencyRepository,
+  type V1OperationRecord,
+} from '../common/v1-idempotency';
 
 const SNAPSHOT_ID = '11111111-1111-4111-8111-111111111111';
 const WORKFLOW_REVISION_ID = '22222222-2222-4222-8222-222222222222';
@@ -51,8 +59,17 @@ function taskSnapshot(over: Partial<V1TaskSnapshot> = {}): V1TaskSnapshot {
   };
 }
 
-function activeClaim(over: Partial<V1TaskSnapshot['currentClaim']> = {}): V1TaskSnapshot['currentClaim'] {
-  return { id: CLAIM_ID, taskGeneration: 1, principalScopeKey: 'user:user-1', releasedAt: null, userId: 'user-1', ...over };
+function activeClaim(
+  over: Partial<V1TaskSnapshot['currentClaim']> = {},
+): V1TaskSnapshot['currentClaim'] {
+  return {
+    id: CLAIM_ID,
+    taskGeneration: 1,
+    principalScopeKey: 'user:user-1',
+    releasedAt: null,
+    userId: 'user-1',
+    ...over,
+  };
 }
 
 function hostedItem(over: Partial<V1RawDeliverItem> = {}): V1RawDeliverItem {
@@ -130,7 +147,11 @@ class InMemoryArtifactRepo implements V1ArtifactRepository {
     this.sets.set(id, set);
     return {
       artifactSet: set,
-      task: taskSnapshot({ generation: 2, version: input.expectedVersion + 1, currentClaim: activeClaim({ taskGeneration: 2 }) }),
+      task: taskSnapshot({
+        generation: 2,
+        version: input.expectedVersion + 1,
+        currentClaim: activeClaim({ taskGeneration: 2 }),
+      }),
       reviewRequestId: 'review-1',
     };
   }
@@ -158,10 +179,17 @@ class InMemoryTaskRepo implements V1TaskRepository {
 class InMemoryAuthz {
   scopeToDeny?: string;
   async resolveProjectContext(_p: any, projectId: string) {
-    return { project: { id: projectId }, roleIds: ['role-1'], capabilities: [], scopes: [], isOwner: true };
+    return {
+      project: { id: projectId },
+      roleIds: ['role-1'],
+      capabilities: [],
+      scopes: [],
+      isOwner: true,
+    };
   }
   async requireScope(_p: any, _projectId: string, scope: string) {
-    if (scope === this.scopeToDeny) throw new WorkmeshError(V1_ERROR_CODES.FORBIDDEN, 'FORBIDDEN', { scope }, 403);
+    if (scope === this.scopeToDeny)
+      throw new WorkmeshError(V1_ERROR_CODES.FORBIDDEN, 'FORBIDDEN', { scope }, 403);
   }
 }
 
@@ -172,7 +200,12 @@ class InMemoryIdempotency implements V1IdempotencyRepository {
   }
 }
 
-function build(repo: InMemoryArtifactRepo, task: InMemoryTaskRepo, authz: InMemoryAuthz, idem = new InMemoryIdempotency()) {
+function build(
+  repo: InMemoryArtifactRepo,
+  task: InMemoryTaskRepo,
+  authz: InMemoryAuthz,
+  idem = new InMemoryIdempotency(),
+) {
   const service = new V1ArtifactService(repo as any, task as any, authz as any, idem as any);
   return { service, repo, task, authz, idem };
 }
@@ -182,15 +215,23 @@ describe('V1ArtifactService.deliver', () => {
     const task = new InMemoryTaskRepo();
     task.task = null;
     const { service } = build(new InMemoryArtifactRepo(), task, new InMemoryAuthz());
-    await expect(service.deliver(humanPrincipal(), 'task-1', deliverBody(), deliverContext())).rejects.toMatchObject({
+    await expect(
+      service.deliver(humanPrincipal(), 'task-1', deliverBody(), deliverContext()),
+    ).rejects.toMatchObject({
       status: 404,
       code: V1_ERROR_CODES.RESOURCE_NOT_FOUND,
     });
   });
 
   it('rejects when no active claim (CLAIM_INVALID)', async () => {
-    const { service } = build(new InMemoryArtifactRepo(), new InMemoryTaskRepo(), new InMemoryAuthz());
-    await expect(service.deliver(humanPrincipal(), 'task-1', deliverBody(), deliverContext())).rejects.toMatchObject({
+    const { service } = build(
+      new InMemoryArtifactRepo(),
+      new InMemoryTaskRepo(),
+      new InMemoryAuthz(),
+    );
+    await expect(
+      service.deliver(humanPrincipal(), 'task-1', deliverBody(), deliverContext()),
+    ).rejects.toMatchObject({
       status: 409,
       code: V1_ERROR_CODES.CLAIM_INVALID,
     });
@@ -200,7 +241,9 @@ describe('V1ArtifactService.deliver', () => {
     const task = new InMemoryTaskRepo();
     task.task = taskSnapshot({ currentClaim: activeClaim({ principalScopeKey: 'user:other' }) });
     const { service } = build(new InMemoryArtifactRepo(), task, new InMemoryAuthz());
-    await expect(service.deliver(humanPrincipal(), 'task-1', deliverBody(), deliverContext())).rejects.toMatchObject({
+    await expect(
+      service.deliver(humanPrincipal(), 'task-1', deliverBody(), deliverContext()),
+    ).rejects.toMatchObject({
       status: 409,
       code: V1_ERROR_CODES.CLAIM_INVALID,
     });
@@ -213,7 +256,12 @@ describe('V1ArtifactService.deliver', () => {
     authz.scopeToDeny = 'task:deliver';
     const { service } = build(new InMemoryArtifactRepo(), task, authz);
     await expect(
-      service.deliver(agentPrincipal(), 'task-1', deliverBody({ claimId: CLAIM_ID }), deliverContext()),
+      service.deliver(
+        agentPrincipal(),
+        'task-1',
+        deliverBody({ claimId: CLAIM_ID }),
+        deliverContext(),
+      ),
     ).rejects.toMatchObject({ status: 403, code: V1_ERROR_CODES.FORBIDDEN });
   });
 
@@ -221,9 +269,14 @@ describe('V1ArtifactService.deliver', () => {
     const task = new InMemoryTaskRepo();
     task.task = taskSnapshot({ currentClaim: activeClaim(), version: 3 });
     const { service } = build(new InMemoryArtifactRepo(), task, new InMemoryAuthz());
-    await expect(service.deliver(humanPrincipal(), 'task-1', deliverBody({ expectedVersion: 2 }), deliverContext())).rejects.toMatchObject(
-      { status: 409, code: V1_ERROR_CODES.VERSION_CONFLICT },
-    );
+    await expect(
+      service.deliver(
+        humanPrincipal(),
+        'task-1',
+        deliverBody({ expectedVersion: 2 }),
+        deliverContext(),
+      ),
+    ).rejects.toMatchObject({ status: 409, code: V1_ERROR_CODES.VERSION_CONFLICT });
   });
 
   it('delivers successfully and binds the referenced snapshot / workflow revision', async () => {
@@ -247,7 +300,9 @@ describe('V1ArtifactService.deliver', () => {
     const body = deliverBody({
       items: [hostedItem({ sha256: HOSTED_SHA256, byteLength: 3, bodyBase64: HOSTED_BASE64 })],
     });
-    await expect(service.deliver(humanPrincipal(), 'task-1', body, deliverContext())).rejects.toMatchObject({
+    await expect(
+      service.deliver(humanPrincipal(), 'task-1', body, deliverContext()),
+    ).rejects.toMatchObject({
       status: 422,
       code: V1_ERROR_CODES.ARTIFACT_INVALID,
     });
@@ -258,7 +313,9 @@ describe('V1ArtifactService.deliver', () => {
     task.task = taskSnapshot({ currentClaim: activeClaim() });
     const { service } = build(new InMemoryArtifactRepo(), task, new InMemoryAuthz());
     const body = deliverBody({ items: [hostedItem({ bodyBase64: null })] });
-    await expect(service.deliver(humanPrincipal(), 'task-1', body, deliverContext())).rejects.toMatchObject({
+    await expect(
+      service.deliver(humanPrincipal(), 'task-1', body, deliverContext()),
+    ).rejects.toMatchObject({
       status: 422,
       code: V1_ERROR_CODES.ARTIFACT_INVALID,
     });
@@ -279,7 +336,9 @@ describe('V1ArtifactService.deliver', () => {
         }),
       ],
     });
-    await expect(service.deliver(humanPrincipal(), 'task-1', body, deliverContext())).rejects.toMatchObject({
+    await expect(
+      service.deliver(humanPrincipal(), 'task-1', body, deliverContext()),
+    ).rejects.toMatchObject({
       status: 422,
       code: V1_ERROR_CODES.ARTIFACT_INVALID,
     });
@@ -290,7 +349,12 @@ describe('V1ArtifactService.deliver', () => {
     task.task = taskSnapshot({ currentClaim: activeClaim() });
     const { service } = build(new InMemoryArtifactRepo(), task, new InMemoryAuthz());
     await expect(
-      service.deliver(humanPrincipal(), 'task-1', deliverBody({ items: [], candidateRevisionIds: [] }), deliverContext()),
+      service.deliver(
+        humanPrincipal(),
+        'task-1',
+        deliverBody({ items: [], candidateRevisionIds: [] }),
+        deliverContext(),
+      ),
     ).rejects.toMatchObject({ status: 422, code: V1_ERROR_CODES.ARTIFACT_INVALID });
   });
 
@@ -313,7 +377,12 @@ describe('V1ArtifactService.deliver', () => {
     const body = deliverBody();
     const context = deliverContext();
     // 先执行一次以得到真实 digest 与 set。
-    const first = await build(repo, task, new InMemoryAuthz()).service.deliver(humanPrincipal(), 'task-1', body, context);
+    const first = await build(repo, task, new InMemoryAuthz()).service.deliver(
+      humanPrincipal(),
+      'task-1',
+      body,
+      context,
+    );
     existing.requestDigest = requestDigestOf(context);
     existing.resultRefs.artifactSetId = first.artifactSet.id;
     idem.op = existing;
@@ -330,12 +399,11 @@ describe('V1ArtifactService.deliver', () => {
     const idem = new InMemoryIdempotency();
     const body = deliverBody();
     const context = deliverContext();
-    const first = await build(new InMemoryArtifactRepo(), task, new InMemoryAuthz()).service.deliver(
-      humanPrincipal(),
-      'task-1',
-      body,
-      context,
-    );
+    const first = await build(
+      new InMemoryArtifactRepo(),
+      task,
+      new InMemoryAuthz(),
+    ).service.deliver(humanPrincipal(), 'task-1', body, context);
     idem.op = {
       id: 'op-old',
       projectScopeKey: 'project:proj-1',

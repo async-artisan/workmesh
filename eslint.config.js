@@ -23,7 +23,11 @@ export default tseslint.config(
     files: ['**/*.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        // 仓库既有约定：以下划线前缀标记「有意保留但未使用」的参数与解构变量。
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
     },
   },
 );

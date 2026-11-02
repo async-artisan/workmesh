@@ -1,16 +1,13 @@
-import { Injectable } from '@nestjs/common';
+﻿import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { createHash, randomBytes } from 'node:crypto';
-import { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
-import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
-import { PrismaClient as V1PrismaClient } from '../../../node_modules/.prisma/workmesh-v1-client';
-type V1TransactionClient = Omit<
-  V1PrismaClient,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
->;
+import {
+  Prisma,
+  type CodeReviewEvidence,
+  type WebhookReceipt,
+} from '../../../node_modules/.prisma/workmesh-v1-client';
 
 import {
-  V1_GITHUB_EVIDENCE_REPOSITORY,
   type V1ArtifactSetSummary,
   type V1CodeReviewEvidenceRecord,
   type V1CreateVersionedTicketInput,
@@ -26,8 +23,13 @@ import {
 export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findReceiptByDelivery(source: 'GITHUB', deliveryId: string): Promise<V1WebhookReceiptRecord | null> {
-    const row = await this.prisma.webhookReceipt.findUnique({ where: { source_deliveryId: { source, deliveryId } } });
+  async findReceiptByDelivery(
+    source: 'GITHUB',
+    deliveryId: string,
+  ): Promise<V1WebhookReceiptRecord | null> {
+    const row = await this.prisma.webhookReceipt.findUnique({
+      where: { source_deliveryId: { source, deliveryId } },
+    });
     if (!row) return null;
     return this.toReceipt(row);
   }
@@ -47,7 +49,11 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
     return this.toReceipt(row);
   }
 
-  async recordReceiptProcessed(receiptId: string, status: string, errorMessage: string | null): Promise<void> {
+  async recordReceiptProcessed(
+    receiptId: string,
+    status: string,
+    errorMessage: string | null,
+  ): Promise<void> {
     await this.prisma.webhookReceipt.update({
       where: { id: receiptId },
       data: { status, errorMessage, processedAt: new Date() },
@@ -64,7 +70,9 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
   }
 
   async findEvidenceByFingerprint(fingerprint: string): Promise<V1CodeReviewEvidenceRecord | null> {
-    const row = await this.prisma.codeReviewEvidence.findUnique({ where: { evidenceFingerprint: fingerprint } });
+    const row = await this.prisma.codeReviewEvidence.findUnique({
+      where: { evidenceFingerprint: fingerprint },
+    });
     return row ? this.toEvidence(row) : null;
   }
 
@@ -93,7 +101,12 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
   async findArtifactSet(id: string): Promise<V1ArtifactSetSummary | null> {
     const row = await this.prisma.artifactSet.findUnique({ where: { id } });
     if (!row) return null;
-    return { id: row.id, projectId: row.projectId, taskGeneration: row.taskGeneration, manifestDigest: row.manifestDigest };
+    return {
+      id: row.id,
+      projectId: row.projectId,
+      taskGeneration: row.taskGeneration,
+      manifestDigest: row.manifestDigest,
+    };
   }
 
   async findApprovedEvidenceForHead(
@@ -108,7 +121,9 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
     return row ? this.toEvidence(row) : null;
   }
 
-  async createVersionedTicket(input: V1CreateVersionedTicketInput): Promise<{ ticketId: string; secret: string; expiresAt: Date }> {
+  async createVersionedTicket(
+    input: V1CreateVersionedTicketInput,
+  ): Promise<{ ticketId: string; secret: string; expiresAt: Date }> {
     const secret = randomBytes(32).toString('hex');
     const secretHash = createHash('sha256').update(Buffer.from(secret, 'utf8')).digest('hex');
     const expiresAt = new Date(input.now.getTime() + input.expiresInMs);
@@ -127,7 +142,12 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
         reviewExternalId: `ticket:${randomBytes(8).toString('hex')}`,
         artifactSetId: input.artifactSetId,
         evidenceFingerprint: createHash('sha256')
-          .update(Buffer.from(`ticket:${input.artifactSetId}:${input.headSha}:${input.generation}`, 'utf8'))
+          .update(
+            Buffer.from(
+              `ticket:${input.artifactSetId}:${input.headSha}:${input.generation}`,
+              'utf8',
+            ),
+          )
           .digest('hex'),
         preparedSecretHash: secretHash,
         preparedExpiresAt: expiresAt,
@@ -154,8 +174,11 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
     };
   }
 
-  async consumeVersionedTicket(ticketId: string, now: Date): Promise<void> {
-    await this.prisma.codeReviewEvidence.update({ where: { id: ticketId }, data: { preparedExpiresAt: null } });
+  async consumeVersionedTicket(ticketId: string, _now: Date): Promise<void> {
+    await this.prisma.codeReviewEvidence.update({
+      where: { id: ticketId },
+      data: { preparedExpiresAt: null },
+    });
   }
 
   async persistIdempotency(input: V1PersistIdempotencyInput): Promise<void> {
@@ -169,7 +192,9 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
       },
       create: {
         id: input.id,
-        projectId: input.projectScopeKey.startsWith('project:') ? input.projectScopeKey.slice('project:'.length) : null,
+        projectId: input.projectScopeKey.startsWith('project:')
+          ? input.projectScopeKey.slice('project:'.length)
+          : null,
         projectScopeKey: input.projectScopeKey,
         principalScopeKey: input.principalScopeKey,
         key: input.key,
@@ -183,7 +208,7 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
     });
   }
 
-  private toReceipt(row: Prisma.WebhookReceiptGetPayload<{ include: {} }>): V1WebhookReceiptRecord {
+  private toReceipt(row: WebhookReceipt): V1WebhookReceiptRecord {
     return {
       id: row.id,
       projectId: row.projectId,
@@ -199,7 +224,7 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
     };
   }
 
-  private toEvidence(row: Prisma.CodeReviewEvidenceGetPayload<{ include: {} }>): V1CodeReviewEvidenceRecord {
+  private toEvidence(row: CodeReviewEvidence): V1CodeReviewEvidenceRecord {
     return {
       id: row.id,
       projectId: row.projectId,

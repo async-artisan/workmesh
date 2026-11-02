@@ -8,7 +8,13 @@ import {
   type Principal,
 } from '@workmesh/shared';
 import { V1AuthorizationService, type ProjectManagementRole } from '../auth/v1-authorization';
-import { actionDigestOf, verifyTicketBinding, V1_CONFIRMATION_REPOSITORY, type V1ConfirmationRepository, type V1TicketRecord } from '../auth/v1-confirmation';
+import {
+  actionDigestOf,
+  verifyTicketBinding,
+  V1_CONFIRMATION_REPOSITORY,
+  type V1ConfirmationRepository,
+  type V1TicketRecord,
+} from '../auth/v1-confirmation';
 import {
   assertReplayable,
   requestDigestOf,
@@ -119,7 +125,9 @@ function recordOf(value: unknown): Record<string, unknown> | null {
 }
 
 function stringArrayOf(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
 }
 
 function positiveIntOf(value: unknown): number | null {
@@ -130,7 +138,8 @@ function requirementStateOf(value: unknown): V1RequirementState | null {
   const record = recordOf(value);
   if (!record) return null;
   const version = positiveIntOf(record.version);
-  if (typeof record.id !== 'string' || typeof record.phase !== 'string' || version === null) return null;
+  if (typeof record.id !== 'string' || typeof record.phase !== 'string' || version === null)
+    return null;
   return { id: record.id, version, phase: record.phase };
 }
 
@@ -162,7 +171,12 @@ function subjectResultOf(value: unknown): V1SubjectResult | null {
     case 'ACCEPTED': {
       const taskVersion = positiveIntOf(record.taskVersion);
       return typeof record.taskId === 'string' && taskVersion !== null
-        ? { kind: 'ACCEPTED', taskId: record.taskId, taskVersion, requirement: requirementStateOf(record.requirement) }
+        ? {
+            kind: 'ACCEPTED',
+            taskId: record.taskId,
+            taskVersion,
+            requirement: requirementStateOf(record.requirement),
+          }
         : null;
     }
     case 'REWORK':
@@ -191,9 +205,16 @@ export class V1ReviewService {
 
   async getReview(principal: Principal, reviewId: string): Promise<V1ReviewSnapshot> {
     const review = await this.reviews.findReview(reviewId);
-    if (!review) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REVIEW_NOT_FOUND', { reviewId }, 404);
+    if (!review)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'REVIEW_NOT_FOUND',
+        { reviewId },
+        404,
+      );
     // 无对象访问权按 404 返回，不泄露 review 存在性。
-    if (review.subject) await this.authorization.assertCanReadKnowledge(principal, review.subject.knowledgeBaseId);
+    if (review.subject)
+      await this.authorization.assertCanReadKnowledge(principal, review.subject.knowledgeBaseId);
     return review;
   }
 
@@ -225,7 +246,11 @@ export class V1ReviewService {
         throw new WorkmeshError(
           V1_ERROR_CODES.VERSION_CONFLICT,
           'VERSION_CONFLICT',
-          { documentId: subject.documentId, expectedVersion, currentVersion: subject.documentVersion },
+          {
+            documentId: subject.documentId,
+            expectedVersion,
+            currentVersion: subject.documentVersion,
+          },
           409,
         );
       projectId = subject.projectId;
@@ -238,7 +263,10 @@ export class V1ReviewService {
           { artifactSetId: input.subject.id },
           404,
         );
-      const projectContext = await this.authorization.resolveProjectContext(principal, subject.projectId);
+      const projectContext = await this.authorization.resolveProjectContext(
+        principal,
+        subject.projectId,
+      );
       await this.authorization.requireScope(principal, subject.projectId, 'review:request');
       this.assertTaskResponsibility(
         principal,
@@ -266,7 +294,11 @@ export class V1ReviewService {
 
     const projectScopeKey = `project:${projectId}`;
     const principalScopeKeyValue = principalScopeKey(principal);
-    const requestDigest = requestDigestOf({ method: context.method, route: context.route, body: context.body });
+    const requestDigest = requestDigestOf({
+      method: context.method,
+      route: context.route,
+      body: context.body,
+    });
 
     // 同键重放先核当前授权（上面已完成），同 digest 返回原结果且不再新建。
     const existing = await this.operations.findOperation({
@@ -275,10 +307,23 @@ export class V1ReviewService {
       key: context.idempotencyKey,
     });
     if (existing) {
-      assertReplayable(existing, { method: context.method, route: context.route, digest: requestDigest });
-      const reviewId = typeof existing.resultRefs.reviewRequestId === 'string' ? existing.resultRefs.reviewRequestId : '';
+      assertReplayable(existing, {
+        method: context.method,
+        route: context.route,
+        digest: requestDigest,
+      });
+      const reviewId =
+        typeof existing.resultRefs.reviewRequestId === 'string'
+          ? existing.resultRefs.reviewRequestId
+          : '';
       const review = reviewId ? await this.reviews.findReview(reviewId) : null;
-      if (!review) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REVIEW_NOT_FOUND', { reviewId }, 404);
+      if (!review)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+          'REVIEW_NOT_FOUND',
+          { reviewId },
+          404,
+        );
       return review;
     }
 
@@ -291,7 +336,8 @@ export class V1ReviewService {
         kind: principal.kind,
         userId: principal.userId,
         webSessionId: context.webSessionId,
-        agentCredentialId: principal.kind === 'AGENT' ? (principal.agentCredentialId ?? null) : null,
+        agentCredentialId:
+          principal.kind === 'AGENT' ? (principal.agentCredentialId ?? null) : null,
         roleId: principal.kind === 'AGENT' ? (principal.roleIds?.[0] ?? null) : null,
         scopeSnapshot: [...principal.scopes],
         userAuthVersion: context.userAuthVersion,
@@ -312,7 +358,10 @@ export class V1ReviewService {
 
   /** 项目评审待办：KB READ 与角色/指派过滤在仓储 SQL 层完成，先过滤再分页。 */
   async listReviews(principal: Principal, input: V1ListReviewsInput): Promise<V1ReviewListResult> {
-    const projectContext = await this.authorization.resolveProjectContext(principal, input.projectId);
+    const projectContext = await this.authorization.resolveProjectContext(
+      principal,
+      input.projectId,
+    );
     await this.authorization.requireScope(principal, input.projectId, 'review:read');
     const query: V1ReviewListQuery = {
       projectId: input.projectId,
@@ -320,7 +369,8 @@ export class V1ReviewService {
       principalKind: principal.kind,
       agentRoleId: principal.kind === 'AGENT' ? (principal.roleIds?.[0] ?? null) : null,
       activeRoleIds: projectContext.activeRoleIds,
-      knowledgeReadAllowed: principal.kind === 'HUMAN' || principal.scopes.includes('knowledge:read'),
+      knowledgeReadAllowed:
+        principal.kind === 'HUMAN' || principal.scopes.includes('knowledge:read'),
       assignedToMe: input.assignedToMe === true,
       status: input.status ?? null,
       limit: input.limit ?? 20,
@@ -369,8 +419,15 @@ export class V1ReviewService {
   bindingFor(review: V1ReviewSnapshot, input: V1DecideInput): ActionBinding & { slotId: string } {
     const slot = review.slots.find((item) => item.id === input.slotId);
     if (!slot)
-      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REVIEW_SLOT_NOT_FOUND', { slotId: input.slotId }, 404);
-    const roleSlot = slot.requiredRoleId ? { roleId: slot.requiredRoleId, approvalSlotId: slot.id } : null;
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'REVIEW_SLOT_NOT_FOUND',
+        { slotId: input.slotId },
+        404,
+      );
+    const roleSlot = slot.requiredRoleId
+      ? { roleId: slot.requiredRoleId, approvalSlotId: slot.id }
+      : null;
     return {
       action: REVIEW_DECIDE_ACTION,
       projectId: review.projectId,
@@ -389,19 +446,40 @@ export class V1ReviewService {
     };
   }
 
-  async decide(principal: Principal, reviewId: string, input: V1DecideInput, context: V1DecideContext): Promise<V1DecideResult> {
+  async decide(
+    principal: Principal,
+    reviewId: string,
+    input: V1DecideInput,
+    context: V1DecideContext,
+  ): Promise<V1DecideResult> {
     // 1) 主体：批准决定只能来自 HUMAN Web 会话，不能由 Agent 或自报身份完成。
     if (principal.kind !== 'HUMAN')
-      throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, 'HUMAN_SESSION_REQUIRED', undefined, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+        'HUMAN_SESSION_REQUIRED',
+        undefined,
+        403,
+      );
 
     const review = await this.reviews.findReview(reviewId);
-    if (!review) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REVIEW_NOT_FOUND', { reviewId }, 404);
+    if (!review)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'REVIEW_NOT_FOUND',
+        { reviewId },
+        404,
+      );
 
     // 2) 对象访问权：先满足当前成员与 KB READ，再判断槽位资格。
-    if (review.subject) await this.authorization.assertCanReadKnowledge(principal, review.subject.knowledgeBaseId);
+    if (review.subject)
+      await this.authorization.assertCanReadKnowledge(principal, review.subject.knowledgeBaseId);
 
     // 3) 幂等重放优先：已提交的同键请求直接返回原结果，不再受之后的 CLOSED、版本或槽位状态影响。
-    const requestDigest = requestDigestOf({ method: context.method, route: context.route, body: context.body });
+    const requestDigest = requestDigestOf({
+      method: context.method,
+      route: context.route,
+      body: context.body,
+    });
     const projectScopeKey = `project:${review.projectId}`;
     const principalScopeKey = `user:${principal.userId}`;
     const existing = await this.operations.findOperation({
@@ -410,7 +488,11 @@ export class V1ReviewService {
       key: context.idempotencyKey,
     });
     if (existing) {
-      assertReplayable(existing, { method: context.method, route: context.route, digest: requestDigest });
+      assertReplayable(existing, {
+        method: context.method,
+        route: context.route,
+        digest: requestDigest,
+      });
       return {
         review,
         decisionId: String(existing.resultRefs.decisionId ?? ''),
@@ -425,7 +507,10 @@ export class V1ReviewService {
     }
 
     // 4) 请求与状态校验。
-    if ((input.decision === 'CHANGES_REQUESTED' || input.decision === 'REJECT') && !input.comment?.trim())
+    if (
+      (input.decision === 'CHANGES_REQUESTED' || input.decision === 'REJECT') &&
+      !input.comment?.trim()
+    )
       throw new WorkmeshError(
         V1_ERROR_CODES.VALIDATION_FAILED,
         'REVIEW_COMMENT_REQUIRED',
@@ -435,7 +520,12 @@ export class V1ReviewService {
 
     const expectedVersion = requireExpectedVersion(input.expectedVersion);
     if (review.status !== 'OPEN')
-      throw new WorkmeshError(V1_ERROR_CODES.REVIEW_CLOSED, 'REVIEW_CLOSED', { reviewId, status: review.status }, 409);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.REVIEW_CLOSED,
+        'REVIEW_CLOSED',
+        { reviewId, status: review.status },
+        409,
+      );
     if (expectedVersion !== review.version)
       throw new WorkmeshError(
         V1_ERROR_CODES.VERSION_CONFLICT,
@@ -527,15 +617,37 @@ export class V1ReviewService {
    * 撤销批准：只有原决定人或当前准确槽位有权 HUMAN 可撤销，且每次撤销必须绑定父请求版本的
    * 一次性票据与幂等键。撤销追加新记录，不删除原决定，也不删除已有发布历史。
    */
-  async revoke(principal: Principal, decisionId: string, input: V1RevokeRequest, context: V1DecideContext): Promise<V1RevokeResultView> {
+  async revoke(
+    principal: Principal,
+    decisionId: string,
+    input: V1RevokeRequest,
+    context: V1DecideContext,
+  ): Promise<V1RevokeResultView> {
     if (principal.kind !== 'HUMAN')
-      throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, 'HUMAN_SESSION_REQUIRED', undefined, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+        'HUMAN_SESSION_REQUIRED',
+        undefined,
+        403,
+      );
     if (!context.webSessionId)
-      throw new WorkmeshError(V1_ERROR_CODES.HUMAN_SESSION_REQUIRED, 'HUMAN_SESSION_REQUIRED', undefined, 403);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+        'HUMAN_SESSION_REQUIRED',
+        undefined,
+        403,
+      );
 
     const decision = await this.reviews.findDecisionContext(decisionId);
-    if (!decision) throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REVIEW_DECISION_NOT_FOUND', { decisionId }, 404);
-    if (decision.knowledgeBaseId) await this.authorization.assertCanReadKnowledge(principal, decision.knowledgeBaseId);
+    if (!decision)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'REVIEW_DECISION_NOT_FOUND',
+        { decisionId },
+        404,
+      );
+    if (decision.knowledgeBaseId)
+      await this.authorization.assertCanReadKnowledge(principal, decision.knowledgeBaseId);
 
     const expectedVersion = requireExpectedVersion(input.expectedVersion);
     if (decision.decision !== 'APPROVE')
@@ -547,7 +659,11 @@ export class V1ReviewService {
       );
     const isOriginalDecider = decision.createdById === principal.userId;
     const hasRole = decision.slot.requiredRoleId
-      ? await this.authorization.hasBusinessRole(principal, decision.projectId, decision.slot.requiredRoleId)
+      ? await this.authorization.hasBusinessRole(
+          principal,
+          decision.projectId,
+          decision.slot.requiredRoleId,
+        )
       : false;
     const isAssignedUser = decision.slot.requiredUserId === principal.userId;
     if (!isOriginalDecider && !isAssignedUser && !hasRole)
@@ -561,7 +677,11 @@ export class V1ReviewService {
     const binding = this.bindingForRevoke(decision, input.reason, expectedVersion);
     const projectScopeKey = `project:${decision.projectId}`;
     const principalScopeKey = `user:${principal.userId}`;
-    const requestDigest = requestDigestOf({ method: context.method, route: context.route, body: context.body });
+    const requestDigest = requestDigestOf({
+      method: context.method,
+      route: context.route,
+      body: context.body,
+    });
 
     const existing = await this.operations.findOperation({
       projectScopeKey,
@@ -569,7 +689,11 @@ export class V1ReviewService {
       key: context.idempotencyKey,
     });
     if (existing) {
-      assertReplayable(existing, { method: context.method, route: context.route, digest: requestDigest });
+      assertReplayable(existing, {
+        method: context.method,
+        route: context.route,
+        digest: requestDigest,
+      });
       return {
         revocation: {
           id: String(existing.resultRefs.revocationId ?? ''),
@@ -587,7 +711,12 @@ export class V1ReviewService {
     // 已提交撤销的合法重试必须先返回原结果：撤销本身会把父请求置为 INVALIDATED 并推进版本，
     // 若先做状态/版本检查，同键重放会被误判为冲突。
     if (decision.revoked)
-      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_CONFLICT, 'DECISION_ALREADY_REVOKED', { decisionId }, 409);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_CONFLICT,
+        'DECISION_ALREADY_REVOKED',
+        { decisionId },
+        409,
+      );
     if (decision.reviewStatus !== 'APPROVED' && decision.reviewStatus !== 'OPEN')
       throw new WorkmeshError(
         V1_ERROR_CODES.REVIEW_CLOSED,
@@ -642,12 +771,20 @@ export class V1ReviewService {
   }
 
   /** 撤销的预览摘要：Web 必须先展示父请求准确版本与受影响范围，再取票据。 */
-  previewRevoke(decision: V1DecisionContext, reason: string, expectedVersion: number): { binding: ActionBinding; actionDigest: string } {
+  previewRevoke(
+    decision: V1DecisionContext,
+    reason: string,
+    expectedVersion: number,
+  ): { binding: ActionBinding; actionDigest: string } {
     const binding = this.bindingForRevoke(decision, reason, expectedVersion);
     return { binding, actionDigest: actionDigestOf(binding) };
   }
 
-  private bindingForRevoke(decision: V1DecisionContext, reason: string, expectedVersion: number): ActionBinding {
+  private bindingForRevoke(
+    decision: V1DecisionContext,
+    reason: string,
+    expectedVersion: number,
+  ): ActionBinding {
     return {
       action: REVIEW_REVOKE_ACTION,
       projectId: decision.projectId,
@@ -667,7 +804,10 @@ export class V1ReviewService {
   }
 
   /** 预览用摘要：Web 展示“批准并发布”前必须先取得它。 */
-  previewDigest(review: V1ReviewSnapshot, input: V1DecideInput): { binding: ActionBinding; actionDigest: string } {
+  previewDigest(
+    review: V1ReviewSnapshot,
+    input: V1DecideInput,
+  ): { binding: ActionBinding; actionDigest: string } {
     const binding = this.stripBinding(this.bindingFor(review, input));
     return { binding, actionDigest: actionDigestOf(binding) };
   }

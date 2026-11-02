@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, type PrismaClient as V1PrismaClient } from '../../../node_modules/.prisma/workmesh-v1-client';
+import {
+  Prisma,
+  type PrismaClient as V1PrismaClient,
+} from '../../../node_modules/.prisma/workmesh-v1-client';
 import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { searchExcerptOf } from './v1-knowledge-base-policy';
@@ -27,7 +30,11 @@ function isRetryable(error: unknown): boolean {
   const code = (error as { code?: string })?.code;
   if (code === 'P2034') return true;
   const message = String((error as Error)?.message ?? '');
-  return message.includes('40001') || message.includes('40P01') || message.includes('could not serialize');
+  return (
+    message.includes('40001') ||
+    message.includes('40P01') ||
+    message.includes('could not serialize')
+  );
 }
 
 function isUniqueViolation(error: unknown): boolean {
@@ -39,11 +46,21 @@ function cursorError(): WorkmeshError {
 }
 
 function knowledgeBaseNotFound(knowledgeBaseId: string): WorkmeshError {
-  return new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'KNOWLEDGE_BASE_NOT_FOUND', { knowledgeBaseId }, 404);
+  return new WorkmeshError(
+    V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+    'KNOWLEDGE_BASE_NOT_FOUND',
+    { knowledgeBaseId },
+    404,
+  );
 }
 
 function projectNotFound(projectId: string): WorkmeshError {
-  return new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'PROJECT_NOT_FOUND', { projectId }, 404);
+  return new WorkmeshError(
+    V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+    'PROJECT_NOT_FOUND',
+    { projectId },
+    404,
+  );
 }
 
 function keyConflict(projectId: string, key: string): WorkmeshError {
@@ -182,7 +199,13 @@ function decodeSearchCursor(cursor: string, knowledgeBaseId: string, q: string):
       kb?: unknown;
       q?: unknown;
     };
-    if (parsed.v !== 1 || parsed.k !== 'kb-search' || typeof parsed.i !== 'string' || parsed.kb !== knowledgeBaseId || parsed.q !== q)
+    if (
+      parsed.v !== 1 ||
+      parsed.k !== 'kb-search' ||
+      typeof parsed.i !== 'string' ||
+      parsed.kb !== knowledgeBaseId ||
+      parsed.q !== q
+    )
       throw cursorError();
     return parsed.i;
   } catch (error) {
@@ -217,7 +240,9 @@ export class V1KnowledgeBasePrismaRepository implements V1KnowledgeBaseRepositor
         async (tx) => {
           await this.lockProject(tx, input.projectId);
           const member = await tx.projectMember.findUnique({
-            where: { projectId_userId: { projectId: input.projectId, userId: input.creatorUserId } },
+            where: {
+              projectId_userId: { projectId: input.projectId, userId: input.creatorUserId },
+            },
             select: { role: true, revokedAt: true },
           });
           if (!member || member.revokedAt || (member.role !== 'OWNER' && member.role !== 'ADMIN'))
@@ -291,7 +316,11 @@ export class V1KnowledgeBasePrismaRepository implements V1KnowledgeBaseRepositor
     projectId: string,
     query: { limit: number; cursor: string | null; management: boolean; principalUserId: string },
   ): Promise<{ items: V1KnowledgeBaseView[]; nextCursor: string | null; hasMore: boolean }> {
-    const binding = { projectId, management: query.management, principalUserId: query.principalUserId };
+    const binding = {
+      projectId,
+      management: query.management,
+      principalUserId: query.principalUserId,
+    };
     const cursor = query.cursor ? decodeListCursor(query.cursor, binding) : null;
     const rows = await this.prisma.knowledgeBase.findMany({
       where: {
@@ -312,7 +341,8 @@ export class V1KnowledgeBasePrismaRepository implements V1KnowledgeBaseRepositor
     const page = rows.slice(0, query.limit);
     return {
       items: page.map(knowledgeBaseView),
-      nextCursor: rows.length > query.limit ? encodeListCursor(page[page.length - 1]!, binding) : null,
+      nextCursor:
+        rows.length > query.limit ? encodeListCursor(page[page.length - 1]!, binding) : null,
       hasMore: rows.length > query.limit,
     };
   }
@@ -530,11 +560,13 @@ export class V1KnowledgeBasePrismaRepository implements V1KnowledgeBaseRepositor
     hasMore: boolean;
     truncated: boolean;
   }> {
-    let afterId = input.cursor ? decodeSearchCursor(input.cursor, input.knowledgeBaseId, input.q) : null;
+    let afterId = input.cursor
+      ? decodeSearchCursor(input.cursor, input.knowledgeBaseId, input.q)
+      : null;
     let lastIncludedId: string | null = null;
     const items: V1KnowledgeBaseSearchItem[] = [];
     let scanned = 0;
-    let hasMore = false;
+    let hasMore: boolean;
     let truncated = false;
 
     for (;;) {
@@ -570,7 +602,9 @@ export class V1KnowledgeBasePrismaRepository implements V1KnowledgeBaseRepositor
       for (const row of page) {
         afterId = row.id;
         scanned += 1;
-        const revision = row.currentPublishedRevisionId ? revisionsById.get(row.currentPublishedRevisionId) : null;
+        const revision = row.currentPublishedRevisionId
+          ? revisionsById.get(row.currentPublishedRevisionId)
+          : null;
         if (!revision || revision.documentId !== row.id) continue;
         const excerpt = searchExcerptOf(revision.title, revision.bodyBytes, input.q);
         if (excerpt === null) continue;
@@ -618,7 +652,10 @@ export class V1KnowledgeBasePrismaRepository implements V1KnowledgeBaseRepositor
     });
   }
 
-  async findProjectRoles(projectId: string, roleIds: readonly string[]): Promise<V1KnowledgeProjectRoleRecord[]> {
+  async findProjectRoles(
+    projectId: string,
+    roleIds: readonly string[],
+  ): Promise<V1KnowledgeProjectRoleRecord[]> {
     if (roleIds.length === 0) return [];
     return this.prisma.projectRole.findMany({
       where: { projectId, id: { in: [...roleIds] } },
@@ -655,7 +692,9 @@ export class V1KnowledgeBasePrismaRepository implements V1KnowledgeBaseRepositor
   }
 
   private async lockProject(tx: V1TransactionClient, projectId: string): Promise<void> {
-    await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${projectId}::uuid FOR UPDATE`);
+    await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${projectId}::uuid FOR UPDATE`,
+    );
   }
 
   private async runWithRetry<T>(run: () => Promise<T>): Promise<T> {
@@ -665,7 +704,12 @@ export class V1KnowledgeBasePrismaRepository implements V1KnowledgeBaseRepositor
         return await run();
       } catch (error) {
         if (isUniqueViolation(error))
-          throw new WorkmeshError(V1_ERROR_CODES.IDEMPOTENCY_CONFLICT, 'IDEMPOTENCY_CONFLICT', undefined, 409);
+          throw new WorkmeshError(
+            V1_ERROR_CODES.IDEMPOTENCY_CONFLICT,
+            'IDEMPOTENCY_CONFLICT',
+            undefined,
+            409,
+          );
         if (!isRetryable(error) || attempt >= MAX_RETRIES) throw error;
         await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt] ?? 100));
         attempt += 1;

@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { PrismaClient as V1PrismaClient } from '../../../node_modules/.prisma/workmesh-v1-client';
-import { V1_BOARD_REPOSITORY, type V1BoardCard, type V1BoardRepository } from './v1-board.repository';
+import { type V1BoardCard, type V1BoardRepository } from './v1-board.repository';
 
 @Injectable()
 export class V1BoardPrismaRepository implements V1BoardRepository {

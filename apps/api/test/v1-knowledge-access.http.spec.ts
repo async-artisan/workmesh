@@ -3,7 +3,12 @@ import { Test } from '@nestjs/testing';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { V1_ERROR_CODES, WorkmeshError, type ActionBinding, type Principal } from '@workmesh/shared';
+import {
+  V1_ERROR_CODES,
+  WorkmeshError,
+  type ActionBinding,
+  type Principal,
+} from '@workmesh/shared';
 import { HttpExceptionFilter } from '../src/common/http-exception.filter';
 import { ResponseInterceptor } from '../src/common/response.interceptor';
 import { StrictJsonInterceptor } from '../src/common/strict-json.interceptor';
@@ -50,7 +55,9 @@ class TestV1AuthGuard implements CanActivate {
     const header = req.headers['x-test-principal'];
     if (typeof header !== 'string')
       throw new WorkmeshError(V1_ERROR_CODES.AUTH_REQUIRED, 'AUTH_REQUIRED', undefined, 401);
-    req.v1Principal = JSON.parse(Buffer.from(header, 'base64').toString('utf8')) as V1Request['v1Principal'];
+    req.v1Principal = JSON.parse(
+      Buffer.from(header, 'base64').toString('utf8'),
+    ) as V1Request['v1Principal'];
     return true;
   }
 }
@@ -127,8 +134,19 @@ type StoredGrant = {
   revokedAt: Date | null;
 };
 
-type StoredDocument = { id: string; knowledgeBaseId: string; currentPublishedRevisionId: string | null; archivedAt: Date | null };
-type StoredRevision = { id: string; documentId: string; title: string; bodyBytes: Uint8Array; sha256: string };
+type StoredDocument = {
+  id: string;
+  knowledgeBaseId: string;
+  currentPublishedRevisionId: string | null;
+  archivedAt: Date | null;
+};
+type StoredRevision = {
+  id: string;
+  documentId: string;
+  title: string;
+  bodyBytes: Uint8Array;
+  sha256: string;
+};
 
 /** 共享内存世界：授权仓储与知识仓储各自按接口要求投影同一份数据。 */
 class World {
@@ -166,23 +184,70 @@ class World {
     this.clock = new Date('2026-01-01T00:00:00.000Z');
 
     this.projects.set(PROJECT_ID, { id: PROJECT_ID, version: 1, archivedAt: null });
-    this.members.set(`${PROJECT_ID}:${ALICE}`, { projectId: PROJECT_ID, userId: ALICE, role: 'OWNER', version: 1, revokedAt: null });
-    this.members.set(`${PROJECT_ID}:${BOB}`, { projectId: PROJECT_ID, userId: BOB, role: 'MEMBER', version: 1, revokedAt: null });
-    this.members.set(`${PROJECT_ID}:${CAROL}`, { projectId: PROJECT_ID, userId: CAROL, role: 'MEMBER', version: 1, revokedAt: null });
+    this.members.set(`${PROJECT_ID}:${ALICE}`, {
+      projectId: PROJECT_ID,
+      userId: ALICE,
+      role: 'OWNER',
+      version: 1,
+      revokedAt: null,
+    });
+    this.members.set(`${PROJECT_ID}:${BOB}`, {
+      projectId: PROJECT_ID,
+      userId: BOB,
+      role: 'MEMBER',
+      version: 1,
+      revokedAt: null,
+    });
+    this.members.set(`${PROJECT_ID}:${CAROL}`, {
+      projectId: PROJECT_ID,
+      userId: CAROL,
+      role: 'MEMBER',
+      version: 1,
+      revokedAt: null,
+    });
     this.roles.set(ROLE_PRODUCT, { id: ROLE_PRODUCT, projectId: PROJECT_ID, isActive: true });
     this.roles.set(ROLE_REVIEWER, { id: ROLE_REVIEWER, projectId: PROJECT_ID, isActive: true });
     this.roles.set(ROLE_INACTIVE, { id: ROLE_INACTIVE, projectId: PROJECT_ID, isActive: false });
     this.assignments.set(`${PROJECT_ID}:${ALICE}`, [
-      { id: 'as-alice', projectId: PROJECT_ID, userId: ALICE, roleId: ROLE_PRODUCT, version: 1, revokedAt: null },
+      {
+        id: 'as-alice',
+        projectId: PROJECT_ID,
+        userId: ALICE,
+        roleId: ROLE_PRODUCT,
+        version: 1,
+        revokedAt: null,
+      },
     ]);
     this.assignments.set(`${PROJECT_ID}:${BOB}`, [
-      { id: 'as-bob', projectId: PROJECT_ID, userId: BOB, roleId: ROLE_REVIEWER, version: 1, revokedAt: null },
+      {
+        id: 'as-bob',
+        projectId: PROJECT_ID,
+        userId: BOB,
+        roleId: ROLE_REVIEWER,
+        version: 1,
+        revokedAt: null,
+      },
     ]);
     this.assignments.set(`${PROJECT_ID}:${CAROL}`, []);
 
-    this.seedKnowledgeBase({ id: 'kb-project', key: 'project-knowledge', name: '项目知识', visibility: 'PROJECT' });
-    this.seedKnowledgeBase({ id: 'kb-restricted', key: 'restricted', name: '受限知识', visibility: 'RESTRICTED' });
-    this.seedKnowledgeBase({ id: 'kb-private', key: 'private', name: '私库', visibility: 'RESTRICTED' });
+    this.seedKnowledgeBase({
+      id: 'kb-project',
+      key: 'project-knowledge',
+      name: '项目知识',
+      visibility: 'PROJECT',
+    });
+    this.seedKnowledgeBase({
+      id: 'kb-restricted',
+      key: 'restricted',
+      name: '受限知识',
+      visibility: 'RESTRICTED',
+    });
+    this.seedKnowledgeBase({
+      id: 'kb-private',
+      key: 'private',
+      name: '私库',
+      visibility: 'RESTRICTED',
+    });
     this.seedGrant({
       id: 'g-owner',
       knowledgeBaseId: 'kb-project',
@@ -209,9 +274,24 @@ class World {
       permissions: ['READ', 'PROPOSE'],
     });
 
-    this.documents.set('doc-published', { id: 'doc-published', knowledgeBaseId: 'kb-project', currentPublishedRevisionId: 'rev-published', archivedAt: null });
-    this.documents.set('doc-candidate', { id: 'doc-candidate', knowledgeBaseId: 'kb-project', currentPublishedRevisionId: null, archivedAt: null });
-    this.documents.set('doc-other', { id: 'doc-other', knowledgeBaseId: 'kb-private', currentPublishedRevisionId: 'rev-other', archivedAt: null });
+    this.documents.set('doc-published', {
+      id: 'doc-published',
+      knowledgeBaseId: 'kb-project',
+      currentPublishedRevisionId: 'rev-published',
+      archivedAt: null,
+    });
+    this.documents.set('doc-candidate', {
+      id: 'doc-candidate',
+      knowledgeBaseId: 'kb-project',
+      currentPublishedRevisionId: null,
+      archivedAt: null,
+    });
+    this.documents.set('doc-other', {
+      id: 'doc-other',
+      knowledgeBaseId: 'kb-private',
+      currentPublishedRevisionId: 'rev-other',
+      archivedAt: null,
+    });
     this.revisions.set('rev-published', {
       id: 'rev-published',
       documentId: 'doc-published',
@@ -235,7 +315,12 @@ class World {
     });
   }
 
-  seedKnowledgeBase(input: { id: string; key: string; name: string; visibility: 'PROJECT' | 'RESTRICTED' }): void {
+  seedKnowledgeBase(input: {
+    id: string;
+    key: string;
+    name: string;
+    visibility: 'PROJECT' | 'RESTRICTED';
+  }): void {
     this.knowledgeBases.set(input.id, {
       id: input.id,
       projectId: PROJECT_ID,
@@ -277,7 +362,10 @@ class World {
   grantRows(knowledgeBaseId: string): StoredGrant[] {
     return [...this.grants.values()]
       .filter((grant) => grant.knowledgeBaseId === knowledgeBaseId)
-      .sort((left, right) => left.grantedAt.getTime() - right.grantedAt.getTime() || left.id.localeCompare(right.id));
+      .sort(
+        (left, right) =>
+          left.grantedAt.getTime() - right.grantedAt.getTime() || left.id.localeCompare(right.id),
+      );
   }
 
   nextClock(): Date {
@@ -335,7 +423,12 @@ class KnowledgeRepo implements V1KnowledgeBaseRepository {
       (row) => row.projectId === input.projectId && row.key === input.key,
     );
     if (duplicate)
-      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_CONFLICT, 'KNOWLEDGE_BASE_KEY_CONFLICT', { key: input.key }, 409);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_CONFLICT,
+        'KNOWLEDGE_BASE_KEY_CONFLICT',
+        { key: input.key },
+        409,
+      );
 
     const id = this.world.nextId('kb');
     const row: StoredKnowledgeBase = {
@@ -364,7 +457,11 @@ class KnowledgeRepo implements V1KnowledgeBaseRepository {
       grantedAt: input.now,
       revokedAt: null,
     });
-    this.world.audits.push({ action: 'KNOWLEDGE_BASE_CREATE', targetId: id, details: { key: input.key } });
+    this.world.audits.push({
+      action: 'KNOWLEDGE_BASE_CREATE',
+      targetId: id,
+      details: { key: input.key },
+    });
     const view = this.view(row);
     this.world.operations.set(
       `${input.operation.projectScopeKey}|${input.operation.principalScopeKey}|${input.operation.key}`,
@@ -389,13 +486,20 @@ class KnowledgeRepo implements V1KnowledgeBaseRepository {
   ): Promise<{ items: V1KnowledgeBaseView[]; nextCursor: string | null; hasMore: boolean }> {
     const rows = [...this.world.knowledgeBases.values()]
       .filter((row) => row.projectId === projectId)
-      .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id));
-    const start = query.cursor ? Number(Buffer.from(query.cursor, 'base64url').toString('utf8')) : 0;
+      .sort(
+        (left, right) =>
+          left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id),
+      );
+    const start = query.cursor
+      ? Number(Buffer.from(query.cursor, 'base64url').toString('utf8'))
+      : 0;
     const page = rows.slice(start, start + query.limit);
     const hasMore = start + query.limit < rows.length;
     return {
       items: page.map((row) => this.view(row)),
-      nextCursor: hasMore ? Buffer.from(String(start + query.limit), 'utf8').toString('base64url') : null,
+      nextCursor: hasMore
+        ? Buffer.from(String(start + query.limit), 'utf8').toString('base64url')
+        : null,
       hasMore,
     };
   }
@@ -425,7 +529,12 @@ class KnowledgeRepo implements V1KnowledgeBaseRepository {
   }): Promise<V1KnowledgeBaseAccessView> {
     const row = this.world.knowledgeBases.get(input.knowledgeBaseId);
     if (!row)
-      throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'KNOWLEDGE_BASE_NOT_FOUND', { knowledgeBaseId: input.knowledgeBaseId }, 404);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'KNOWLEDGE_BASE_NOT_FOUND',
+        { knowledgeBaseId: input.knowledgeBaseId },
+        404,
+      );
     if (row.version !== input.expectedVersion || row.authzVersion !== input.expectedAuthzVersion)
       throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'VERSION_CONFLICT', {}, 409);
 
@@ -458,7 +567,11 @@ class KnowledgeRepo implements V1KnowledgeBaseRepository {
     row.authzVersion += 1;
 
     const ticket = this.world.tickets.get(input.ticket.id);
-    if (ticket && ticket.secretHash === input.ticket.secretHash && ticket.webSessionId === input.ticket.webSessionId) {
+    if (
+      ticket &&
+      ticket.secretHash === input.ticket.secretHash &&
+      ticket.webSessionId === input.ticket.webSessionId
+    ) {
       ticket.consumedAt = input.now;
       ticket.consumedOperationId = input.operation.id;
     }
@@ -476,7 +589,11 @@ class KnowledgeRepo implements V1KnowledgeBaseRepository {
     this.world.audits.push({
       action: 'KB_ACCESS_REPLACE',
       targetId: row.id,
-      details: { visibility: input.visibility, reason: input.reason, actorUserId: input.actorUserId },
+      details: {
+        visibility: input.visibility,
+        reason: input.reason,
+        actorUserId: input.actorUserId,
+      },
     });
     this.world.operations.set(
       `${input.operation.projectScopeKey}|${input.operation.principalScopeKey}|${input.operation.key}`,
@@ -495,7 +612,12 @@ class KnowledgeRepo implements V1KnowledgeBaseRepository {
     return view;
   }
 
-  async searchKnowledgeBase(input: { knowledgeBaseId: string; q: string; limit: number; cursor: string | null }): Promise<{
+  async searchKnowledgeBase(input: {
+    knowledgeBaseId: string;
+    q: string;
+    limit: number;
+    cursor: string | null;
+  }): Promise<{
     items: V1KnowledgeBaseSearchItem[];
     nextCursor: string | null;
     hasMore: boolean;
@@ -515,7 +637,7 @@ class KnowledgeRepo implements V1KnowledgeBaseRepository {
       const revision = this.world.revisions.get(document.currentPublishedRevisionId!);
       if (!revision || revision.documentId !== document.id) continue;
       const body = new TextDecoder('utf-8', { fatal: true });
-      let text: string | null = null;
+      let text: string | null;
       try {
         text = body.decode(revision.bodyBytes);
       } catch {
@@ -542,12 +664,16 @@ class KnowledgeRepo implements V1KnowledgeBaseRepository {
         });
       }
     }
-    const start = input.cursor ? Number(Buffer.from(input.cursor, 'base64url').toString('utf8')) : 0;
+    const start = input.cursor
+      ? Number(Buffer.from(input.cursor, 'base64url').toString('utf8'))
+      : 0;
     const page = matches.slice(start, start + input.limit);
     const hasMore = start + input.limit < matches.length;
     return {
       items: page,
-      nextCursor: hasMore ? Buffer.from(String(start + input.limit), 'utf8').toString('base64url') : null,
+      nextCursor: hasMore
+        ? Buffer.from(String(start + input.limit), 'utf8').toString('base64url')
+        : null,
       hasMore,
       truncated: false,
     };
@@ -556,11 +682,21 @@ class KnowledgeRepo implements V1KnowledgeBaseRepository {
   async findMember(projectId: string, userId: string): Promise<V1KnowledgeMemberRecord | null> {
     const member = this.world.members.get(`${projectId}:${userId}`);
     if (!member) return null;
-    return { projectId: member.projectId, userId: member.userId, role: member.role, revokedAt: member.revokedAt };
+    return {
+      projectId: member.projectId,
+      userId: member.userId,
+      role: member.role,
+      revokedAt: member.revokedAt,
+    };
   }
 
-  async findProjectRoles(projectId: string, roleIds: readonly string[]): Promise<V1KnowledgeProjectRoleRecord[]> {
-    return [...this.world.roles.values()].filter((role) => role.projectId === projectId && roleIds.includes(role.id));
+  async findProjectRoles(
+    projectId: string,
+    roleIds: readonly string[],
+  ): Promise<V1KnowledgeProjectRoleRecord[]> {
+    return [...this.world.roles.values()].filter(
+      (role) => role.projectId === projectId && roleIds.includes(role.id),
+    );
   }
 }
 
@@ -575,12 +711,23 @@ class AuthzRepo implements V1AuthorizationRepository {
     return this.world.members.get(`${projectId}:${userId}`) ?? null;
   }
 
-  async findActiveRoleAssignments(projectId: string, userId: string): Promise<V1RoleAssignmentRecord[]> {
+  async findActiveRoleAssignments(
+    projectId: string,
+    userId: string,
+  ): Promise<V1RoleAssignmentRecord[]> {
     return this.world.assignments.get(`${projectId}:${userId}`) ?? [];
   }
 
-  async findRoleAssignment(projectId: string, userId: string, roleId: string): Promise<V1RoleAssignmentRecord | null> {
-    return (this.world.assignments.get(`${projectId}:${userId}`) ?? []).find((item) => item.roleId === roleId) ?? null;
+  async findRoleAssignment(
+    projectId: string,
+    userId: string,
+    roleId: string,
+  ): Promise<V1RoleAssignmentRecord | null> {
+    return (
+      (this.world.assignments.get(`${projectId}:${userId}`) ?? []).find(
+        (item) => item.roleId === roleId,
+      ) ?? null
+    );
   }
 
   async findKnowledgeBase(knowledgeBaseId: string): Promise<V1KnowledgeBaseRecord | null> {
@@ -616,7 +763,13 @@ class ConfirmationRepo implements V1ConfirmationRepository {
 
   async createTicket(input: V1TicketCreateInput): Promise<V1TicketRecord> {
     const { now, ...rest } = input;
-    const ticket: V1TicketRecord = { ...rest, createdAt: now, consumedAt: null, consumedOperationId: null, invalidatedAt: null };
+    const ticket: V1TicketRecord = {
+      ...rest,
+      createdAt: now,
+      consumedAt: null,
+      consumedOperationId: null,
+      invalidatedAt: null,
+    };
     this.world.tickets.set(ticket.id, ticket);
     return ticket;
   }
@@ -640,12 +793,24 @@ class ConfirmationRepo implements V1ConfirmationRepository {
 class IdempotencyRepo implements V1IdempotencyRepository {
   constructor(private readonly world: World) {}
 
-  async findOperation(input: { projectScopeKey: string; principalScopeKey: string; key: string }): Promise<V1OperationRecord | null> {
-    return this.world.operations.get(`${input.projectScopeKey}|${input.principalScopeKey}|${input.key}`) ?? null;
+  async findOperation(input: {
+    projectScopeKey: string;
+    principalScopeKey: string;
+    key: string;
+  }): Promise<V1OperationRecord | null> {
+    return (
+      this.world.operations.get(
+        `${input.projectScopeKey}|${input.principalScopeKey}|${input.key}`,
+      ) ?? null
+    );
   }
 }
 
-function seedAccessTicket(world: World, binding: ActionBinding, overrides: Partial<V1TicketRecord> = {}): void {
+function seedAccessTicket(
+  world: World,
+  binding: ActionBinding,
+  overrides: Partial<V1TicketRecord> = {},
+): void {
   world.tickets.set(TICKET_ID, {
     id: TICKET_ID,
     secretHash: hashTicketSecret(TICKET_SECRET),
@@ -669,7 +834,13 @@ function seedAccessTicket(world: World, binding: ActionBinding, overrides: Parti
   });
 }
 
-function accessBinding(overrides: { expectedVersion?: number; publicationApproverUserId?: string; grants?: unknown[] } = {}): ActionBinding {
+function accessBinding(
+  overrides: {
+    expectedVersion?: number;
+    publicationApproverUserId?: string;
+    grants?: unknown[];
+  } = {},
+): ActionBinding {
   return {
     action: 'KB_ACCESS_REPLACE',
     projectId: PROJECT_ID,
@@ -697,7 +868,9 @@ function accessBody(overrides: Record<string, unknown> = {}): Record<string, unk
     visibility: 'RESTRICTED',
     publicationApproverUserId: ALICE,
     publicationApproverRoleId: ROLE_PRODUCT,
-    grants: [{ subjectKind: 'USER', subjectUserId: BOB, subjectRoleId: null, permissions: ['READ'] }],
+    grants: [
+      { subjectKind: 'USER', subjectUserId: BOB, subjectRoleId: null, permissions: ['READ'] },
+    ],
     reason: '调整可见范围',
     confirmation: { ticketId: TICKET_ID, ticketSecret: TICKET_SECRET },
     ...overrides,
@@ -711,7 +884,12 @@ describe('v1 knowledge base & ACL HTTP contract (real Nest bootstrap)', () => {
   const authzService = new V1AuthorizationService(authzRepo);
   const confirmationRepo = new ConfirmationRepo(world);
   const idempotencyRepo = new IdempotencyRepo(world);
-  const knowledgeService = new V1KnowledgeBaseService(knowledgeRepo, authzService, confirmationRepo, idempotencyRepo);
+  const knowledgeService = new V1KnowledgeBaseService(
+    knowledgeRepo,
+    authzService,
+    confirmationRepo,
+    idempotencyRepo,
+  );
 
   let server: unknown;
   let appRef: { close: () => Promise<void> };
@@ -733,16 +911,24 @@ describe('v1 knowledge base & ACL HTTP contract (real Nest bootstrap)', () => {
 
     const app = moduleRef.createNestApplication({ rawBody: true });
     app.setGlobalPrefix('api');
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+    );
     app.useGlobalFilters(new HttpExceptionFilter());
     app.useGlobalInterceptors(new ResponseInterceptor(), new StrictJsonInterceptor());
-    app.use((req: { requestId?: string }, res: { setHeader: (name: string, value: string) => void }, next: () => void) => {
-      const id = randomUUID();
-      req.requestId = id;
-      res.setHeader('X-Request-Id', id);
-      res.setHeader('Cache-Control', 'no-store');
-      next();
-    });
+    app.use(
+      (
+        req: { requestId?: string },
+        res: { setHeader: (name: string, value: string) => void },
+        next: () => void,
+      ) => {
+        const id = randomUUID();
+        req.requestId = id;
+        res.setHeader('X-Request-Id', id);
+        res.setHeader('Cache-Control', 'no-store');
+        next();
+      },
+    );
     await app.init();
     server = app.getHttpServer();
     appRef = app as unknown as { close: () => Promise<void> };
@@ -832,7 +1018,10 @@ describe('v1 knowledge base & ACL HTTP contract (real Nest bootstrap)', () => {
       .get(`/api/v1/projects/${PROJECT_ID}/knowledge-bases`)
       .set('x-test-principal', encodePrincipal(bob));
     expect(bobRes.status).toBe(200);
-    expect(bobRes.body.data.items.map((item: V1KnowledgeBaseView) => item.id)).toEqual(['kb-project', 'kb-restricted']);
+    expect(bobRes.body.data.items.map((item: V1KnowledgeBaseView) => item.id)).toEqual([
+      'kb-project',
+      'kb-restricted',
+    ]);
     expect(bobRes.body.data.hasMore).toBe(false);
     expect(bobRes.body.data.nextCursor).toBeNull();
 
@@ -840,7 +1029,9 @@ describe('v1 knowledge base & ACL HTTP contract (real Nest bootstrap)', () => {
       .get(`/api/v1/projects/${PROJECT_ID}/knowledge-bases`)
       .set('x-test-principal', encodePrincipal(carol));
     expect(carolRes.status).toBe(200);
-    expect(carolRes.body.data.items.map((item: V1KnowledgeBaseView) => item.id)).toEqual(['kb-project']);
+    expect(carolRes.body.data.items.map((item: V1KnowledgeBaseView) => item.id)).toEqual([
+      'kb-project',
+    ]);
 
     const aliceRes = await request(server)
       .get(`/api/v1/projects/${PROJECT_ID}/knowledge-bases`)
@@ -890,7 +1081,10 @@ describe('v1 knowledge base & ACL HTTP contract (real Nest bootstrap)', () => {
       publicationApproverUserId: ALICE,
       publicationApproverRoleId: null,
     });
-    expect(ownerRes.body.data.grants.map((grant: V1KnowledgeBaseGrantView) => grant.id)).toEqual(['g-owner', 'g-old-revoked']);
+    expect(ownerRes.body.data.grants.map((grant: V1KnowledgeBaseGrantView) => grant.id)).toEqual([
+      'g-owner',
+      'g-old-revoked',
+    ]);
     expect(ownerRes.body.data.grants[1].revokedAt).not.toBeNull();
   });
 
@@ -947,16 +1141,57 @@ describe('v1 knowledge base & ACL HTTP contract (real Nest bootstrap)', () => {
 
   it('PUT ACL：USER 主体携带 role、重复主体、重复权限等形状 → 422 INVALID_GRANT', async () => {
     const cases: Array<Record<string, unknown>> = [
-      { grants: [{ subjectKind: 'USER', subjectUserId: BOB, subjectRoleId: ROLE_PRODUCT, permissions: ['READ'] }] },
-      { grants: [{ subjectKind: 'ROLE', subjectUserId: BOB, subjectRoleId: ROLE_PRODUCT, permissions: ['READ'] }] },
+      {
+        grants: [
+          {
+            subjectKind: 'USER',
+            subjectUserId: BOB,
+            subjectRoleId: ROLE_PRODUCT,
+            permissions: ['READ'],
+          },
+        ],
+      },
+      {
+        grants: [
+          {
+            subjectKind: 'ROLE',
+            subjectUserId: BOB,
+            subjectRoleId: ROLE_PRODUCT,
+            permissions: ['READ'],
+          },
+        ],
+      },
       {
         grants: [
           { subjectKind: 'USER', subjectUserId: BOB, subjectRoleId: null, permissions: ['READ'] },
-          { subjectKind: 'USER', subjectUserId: BOB, subjectRoleId: null, permissions: ['PROPOSE'] },
+          {
+            subjectKind: 'USER',
+            subjectUserId: BOB,
+            subjectRoleId: null,
+            permissions: ['PROPOSE'],
+          },
         ],
       },
-      { grants: [{ subjectKind: 'USER', subjectUserId: BOB, subjectRoleId: null, permissions: ['READ', 'READ'] }] },
-      { grants: [{ subjectKind: 'ROLE', subjectUserId: null, subjectRoleId: ROLE_INACTIVE, permissions: ['READ'] }] },
+      {
+        grants: [
+          {
+            subjectKind: 'USER',
+            subjectUserId: BOB,
+            subjectRoleId: null,
+            permissions: ['READ', 'READ'],
+          },
+        ],
+      },
+      {
+        grants: [
+          {
+            subjectKind: 'ROLE',
+            subjectUserId: null,
+            subjectRoleId: ROLE_INACTIVE,
+            permissions: ['READ'],
+          },
+        ],
+      },
       { publicationApproverUserId: CAROL.replace('cccccccc', 'dddddddd') },
     ];
     for (const body of cases) {
@@ -972,8 +1207,14 @@ describe('v1 knowledge base & ACL HTTP contract (real Nest bootstrap)', () => {
 
   it('PUT ACL：DTO 层拒绝空权限与未知权限 → 400', async () => {
     const cases: Array<Record<string, unknown>> = [
-      { grants: [{ subjectKind: 'USER', subjectUserId: BOB, subjectRoleId: null, permissions: [] }] },
-      { grants: [{ subjectKind: 'USER', subjectUserId: BOB, subjectRoleId: null, permissions: ['WRITE'] }] },
+      {
+        grants: [{ subjectKind: 'USER', subjectUserId: BOB, subjectRoleId: null, permissions: [] }],
+      },
+      {
+        grants: [
+          { subjectKind: 'USER', subjectUserId: BOB, subjectRoleId: null, permissions: ['WRITE'] },
+        ],
+      },
     ];
     for (const body of cases) {
       const res = await request(server)
@@ -1001,13 +1242,23 @@ describe('v1 knowledge base & ACL HTTP contract (real Nest bootstrap)', () => {
       publicationApproverUserId: ALICE,
       publicationApproverRoleId: ROLE_PRODUCT,
     });
-    const oldGrant = res.body.data.grants.find((grant: V1KnowledgeBaseGrantView) => grant.id === 'g-bob');
+    const oldGrant = res.body.data.grants.find(
+      (grant: V1KnowledgeBaseGrantView) => grant.id === 'g-bob',
+    );
     expect(oldGrant.revokedAt).not.toBeNull();
-    const active = res.body.data.grants.filter((grant: V1KnowledgeBaseGrantView) => grant.revokedAt === null);
+    const active = res.body.data.grants.filter(
+      (grant: V1KnowledgeBaseGrantView) => grant.revokedAt === null,
+    );
     expect(active).toHaveLength(1);
-    expect(active[0]).toMatchObject({ subjectKind: 'USER', subjectUserId: BOB, permissions: ['READ'] });
+    expect(active[0]).toMatchObject({
+      subjectKind: 'USER',
+      subjectUserId: BOB,
+      permissions: ['READ'],
+    });
     expect(world.audits.some((audit) => audit.action === 'KB_ACCESS_REPLACE')).toBe(true);
-    expect(world.operations.has(`project:${PROJECT_ID}|user:${ALICE}|${IDEMPOTENCY_KEY}`)).toBe(true);
+    expect(world.operations.has(`project:${PROJECT_ID}|user:${ALICE}|${IDEMPOTENCY_KEY}`)).toBe(
+      true,
+    );
     expect(world.tickets.get(TICKET_ID)?.consumedAt).not.toBeNull();
   });
 
@@ -1016,7 +1267,9 @@ describe('v1 knowledge base & ACL HTTP contract (real Nest bootstrap)', () => {
       .get('/api/v1/knowledge-bases/kb-project/search?q=release')
       .set('x-test-principal', encodePrincipal(bob));
     expect(published.status).toBe(200);
-    expect(published.body.data.items.map((item: V1KnowledgeBaseSearchItem) => item.documentId)).toEqual(['doc-published']);
+    expect(
+      published.body.data.items.map((item: V1KnowledgeBaseSearchItem) => item.documentId),
+    ).toEqual(['doc-published']);
     expect(published.body.data.items[0].title).toBe('Release Notes');
     expect(published.body.data.items[0].sha256).toBe('a'.repeat(64));
     expect(published.body.data.items[0].excerpt).toContain('release');
@@ -1053,14 +1306,22 @@ describe('v1 knowledge base & ACL HTTP contract (real Nest bootstrap)', () => {
       .get('/api/v1/knowledge-bases/kb-project/search?q=release&limit=1')
       .set('x-test-principal', encodePrincipal(bob));
     expect(first.status).toBe(200);
-    expect(first.body.data.items.map((item: V1KnowledgeBaseSearchItem) => item.documentId)).toEqual(['doc-published']);
+    expect(first.body.data.items.map((item: V1KnowledgeBaseSearchItem) => item.documentId)).toEqual(
+      ['doc-published'],
+    );
     expect(first.body.data.hasMore).toBe(true);
 
     const second = await request(server)
-      .get(`/api/v1/knowledge-bases/kb-project/search?q=release&limit=1&cursor=${encodeURIComponent(first.body.data.nextCursor)}`)
+      .get(
+        `/api/v1/knowledge-bases/kb-project/search?q=release&limit=1&cursor=${encodeURIComponent(first.body.data.nextCursor)}`,
+      )
       .set('x-test-principal', encodePrincipal(bob));
     expect(second.status).toBe(200);
-    expect(second.body.data.items.map((item: V1KnowledgeBaseSearchItem) => item.documentId)).toEqual(['doc-published-2']);
-    expect(second.body.data.items.map((item: V1KnowledgeBaseSearchItem) => item.revisionId)).not.toContain('rev-candidate');
+    expect(
+      second.body.data.items.map((item: V1KnowledgeBaseSearchItem) => item.documentId),
+    ).toEqual(['doc-published-2']);
+    expect(
+      second.body.data.items.map((item: V1KnowledgeBaseSearchItem) => item.revisionId),
+    ).not.toContain('rev-candidate');
   });
 });
