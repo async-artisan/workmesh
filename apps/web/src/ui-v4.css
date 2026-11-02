@@ -1,0 +1,870 @@
+/* ============================================================
+   WorkMesh UI v4 — 亮色指挥台
+   保留 v3 的结构（任务头/频谱/读数环/右栏/扫描），把表面改为亮色。
+   在 ui-v3.css 之后加载。
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  --bg-app: #f3f6fb;
+  --bg-nav: rgba(255, 255, 255, 0.92);
+  --bg-panel: #ffffff;
+  --surface: #ffffff;
+  --surface-hover: #f1f5f9;
+
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #7b8aa0;
+
+  --accent: #0891b2;
+  --accent-hover: #0e7490;
+  --accent-soft: rgba(8, 145, 178, 0.08);
+  --accent-border: rgba(8, 145, 178, 0.28);
+
+  --success: #059669;
+  --success-soft: rgba(5, 150, 105, 0.08);
+  --success-border: rgba(5, 150, 105, 0.24);
+  --warning: #d97706;
+  --warning-soft: rgba(217, 119, 6, 0.08);
+  --warning-border: rgba(217, 119, 6, 0.26);
+  --danger: #e11d48;
+  --danger-soft: rgba(225, 29, 72, 0.07);
+  --danger-border: rgba(225, 29, 72, 0.24);
+
+  --shadow-sm:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 24px rgba(15, 23, 42, 0.04);
+  --shadow-md:
+    0 0 0 1px rgba(8, 145, 178, 0.1),
+    0 18px 50px rgba(15, 23, 42, 0.09);
+
+  --radius-sm: 7px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+html,
+body {
+  background-color: #f3f6fb;
+}
+
+body {
+  color: var(--text-primary);
+  background-image:
+    radial-gradient(1000px 520px at 10% -12%, rgba(8, 145, 178, 0.07), transparent 62%),
+    radial-gradient(900px 500px at 100% 0%, rgba(37, 99, 235, 0.06), transparent 58%),
+    linear-gradient(rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.035) 1px, transparent 1px);
+  background-size:
+    auto,
+    auto,
+    32px 32px,
+    32px 32px;
+  background-attachment: fixed;
+}
+
+::selection {
+  background: rgba(8, 145, 178, 0.2);
+  color: #082f49;
+}
+
+*::-webkit-scrollbar-track {
+  background: #eef3f9;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-color: #eef3f9;
+  background: #cbd5e1;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ---------- 顶栏 / 侧栏 ---------- */
+.navbar {
+  background: var(--bg-nav);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
+}
+
+.logo {
+  color: #0f172a;
+}
+
+.logo-mark {
+  background: linear-gradient(135deg, #06b6d4, #2563eb);
+  box-shadow:
+    0 0 0 1px rgba(8, 145, 178, 0.18),
+    0 6px 18px rgba(8, 145, 178, 0.22);
+}
+
+.nav-bell,
+.user-profile {
+  border-color: var(--border);
+  background: #ffffff;
+  color: var(--text-secondary);
+}
+
+.nav-bell:hover,
+.user-profile:hover {
+  border-color: var(--accent-border);
+  background: #f1f9fc;
+  color: var(--text-primary);
+  box-shadow: 0 0 0 3px rgba(8, 145, 178, 0.06);
+}
+
+.nav-bell-count {
+  background: linear-gradient(135deg, #e11d48, #fb7185);
+  box-shadow: 0 3px 10px rgba(225, 29, 72, 0.28);
+}
+
+.nav-console {
+  color: #7b8aa0;
+}
+
+.console-clock {
+  border-left-color: var(--border);
+  color: #0369a1;
+}
+
+.console-dot {
+  background: #d97706;
+  box-shadow: 0 0 8px rgba(217, 119, 6, 0.4);
+}
+
+.console-dot.ready {
+  background: #059669;
+  box-shadow: 0 0 8px rgba(5, 150, 105, 0.4);
+}
+
+.console-dot.offline {
+  background: #e11d48;
+  box-shadow: 0 0 8px rgba(225, 29, 72, 0.4);
+}
+
+.sidebar {
+  background: linear-gradient(180deg, #fbfdff 0%, #f5f8fc 100%);
+  border-right: 1px solid var(--border);
+  box-shadow: inset -1px 0 0 rgba(15, 23, 42, 0.02);
+}
+
+.menu-group-label {
+  color: #94a3b8;
+}
+
+.menu-group-label span {
+  color: #0891b2;
+}
+
+.menu-item {
+  color: #64748b;
+}
+
+.menu-item:hover {
+  background: #eef7fb;
+  color: #0f172a;
+}
+
+.menu-item.active {
+  background: linear-gradient(90deg, #e0f2fe, #f0f9ff);
+  color: #0e7490;
+  box-shadow:
+    inset 2px 0 0 #0891b2,
+    0 2px 8px rgba(8, 145, 178, 0.06);
+}
+
+.menu-item.active .menu-icon {
+  color: #0891b2;
+}
+
+.menu-icon {
+  color: #94a3b8;
+}
+
+.menu-badge {
+  border-color: var(--border);
+  color: #7b8aa0;
+}
+
+.api-state {
+  border-top-color: var(--border);
+  color: #7b8aa0;
+}
+
+.api-state i.ready {
+  background: #059669;
+  box-shadow: 0 0 7px rgba(5, 150, 105, 0.5);
+}
+
+/* ---------- 标题 / 卡片 ---------- */
+.page-head h2 {
+  color: #0f172a;
+  text-shadow: none;
+}
+
+.page-sub {
+  color: #64748b;
+}
+
+.eyebrow {
+  color: #0e7490;
+}
+
+.table-card,
+.detail-card,
+.page-card,
+.auth-card,
+.req-head,
+.gate-bar,
+.wb-stat,
+.wb-row,
+.wb-empty,
+.board-col,
+.board-card,
+.modal-card,
+.notification-panel,
+.user-menu-panel,
+.page-more-panel,
+.toast {
+  border-color: var(--border);
+  background: linear-gradient(180deg, #ffffff, #fbfdff);
+  box-shadow: var(--shadow-sm);
+}
+
+.table-card,
+.detail-card {
+  border-color: var(--border);
+}
+
+.table-card:hover,
+.detail-card:hover {
+  border-color: #cbdff0;
+}
+
+.card-head,
+.modal-head,
+.modal-foot,
+.user-menu-meta,
+.notification-head,
+.detail-card-head {
+  border-color: #edf2f7;
+}
+
+.card-head h3,
+.detail-card h3,
+.detail-card > h3,
+.modal-head h3 {
+  color: #0f172a;
+}
+
+.card-head h3 small,
+.detail-card h3 small {
+  color: #7b8aa0;
+}
+
+/* ---------- 表格 ---------- */
+.data-table {
+  color: var(--text-secondary);
+}
+
+.data-table th {
+  border-bottom-color: var(--border);
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.data-table td {
+  border-bottom-color: #edf2f7;
+  color: #334155;
+}
+
+.data-table tbody tr:hover {
+  background: #f8fbfe;
+}
+
+.data-table td strong {
+  color: #0f172a;
+}
+
+.cell-mono,
+.req-code {
+  color: #0e7490;
+}
+
+.status-tag {
+  border-color: #dbe4ef;
+  background: #f8fafc;
+  color: #475569;
+}
+
+/* ---------- 输入 ---------- */
+input:not([type='checkbox']):not([type='radio']),
+textarea,
+select,
+.inline-form input,
+.inline-form textarea,
+.inline-form select,
+.kb-project,
+.auth-card input,
+.requirement-form input,
+.requirement-form textarea,
+.requirement-form select,
+.profile-form input,
+.form-grid .field input,
+.form-grid .field textarea,
+.form-grid .field select,
+.wb-field input,
+.wb-field select,
+.table-card > .field textarea {
+  border-color: #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #94a3b8;
+}
+
+input:not([type='checkbox']):not([type='radio']):focus,
+textarea:focus,
+select:focus,
+.form-grid .field input:focus,
+.form-grid .field textarea:focus,
+.form-grid .field select:focus,
+.wb-field input:focus,
+.wb-field select:focus {
+  border-color: #0891b2;
+  box-shadow: 0 0 0 3px rgba(8, 145, 178, 0.1);
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: #0891b2;
+}
+
+/* ---------- 按钮 ---------- */
+.primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, #06b6d4, #2563eb);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(8, 145, 178, 0.22);
+}
+
+.primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0891b2, #1d4ed8);
+  box-shadow: 0 4px 16px rgba(8, 145, 178, 0.26);
+}
+
+.primary:disabled {
+  border-color: #e2e8f0;
+  background: #e8eef6;
+  color: #94a3b8;
+  box-shadow: none;
+}
+
+.ghost {
+  border-color: #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+}
+
+.ghost:hover:not(:disabled) {
+  border-color: #0891b2;
+  background: #f0f9ff;
+  color: #0e7490;
+}
+
+.danger {
+  border-color: rgba(225, 29, 72, 0.26);
+  background: #fff7f9;
+  color: #e11d48;
+}
+
+.danger:hover:not(:disabled) {
+  background: #ffe4ea;
+}
+
+/* ---------- 任务头 ---------- */
+.command-head {
+  border-color: #d8e6f4;
+  background:
+    radial-gradient(800px 260px at 10% 0%, rgba(6, 182, 212, 0.09), transparent 70%),
+    linear-gradient(135deg, #ffffff, #eef8ff);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 18px 50px rgba(15, 23, 42, 0.06);
+}
+
+.command-head::before {
+  background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.14), transparent);
+}
+
+.command-head::after {
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(15, 23, 42, 0.028) 0 1px,
+    transparent 1px 4px
+  );
+  opacity: 0.55;
+}
+
+.command-kicker {
+  color: #0e7490;
+}
+
+.command-date {
+  color: #94a3b8;
+}
+
+.command-row h2 {
+  color: #0f172a;
+}
+
+.hero-label {
+  color: #64748b;
+}
+
+.hero-total strong {
+  background: linear-gradient(180deg, #0f172a 8%, #0891b2 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.hero-unit {
+  color: #64748b;
+}
+
+.spectrum-bar {
+  border-color: #d8e6f4;
+  background: #eef3f9;
+}
+
+.legend-item {
+  color: #64748b;
+}
+
+.legend-item strong {
+  color: #0f172a;
+}
+
+.pulse-dot {
+  background: #059669;
+  box-shadow: 0 0 0 0 rgba(5, 150, 105, 0.4);
+}
+
+/* ---------- 查询条 ---------- */
+.wb-commandbar {
+  border-color: #d8e6f4;
+  background: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 6px 18px rgba(15, 23, 42, 0.03);
+}
+
+.cmd-prompt {
+  color: #0891b2;
+}
+
+.wb-commandbar .wb-field input {
+  border-color: transparent;
+  background: transparent;
+  color: #0f172a;
+}
+
+.wb-commandbar .wb-field select {
+  border-color: #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+/* ---------- 读数卡 ---------- */
+.wb-stat {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+  border-color: #dbe4ef;
+}
+
+.wb-stat::before {
+  background: linear-gradient(90deg, rgba(8, 145, 178, 0.8), transparent 72%);
+}
+
+.wb-stat:hover,
+.wb-stat.is-active {
+  border-color: rgba(8, 145, 178, 0.34);
+  box-shadow:
+    0 0 0 1px rgba(8, 145, 178, 0.08),
+    0 16px 40px rgba(15, 23, 42, 0.08);
+}
+
+.wb-stat-value {
+  background: linear-gradient(180deg, #0f172a 8%, #0891b2 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.wb-stat-index {
+  color: #94a3b8;
+}
+
+.wb-stat-label {
+  color: #334155;
+}
+
+.wb-stat-hint {
+  color: #7b8aa0;
+}
+
+.wb-tab {
+  color: #64748b;
+}
+
+.wb-tab.is-active {
+  border-color: rgba(8, 145, 178, 0.28);
+  background: rgba(8, 145, 178, 0.08);
+  color: #0e7490;
+}
+
+.wb-updated {
+  color: #94a3b8;
+}
+
+.wb-type {
+  border-color: #dbe4ef;
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.wb-row.is-signOff {
+  border-left-color: #0891b2;
+}
+
+.wb-row.is-change {
+  border-left-color: #d97706;
+}
+
+.wb-row.is-ready {
+  border-left-color: #059669;
+}
+
+.wb-row:hover {
+  border-color: rgba(8, 145, 178, 0.26);
+  background: #f8fcff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.07);
+}
+
+.wb-group-head h3 {
+  color: #64748b;
+}
+
+.wb-empty {
+  border-color: #dbe4ef;
+  background: #fbfdff;
+}
+
+.wb-empty h3 {
+  color: #334155;
+}
+
+.wb-error {
+  border-color: rgba(225, 29, 72, 0.24);
+  background: #fff7f9;
+  color: #be123c;
+}
+
+/* ---------- 右栏 ---------- */
+.rail-card {
+  border-color: #dbe4ef;
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+  box-shadow: var(--shadow-sm);
+}
+
+.rail-label {
+  color: #64748b;
+}
+
+.rail-code {
+  color: #0891b2;
+}
+
+.rail-status {
+  color: #047857;
+}
+
+.rail-meta div {
+  border-bottom-color: #edf2f7;
+}
+
+.rail-meta dt {
+  color: #94a3b8;
+}
+
+.rail-meta dd {
+  color: #334155;
+}
+
+.rail-feed-item {
+  border-bottom-color: #edf2f7;
+}
+
+.rail-feed-time {
+  color: #94a3b8;
+}
+
+.rail-feed-body strong {
+  color: #334155;
+}
+
+.rail-feed-body small {
+  color: #7b8aa0;
+}
+
+.rail-command code {
+  border-color: #1e293b;
+  background: #0f172a;
+  color: #a5f3fc;
+}
+
+/* ---------- 看板 ---------- */
+.board-col {
+  border-color: #dbe4ef;
+  background: #f8fafc;
+}
+
+.board-col-title {
+  color: #475569;
+}
+
+.board-card {
+  border-color: #dbe4ef;
+  background: #ffffff;
+}
+
+.board-card:hover {
+  border-color: rgba(8, 145, 178, 0.3);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.07);
+}
+
+/* ---------- 需求详情 / 门禁 ---------- */
+.req-head {
+  border-color: #dbe4ef;
+}
+
+.req-head-title h2 {
+  color: #0f172a;
+}
+
+.req-head-meta {
+  color: #64748b;
+}
+
+.icon-btn {
+  color: #94a3b8;
+}
+
+.icon-btn:hover {
+  background: #eef7fb;
+  color: #0e7490;
+}
+
+.gate-bar {
+  border-color: #dbe4ef;
+  background: #f8fafc;
+}
+
+.gate-index {
+  color: #94a3b8;
+}
+
+.gate-step {
+  color: #7b8aa0;
+}
+
+.gate-step.is-current {
+  border-color: rgba(8, 145, 178, 0.3);
+  background: rgba(8, 145, 178, 0.06);
+  box-shadow: 0 0 18px rgba(8, 145, 178, 0.06);
+}
+
+.gate-step.is-current .gate-label {
+  color: #0e7490;
+}
+
+.req-tabs {
+  border-bottom-color: #e2e8f0;
+}
+
+.req-tab {
+  color: #7b8aa0;
+}
+
+.req-tab.is-active {
+  border-bottom-color: #0891b2;
+  color: #0e7490;
+  text-shadow: none;
+}
+
+.req-tab span {
+  color: #94a3b8;
+}
+
+.req-tab.is-active span {
+  color: #0891b2;
+}
+
+.detail-card {
+  color: #475569;
+}
+
+.detail-text {
+  color: #334155;
+}
+
+.detail-empty {
+  color: #94a3b8;
+}
+
+.task-row {
+  border-color: #edf2f7;
+}
+
+.task-row:hover {
+  background: #f8fbfe;
+}
+
+.task-row.is-pending {
+  border-color: rgba(217, 119, 6, 0.28);
+  background: #fffbf2;
+}
+
+.task-group-head {
+  border-bottom-color: #edf2f7;
+}
+
+.task-group-head strong {
+  color: #475569;
+}
+
+.revision-row {
+  background: #f8fafc;
+}
+
+.artifact-missing {
+  border-color: #cbd5e1;
+  color: #94a3b8;
+}
+
+.next-step {
+  border-color: rgba(8, 145, 178, 0.2);
+  background: linear-gradient(180deg, #f0faff, #ffffff);
+}
+
+.next-step strong {
+  color: #0e7490;
+}
+
+.readonly-banner {
+  border-color: rgba(217, 119, 6, 0.24);
+  background: #fffbeb;
+  color: #92400e;
+}
+
+/* ---------- 弹层 / 通知 ---------- */
+.modal-layer {
+  background: rgba(15, 23, 42, 0.32);
+  backdrop-filter: blur(4px);
+}
+
+.modal-card {
+  border-color: #dbe4ef;
+  background: #ffffff;
+}
+
+.modal-head h3 {
+  color: #0f172a;
+}
+
+.modal-body {
+  color: #475569;
+}
+
+.modal-foot {
+  border-top-color: #edf2f7;
+}
+
+.notification-panel,
+.user-menu-panel,
+.page-more-panel {
+  border-color: #dbe4ef;
+  background: #ffffff;
+}
+
+.notification-stats button {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.notification-stats button:hover {
+  border-color: rgba(8, 145, 178, 0.28);
+  background: #f0f9ff;
+}
+
+.notification-stats button strong {
+  color: #0e7490;
+}
+
+.notification-item {
+  border-bottom-color: #edf2f7;
+  color: #475569;
+}
+
+.page-more-panel button:hover,
+.user-menu-item:hover {
+  background: #f0f9ff;
+  color: #0e7490;
+}
+
+.toast {
+  color: #334155;
+}
+
+/* ---------- 空态 / 提示 ---------- */
+.muted,
+.page-card.muted {
+  color: #7b8aa0;
+}
+
+.error {
+  color: #be123c;
+}
+
+/* ---------- 登录 ---------- */
+.auth-card {
+  border-color: #dbe4ef;
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+  box-shadow:
+    0 0 0 1px rgba(8, 145, 178, 0.05),
+    0 30px 80px rgba(15, 23, 42, 0.12);
+}
+
+.auth-card h1 {
+  color: #0f172a;
+}
+
+.auth-card label {
+  color: #475569;
+}
+
+.auth-card p,
+.auth-card .muted {
+  color: #7b8aa0;
+}

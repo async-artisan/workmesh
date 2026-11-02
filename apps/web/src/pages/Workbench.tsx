@@ -641,7 +641,7 @@ export function Workbench() {
           <span
             className="wb-stat-orbit"
             style={{
-              background: `conic-gradient(#22d3ee ${share(counts.signOffs)}%, #1b2a40 0)`,
+              background: `conic-gradient(#22d3ee ${share(counts.signOffs)}%, #e2e8f0 0)`,
             }}
           />
           <span className="wb-stat-value">{counts.signOffs}</span>
@@ -656,7 +656,7 @@ export function Workbench() {
           <span
             className="wb-stat-orbit"
             style={{
-              background: `conic-gradient(#3b82f6 ${share(counts.approvals)}%, #1b2a40 0)`,
+              background: `conic-gradient(#3b82f6 ${share(counts.approvals)}%, #e2e8f0 0)`,
             }}
           />
           <span className="wb-stat-value">{counts.approvals}</span>
@@ -671,7 +671,7 @@ export function Workbench() {
           <span
             className="wb-stat-orbit"
             style={{
-              background: `conic-gradient(#fbbf24 ${share(counts.changes)}%, #1b2a40 0)`,
+              background: `conic-gradient(#fbbf24 ${share(counts.changes)}%, #e2e8f0 0)`,
             }}
           />
           <span className="wb-stat-value">{counts.changes}</span>
@@ -686,7 +686,7 @@ export function Workbench() {
           <span
             className="wb-stat-orbit"
             style={{
-              background: `conic-gradient(#34d399 ${share(counts.readyTasks)}%, #1b2a40 0)`,
+              background: `conic-gradient(#34d399 ${share(counts.readyTasks)}%, #e2e8f0 0)`,
             }}
           />
           <span className="wb-stat-value">{counts.readyTasks}</span>
