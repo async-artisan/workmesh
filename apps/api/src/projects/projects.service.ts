@@ -136,6 +136,7 @@ export class ProjectsService {
           projectId: project.id,
           key: DEFAULT_KNOWLEDGE_BASE_KEY,
           name: '产品知识库',
+          kind: 'BUSINESS',
           visibility: 'PROJECT',
           publicationApproverUserId: userId,
         },

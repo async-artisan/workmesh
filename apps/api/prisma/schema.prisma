@@ -222,6 +222,8 @@ model KnowledgeBase {
   projectId               String @db.Uuid
   key                     String @db.VarChar(48)
   name                    String @db.VarChar(120)
+  /// BUSINESS | SYSTEM | PRACTICE，模板层可扩展
+  kind                    String @default("SYSTEM") @db.VarChar(16)
   visibility              Visibility
   version                 Int @default(1)
   authzVersion            Int @default(1)
@@ -267,6 +269,12 @@ model KnowledgeDocument {
   knowledgeBaseId         String @db.Uuid
   requirementId           String? @db.Uuid
   kind                    DocumentKind
+  /// PROJECT | UNIT | ROLE
+  scopeKind               String @default("PROJECT") @db.VarChar(16)
+  scopeId                 String? @db.Uuid
+  ownerUserId             String? @db.Uuid
+  reviewDueAt             DateTime? @db.Timestamptz(3)
+  supersededById          String? @db.Uuid
   version                 Int @default(1)
   nextRevisionSeq         Int @default(1)
   currentPublishedRevisionId String? @db.Uuid
@@ -297,6 +305,9 @@ model DocumentRevision {
   basisUnderstandingRevisionId String? @db.Uuid
   deliveryScope Json?
   acceptance Json?
+  /// HIGH | MEDIUM | LOW；老项目重建时区分机器结论与推断
+  confidence  String @default("MEDIUM") @db.VarChar(16)
+  evidenceRefs Json?
   createdById String @db.Uuid
   createdAt   DateTime @default(now()) @db.Timestamptz(3)
   document    KnowledgeDocument @relation(fields: [documentId, projectId], references: [id, projectId], onDelete: Restrict)
