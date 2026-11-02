@@ -303,6 +303,10 @@ export function Workbench() {
   function renderReview(review: WorkbenchReviewItem) {
     const item: WorkbenchItem = { type: 'review', data: review };
     const path = itemRequirementPath(item);
+    // 兼容旧服务端响应：多实例滚动发布期间字段可能缺失。
+    const kinds = review.evidence.artifactKinds ?? [];
+    const checks = review.evidence.checks ?? { total: 0, failed: 0 };
+    const codeRefs = review.evidence.codeRefs ?? 0;
     return (
       <article
         className="wb-row is-signOff"
@@ -332,8 +336,11 @@ export function Workbench() {
             {ageLabel(review.ageSeconds)}
           </div>
           <div className="wb-row-context">
-            证据 {review.evidence.artifactCount} 件{review.evidence.hasPr ? ' · 含 PR' : ''} · v
-            {review.version}
+            证据 {review.evidence.artifactCount} 件{kinds.length ? `（${kinds.join(' / ')}）` : ''}
+            {review.evidence.hasPr ? ' · 含 PR' : ''}
+            {codeRefs ? ` · 代码引用 ${codeRefs}` : ''}
+            {checks.total ? ` · 检查 ${checks.total - checks.failed}/${checks.total}` : ''}
+            {checks.failed ? `（${checks.failed} 失败）` : ''} · v{review.version}
           </div>
         </div>
         <div className="wb-row-actions">
@@ -477,8 +484,7 @@ export function Workbench() {
         : renderReady(item.data);
   }
 
-  const share = (value: number) =>
-    Math.round((value / Math.max(1, counts.total)) * 100);
+  const share = (value: number) => Math.round((value / Math.max(1, counts.total)) * 100);
   const scopeProjectName = projects.find((project) => project.id === scope)?.name;
 
   const spectrum = [
@@ -633,152 +639,151 @@ export function Workbench() {
       <div className="wb-workspace">
         <div className="wb-stream">
           <div className="wb-stats">
-        <button
-          className={`wb-stat${tab === 'signOffs' ? ' is-active' : ''}`}
-          onClick={() => setTab('signOffs')}
-        >
-          <span className="wb-stat-index">01</span>
-          <span
-            className="wb-stat-orbit"
-            style={{
-              background: `conic-gradient(#22d3ee ${share(counts.signOffs)}%, #e2e8f0 0)`,
-            }}
-          />
-          <span className="wb-stat-value">{counts.signOffs}</span>
-          <span className="wb-stat-label">待签字</span>
-          <span className="wb-stat-hint">任务验收等你落锤</span>
-        </button>
-        <button
-          className={`wb-stat${tab === 'approvals' ? ' is-active' : ''}`}
-          onClick={() => setTab('approvals')}
-        >
-          <span className="wb-stat-index">02</span>
-          <span
-            className="wb-stat-orbit"
-            style={{
-              background: `conic-gradient(#3b82f6 ${share(counts.approvals)}%, #e2e8f0 0)`,
-            }}
-          />
-          <span className="wb-stat-value">{counts.approvals}</span>
-          <span className="wb-stat-label">待审批</span>
-          <span className="wb-stat-hint">PRD / 知识发布</span>
-        </button>
-        <button
-          className={`wb-stat${tab === 'changes' ? ' is-active' : ''}`}
-          onClick={() => setTab('changes')}
-        >
-          <span className="wb-stat-index">03</span>
-          <span
-            className="wb-stat-orbit"
-            style={{
-              background: `conic-gradient(#fbbf24 ${share(counts.changes)}%, #e2e8f0 0)`,
-            }}
-          />
-          <span className="wb-stat-value">{counts.changes}</span>
-          <span className="wb-stat-label">待确认变更</span>
-          <span className="wb-stat-hint">角色确认已处理</span>
-        </button>
-        <button
-          className={`wb-stat${tab === 'ready' ? ' is-active' : ''}`}
-          onClick={() => setTab('ready')}
-        >
-          <span className="wb-stat-index">04</span>
-          <span
-            className="wb-stat-orbit"
-            style={{
-              background: `conic-gradient(#34d399 ${share(counts.readyTasks)}%, #e2e8f0 0)`,
-            }}
-          />
-          <span className="wb-stat-value">{counts.readyTasks}</span>
-          <span className="wb-stat-label">可开工</span>
-          <span className="wb-stat-hint">依赖已满足</span>
-        </button>
-      </div>
-
-      <div className="wb-toolbar">
-        <div className="wb-tabs" role="tablist" aria-label="待办类型">
-          {(['all', 'signOffs', 'approvals', 'changes', 'ready'] as Tab[]).map((key) => (
             <button
-              key={key}
-              role="tab"
-              aria-selected={tab === key}
-              className={`wb-tab${tab === key ? ' is-active' : ''}`}
-              onClick={() => setTab(key)}
+              className={`wb-stat${tab === 'signOffs' ? ' is-active' : ''}`}
+              onClick={() => setTab('signOffs')}
             >
-              {TAB_LABELS[key]}
-              <span>
-                {key === 'all'
-                  ? counts.total
-                  : key === 'signOffs'
-                    ? counts.signOffs
-                    : key === 'approvals'
-                      ? counts.approvals
-                      : key === 'changes'
-                        ? counts.changes
-                        : counts.readyTasks}
-              </span>
+              <span className="wb-stat-index">01</span>
+              <span
+                className="wb-stat-orbit"
+                style={{
+                  background: `conic-gradient(#22d3ee ${share(counts.signOffs)}%, #e2e8f0 0)`,
+                }}
+              />
+              <span className="wb-stat-value">{counts.signOffs}</span>
+              <span className="wb-stat-label">待签字</span>
+              <span className="wb-stat-hint">任务验收等你落锤</span>
             </button>
-          ))}
-        </div>
-        {updatedAt && (
-          <span className="wb-updated">更新于 {updatedAt.toLocaleTimeString('zh-CN')}</span>
-        )}
-      </div>
-
-      {loading && !snapshot && (
-        <div className="wb-list">
-          {[0, 1, 2].map((index) => (
-            <div className="wb-row skeleton-row" key={index}>
-              <div className="skeleton-line" />
-              <div className="skeleton-line short" />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {!loading && projects.length === 0 && (
-        <div className="wb-empty">
-          <span className="wb-empty-icon">
-            <Inbox size={20} />
-          </span>
-          <h3>你还不是任何项目的成员</h3>
-          <p>让项目管理员把你加入项目后，待办才会出现在这里。</p>
-        </div>
-      )}
-
-      {!loading && projects.length > 0 && items.length === 0 && (
-        <div className="wb-empty">
-          <span className="wb-empty-icon">
-            <Inbox size={20} />
-          </span>
-          <h3>{tab === 'all' ? '现在没有待办' : `没有${TAB_LABELS[tab]}`}</h3>
-          <p>可以去看板了解整体进度，或等下一次交付触发。</p>
-          <div className="wb-empty-actions">
-            <button className="ghost" onClick={() => navigate('/board')}>
-              打开看板
+            <button
+              className={`wb-stat${tab === 'approvals' ? ' is-active' : ''}`}
+              onClick={() => setTab('approvals')}
+            >
+              <span className="wb-stat-index">02</span>
+              <span
+                className="wb-stat-orbit"
+                style={{
+                  background: `conic-gradient(#3b82f6 ${share(counts.approvals)}%, #e2e8f0 0)`,
+                }}
+              />
+              <span className="wb-stat-value">{counts.approvals}</span>
+              <span className="wb-stat-label">待审批</span>
+              <span className="wb-stat-hint">PRD / 知识发布</span>
+            </button>
+            <button
+              className={`wb-stat${tab === 'changes' ? ' is-active' : ''}`}
+              onClick={() => setTab('changes')}
+            >
+              <span className="wb-stat-index">03</span>
+              <span
+                className="wb-stat-orbit"
+                style={{
+                  background: `conic-gradient(#fbbf24 ${share(counts.changes)}%, #e2e8f0 0)`,
+                }}
+              />
+              <span className="wb-stat-value">{counts.changes}</span>
+              <span className="wb-stat-label">待确认变更</span>
+              <span className="wb-stat-hint">角色确认已处理</span>
+            </button>
+            <button
+              className={`wb-stat${tab === 'ready' ? ' is-active' : ''}`}
+              onClick={() => setTab('ready')}
+            >
+              <span className="wb-stat-index">04</span>
+              <span
+                className="wb-stat-orbit"
+                style={{
+                  background: `conic-gradient(#34d399 ${share(counts.readyTasks)}%, #e2e8f0 0)`,
+                }}
+              />
+              <span className="wb-stat-value">{counts.readyTasks}</span>
+              <span className="wb-stat-label">可开工</span>
+              <span className="wb-stat-hint">依赖已满足</span>
             </button>
           </div>
-        </div>
-      )}
 
-      {items.length > 0 && scope && (
-        <div className="wb-list">{items.map((item) => renderItem(item))}</div>
-      )}
+          <div className="wb-toolbar">
+            <div className="wb-tabs" role="tablist" aria-label="待办类型">
+              {(['all', 'signOffs', 'approvals', 'changes', 'ready'] as Tab[]).map((key) => (
+                <button
+                  key={key}
+                  role="tab"
+                  aria-selected={tab === key}
+                  className={`wb-tab${tab === key ? ' is-active' : ''}`}
+                  onClick={() => setTab(key)}
+                >
+                  {TAB_LABELS[key]}
+                  <span>
+                    {key === 'all'
+                      ? counts.total
+                      : key === 'signOffs'
+                        ? counts.signOffs
+                        : key === 'approvals'
+                          ? counts.approvals
+                          : key === 'changes'
+                            ? counts.changes
+                            : counts.readyTasks}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {updatedAt && (
+              <span className="wb-updated">更新于 {updatedAt.toLocaleTimeString('zh-CN')}</span>
+            )}
+          </div>
 
-      {items.length > 0 && !scope && (
-        <div className="wb-list">
-          {groups.map((group) => (
-            <section className="wb-group" key={group.projectName}>
-              <div className="wb-group-head">
-                <h3>{group.projectName}</h3>
-                <span>{group.items.length} 件</span>
+          {loading && !snapshot && (
+            <div className="wb-list">
+              {[0, 1, 2].map((index) => (
+                <div className="wb-row skeleton-row" key={index}>
+                  <div className="skeleton-line" />
+                  <div className="skeleton-line short" />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!loading && projects.length === 0 && (
+            <div className="wb-empty">
+              <span className="wb-empty-icon">
+                <Inbox size={20} />
+              </span>
+              <h3>你还不是任何项目的成员</h3>
+              <p>让项目管理员把你加入项目后，待办才会出现在这里。</p>
+            </div>
+          )}
+
+          {!loading && projects.length > 0 && items.length === 0 && (
+            <div className="wb-empty">
+              <span className="wb-empty-icon">
+                <Inbox size={20} />
+              </span>
+              <h3>{tab === 'all' ? '现在没有待办' : `没有${TAB_LABELS[tab]}`}</h3>
+              <p>可以去看板了解整体进度，或等下一次交付触发。</p>
+              <div className="wb-empty-actions">
+                <button className="ghost" onClick={() => navigate('/board')}>
+                  打开看板
+                </button>
               </div>
-              {group.items.map((item) => renderItem(item))}
-            </section>
-          ))}
-        </div>
-      )}
+            </div>
+          )}
 
+          {items.length > 0 && scope && (
+            <div className="wb-list">{items.map((item) => renderItem(item))}</div>
+          )}
+
+          {items.length > 0 && !scope && (
+            <div className="wb-list">
+              {groups.map((group) => (
+                <section className="wb-group" key={group.projectName}>
+                  <div className="wb-group-head">
+                    <h3>{group.projectName}</h3>
+                    <span>{group.items.length} 件</span>
+                  </div>
+                  {group.items.map((item) => renderItem(item))}
+                </section>
+              ))}
+            </div>
+          )}
         </div>
 
         <aside className="wb-rail">
@@ -825,7 +830,9 @@ export function Workbench() {
                     </span>
                     <span className="rail-feed-body">
                       <strong>{labelFor(ACTION_LABELS, item.action)}</strong>
-                      <small>{item.projectName ?? '—'} · {item.actor?.email ?? '系统'}</small>
+                      <small>
+                        {item.projectName ?? '—'} · {item.actor?.email ?? '系统'}
+                      </small>
                     </span>
                   </div>
                 ))}

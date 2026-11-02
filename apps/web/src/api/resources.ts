@@ -658,7 +658,13 @@ export interface WorkbenchReviewItem {
     viewerCanDecide: boolean;
   }>;
   ageSeconds: number | null;
-  evidence: { artifactCount: number; hasPr: boolean };
+  evidence: {
+    artifactCount: number;
+    hasPr: boolean;
+    artifactKinds: string[];
+    checks: { total: number; failed: number };
+    codeRefs: number;
+  };
 }
 
 export interface WorkbenchChangeItem {

@@ -31,7 +31,13 @@ export type WorkbenchReviewItem = {
     viewerCanDecide: boolean;
   }>;
   ageSeconds: number | null;
-  evidence: { artifactCount: number; hasPr: boolean };
+  evidence: {
+    artifactCount: number;
+    hasPr: boolean;
+    artifactKinds: string[];
+    checks: { total: number; failed: number };
+    codeRefs: number;
+  };
 };
 
 export type WorkbenchChangeItem = {
@@ -227,7 +233,15 @@ export class V1WorkbenchService {
             where: { id: { in: artifactSetIds } },
             select: {
               id: true,
-              artifacts: { select: { id: true, commitSha: true, projectRepositoryId: true } },
+              artifacts: {
+                select: {
+                  id: true,
+                  kind: true,
+                  checks: true,
+                  commitSha: true,
+                  projectRepositoryId: true,
+                },
+              },
             },
           })
         : Promise.resolve([]),
@@ -277,6 +291,16 @@ export class V1WorkbenchService {
         : undefined;
       const task = item.taskId ? taskById.get(item.taskId) : undefined;
       const artifactSet = item.artifactSetId ? artifactSetById.get(item.artifactSetId) : undefined;
+      const artifacts = artifactSet?.artifacts ?? [];
+      const checkEntries = artifacts.flatMap((artifact) =>
+        Array.isArray(artifact.checks) ? artifact.checks : [],
+      );
+      const failedChecks = checkEntries.filter(
+        (entry) =>
+          typeof entry === 'object' &&
+          entry !== null &&
+          (entry as { passed?: unknown }).passed === false,
+      ).length;
       const requirement =
         (revision?.document.requirementId
           ? documentRequirementById.get(revision.document.requirementId)
@@ -315,12 +339,11 @@ export class V1WorkbenchService {
         slots,
         ageSeconds: ageSecondsOf(createdAtById.get(item.id)),
         evidence: {
-          artifactCount: artifactSet?.artifacts.length ?? (item.documentRevisionId ? 1 : 0),
-          hasPr: Boolean(
-            artifactSet?.artifacts.some(
-              (artifact) => artifact.commitSha || artifact.projectRepositoryId,
-            ),
-          ),
+          artifactCount: artifacts.length || (item.documentRevisionId ? 1 : 0),
+          hasPr: artifacts.some((artifact) => artifact.commitSha || artifact.projectRepositoryId),
+          artifactKinds: [...new Set(artifacts.map((artifact) => artifact.kind))],
+          checks: { total: checkEntries.length, failed: failedChecks },
+          codeRefs: artifacts.filter((artifact) => artifact.commitSha).length,
         },
       };
     });
