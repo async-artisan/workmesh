@@ -25,17 +25,39 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
     "version": "1.1.0",
     "roleKey": "backend",
     "manifest": {
-      "packageSchemaVersion": "1.0",
+      "packageSchemaVersion": "1.1",
       "id": "workmesh.role.backend",
       "version": "1.1.0",
       "protocolVersion": "1.0",
       "title": "后端角色包",
+      "description": "把 PRD 转成可并行的接口契约，按契约实现并交付可验证证据。",
+      "license": "MIT",
       "roleKey": "backend",
       "compatibility": {
         "minCliVersion": "1.0.0",
         "maxCliVersionExclusive": "2.0.0",
         "contractVersion": "1.0"
       },
+      "skills": [
+        {
+          "key": "design-contract",
+          "path": "skills/design-contract/SKILL.md",
+          "description": "从 PRD 推导接口契约、数据变更与错误码，作为并行开发的共同参照。",
+          "whenToUse": "PRD 就绪、开工前需要定契约时。"
+        },
+        {
+          "key": "implement-change",
+          "path": "skills/implement-change/SKILL.md",
+          "description": "按已发布契约实现代码，回链需求编号并完成自测。",
+          "whenToUse": "契约已发布、任务已认领时。"
+        },
+        {
+          "key": "attach-evidence",
+          "path": "skills/attach-evidence/SKILL.md",
+          "description": "收集提交级证据与检查结果，组成可复核的交付。",
+          "whenToUse": "实现完成、准备交付时。"
+        }
+      ],
       "inputs": [
         {
           "key": "context",
@@ -65,14 +87,21 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
           "channel": "CANDIDATE",
           "kind": "KNOWLEDGE",
           "contractVersion": "1.0",
-          "templateResourceId": "template-contract"
+          "templateResourceId": "template-contract",
+          "evidence": [
+            "INSPECTION"
+          ]
         },
         {
           "key": "impl",
           "channel": "CANDIDATE",
           "kind": "IMPL",
           "contractVersion": "1.0",
-          "templateResourceId": "template-impl"
+          "templateResourceId": "template-impl",
+          "evidence": [
+            "TEST",
+            "INSPECTION"
+          ]
         }
       ],
       "resources": [
@@ -244,17 +273,33 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
     "version": "1.1.0",
     "roleKey": "frontend",
     "manifest": {
-      "packageSchemaVersion": "1.0",
+      "packageSchemaVersion": "1.1",
       "id": "workmesh.role.frontend",
       "version": "1.1.0",
       "protocolVersion": "1.0",
       "title": "前端角色包",
+      "description": "按契约与设计规格实现界面，先脚手架后细节，交付可复核的实现说明。",
+      "license": "MIT",
       "roleKey": "frontend",
       "compatibility": {
         "minCliVersion": "1.0.0",
         "maxCliVersionExclusive": "2.0.0",
         "contractVersion": "1.0"
       },
+      "skills": [
+        {
+          "key": "consume-contract",
+          "path": "skills/consume-contract/SKILL.md",
+          "description": "读取接口契约与设计规格，产出实现方案并建立 mock，使前端可以在后端完成前开工。",
+          "whenToUse": "契约已发布、设计规格可用时。"
+        },
+        {
+          "key": "implement-ui",
+          "path": "skills/implement-ui/SKILL.md",
+          "description": "按设计规格实现界面与交互，覆盖状态与异常，并完成自测。",
+          "whenToUse": "设计规格与契约就绪、任务已认领时。"
+        }
+      ],
       "inputs": [
         {
           "key": "context",
@@ -291,7 +336,11 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
           "channel": "CANDIDATE",
           "kind": "IMPL",
           "contractVersion": "1.0",
-          "templateResourceId": "template-impl"
+          "templateResourceId": "template-impl",
+          "evidence": [
+            "TEST",
+            "INSPECTION"
+          ]
         }
       ],
       "resources": [
@@ -431,17 +480,39 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
     "version": "1.1.0",
     "roleKey": "ops",
     "manifest": {
-      "packageSchemaVersion": "1.0",
+      "packageSchemaVersion": "1.1",
       "id": "workmesh.role.ops",
       "version": "1.1.0",
       "protocolVersion": "1.0",
       "title": "运维角色包",
+      "description": "准备发布、验证回滚、执行冒烟，把上线从「发出去」变成「可证明地发出去」。",
+      "license": "MIT",
       "roleKey": "ops",
       "compatibility": {
         "minCliVersion": "1.0.0",
         "maxCliVersionExclusive": "2.0.0",
         "contractVersion": "1.0"
       },
+      "skills": [
+        {
+          "key": "prepare-release",
+          "path": "skills/prepare-release/SKILL.md",
+          "description": "生成发布计划：依赖、顺序、灰度、监控与回滚触发条件。",
+          "whenToUse": "需求进入发布候选、测试通过后。"
+        },
+        {
+          "key": "rollback-plan",
+          "path": "skills/rollback-plan/SKILL.md",
+          "description": "编写并验证回滚方案，确保发布前就知道怎么退。",
+          "whenToUse": "发布计划确定后、执行发布前。"
+        },
+        {
+          "key": "smoke-check",
+          "path": "skills/smoke-check/SKILL.md",
+          "description": "按验收做生产冒烟，记录结果与异常，给出发布结论。",
+          "whenToUse": "发布完成后。"
+        }
+      ],
       "inputs": [
         {
           "key": "context",
@@ -471,21 +542,31 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
           "channel": "CANDIDATE",
           "kind": "RELEASE",
           "contractVersion": "1.0",
-          "templateResourceId": "template-release"
+          "templateResourceId": "template-release",
+          "evidence": [
+            "INSPECTION"
+          ]
         },
         {
           "key": "rollback",
           "channel": "CANDIDATE",
           "kind": "RELEASE",
           "contractVersion": "1.0",
-          "templateResourceId": "template-rollback"
+          "templateResourceId": "template-rollback",
+          "evidence": [
+            "TEST"
+          ]
         },
         {
           "key": "smoke",
           "channel": "CANDIDATE",
           "kind": "RELEASE",
           "contractVersion": "1.0",
-          "templateResourceId": "template-smoke"
+          "templateResourceId": "template-smoke",
+          "evidence": [
+            "TEST",
+            "INSPECTION"
+          ]
         }
       ],
       "resources": [
@@ -673,17 +754,39 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
     "version": "1.1.0",
     "roleKey": "product",
     "manifest": {
-      "packageSchemaVersion": "1.0",
+      "packageSchemaVersion": "1.1",
       "id": "workmesh.role.product",
       "version": "1.1.0",
       "protocolVersion": "1.0",
       "title": "产品角色包",
+      "description": "把业务意图转成可判定的 PRD 与验收，供下游并行开工。",
+      "license": "MIT",
       "roleKey": "product",
       "compatibility": {
         "minCliVersion": "1.0.0",
         "maxCliVersionExclusive": "2.0.0",
         "contractVersion": "1.0"
       },
+      "skills": [
+        {
+          "key": "clarify-intent",
+          "path": "skills/clarify-intent/SKILL.md",
+          "description": "把模糊的业务诉求整理成目标、边界与未知项，并在开工前暴露歧义。",
+          "whenToUse": "需求刚提出、下游回问或范围不清时。"
+        },
+        {
+          "key": "write-prd",
+          "path": "skills/write-prd/SKILL.md",
+          "description": "基于已确认的理解与业务知识产出 PRD，写清范围、约束与依赖。",
+          "whenToUse": "理解已确认、需要出稿或修订 PRD 时。"
+        },
+        {
+          "key": "map-acceptance",
+          "path": "skills/map-acceptance/SKILL.md",
+          "description": "把 PRD 拆成可判定的验收条目，标注 verification、category 与 criticality。",
+          "whenToUse": "PRD 草稿完成或验收需要修订时。"
+        }
+      ],
       "inputs": [
         {
           "key": "context",
@@ -713,7 +816,10 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
           "channel": "CANDIDATE",
           "kind": "PRD",
           "contractVersion": "1.0",
-          "templateResourceId": "template-prd"
+          "templateResourceId": "template-prd",
+          "evidence": [
+            "INSPECTION"
+          ]
         }
       ],
       "resources": [
@@ -917,17 +1023,39 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
     "version": "1.1.0",
     "roleKey": "qa",
     "manifest": {
-      "packageSchemaVersion": "1.0",
+      "packageSchemaVersion": "1.1",
       "id": "workmesh.role.qa",
       "version": "1.1.0",
       "protocolVersion": "1.0",
       "title": "测试角色包",
+      "description": "从验收派生用例与评测集，执行后把失败归因为可追踪的缺陷。",
+      "license": "MIT",
       "roleKey": "qa",
       "compatibility": {
         "minCliVersion": "1.0.0",
         "maxCliVersionExclusive": "2.0.0",
         "contractVersion": "1.0"
       },
+      "skills": [
+        {
+          "key": "derive-cases",
+          "path": "skills/derive-cases/SKILL.md",
+          "description": "把验收条目转成用例与评测集，每条验收至少一个用例。",
+          "whenToUse": "PRD 发布后，代码未就绪也可开始。"
+        },
+        {
+          "key": "run-evals",
+          "path": "skills/run-evals/SKILL.md",
+          "description": "执行用例与评测集，记录结果、环境与失败分类。",
+          "whenToUse": "有可运行构建或测试环境时。"
+        },
+        {
+          "key": "report-defects",
+          "path": "skills/report-defects/SKILL.md",
+          "description": "把失败归因为缺陷，关联验收与任务并跟踪回归。",
+          "whenToUse": "评测失败且判定为产品缺陷时。"
+        }
+      ],
       "inputs": [
         {
           "key": "context",
@@ -957,21 +1085,31 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
           "channel": "CANDIDATE",
           "kind": "CASES",
           "contractVersion": "1.0",
-          "templateResourceId": "template-cases"
+          "templateResourceId": "template-cases",
+          "evidence": [
+            "TEST",
+            "INSPECTION"
+          ]
         },
         {
           "key": "evals",
           "channel": "CANDIDATE",
           "kind": "CASES",
           "contractVersion": "1.0",
-          "templateResourceId": "template-evals"
+          "templateResourceId": "template-evals",
+          "evidence": [
+            "TEST"
+          ]
         },
         {
           "key": "defects",
           "channel": "CANDIDATE",
           "kind": "CASES",
           "contractVersion": "1.0",
-          "templateResourceId": "template-defect"
+          "templateResourceId": "template-defect",
+          "evidence": [
+            "INSPECTION"
+          ]
         }
       ],
       "resources": [
@@ -1159,17 +1297,33 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
     "version": "1.1.0",
     "roleKey": "ui",
     "manifest": {
-      "packageSchemaVersion": "1.0",
+      "packageSchemaVersion": "1.1",
       "id": "workmesh.role.ui",
       "version": "1.1.0",
       "protocolVersion": "1.0",
       "title": "UI 角色包",
+      "description": "产出页面与交互规格，或声明复用现有设计，让前端拿到确定的视觉与交互依据。",
+      "license": "MIT",
       "roleKey": "ui",
       "compatibility": {
         "minCliVersion": "1.0.0",
         "maxCliVersionExclusive": "2.0.0",
         "contractVersion": "1.0"
       },
+      "skills": [
+        {
+          "key": "write-design-spec",
+          "path": "skills/write-design-spec/SKILL.md",
+          "description": "为涉及新页面或新交互的需求产出设计规格，覆盖状态、边界与异常。",
+          "whenToUse": "需求涉及新页面、新交互或视觉变更时。"
+        },
+        {
+          "key": "declare-reuse",
+          "path": "skills/declare-reuse/SKILL.md",
+          "description": "声明复用现有组件或模式，给前端一个明确的指针，而不是重新设计。",
+          "whenToUse": "需求可复用既有设计、无需新增视觉状态时。"
+        }
+      ],
       "inputs": [
         {
           "key": "context",
@@ -1192,14 +1346,20 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
           "channel": "CANDIDATE",
           "kind": "DESIGN",
           "contractVersion": "1.0",
-          "templateResourceId": "template-design-spec"
+          "templateResourceId": "template-design-spec",
+          "evidence": [
+            "INSPECTION"
+          ]
         },
         {
           "key": "reuse",
           "channel": "CANDIDATE",
           "kind": "KNOWLEDGE",
           "contractVersion": "1.0",
-          "templateResourceId": "template-reuse-declaration"
+          "templateResourceId": "template-reuse-declaration",
+          "evidence": [
+            "INSPECTION"
+          ]
         }
       ],
       "resources": [

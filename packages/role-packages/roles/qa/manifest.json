@@ -1,15 +1,37 @@
 {
-  "packageSchemaVersion": "1.0",
+  "packageSchemaVersion": "1.1",
   "id": "workmesh.role.qa",
   "version": "1.1.0",
   "protocolVersion": "1.0",
   "title": "测试角色包",
+  "description": "从验收派生用例与评测集，执行后把失败归因为可追踪的缺陷。",
+  "license": "MIT",
   "roleKey": "qa",
   "compatibility": {
     "minCliVersion": "1.0.0",
     "maxCliVersionExclusive": "2.0.0",
     "contractVersion": "1.0"
   },
+  "skills": [
+    {
+      "key": "derive-cases",
+      "path": "skills/derive-cases/SKILL.md",
+      "description": "把验收条目转成用例与评测集，每条验收至少一个用例。",
+      "whenToUse": "PRD 发布后，代码未就绪也可开始。"
+    },
+    {
+      "key": "run-evals",
+      "path": "skills/run-evals/SKILL.md",
+      "description": "执行用例与评测集，记录结果、环境与失败分类。",
+      "whenToUse": "有可运行构建或测试环境时。"
+    },
+    {
+      "key": "report-defects",
+      "path": "skills/report-defects/SKILL.md",
+      "description": "把失败归因为缺陷，关联验收与任务并跟踪回归。",
+      "whenToUse": "评测失败且判定为产品缺陷时。"
+    }
+  ],
   "inputs": [
     {
       "key": "context",
@@ -39,21 +61,31 @@
       "channel": "CANDIDATE",
       "kind": "CASES",
       "contractVersion": "1.0",
-      "templateResourceId": "template-cases"
+      "templateResourceId": "template-cases",
+      "evidence": [
+        "TEST",
+        "INSPECTION"
+      ]
     },
     {
       "key": "evals",
       "channel": "CANDIDATE",
       "kind": "CASES",
       "contractVersion": "1.0",
-      "templateResourceId": "template-evals"
+      "templateResourceId": "template-evals",
+      "evidence": [
+        "TEST"
+      ]
     },
     {
       "key": "defects",
       "channel": "CANDIDATE",
       "kind": "CASES",
       "contractVersion": "1.0",
-      "templateResourceId": "template-defect"
+      "templateResourceId": "template-defect",
+      "evidence": [
+        "INSPECTION"
+      ]
     }
   ],
   "resources": [

@@ -36,7 +36,7 @@
 | WP3  | M3 变更管理（ChangeRequest / 策略 / 冻结）   | WP2                 | 待做      |
 | WP4  | M4 单元与依赖                                | WP1                 | 待做      |
 | WP5  | M5 通用化（kind 注册、枚举字符串化）         | WP4                 | 待做      |
-| WP6  | 角色包 schema 1.1（`skills[]` / `evidence`） | 无                  | 待做      |
+| WP6  | 角色包 schema 1.1（`skills[]` / `evidence`） | 无                  | ✅ 已完成 |
 | WP7  | 审批批处理（同类型、逐条校验）               | 无                  | 待做      |
 | WP8  | 委托与超时升级                               | WP3（槽位 `dueAt`） | 待做      |
 | WP9  | 默认模板 `software-delivery` + 角色排除变体  | WP6                 | 待做      |

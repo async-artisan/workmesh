@@ -1,15 +1,31 @@
 {
-  "packageSchemaVersion": "1.0",
+  "packageSchemaVersion": "1.1",
   "id": "workmesh.role.frontend",
   "version": "1.1.0",
   "protocolVersion": "1.0",
   "title": "前端角色包",
+  "description": "按契约与设计规格实现界面，先脚手架后细节，交付可复核的实现说明。",
+  "license": "MIT",
   "roleKey": "frontend",
   "compatibility": {
     "minCliVersion": "1.0.0",
     "maxCliVersionExclusive": "2.0.0",
     "contractVersion": "1.0"
   },
+  "skills": [
+    {
+      "key": "consume-contract",
+      "path": "skills/consume-contract/SKILL.md",
+      "description": "读取接口契约与设计规格，产出实现方案并建立 mock，使前端可以在后端完成前开工。",
+      "whenToUse": "契约已发布、设计规格可用时。"
+    },
+    {
+      "key": "implement-ui",
+      "path": "skills/implement-ui/SKILL.md",
+      "description": "按设计规格实现界面与交互，覆盖状态与异常，并完成自测。",
+      "whenToUse": "设计规格与契约就绪、任务已认领时。"
+    }
+  ],
   "inputs": [
     {
       "key": "context",
@@ -46,7 +62,11 @@
       "channel": "CANDIDATE",
       "kind": "IMPL",
       "contractVersion": "1.0",
-      "templateResourceId": "template-impl"
+      "templateResourceId": "template-impl",
+      "evidence": [
+        "TEST",
+        "INSPECTION"
+      ]
     }
   ],
   "resources": [

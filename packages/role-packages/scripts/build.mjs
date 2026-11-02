@@ -110,15 +110,18 @@ const packages = roleDirs.map((roleKey) => {
     .sort((left, right) => left.path.localeCompare(right.path));
 
   const manifest = {
-    packageSchemaVersion: '1.0',
+    packageSchemaVersion: '1.1',
     id: meta.id,
     version: meta.version,
     protocolVersion: '1.0',
     title: meta.title,
+    ...(meta.description ? { description: meta.description } : {}),
+    ...(meta.license ? { license: meta.license } : {}),
     roleKey,
     compatibility: meta.compatibility,
+    ...(meta.skills ? { skills: meta.skills } : {}),
     inputs: meta.inputs,
-    outputs: meta.outputs.map(({ evidence, ...rest }) => rest),
+    outputs: meta.outputs.map(({ evidence, ...rest }) => (evidence ? { ...rest, evidence } : rest)),
     // CLI 从 roles/<role> 目录安装，资源路径必须相对该目录；
     // generated.ts 里的路径保留 `roles/<role>/` 前缀，供服务端登记时定位。
     resources: resources.map(({ bodyBase64, ...rest }) => ({

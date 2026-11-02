@@ -55,7 +55,7 @@ packages/role-packages/roles/product/
 
 ## 4. manifest v1.1
 
-相对 v1.0 是**纯增量**，当前没有已发行包，直接升到 1.1，不做双版本兼容。
+相对 v1.0 是**纯增量**。构建默认输出 1.1；校验器同时接受 1.0 与 1.1，过渡期旧包仍可安装。
 
 ```json
 {
@@ -226,7 +226,7 @@ metadata:
 
 安装时（CLI）：
 
-1. manifest schema 通过，`packageSchemaVersion=1.1`、`protocolVersion=1.0`。
+1. manifest schema 通过，`packageSchemaVersion` 为 `1.0` 或 `1.1`、`protocolVersion=1.0`。
 2. 每个 `skills[].path` 存在、是普通文件、内容以 YAML frontmatter 开头。
 3. `name` 合法、`description` 非空且 ≤1024。
 4. `resources[]` 的摘要与长度匹配实际文件。
