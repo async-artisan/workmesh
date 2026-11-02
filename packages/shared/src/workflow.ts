@@ -331,6 +331,20 @@ export async function compileWorkflowDefinition(
       });
     lockKeys.set(lock.roleKey, lock);
   }
+  /**
+   * 审批槽可能引用只出现在槽位里的角色（没有任何步骤使用它）。
+   * 这类角色同样要进 resolvedRoles：否则创建实例时 roleSlotBinding 无法解析，
+   * 会以"角色与槽位声明不一致（resolved: null）"被拒。
+   * stepKey 留空，表示"不是步骤角色，仅用于审批槽解析"。
+   */
+  for (const slot of slots) {
+    const roleKey = slot.roleKey;
+    if (typeof roleKey !== 'string' || !input.roleIdsByKey[roleKey]) continue;
+    usedRoleKeys.add(roleKey);
+    if (!resolvedRoles.some((item) => item.roleKey === roleKey))
+      resolvedRoles.push({ stepKey: '', roleKey, roleId: input.roleIdsByKey[roleKey] });
+  }
+
   for (const roleKey of usedRoleKeys) {
     if (!lockKeys.has(roleKey))
       issues.push({
