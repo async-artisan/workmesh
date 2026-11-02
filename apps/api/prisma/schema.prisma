@@ -467,6 +467,8 @@ model Task {
   projectId       String @db.Uuid
   workflowInstanceId String @db.Uuid
   stepKey         String @db.VarChar(48)
+  /// 本任务覆盖的验收 key（来自 PRD acceptance[].key）
+  acceptanceKeys  String[] @default([]) @db.Text
   roleId          String @db.Uuid
   responsibleUserId String @db.Uuid
   version         Int @default(1)

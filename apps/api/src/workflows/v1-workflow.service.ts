@@ -27,6 +27,7 @@ import {
   type V1CreateInstanceResult,
   type V1CreateInstanceSlotBinding,
   type V1CreateInstanceStepBinding,
+  type V1RequirementWorkflowView,
   type V1WorkflowDefinitionView,
   type V1WorkflowInstanceView,
   type V1WorkflowRepository,
@@ -358,6 +359,7 @@ export class V1WorkflowService {
       );
 
     const steps = this.bindSteps(revision, input.stepBindings);
+    this.verifyAcceptanceCoverage(requirement, steps);
     await this.verifyBindings(requirement.projectId, revision, input.roleSlotBindings, steps);
     this.verifyDeliveryScope(requirement, revision, steps);
 
@@ -373,6 +375,7 @@ export class V1WorkflowService {
         roleId: step.roleId,
         responsibleUserId: step.responsibleUserId,
         repositoryIds: step.repositoryIds,
+        acceptanceKeys: step.acceptanceKeys,
       })),
       roleSlotBindings: input.roleSlotBindings,
       steps,
@@ -521,6 +524,7 @@ export class V1WorkflowService {
     roleId: string;
     responsibleUserId: string;
     repositoryIds: string[];
+    acceptanceKeys: string[];
     outputKinds: string[];
   }> {
     const expected = this.definitionSteps(revision.definition);
@@ -556,9 +560,32 @@ export class V1WorkflowService {
         roleId: binding.roleId,
         responsibleUserId: binding.responsibleUserId,
         repositoryIds,
+        acceptanceKeys: Array.isArray(binding.acceptanceKeys) ? binding.acceptanceKeys : [],
         outputKinds: step.outputKinds,
       };
     });
+  }
+
+  /**
+   * 每条 PRD 验收必须至少被一个任务覆盖；未知 key 说明写错，直接拒绝。
+   * 需求没有 PRD（acceptanceKeys 为空）时跳过，允许先建实例再补 PRD。
+   */
+  private verifyAcceptanceCoverage(
+    requirement: V1RequirementWorkflowView,
+    steps: Array<{ acceptanceKeys: string[] }>,
+  ): void {
+    const prdKeys = requirement.acceptanceKeys ?? [];
+    if (prdKeys.length === 0) return;
+    const covered = new Set(steps.flatMap((step) => step.acceptanceKeys));
+    const missing = prdKeys.filter((key) => !covered.has(key));
+    const unknown = [...covered].filter((key) => !prdKeys.includes(key));
+    if (missing.length > 0 || unknown.length > 0)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.VALIDATION_FAILED,
+        'UNCOVERED_ACCEPTANCE',
+        { missing, unknown },
+        422,
+      );
   }
 
   private async verifyBindings(
