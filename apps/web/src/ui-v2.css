@@ -118,6 +118,19 @@ body {
   gap: 3px;
 }
 
+.menu-group-label {
+  margin: 14px 10px 5px;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  line-height: 1;
+}
+
+.menu-group-label:first-child {
+  margin-top: 2px;
+}
+
 .menu-item {
   min-height: 38px;
   padding: 8px 12px;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Bell, ChevronDown, Menu, User, X } from 'lucide-react';
 import { Navigate, matchPath, useLocation, useNavigate } from 'react-router-dom';
 import { SESSION_EXPIRED_EVENT, formatApiError } from './api/client';
@@ -6,7 +6,7 @@ import { authApi, bootstrapSession } from './api/auth';
 import { activityApi, notificationApi, workbenchApi, type ActivityItem } from './api/resources';
 import { ACTION_LABELS, labelFor } from './lib/labels';
 import { useAuthStore } from './store/auth';
-import { findNav, navItems } from './nav';
+import { NAV_GROUP_LABELS, findNav, navItems } from './nav';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastHost } from './components/ToastHost';
 import { Authorization } from './pages/Authorization';
@@ -201,27 +201,35 @@ export function App() {
       <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />
     );
 
-  const menuItems = (onNavigate?: () => void) =>
-    navItems.map((item) => {
+  const menuItems = (onNavigate?: () => void) => {
+    let lastGroup: string | null = null;
+    return navItems.map((item) => {
       const Icon = item.icon;
       const isActive = current.key === item.key;
+      const showGroup = item.group !== lastGroup;
+      lastGroup = item.group;
       return (
-        <button
-          key={item.key}
-          className={`menu-item${isActive ? ' active' : ''}`}
-          aria-current={isActive ? 'page' : undefined}
-          onClick={() => {
-            navigate(item.path);
-            onNavigate?.();
-          }}
-        >
-          <span className="menu-icon">
-            <Icon size={16} />
-          </span>
-          <span className="menu-text">{item.key}</span>
-        </button>
+        <Fragment key={item.key}>
+          {showGroup && (
+            <div className="menu-group-label">{NAV_GROUP_LABELS[item.group]}</div>
+          )}
+          <button
+            className={`menu-item${isActive ? ' active' : ''}`}
+            aria-current={isActive ? 'page' : undefined}
+            onClick={() => {
+              navigate(item.path);
+              onNavigate?.();
+            }}
+          >
+            <span className="menu-icon">
+              <Icon size={16} />
+            </span>
+            <span className="menu-text">{item.key}</span>
+          </button>
+        </Fragment>
       );
     });
+  };
 
   const apiState = (
     <div className="api-state">
