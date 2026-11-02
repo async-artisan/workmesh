@@ -33,7 +33,7 @@
 | WP0  | 基线闸门：迁移状态、备份演练、CI 漂移检查    | 无                  | 待做                        |
 | WP1  | M1 知识治理字段                              | WP0                 | ✅ 已完成                   |
 | WP2  | M2 验收映射 `acceptanceKeys`                 | WP1                 | ✅ 已完成                   |
-| WP3  | M3 变更管理（ChangeRequest / 策略 / 冻结）   | WP2                 | 待做                        |
+| WP3  | M3 变更管理（ChangeRequest / 策略 / 冻结）   | WP2                 | 🟡 结构完成，实现被 B7 阻塞 |
 | WP4  | M4 单元与依赖                                | WP1                 | 🟡 结构完成，实现被 B7 阻塞 |
 | WP5  | M5 通用化（kind 注册、枚举字符串化）         | WP4                 | ⛔ 暂缓（B5）               |
 | WP6  | 角色包 schema 1.1（`skills[]` / `evidence`） | 无                  | ✅ 已完成                   |

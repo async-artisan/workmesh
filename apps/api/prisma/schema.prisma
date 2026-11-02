@@ -83,6 +83,7 @@ enum ReviewKind {
   KNOWLEDGE_PUBLICATION
   TASK_ACCEPTANCE
   RELEASE_ACCEPTANCE
+  CHANGE_APPROVAL
   @@schema("workmesh_v1")
 }
 enum ReviewStatus {
@@ -356,6 +357,8 @@ model Requirement {
   currentUnderstandingRevisionId String? @db.Uuid
   currentPrdRevisionId String? @db.Uuid
   deliveryScope Json?
+  /// 发布候选冻结时间；冻结后普通变更默认 DEFERRED
+  frozenAt DateTime? @db.Timestamptz(3)
   createdAt   DateTime @default(now()) @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
   project     Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
@@ -465,6 +468,43 @@ model WorkflowInstance {
 }
 
 /// 工作单元：服务、应用、数据集或外部系统；依赖图以它为节点。
+/// 变更请求：需求变更的唯一入口，审批后生成 ChangeEvent 与失效动作。
+model ChangeRequest {
+  id            String @id @default(uuid()) @db.Uuid
+  projectId     String @db.Uuid
+  requirementId String @db.Uuid
+  /// L0 | L1 | L2 | L3
+  level         String @db.VarChar(4)
+  diff          Json
+  reason        String @db.VarChar(2000)
+  proposedById  String @db.Uuid
+  impactPreview Json?
+  /// PENDING | ACCEPTED | REJECTED | DEFERRED
+  decision      String @default("PENDING") @db.VarChar(16)
+  decidedById   String? @db.Uuid
+  decidedAt     DateTime? @db.Timestamptz(3)
+  appliedAt     DateTime? @db.Timestamptz(3)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([projectId, decision, createdAt])
+  @@index([requirementId, createdAt])
+  @@schema("workmesh_v1")
+}
+
+/// 变更分级到审批槽的策略；缺省由模板给出，项目可覆盖。
+model ProjectChangePolicy {
+  id        String   @id @default(uuid()) @db.Uuid
+  projectId String   @db.Uuid
+  level     String   @db.VarChar(4)
+  slots     Json
+  version   Int      @default(1)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, level])
+  @@schema("workmesh_v1")
+}
+
 model Unit {
   id           String @id @default(uuid()) @db.Uuid
   projectId    String @db.Uuid
@@ -766,6 +806,9 @@ model ChangeRecipient {
   userId     String @db.Uuid
   roleId     String? @db.Uuid
   version    Int @default(1)
+  action     String @default("ACK_ONLY") @db.VarChar(16)
+  dueAt      DateTime? @db.Timestamptz(3)
+  escalatedAt DateTime? @db.Timestamptz(3)
   ackedAt    DateTime? @db.Timestamptz(3)
   createdAt  DateTime @default(now()) @db.Timestamptz(3)
   event      ChangeEvent @relation(fields: [eventId], references: [id], onDelete: Restrict)
