@@ -61,8 +61,10 @@ describe('批量决定', () => {
   it('非 HUMAN 会话被拒绝', async () => {
     const controller = new V1ReviewController({ decide: vi.fn() } as never);
     const agentRequest = {
-      ...request(),
       v1Principal: { kind: 'AGENT', userId: 'u-1', sessionId: null, authVersion: 1 },
+      method: 'POST',
+      originalUrl: '/api/v1/review-requests/batch-decisions',
+      requestId: 'req-1',
     } as never;
 
     await expect(controller.batchDecide(agentRequest, dto(), BATCH_KEY)).rejects.toMatchObject({

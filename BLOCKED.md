@@ -48,8 +48,10 @@
 
 ## B7 Prisma client 生成被运行中的服务锁住
 
-- 目标：为 M4（`Unit` / `UnitDependency` / `Task.unitId`）重新生成 Prisma client。
+- 目标：为后续模型（`Unit` / `UnitDependency` / `ChangeRequest` / `ApprovalSlotDelegation` 等）重新生成 Prisma client。
 - 现象：`prisma generate` 报 `EPERM: operation not permitted, rename ... query_engine-windows.dll.node`。
 - 原因：本机有 `pnpm dev`（Nest watch）、`dist/main.js`、`prisma studio` 等进程持有查询引擎 DLL。
-- 解除条件：停止上述进程后重试，或换一台没有服务占用的环境。
-- 影响：WP4 的 schema 与迁移已写好，但 client 未更新，服务代码与测试无法通过类型检查；WP3/WP8 同样依赖 schema 变更，一并暂缓。
+- **现状（已部分解除）**：generate 在重命名引擎失败之前已写入 `index.js` / `index.d.ts`，类型层已包含新模型；`tsc` 与使用假 Prisma 的服务测试均可运行。仅引擎二进制未替换（版本相同，无行为差异）。
+- 仍受限：需要真正重启 Prisma 引擎、或迁移 apply 时，仍要停掉上述进程。
+- 解除条件：停止占用进程后重试，或换一台没有服务占用的环境。
+- 影响：WP4 已实现并通过测试；WP3/WP8 可继续实现，迁移 apply 仍受 B1 限制。

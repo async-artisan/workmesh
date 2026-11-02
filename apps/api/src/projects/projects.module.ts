@@ -8,12 +8,15 @@ import { ProjectsController } from './projects.controller';
 import { ProjectsService } from './projects.service';
 import { RequirementsController } from './requirements.controller';
 import { RequirementsService } from './requirements.service';
+import { UnitsController } from './units.controller';
+import { UnitsService } from './units.service';
 
 @Module({
-  controllers: [ProjectsController, RequirementsController],
+  controllers: [ProjectsController, RequirementsController, UnitsController],
   providers: [
     ProjectsService,
     RequirementsService,
+    UnitsService,
     ProjectAccessService,
     { provide: PROJECT_ROLE_REPOSITORY, useClass: ProjectRolePrismaRepository },
     { provide: V1_IDEMPOTENCY_REPOSITORY, useClass: V1IdempotencyPrismaRepository },
