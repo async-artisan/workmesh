@@ -51,4 +51,9 @@ export class DelegationsController {
   overdue(@Req() request: V1Request, @Param('projectId') projectId: string) {
     return this.delegations.overdue(projectId, humanUserId(request));
   }
+
+  @Post(':projectId/approvals/escalate')
+  escalate(@Req() request: V1Request, @Param('projectId') projectId: string) {
+    return this.delegations.escalate(projectId, humanUserId(request));
+  }
 }

@@ -758,6 +758,8 @@ model ApprovalSlot {
   createdAt       DateTime @default(now()) @db.Timestamptz(3)
   /// 超时升级截止时间；到期只提醒与升级，不自动批准
   dueAt           DateTime? @db.Timestamptz(3)
+  /// 已升级时间；只发提醒与升级，不自动批准
+  escalatedAt     DateTime? @db.Timestamptz(3)
   reviewRequest   ReviewRequest @relation(fields: [reviewRequestId, projectId], references: [id, projectId], onDelete: Restrict)
   requiredUser    User? @relation("ApprovalSlotUser", fields: [requiredUserId], references: [id], onDelete: Restrict)
   requiredRole    ProjectRole? @relation(fields: [requiredRoleId], references: [id], onDelete: Restrict)

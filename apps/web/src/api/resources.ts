@@ -563,6 +563,23 @@ export const reviewApi = {
       body: input,
       idempotencyKey: 'auto',
     }),
+  batchDecide: (
+    decision: 'APPROVE' | 'CHANGES_REQUESTED' | 'REJECT',
+    items: Array<{
+      reviewId: string;
+      slotId: string;
+      expectedVersion: number;
+      comment?: string;
+      confirmation: Confirmation;
+    }>,
+  ) =>
+    apiRequest<{
+      results: Array<{ reviewId: string; status: string; decisionId?: string; message?: string }>;
+    }>('/review-requests/batch-decisions', {
+      method: 'POST',
+      body: { decision, items },
+      idempotencyKey: 'auto',
+    }),
   revoke: (
     decisionId: string,
     input: { expectedVersion: number; reason: string; confirmation: Confirmation },

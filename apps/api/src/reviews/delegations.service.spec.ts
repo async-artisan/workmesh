@@ -73,6 +73,30 @@ function fakePrisma() {
             requiredRoleId: slot.requiredRoleId,
             dueAt: slot.dueAt,
           })),
+      updateMany: async (input: {
+        where: {
+          projectId: string;
+          dueAt: { lte: Date };
+          escalatedAt: null;
+          decisions: { none: Record<string, never> };
+        };
+        data: { escalatedAt: Date };
+      }) => {
+        let count = 0;
+        for (const slot of slots) {
+          const row = slot as typeof slot & { escalatedAt?: Date | null };
+          if (
+            slot.projectId === input.where.projectId &&
+            slot.dueAt <= input.where.dueAt.lte &&
+            slot.decisions.length === 0 &&
+            row.escalatedAt == null
+          ) {
+            row.escalatedAt = input.data.escalatedAt;
+            count += 1;
+          }
+        }
+        return { count };
+      },
     },
     approvalSlotDelegation: {
       findFirst: async (input: {
@@ -200,5 +224,11 @@ describe('DelegationsService', () => {
     const { service } = fakePrisma();
     const overdue = await service.overdue('p1', 'member');
     expect(overdue.map((slot) => slot.id)).toEqual(['slot-1']);
+  });
+
+  it('escalates overdue undecided slots once', async () => {
+    const { service } = fakePrisma();
+    await expect(service.escalate('p1', 'owner')).resolves.toEqual({ escalated: 1 });
+    await expect(service.escalate('p1', 'owner')).resolves.toEqual({ escalated: 0 });
   });
 });

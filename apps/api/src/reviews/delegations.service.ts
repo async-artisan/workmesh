@@ -117,6 +117,22 @@ export class DelegationsService {
     return { revoked: true };
   }
 
+  /** 到期未决定且未升级的槽位标记为已升级；只发提醒与升级，不自动批准。 */
+  async escalate(projectId: string, userId: string) {
+    await this.membership(projectId, userId, true);
+    const now = new Date();
+    const result = await this.prisma.approvalSlot.updateMany({
+      where: {
+        projectId,
+        dueAt: { lte: now },
+        escalatedAt: null,
+        decisions: { none: {} },
+      },
+      data: { escalatedAt: now },
+    });
+    return { escalated: result.count };
+  }
+
   async overdue(projectId: string, userId: string) {
     await this.membership(projectId, userId, false);
     return this.prisma.approvalSlot.findMany({

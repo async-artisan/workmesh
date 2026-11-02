@@ -104,6 +104,7 @@ PRD 的生产入口在本地 Product Agent。Web 负责读取候选、查看正�
 - `POST /api/v1/review-decisions/:decisionId/revoke` — 撤销批准；`expectedVersion` 指所属评审请求版本。追加撤销记录，失效发布指针与受影响任务，不删除历史。
 - `GET/POST /api/v1/projects/:projectId/delegations`、`DELETE .../delegations/:delegationId` — 槽位级临时委托；原责任人不变，`expiresAt` 必填且必须晚于当前时间；同一槽位同时只允许一条有效委托（`409 DELEGATION_EXISTS`）；被委托人在有效期内可代为决定。
 - `GET /api/v1/projects/:projectId/approvals/overdue` — 到期未决定的槽位视图（按 `dueAt` 升序）；只读，不自动批准。
+- `POST /api/v1/projects/:projectId/approvals/escalate` — 把到期未决定且未升级的槽位标记为已升级（`escalatedAt`），返回标记数量；不自动批准。
 
 ## 任务与工件
 
