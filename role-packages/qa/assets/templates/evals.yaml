@@ -1,0 +1,39 @@
+# 评测结果模板
+# 固定环境与版本，结果才可比较；失败必须分类，不重跑到绿。
+
+suite: <suite 名称>
+requirement: <PROJECT_KEY>-<序号>
+commit: <40 位 sha>
+environment:
+  build: <版本或镜像>
+  database: <版本>
+  services: []
+  startedAt: <ISO 时间>
+
+summary:
+  total: 0
+  passed: 0
+  failed: 0
+  flaky: 0
+  durationMs: 0
+
+results:
+  - case: TC-<序号>-01
+    status: PASSED
+    durationMs: 0
+  - case: TC-<序号>-04
+    status: FAILED
+    durationMs: 0
+    kind: PRODUCT_DEFECT
+    evidence: <日志 / 截图 / 请求 ID>
+
+failures:
+  - case: TC-<序号>-04
+    kind: PRODUCT_DEFECT
+    reason: <一句话根因>
+  - case: TC-<序号>-07
+    kind: CASE_INVALID
+    reason: <断言仍按旧版契约编写>
+  - case: TC-<序号>-09
+    kind: ENVIRONMENT
+    reason: <依赖未启动>

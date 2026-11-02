@@ -1,0 +1,132 @@
+{
+  "packageSchemaVersion": "1.0",
+  "id": "workmesh.backend",
+  "version": "0.1.0",
+  "protocolVersion": "1.0",
+  "title": "后端角色包",
+  "roleKey": "backend",
+  "compatibility": {
+    "minCliVersion": "1.0.0",
+    "maxCliVersionExclusive": "2.0.0",
+    "contractVersion": "1.0"
+  },
+  "inputs": [
+    {
+      "key": "context",
+      "source": "TASK_SNAPSHOT",
+      "kind": "CONTEXT",
+      "required": true,
+      "contractVersion": "1.0"
+    },
+    {
+      "key": "prd",
+      "source": "KNOWLEDGE",
+      "kind": "PRD",
+      "required": true,
+      "contractVersion": "1.0"
+    },
+    {
+      "key": "unit-card",
+      "source": "KNOWLEDGE",
+      "kind": "UNIT_CARD",
+      "required": true,
+      "contractVersion": "1.0"
+    }
+  ],
+  "outputs": [
+    {
+      "key": "contract",
+      "channel": "CANDIDATE",
+      "kind": "KNOWLEDGE",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-contract"
+    },
+    {
+      "key": "impl",
+      "channel": "CANDIDATE",
+      "kind": "IMPL",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-impl"
+    }
+  ],
+  "resources": [
+    {
+      "id": "template-contract",
+      "kind": "TEMPLATE",
+      "path": "assets/templates/contract.md",
+      "sha256": "5a1b86ef11d592596e2ae8f68486e7b0689e33f72a794e43d03c2986cc824afa",
+      "byteLength": 1320,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "template-impl",
+      "kind": "TEMPLATE",
+      "path": "assets/templates/impl.md",
+      "sha256": "a35f8362c4ba99182da42b39627661afc1f3aec29339038fbef65cd91a3d6938",
+      "byteLength": 908,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "checklist-contract-quality",
+      "kind": "CHECKLIST",
+      "path": "checklists/contract-quality.md",
+      "sha256": "2c53afe598d5fb0a7e181bf5967735c36f4d1db662f0de01d0c99fdb6b16dae8",
+      "byteLength": 927,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "reference-references",
+      "kind": "REFERENCE",
+      "path": "references/references.json",
+      "sha256": "2197fd6a363e157902d3d677c09530208e06e3315445284f0cc4aeb555c718e9",
+      "byteLength": 646,
+      "mediaType": "application/json"
+    },
+    {
+      "id": "skill-attach-evidence",
+      "kind": "SKILL",
+      "path": "skills/attach-evidence/SKILL.md",
+      "sha256": "9fc2803fcf8da4fb57a3e4660084f7389a5a86e0ad50a3db6fc1e0c3b5597d6a",
+      "byteLength": 1527,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "skill-design-contract",
+      "kind": "SKILL",
+      "path": "skills/design-contract/SKILL.md",
+      "sha256": "ae12d626347f5f9ce0840691e5aa7a73624604203394824237aed254dfb01521",
+      "byteLength": 1618,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "skill-implement-change",
+      "kind": "SKILL",
+      "path": "skills/implement-change/SKILL.md",
+      "sha256": "da8e2ae73a3743e39551e515eaefca409175a2f263aaf057c40427a9e96c06ed",
+      "byteLength": 1401,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "skills-index",
+      "kind": "INDEX",
+      "path": "skills/index.md",
+      "sha256": "c5536fdd9bd69df0b30e0610db91c1adcfba52862254bdabe82695727b4fa533",
+      "byteLength": 982,
+      "mediaType": "text/markdown"
+    }
+  ],
+  "agentEntries": [
+    {
+      "host": "codex",
+      "type": "AGENTS_MD_POINTER",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    },
+    {
+      "host": "claude-code",
+      "type": "SKILLS_DIRECTORY",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    }
+  ]
+}

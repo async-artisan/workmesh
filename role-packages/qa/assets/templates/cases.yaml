@@ -1,0 +1,29 @@
+# 用例模板
+# id: TC-<需求编号>-<序号>
+# covers: 覆盖的验收 key，至少一个
+# kind: TEST | INSPECTION | DEMO（与验收的 verification 对齐）
+
+version: 1
+requirement: <PROJECT_KEY>-<序号>
+
+cases:
+  - id: TC-<序号>-01
+    covers: [A1]
+    kind: TEST
+    given: <前置状态与数据>
+    when: <操作>
+    then: <可观测结果，一条断言>
+    data:
+      - <测试数据或 fixture 路径>
+
+  - id: TC-<序号>-02
+    covers: [A2]
+    kind: INSPECTION
+    given: <登录角色与页面>
+    when: <操作>
+    then: <界面应呈现的内容>
+    evidence: 截图
+
+coverage:
+  uncovered: []
+# uncovered 示例：- A3\n#   原因: 需要真实第三方环境，暂由 DEMO 覆盖

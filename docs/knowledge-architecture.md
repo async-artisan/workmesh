@@ -1,7 +1,7 @@
 # WorkMesh 知识与变更架构（设计稿 v0.1）
 
 > 状态：设计稿，未实施。日期：2026-11-02。
-> 范围：三类知识库、五态生命周期、四个闭环、上下文装配、验收标准契约、需求变更与通知。
+> 范围：三类知识库、五态生命周期、四个闭环、上下文装配、验收标准契约、项目开发规范、需求变更与通知。
 > 依据：现有 schema 与 API + 成熟实践（KCS、Diátaxis、Backstage TechDocs、ADR、Team Topologies、Parallel Change、OpenGitOps），文末列出处。
 > 本文只定义模型与规则，不含迁移与实现。
 
@@ -405,3 +405,106 @@ QA 的角色从「写用例」转为「确认评测集」。
 ### 15.10 与现状差距
 
 当前 PRD 的 `acceptance` 只校验「是数组」与 `verification` 枚举（[prd.schema.md](../spec/artifacts/prd.schema.md)、[docs/api.md](api.md)），没有 key 唯一性、`category`、`criticality`、`hash`，也没有与任务的映射。需要补齐结构化 schema、lint 规则和覆盖校验。
+
+## 16. 项目开发规范（已定）
+
+项目开发规范是三层里最容易被漏掉的一层：
+
+| 层           | 回答什么                 | 归属       | 换项目是否复用 |
+| ------------ | ------------------------ | ---------- | -------------- |
+| 角色包       | 这个角色**怎么干活**     | 跨项目复用 | 复用           |
+| **项目规范** | 这个项目**必须遵守什么** | 项目级     | 不复用         |
+| 需求         | 这次**做什么**           | 需求级     | 不复用         |
+
+把「注释怎么写」塞进角色包是错的——换个项目就得 fork 一份包。
+
+### 16.1 存放
+
+`SYSTEM` 知识库下的一类文档：
+
+```
+KnowledgeBase(kind=SYSTEM)
+└── KnowledgeDocument(kind=CONVENTIONS, scopeKind=PROJECT | UNIT)
+    ├── conventions.md      # 人读：原则 + 好/坏例子，一页以内
+    └── conventions.yaml    # 机器读：规则 + 强制方式
+```
+
+为什么两份：`conventions.md` 讲清「为什么」和例子；`conventions.yaml` 每条规则带强制方式，能被校验。只写散文的规范三个月后没人看。
+
+模板见 [project-templates/software/](../project-templates/software/)。
+
+### 16.2 规则结构
+
+```yaml
+- id: comment-why-not-what
+  statement: 注释只解释「为什么」，不复述代码
+  scope: [frontend, backend]
+  enforcement: REVIEW # LINT | CI | REVIEW | PROSE
+  example:
+    good: // 兼容 2.x 客户端，3.0 全量后删除（zhang，2026-03）
+    bad: // 设置 name
+```
+
+| 字段          | 必填 | 说明                                       |
+| ------------- | ---- | ------------------------------------------ |
+| `id`          | 是   | 稳定、可引用；变更后不复用                 |
+| `statement`   | 是   | 一句话可判定的规则                         |
+| `scope`       | 是   | 适用角色或单元；同一规则不必对所有角色生效 |
+| `enforcement` | 是   | `LINT` / `CI` / `REVIEW` / `PROSE`         |
+| `check`       | 否   | 对应的 lint 规则或 CI 检查标识             |
+| `example`     | 否   | 好/坏例子，降低理解成本                    |
+
+### 16.3 强制分层
+
+| 层       | 手段             | 例子                          | 谁执行    |
+| -------- | ---------------- | ----------------------------- | --------- |
+| `LINT`   | lint / 格式化    | 注释格式、TODO 格式、导入顺序 | 本地 + CI |
+| `CI`     | 构建、测试、类型 | 类型检查、迁移回滚、单测      | CI        |
+| `REVIEW` | 评审清单         | 命名达意、错误处理完整        | 人        |
+| `PROSE`  | 原则与示例       | 分层边界、取舍理由            | 判断      |
+
+原则：**能自动的不要写进评审，能评审的不要只写文字**。
+
+平台只**记录证据**，不负责跑 lint：`enforcement: CI` 的规则，要求交付时 `checks[]` 里有对应结果（`code / passed / message`）。跑不跑由 CI 决定，平台只认证据。
+
+### 16.4 怎么送到 Agent
+
+1. **绑定**：`ProjectKnowledgeBinding` 把规范绑到编码角色（frontend / backend / qa / ops），`required=true`。
+2. **快照**：编码任务快照必带这份文档（一页，成本可控）。
+3. **入口**：宿主入口文件写指针——`AGENTS.md` / `CLAUDE.md` 注明「项目规范见 `.workmesh/conventions.md`，快照已带」。
+4. **引用**：角色包 `references.json` 加 `conventions` 指针，包本身不复制正文。
+
+四步走完，Agent 开工时一定看得到规范，不靠人提醒。
+
+### 16.5 老项目：抽取再确认
+
+新项目从模板起步；老项目必须先抽取：
+
+1. 扫代码统计主导模式：注释语言、命名风格、错误处理、日志、测试框架。
+2. 读工具配置：eslint、prettier、tsconfig、commitlint、editorconfig——这些已经是事实上的规范。
+3. 生成 `conventions.md` 草稿，标注「从代码推断，置信度中」。
+4. 技术负责人确认；冲突处二选一：改代码，或改规范。
+5. 确认后发布，绑定到角色。
+
+先描述现状，再决定要不要改。上来就发理想规范，代码和规范会立刻分叉。
+
+### 16.6 变更
+
+- 规范变更产生**项目级** `ChangeEvent(sourceKind=CONVENTIONS)`，`requirementId` 为空，收件人是所有编码角色。
+- 在途任务**不失效**，下次交付按新规范校验。
+- 只有会让旧证据失效的变更（例如新增必过 lint 规则）才要求重新交付，并说明原因。
+- 规范变更不走 L0–L3 需求变更单——它不是需求变更，但必须有 owner 与审计记录。
+
+### 16.7 反模式
+
+1. 规范写 50 页，Agent 不读，人也不读。
+2. 规范与工具配置矛盾（文档说中文注释，eslint 没配）。
+3. 每个项目 fork 一份角色包来放规范。
+4. 只有文字，没有 `enforcement`。
+5. 老项目直接套理想规范，代码当场违规。
+
+### 16.8 与现状差距
+
+当前 `DocumentKind` 没有 `CONVENTIONS`（[schema.prisma](../apps/api/prisma/schema.prisma#L264) 附近的枚举），也没有规范的结构化校验；`ProjectKnowledgeBinding` 能绑定，但快照装配还没有「编码角色必带规范」的规则；交付 `checks[]` 已经能承载 `enforcement: CI` 的证据。
+
+需要补：`DocumentKind.CONVENTIONS`、`conventions.yaml` 的结构校验、装配必带规则，以及 [project-templates/software/](../project-templates/software/) 的初始模板。

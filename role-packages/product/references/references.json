@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "note": "只放指针，不放正文。scope: PROJECT | UNIT | ROLE。路径在运行时由快照解析。",
+  "entries": [
+    {
+      "key": "glossary",
+      "scope": "PROJECT",
+      "ref": "knowledge://<project-key>/business/glossary"
+    },
+    {
+      "key": "unit-card",
+      "scope": "UNIT",
+      "ref": "knowledge://<project-key>/system/<unit-key>/card"
+    },
+    {
+      "key": "acceptance-contract",
+      "scope": "PROJECT",
+      "ref": "knowledge://<project-key>/system/acceptance-contract"
+    }
+  ]
+}

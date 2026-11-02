@@ -1,0 +1,80 @@
+{
+  "id": "workmesh.product",
+  "version": "0.1.0",
+  "title": "产品角色包",
+  "description": "把业务意图转成可判定的 PRD 与验收，供下游并行开工。",
+  "license": "MIT",
+  "roleKey": "product",
+  "compatibility": {
+    "minCliVersion": "1.0.0",
+    "maxCliVersionExclusive": "2.0.0",
+    "contractVersion": "1.0"
+  },
+  "skills": [
+    {
+      "key": "clarify-intent",
+      "path": "skills/clarify-intent/SKILL.md",
+      "description": "把模糊的业务诉求整理成目标、边界与未知项，并在开工前暴露歧义。",
+      "whenToUse": "需求刚提出、下游回问或范围不清时。"
+    },
+    {
+      "key": "write-prd",
+      "path": "skills/write-prd/SKILL.md",
+      "description": "基于已确认的理解与业务知识产出 PRD，写清范围、约束与依赖。",
+      "whenToUse": "理解已确认、需要出稿或修订 PRD 时。"
+    },
+    {
+      "key": "map-acceptance",
+      "path": "skills/map-acceptance/SKILL.md",
+      "description": "把 PRD 拆成可判定的验收条目，标注 verification、category 与 criticality。",
+      "whenToUse": "PRD 草稿完成或验收需要修订时。"
+    }
+  ],
+  "inputs": [
+    {
+      "key": "context",
+      "source": "TASK_SNAPSHOT",
+      "kind": "CONTEXT",
+      "required": true,
+      "contractVersion": "1.0"
+    },
+    {
+      "key": "business-knowledge",
+      "source": "KNOWLEDGE",
+      "kind": "KNOWLEDGE",
+      "required": true,
+      "contractVersion": "1.0"
+    }
+  ],
+  "outputs": [
+    {
+      "key": "understanding",
+      "channel": "CANDIDATE",
+      "kind": "UNDERSTANDING",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-understanding"
+    },
+    {
+      "key": "prd",
+      "channel": "CANDIDATE",
+      "kind": "PRD",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-prd",
+      "evidence": ["INSPECTION"]
+    }
+  ],
+  "agentEntries": [
+    {
+      "host": "codex",
+      "type": "AGENTS_MD_POINTER",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    },
+    {
+      "host": "claude-code",
+      "type": "SKILLS_DIRECTORY",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    }
+  ]
+}

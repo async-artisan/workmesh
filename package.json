@@ -11,6 +11,7 @@
   },
   "scripts": {
     "workmesh": "node apps/cli/dist/index.js",
+    "build:role-packages": "node scripts/build-role-packages.mjs",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",

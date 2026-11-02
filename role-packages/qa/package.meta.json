@@ -1,0 +1,96 @@
+{
+  "id": "workmesh.qa",
+  "version": "0.1.0",
+  "title": "测试角色包",
+  "description": "从验收派生用例与评测集，执行后把失败归因为可追踪的缺陷。",
+  "license": "MIT",
+  "roleKey": "qa",
+  "compatibility": {
+    "minCliVersion": "1.0.0",
+    "maxCliVersionExclusive": "2.0.0",
+    "contractVersion": "1.0"
+  },
+  "skills": [
+    {
+      "key": "derive-cases",
+      "path": "skills/derive-cases/SKILL.md",
+      "description": "把验收条目转成用例与评测集，每条验收至少一个用例。",
+      "whenToUse": "PRD 发布后，代码未就绪也可开始。"
+    },
+    {
+      "key": "run-evals",
+      "path": "skills/run-evals/SKILL.md",
+      "description": "执行用例与评测集，记录结果、环境与失败分类。",
+      "whenToUse": "有可运行构建或测试环境时。"
+    },
+    {
+      "key": "report-defects",
+      "path": "skills/report-defects/SKILL.md",
+      "description": "把失败归因为缺陷，关联验收与任务并跟踪回归。",
+      "whenToUse": "评测失败且判定为产品缺陷时。"
+    }
+  ],
+  "inputs": [
+    {
+      "key": "context",
+      "source": "TASK_SNAPSHOT",
+      "kind": "CONTEXT",
+      "required": true,
+      "contractVersion": "1.0"
+    },
+    {
+      "key": "prd",
+      "source": "KNOWLEDGE",
+      "kind": "PRD",
+      "required": true,
+      "contractVersion": "1.0"
+    },
+    {
+      "key": "contract",
+      "source": "KNOWLEDGE",
+      "kind": "KNOWLEDGE",
+      "required": false,
+      "contractVersion": "1.0"
+    }
+  ],
+  "outputs": [
+    {
+      "key": "cases",
+      "channel": "CANDIDATE",
+      "kind": "CASES",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-cases",
+      "evidence": ["TEST", "INSPECTION"]
+    },
+    {
+      "key": "evals",
+      "channel": "CANDIDATE",
+      "kind": "CASES",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-evals",
+      "evidence": ["TEST"]
+    },
+    {
+      "key": "defects",
+      "channel": "CANDIDATE",
+      "kind": "CASES",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-defect",
+      "evidence": ["INSPECTION"]
+    }
+  ],
+  "agentEntries": [
+    {
+      "host": "codex",
+      "type": "AGENTS_MD_POINTER",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    },
+    {
+      "host": "claude-code",
+      "type": "SKILLS_DIRECTORY",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    }
+  ]
+}

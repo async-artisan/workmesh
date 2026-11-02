@@ -1,0 +1,30 @@
+# 验收条目模板
+# key 稳定、永不复用；删除条目用墓碑标记，不复用 key。
+# verification: TEST | INSPECTION | DEMO
+# category: FUNCTIONAL | PERFORMANCE | SECURITY | ACCESSIBILITY | COMPLIANCE
+# criticality: HIGH | MEDIUM | LOW
+
+version: 1
+requirement: <PROJECT_KEY>-<序号>
+
+acceptance:
+  - key: A1
+    text: <一个可观测结果，一句话，可判定>
+    verification: TEST
+    category: FUNCTIONAL
+    criticality: HIGH
+
+  - key: A2
+    text: <界面/文案/配置类结果>
+    verification: INSPECTION
+    category: FUNCTIONAL
+    criticality: MEDIUM
+
+  - key: A3
+    text: <需要按步骤演示才能判断的结果>
+    verification: DEMO
+    category: FUNCTIONAL
+    criticality: LOW
+
+removed: []
+# removed 示例：- key: A0\n#   reason: <为什么删除>\n#   replacedBy: A1

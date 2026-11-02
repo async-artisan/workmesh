@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "note": "只放指针，不放正文。scope: PROJECT | UNIT | ROLE。路径在运行时由快照解析。",
+  "entries": [
+    {
+      "key": "unit-card",
+      "scope": "UNIT",
+      "ref": "knowledge://<project-key>/system/<unit-key>/card"
+    },
+    {
+      "key": "conventions",
+      "scope": "PROJECT",
+      "ref": "knowledge://<project-key>/system/conventions"
+    },
+    {
+      "key": "api-contract",
+      "scope": "UNIT",
+      "ref": "knowledge://<project-key>/system/<unit-key>/contract"
+    },
+    {
+      "key": "adr",
+      "scope": "PROJECT",
+      "ref": "knowledge://<project-key>/system/adr"
+    }
+  ]
+}

@@ -1,0 +1,147 @@
+{
+  "packageSchemaVersion": "1.0",
+  "id": "workmesh.qa",
+  "version": "0.1.0",
+  "protocolVersion": "1.0",
+  "title": "测试角色包",
+  "roleKey": "qa",
+  "compatibility": {
+    "minCliVersion": "1.0.0",
+    "maxCliVersionExclusive": "2.0.0",
+    "contractVersion": "1.0"
+  },
+  "inputs": [
+    {
+      "key": "context",
+      "source": "TASK_SNAPSHOT",
+      "kind": "CONTEXT",
+      "required": true,
+      "contractVersion": "1.0"
+    },
+    {
+      "key": "prd",
+      "source": "KNOWLEDGE",
+      "kind": "PRD",
+      "required": true,
+      "contractVersion": "1.0"
+    },
+    {
+      "key": "contract",
+      "source": "KNOWLEDGE",
+      "kind": "KNOWLEDGE",
+      "required": false,
+      "contractVersion": "1.0"
+    }
+  ],
+  "outputs": [
+    {
+      "key": "cases",
+      "channel": "CANDIDATE",
+      "kind": "CASES",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-cases"
+    },
+    {
+      "key": "evals",
+      "channel": "CANDIDATE",
+      "kind": "CASES",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-evals"
+    },
+    {
+      "key": "defects",
+      "channel": "CANDIDATE",
+      "kind": "CASES",
+      "contractVersion": "1.0",
+      "templateResourceId": "template-defect"
+    }
+  ],
+  "resources": [
+    {
+      "id": "template-cases",
+      "kind": "TEMPLATE",
+      "path": "assets/templates/cases.yaml",
+      "sha256": "b5253c4ec088ef4e00cf8a6a2052fcdda8cd0f0aee93d0896ec6d2a3701e7542",
+      "byteLength": 712,
+      "mediaType": "application/yaml"
+    },
+    {
+      "id": "template-defect",
+      "kind": "TEMPLATE",
+      "path": "assets/templates/defect.md",
+      "sha256": "e416074d9a8910dd944d93e587dc8c71c1e889f006e4d44819f71bb9744fa05c",
+      "byteLength": 554,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "template-evals",
+      "kind": "TEMPLATE",
+      "path": "assets/templates/evals.yaml",
+      "sha256": "83b88590ef5498eb8cd9a5b31d79460f2d5f938bd1adeeeffa9a0b654c95e71b",
+      "byteLength": 826,
+      "mediaType": "application/yaml"
+    },
+    {
+      "id": "checklist-cases-coverage",
+      "kind": "CHECKLIST",
+      "path": "checklists/cases-coverage.md",
+      "sha256": "7a3db0038c7abebd30b8694cdb597d66d1215cf7272a1aaf15878d1276e3f437",
+      "byteLength": 871,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "reference-references",
+      "kind": "REFERENCE",
+      "path": "references/references.json",
+      "sha256": "69af18e80ef0de74d19a7f2dc3c2222c990f21ed1ee27713cd522ad80a3fea1d",
+      "byteLength": 680,
+      "mediaType": "application/json"
+    },
+    {
+      "id": "skill-derive-cases",
+      "kind": "SKILL",
+      "path": "skills/derive-cases/SKILL.md",
+      "sha256": "953d67517f29f2f4e4c146d676308103fe194b55b900e070f3a8ec9e9a3e5c98",
+      "byteLength": 1524,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "skills-index",
+      "kind": "INDEX",
+      "path": "skills/index.md",
+      "sha256": "45f9d6aeadf131cf3c65d843828bbdbf1c5c13eb3dfedb6b2b51be38766f52d8",
+      "byteLength": 881,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "skill-report-defects",
+      "kind": "SKILL",
+      "path": "skills/report-defects/SKILL.md",
+      "sha256": "74492dac636f7ddd9121c727e5dfa34f34af8f3298aa3c9a2f5985f87d9b471f",
+      "byteLength": 1575,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "skill-run-evals",
+      "kind": "SKILL",
+      "path": "skills/run-evals/SKILL.md",
+      "sha256": "d02402117b85129150ed584a2d74b13085d3e3d0b5ebc31106329d4878669a1b",
+      "byteLength": 1539,
+      "mediaType": "text/markdown"
+    }
+  ],
+  "agentEntries": [
+    {
+      "host": "codex",
+      "type": "AGENTS_MD_POINTER",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    },
+    {
+      "host": "claude-code",
+      "type": "SKILLS_DIRECTORY",
+      "resourceId": "skills-index",
+      "adapterVersion": "1.0.0"
+    }
+  ]
+}
