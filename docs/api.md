@@ -29,8 +29,57 @@
 - `GET/PUT /api/v1/knowledge-bases/:knowledgeBaseId/access` — 读取/替换知识库 ACL；替换需 `expectedVersion`、`expectedAuthzVersion`、`KB_ACCESS_REPLACE` 票据与幂等键，撤销的 grant 保留历史。
 - `GET /api/v1/knowledge-bases/:knowledgeBaseId/search?q` — 只在当前已发布修订中做标题/正文包含检索，返回摘要片段与稳定游标。
 - `GET/POST /api/v1/projects/:projectId/documents`、`GET /api/v1/documents/:documentId`、`GET /api/v1/documents/:documentId/revisions`、`GET /api/v1/documents/:documentId/revisions/:revisionId`、`GET /api/v1/document-revisions/:revisionId/content` — 正式文档与修订（正文在发布前仅对有权限的成员可见）。
-- `POST /api/v1/documents/:documentId/revisions`、`POST /api/v1/documents/:documentId/restore` — 提交新候选修订或从历史修订恢复；均生成评审请求，不改发布指针。
+- `POST /api/v1/documents/:documentId/revisions`、`POST /api/v1/documents/:documentId/restore` — 提交新候选修订或从历史修订恢复；均生成评审请求，不改发布指针。二者与 `POST /projects/:projectId/documents` 一样**必须带 `Idempotency-Key`**（UUID）：同键同语义重放返回首次结果，同键异语义或异路由返回 `409 IDEMPOTENCY_CONFLICT`，缺失则 `400 IDEMPOTENCY_KEY_REQUIRED`。响应中的 `revision` 只携带引用（`id`/`sha256`/`seq`/`reviewRequestId` 等），正文仍只经由 `GET /document-revisions/:revisionId/content` 下发。
 - `POST /api/v1/documents/:documentId/withdraw` — 撤回当前发布（追加 `WITHDRAW` 发布记录，清空发布指针）。
+
+### PRD 的 Agent-first 发布路径
+
+PRD 的生产入口在本地 Product Agent。Web 负责读取候选、查看正文与修订差异，并在需要人做决策时提交评审决定。PRD 不应由 Web 表单手写后直接推进普通流程，也不允许 Agent 直接发布。
+
+权威路径只有一条：
+
+```text
+本地 Product Agent
+  -> POST /projects/:projectId/documents（新 PRD，必须带 Idempotency-Key）
+     或 POST /documents/:documentId/revisions（已有 PRD 的新版本）
+  -> 服务端校验 Understanding 基线、deliveryScope 与 acceptance
+  -> 创建 CANDIDATE + PRD_PUBLICATION ReviewRequest
+  -> Web 上由具备权限的 HUMAN 查看、评论并批准/拒绝/要求修改
+  -> 所有审批槽位 APPROVE 后，服务端事务发布 revision
+  -> 更新 Requirement.currentPrdRevisionId
+```
+
+新建 PRD 候选请求必须包含 `requirementId`、`basisUnderstandingRevisionId`、`deliveryScope` 和至少一条 `acceptance`；对已有 PRD 追加 revision 时，`requirementId` 由服务端从 document 绑定关系派生，不应在 revision 请求体中重复传入。`basisUnderstandingRevisionId` 必须指向该需求当前已发布且已确认的 UNDERSTANDING revision；`deliveryScope.requiredOutputKinds` 必须包含 `IMPL`；验收条目的 `verification` 只能是 `TEST`、`INSPECTION` 或 `DEMO`。这些字段由服务端重新校验，客户端不能绕过。
+
+新 PRD 的请求体示例：
+
+```json
+{
+  "knowledgeBaseId": "<knowledge-base-id>",
+  "kind": "PRD",
+  "requirementId": "<requirement-id>",
+  "title": "Checkout flow",
+  "mimeType": "text/markdown; charset=utf-8",
+  "bodyBase64": "<utf8 markdown encoded as base64>",
+  "basisUnderstandingRevisionId": "<published-understanding-revision-id>",
+  "deliveryScope": {
+    "participatingRoleIds": ["<product-role-id>", "<engineering-role-id>"],
+    "requiredOutputKinds": ["PRD", "IMPL"],
+    "excludedRoles": []
+  },
+  "acceptance": [
+    {
+      "key": "checkout-completes",
+      "text": "用户可以完成结算并看到订单确认",
+      "verification": "TEST"
+    }
+  ]
+}
+```
+
+`POST /api/v1/review-requests` 只用于已有候选主体需要单独建立评审请求的场景；PRD 创建和修订接口会自动生成 `PRD_PUBLICATION` 请求，避免客户端自行拼接审批槽位。历史的 `deliver --kind PRD` 只产生任务 ArtifactSet 时，不会更新正式 PRD 指针；Product Agent 应使用 candidate/document revision 路径提交正式 PRD 候选。
+
+创建或追加 revision 的响应会返回 `reviewRequestId`。CLI 会把它放进 JSON 输出和本地 operation receipt，便于本地 Agent 将候选交给 Web 评审；该 ID 不代表已经批准或发布。
 
 ## 流程与角色包
 
@@ -43,7 +92,7 @@
 - `POST /api/v1/review-requests` — 创建评审请求；只接受 `{ subject: { kind: 'DOCUMENT_REVISION' | 'TASK_ARTIFACT_SET', id }, expectedVersion, taskId? }`，kind、审批槽位与 subject 摘要全部服务端派生。同一 subject 已有 `OPEN` 请求时返回既有请求，需幂等键。
 - `GET /api/v1/projects/:projectId/review-requests?assignedToMe&status&limit&cursor` — 项目评审待办分页；按主体可见范围、指派/业务角色与状态过滤。
 - `GET /api/v1/review-requests/:reviewId` — 读取评审请求、槽位与已作决定。
-- `POST /api/v1/review-requests/:reviewId/decisions` — 提交 `APPROVE` / `CHANGES_REQUESTED` / `REJECT`；仅当前槽位资格的 HUMAN，携带父请求 `expectedVersion`、一次性票据与幂等键。全部槽位批准时在同一事务完成发布或任务验收效应。
+- `POST /api/v1/review-requests/:reviewId/decisions` — 提交 `APPROVE` / `CHANGES_REQUESTED` / `REJECT`；仅当前槽位资格的 HUMAN，携带父请求 `expectedVersion`、一次性票据与幂等键。`CHANGES_REQUESTED` 与 `REJECT` 必须提供非空 `comment`，让本地 Agent 能据此生成下一版；`APPROVE` 的说明可选。全部槽位批准时在同一事务完成发布或任务验收效应。
 - `POST /api/v1/review-decisions/:decisionId/revoke` — 撤销批准；`expectedVersion` 指所属评审请求版本。追加撤销记录，失效发布指针与受影响任务，不删除历史。
 
 ## 任务与工件

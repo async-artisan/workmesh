@@ -1,18 +1,29 @@
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { Prisma, type PrismaClient as V1PrismaClient } from '../../../node_modules/.prisma/workmesh-v1-client';
+import {
+  Prisma,
+  type PrismaClient as V1PrismaClient,
+} from '../../../node_modules/.prisma/workmesh-v1-client';
 import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
+import { assertReplayable, type V1OperationRecord } from '../common/v1-idempotency';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
-  V1CreateDocumentResult,
+  V1CreateDocumentSnapshot,
   V1DocumentView,
-  V1ProposeRevisionResult,
+  V1ProposeRevisionSnapshot,
   V1PublicationRepository,
   V1RequirementBinding,
+  V1RevisionSnapshot,
   V1RevisionView,
   V1ListDocumentsQuery,
+  V1WriteOperation,
 } from './v1-publication.service';
-import type { DocumentKind, RevisionState, V1AcceptanceItem, V1DeliveryScope } from './v1-publication-policy';
+import type {
+  DocumentKind,
+  RevisionState,
+  V1AcceptanceItem,
+  V1DeliveryScope,
+} from './v1-publication-policy';
 
 type V1TransactionClient = Omit<
   V1PrismaClient,
@@ -26,10 +37,24 @@ function isRetryable(error: unknown): boolean {
   const code = (error as { code?: string })?.code;
   if (code === 'P2034') return true;
   const message = String((error as Error)?.message ?? '');
-  return message.includes('40001') || message.includes('40P01') || message.includes('could not serialize');
+  return (
+    message.includes('40001') ||
+    message.includes('40P01') ||
+    message.includes('could not serialize')
+  );
 }
 
-function toRevisionView(
+/** 唯一键冲突：并发同键写落到了同一个 `IdempotentOperation` 主键/唯一键上。 */
+function isUniqueViolation(error: unknown): boolean {
+  return (error as { code?: string })?.code === 'P2002';
+}
+
+/**
+ * 对外视图不含正文：正文只经由 `GET /document-revisions/:id/content` 单独下发。
+ * 写路径（创建/候选/恢复）用它构造响应与 `IdempotentOperation.resultRefs`，
+ * 避免把最多 10MiB 的原始字节塞进 JSON 响应和操作账。
+ */
+function toRevisionSnapshot(
   revision: {
     id: string;
     documentId: string;
@@ -39,14 +64,14 @@ function toRevisionView(
     mimeType: string;
     byteLength: number;
     sha256: string;
-    bodyBytes: Uint8Array;
     createdById: string;
     basisUnderstandingRevisionId: string | null;
     deliveryScope: Prisma.JsonValue;
     acceptance: Prisma.JsonValue;
+    reviewRequests?: Array<{ id: string }>;
   },
   document: { knowledgeBaseId: string; currentPublishedRevisionId: string | null },
-): V1RevisionView {
+): V1RevisionSnapshot {
   return {
     id: revision.id,
     documentId: revision.documentId,
@@ -57,13 +82,23 @@ function toRevisionView(
     mimeType: revision.mimeType,
     byteLength: revision.byteLength,
     digest: revision.sha256,
-    state: (document.currentPublishedRevisionId === revision.id ? 'PUBLISHED' : 'CANDIDATE') as RevisionState,
-    bodyBytes: revision.bodyBytes,
+    state: (document.currentPublishedRevisionId === revision.id
+      ? 'PUBLISHED'
+      : 'CANDIDATE') as RevisionState,
     createdBy: revision.createdById,
     basisUnderstandingRevisionId: revision.basisUnderstandingRevisionId,
     deliveryScope: (revision.deliveryScope as V1DeliveryScope | null) ?? null,
     acceptance: (revision.acceptance as V1AcceptanceItem[] | null) ?? null,
+    reviewRequestId: revision.reviewRequests?.[0]?.id ?? null,
   };
+}
+
+/** 读路径视图：保留正文供 `/content` 与可见性判断使用。 */
+function toRevisionView(
+  revision: Parameters<typeof toRevisionSnapshot>[0] & { bodyBytes: Uint8Array },
+  document: { knowledgeBaseId: string; currentPublishedRevisionId: string | null },
+): V1RevisionView {
+  return { ...toRevisionSnapshot(revision, document), bodyBytes: revision.bodyBytes };
 }
 
 function documentView(document: {
@@ -89,12 +124,18 @@ function documentView(document: {
 }
 
 function encodeCursor(value: { updatedAt: Date; id: string }): string {
-  return Buffer.from(JSON.stringify({ t: value.updatedAt.toISOString(), i: value.id }), 'utf8').toString('base64url');
+  return Buffer.from(
+    JSON.stringify({ t: value.updatedAt.toISOString(), i: value.id }),
+    'utf8',
+  ).toString('base64url');
 }
 
 function decodeCursor(cursor: string): { updatedAt: Date; id: string } {
   try {
-    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { t?: unknown; i?: unknown };
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+      t?: unknown;
+      i?: unknown;
+    };
     if (typeof parsed.t !== 'string' || typeof parsed.i !== 'string') throw new Error('bad cursor');
     const updatedAt = new Date(parsed.t);
     if (Number.isNaN(updatedAt.getTime())) throw new Error('bad cursor');
@@ -128,7 +169,14 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
   async findRevision(revisionId: string): Promise<V1RevisionView | null> {
     const revision = await this.prisma.documentRevision.findUnique({
       where: { id: revisionId },
-      include: { document: { select: { knowledgeBaseId: true, currentPublishedRevisionId: true } } },
+      include: {
+        document: { select: { knowledgeBaseId: true, currentPublishedRevisionId: true } },
+        reviewRequests: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { id: true },
+        },
+      },
     });
     return revision ? toRevisionView(revision, revision.document) : null;
   }
@@ -142,6 +190,13 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
     const revisions = await this.prisma.documentRevision.findMany({
       where: { documentId },
       orderBy: { seq: 'desc' },
+      include: {
+        reviewRequests: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { id: true },
+        },
+      },
     });
     return revisions.map((revision) => toRevisionView(revision, document));
   }
@@ -241,17 +296,35 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
     deliveryScope: V1DeliveryScope | null;
     acceptance: V1AcceptanceItem[] | null;
     reviewKind: string;
-  }): Promise<V1CreateDocumentResult> {
-    return this.runWithRetry(async () =>
+    operation: V1WriteOperation;
+    now: Date;
+  }): Promise<V1CreateDocumentSnapshot> {
+    return this.runIdempotentWrite(input.operation, () =>
       this.prisma.$transaction(
         async (tx) => {
-          await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.projectId}::uuid FOR UPDATE`);
+          await tx.$queryRaw(
+            Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.projectId}::uuid FOR UPDATE`,
+          );
           const knowledgeBase = await tx.knowledgeBase.findUnique({
             where: { id: input.knowledgeBaseId },
-            select: { projectId: true, archivedAt: true, publicationApproverUserId: true, publicationApproverRoleId: true },
+            select: {
+              projectId: true,
+              archivedAt: true,
+              publicationApproverUserId: true,
+              publicationApproverRoleId: true,
+            },
           });
-          if (!knowledgeBase || knowledgeBase.projectId !== input.projectId || knowledgeBase.archivedAt)
-            throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'KNOWLEDGE_BASE_NOT_FOUND', { knowledgeBaseId: input.knowledgeBaseId }, 404);
+          if (
+            !knowledgeBase ||
+            knowledgeBase.projectId !== input.projectId ||
+            knowledgeBase.archivedAt
+          )
+            throw new WorkmeshError(
+              V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+              'KNOWLEDGE_BASE_NOT_FOUND',
+              { knowledgeBaseId: input.knowledgeBaseId },
+              404,
+            );
 
           const bytes = Buffer.from(input.bodyBytes);
           const digest = createHash('sha256').update(bytes).digest('hex');
@@ -302,13 +375,18 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
             approverRoleId: knowledgeBase.publicationApproverRoleId,
           });
 
-          return {
+          const result: V1CreateDocumentSnapshot = {
             document: documentView(document),
-            revision: toRevisionView(revision, { knowledgeBaseId: input.knowledgeBaseId, currentPublishedRevisionId: null }),
+            revision: toRevisionSnapshot(revision, {
+              knowledgeBaseId: input.knowledgeBaseId,
+              currentPublishedRevisionId: null,
+            }),
             reviewRequestId: review.id,
             reviewKind: input.reviewKind,
             slots: review.slots,
           };
+          await this.recordOperation(tx, input.operation, input.projectId, result, input.now);
+          return result;
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       ),
@@ -325,11 +403,15 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
     deliveryScope: V1DeliveryScope | null;
     acceptance: V1AcceptanceItem[] | null;
     reviewKind: string;
-  }): Promise<V1ProposeRevisionResult> {
-    return this.runWithRetry(async () =>
+    operation: V1WriteOperation;
+    now: Date;
+  }): Promise<V1ProposeRevisionSnapshot> {
+    return this.runIdempotentWrite(input.operation, () =>
       this.prisma.$transaction(
         async (tx) => {
-          await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.document.projectId}::uuid FOR UPDATE`);
+          await tx.$queryRaw(
+            Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.document.projectId}::uuid FOR UPDATE`,
+          );
           const document = await tx.knowledgeDocument.findUnique({
             where: { id: input.document.id },
             select: {
@@ -345,7 +427,12 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
             },
           });
           if (!document || document.archivedAt)
-            throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'DOCUMENT_NOT_FOUND', { documentId: input.document.id }, 404);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+              'DOCUMENT_NOT_FOUND',
+              { documentId: input.document.id },
+              404,
+            );
 
           const bytes = Buffer.from(input.bodyBytes);
           const digest = createHash('sha256').update(bytes).digest('hex');
@@ -372,7 +459,12 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
             data: { version: { increment: 1 }, nextRevisionSeq: { increment: 1 } },
           });
           if (bumped.count !== 1)
-            throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'VERSION_CONFLICT', { documentId: document.id }, 409);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.VERSION_CONFLICT,
+              'VERSION_CONFLICT',
+              { documentId: document.id },
+              409,
+            );
 
           const review = await this.createReviewWithSlots(tx, {
             projectId: document.projectId,
@@ -383,8 +475,8 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
             approverRoleId: document.knowledgeBase.publicationApproverRoleId,
           });
 
-          return {
-            revision: toRevisionView(revision, {
+          const result: V1ProposeRevisionSnapshot = {
+            revision: toRevisionSnapshot(revision, {
               knowledgeBaseId: document.knowledgeBaseId,
               currentPublishedRevisionId: null,
             }),
@@ -392,6 +484,8 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
             reviewKind: input.reviewKind,
             slots: review.slots,
           };
+          await this.recordOperation(tx, input.operation, document.projectId, result, input.now);
+          return result;
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       ),
@@ -404,11 +498,15 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
     title: string | null;
     createdBy: string;
     reviewKind: string;
-  }): Promise<V1ProposeRevisionResult> {
-    return this.runWithRetry(async () =>
+    operation: V1WriteOperation;
+    now: Date;
+  }): Promise<V1ProposeRevisionSnapshot> {
+    return this.runIdempotentWrite(input.operation, () =>
       this.prisma.$transaction(
         async (tx) => {
-          await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.document.projectId}::uuid FOR UPDATE`);
+          await tx.$queryRaw(
+            Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.document.projectId}::uuid FOR UPDATE`,
+          );
           const document = await tx.knowledgeDocument.findUnique({
             where: { id: input.document.id },
             select: {
@@ -424,11 +522,23 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
             },
           });
           if (!document || document.archivedAt)
-            throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'DOCUMENT_NOT_FOUND', { documentId: input.document.id }, 404);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+              'DOCUMENT_NOT_FOUND',
+              { documentId: input.document.id },
+              404,
+            );
 
-          const source = await tx.documentRevision.findUnique({ where: { id: input.sourceRevisionId } });
+          const source = await tx.documentRevision.findUnique({
+            where: { id: input.sourceRevisionId },
+          });
           if (!source || source.documentId !== document.id)
-            throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'REVISION_NOT_FOUND', { revisionId: input.sourceRevisionId }, 404);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+              'REVISION_NOT_FOUND',
+              { revisionId: input.sourceRevisionId },
+              404,
+            );
 
           const revision = await tx.documentRevision.create({
             data: {
@@ -452,7 +562,12 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
             data: { version: { increment: 1 }, nextRevisionSeq: { increment: 1 } },
           });
           if (bumped.count !== 1)
-            throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'VERSION_CONFLICT', { documentId: document.id }, 409);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.VERSION_CONFLICT,
+              'VERSION_CONFLICT',
+              { documentId: document.id },
+              409,
+            );
 
           const review = await this.createReviewWithSlots(tx, {
             projectId: document.projectId,
@@ -463,8 +578,8 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
             approverRoleId: document.knowledgeBase.publicationApproverRoleId,
           });
 
-          return {
-            revision: toRevisionView(revision, {
+          const result: V1ProposeRevisionSnapshot = {
+            revision: toRevisionSnapshot(revision, {
               knowledgeBaseId: document.knowledgeBaseId,
               currentPublishedRevisionId: null,
             }),
@@ -472,6 +587,8 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
             reviewKind: input.reviewKind,
             slots: review.slots,
           };
+          await this.recordOperation(tx, input.operation, document.projectId, result, input.now);
+          return result;
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       ),
@@ -489,22 +606,38 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
     return this.runWithRetry(async () =>
       this.prisma.$transaction(
         async (tx) => {
-          await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.document.projectId}::uuid FOR UPDATE`);
+          await tx.$queryRaw(
+            Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.document.projectId}::uuid FOR UPDATE`,
+          );
           const document = await tx.knowledgeDocument.findUnique({
             where: { id: input.document.id },
             select: { id: true, projectId: true, version: true, currentPublishedRevisionId: true },
           });
           if (!document)
-            throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'DOCUMENT_NOT_FOUND', { documentId: input.document.id }, 404);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+              'DOCUMENT_NOT_FOUND',
+              { documentId: input.document.id },
+              404,
+            );
           if (document.version !== input.expectedVersion)
             throw new WorkmeshError(
               V1_ERROR_CODES.VERSION_CONFLICT,
               'VERSION_CONFLICT',
-              { documentId: document.id, expectedVersion: input.expectedVersion, currentVersion: document.version },
+              {
+                documentId: document.id,
+                expectedVersion: input.expectedVersion,
+                currentVersion: document.version,
+              },
               409,
             );
           if (!document.currentPublishedRevisionId)
-            throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'DOCUMENT_NOT_PUBLISHED', { documentId: document.id }, 409);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+              'DOCUMENT_NOT_PUBLISHED',
+              { documentId: document.id },
+              409,
+            );
 
           const consumed = await tx.$executeRaw(
             Prisma.sql`UPDATE "workmesh_v1"."ConfirmationTicket"
@@ -517,7 +650,12 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
                 AND "expiresAt" > ${input.now}`,
           );
           if (consumed !== 1)
-            throw new WorkmeshError(V1_ERROR_CODES.CONFIRMATION_USED, 'CONFIRMATION_CONSUME_CONFLICT', { ticketId: input.ticket.id }, 409);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.CONFIRMATION_USED,
+              'CONFIRMATION_CONSUME_CONFLICT',
+              { ticketId: input.ticket.id },
+              409,
+            );
 
           const publication = await tx.documentPublication.create({
             data: {
@@ -539,7 +677,12 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
                 AND "currentPublishedRevisionId" = ${document.currentPublishedRevisionId}::uuid`,
           );
           if (updated !== 1)
-            throw new WorkmeshError(V1_ERROR_CODES.VERSION_CONFLICT, 'WITHDRAW_CONFLICT', { documentId: document.id }, 409);
+            throw new WorkmeshError(
+              V1_ERROR_CODES.VERSION_CONFLICT,
+              'WITHDRAW_CONFLICT',
+              { documentId: document.id },
+              409,
+            );
 
           // 撤回当前已确认理解/PRD 时同步清空需求指针并提升 generation，旧基线与旧认领立即失效。
           await tx.$executeRaw(
@@ -583,6 +726,79 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
     );
   }
 
+  /**
+   * 在业务事务内落幂等收据：业务写入与操作记录同生共死。
+   * 唯一键冲突（并发同键）由 {@link runIdempotentWrite} 统一收口为"返回先到者结果"。
+   */
+  private async recordOperation(
+    tx: V1TransactionClient,
+    operation: V1WriteOperation,
+    projectId: string,
+    resultRefs: V1ProposeRevisionSnapshot | V1CreateDocumentSnapshot,
+    now: Date,
+  ): Promise<void> {
+    await tx.idempotentOperation.create({
+      data: {
+        id: operation.id,
+        projectId,
+        projectScopeKey: operation.projectScopeKey,
+        principalScopeKey: operation.principalScopeKey,
+        key: operation.key,
+        method: operation.method,
+        route: operation.route,
+        requestDigest: operation.requestDigest,
+        resultRefs: resultRefs as unknown as Prisma.InputJsonValue,
+        responseMetadata: {},
+        committedAt: now,
+      },
+    });
+  }
+
+  /**
+   * 幂等写入的执行壳：保留可序列化重试，并兜住"并发同键"这一窄窗口。
+   *
+   * 服务层的重放检查在事务之外完成，因此两个同键请求可能都通过检查、随后一前一后进入事务。
+   * 后到者在唯一键上失败；此时正确语义是"按重放返回先到者的结果"，而不是 500。
+   * 摘要/路由不一致仍按 IDEMPOTENCY_CONFLICT 拒绝。
+   */
+  private async runIdempotentWrite<T>(
+    operation: V1WriteOperation,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await this.runWithRetry(run);
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      const existing = await this.prisma.idempotentOperation.findUnique({
+        where: {
+          projectScopeKey_principalScopeKey_key: {
+            projectScopeKey: operation.projectScopeKey,
+            principalScopeKey: operation.principalScopeKey,
+            key: operation.key,
+          },
+        },
+        select: {
+          id: true,
+          projectScopeKey: true,
+          principalScopeKey: true,
+          key: true,
+          method: true,
+          route: true,
+          requestDigest: true,
+          resultRefs: true,
+          committedAt: true,
+        },
+      });
+      if (!existing) throw error;
+      assertReplayable(existing as unknown as V1OperationRecord, {
+        method: operation.method,
+        route: operation.route,
+        digest: operation.requestDigest,
+      });
+      return existing.resultRefs as unknown as T;
+    }
+  }
+
   private async createReviewWithSlots(
     tx: V1TransactionClient,
     input: {
@@ -595,7 +811,12 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
     },
   ): Promise<{
     id: string;
-    slots: Array<{ id: string; slotKey: string; requiredUserId: string; requiredRoleId: string | null }>;
+    slots: Array<{
+      id: string;
+      slotKey: string;
+      requiredUserId: string;
+      requiredRoleId: string | null;
+    }>;
   }> {
     const review = await tx.reviewRequest.create({
       data: {
@@ -637,7 +858,12 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
         const code = (error as { code?: string })?.code;
         const retryableSerialization = isRetryable(error);
         // 只有纯数据库序列化冲突重试；业务 409/404 等不重试，避免重复意图。
-        if (!retryableSerialization || code === V1_ERROR_CODES.VERSION_CONFLICT || attempt >= MAX_RETRIES) throw error;
+        if (
+          !retryableSerialization ||
+          code === V1_ERROR_CODES.VERSION_CONFLICT ||
+          attempt >= MAX_RETRIES
+        )
+          throw error;
         await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt] ?? 100));
         attempt += 1;
       }

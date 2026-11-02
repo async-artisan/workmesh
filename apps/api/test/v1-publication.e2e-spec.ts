@@ -33,11 +33,18 @@ import { V1AuthorizationPrismaRepository } from '../src/auth/v1-authorization.pr
 import { V1ConfirmationRepository, V1_CONFIRMATION_REPOSITORY } from '../src/auth/v1-confirmation';
 import { V1ConfirmationPrismaRepository } from '../src/auth/v1-confirmation.prisma-repository';
 import { V1ReviewController } from '../src/reviews/v1-review.controller';
-import { V1ReviewService, REVIEW_DECIDE_ACTION, REVIEW_DECIDE_TARGET_TYPE } from '../src/reviews/v1-review.service';
+import {
+  V1ReviewService,
+  REVIEW_DECIDE_ACTION,
+  REVIEW_DECIDE_TARGET_TYPE,
+} from '../src/reviews/v1-review.service';
 import { V1_REVIEW_REPOSITORY, type V1ReviewSnapshot } from '../src/reviews/v1-review.repository';
 import { V1ReviewPrismaRepository } from '../src/reviews/v1-review.prisma-repository';
 import { V1PublicationController } from '../src/knowledge/v1-publication.controller';
-import { V1PublicationService, V1_PUBLICATION_REPOSITORY } from '../src/knowledge/v1-publication.service';
+import {
+  V1PublicationService,
+  V1_PUBLICATION_REPOSITORY,
+} from '../src/knowledge/v1-publication.service';
 import { V1PublicationPrismaRepository } from '../src/knowledge/v1-publication.prisma-repository';
 import { V1_IDEMPOTENCY_REPOSITORY } from '../src/common/v1-idempotency';
 import { V1IdempotencyPrismaRepository } from '../src/common/v1-idempotency.prisma-repository';
@@ -51,7 +58,15 @@ suite('v1 knowledge publication over HTTP with a real database', () => {
   const secret = randomBytes(32).toString('base64url');
   const csrf = randomBytes(32).toString('base64url');
   const ticketSecret = randomBytes(32).toString('base64url');
-  const ids = { user: '', reader: '', project: '', role: '', knowledgeBase: '', document: '', session: '' };
+  const ids = {
+    user: '',
+    reader: '',
+    project: '',
+    role: '',
+    knowledgeBase: '',
+    document: '',
+    session: '',
+  };
   const readable = { user: '' };
   let cookie = '';
 
@@ -60,28 +75,46 @@ suite('v1 knowledge publication over HTTP with a real database', () => {
     process.env.WORKMESH_V1_DATABASE_URL = target.url;
     prisma = new PrismaClient();
     // 连接后只读身份探针：确认连到的库名与门禁目标一致（不执行任何 DDL/DML）。
-    const rows = await prisma.$queryRaw<Array<{ current_database: string }>>`SELECT current_database()`;
+    const rows = await prisma.$queryRaw<
+      Array<{ current_database: string }>
+    >`SELECT current_database()`;
     if (rows[0]?.current_database !== target.database)
-      throw new Error(`test database identity mismatch: connected ${rows[0]?.current_database} !== ${target.database}`);
+      throw new Error(
+        `test database identity mismatch: connected ${rows[0]?.current_database} !== ${target.database}`,
+      );
 
     const stamp = Date.now();
     const user = await prisma.user.create({
-      data: { email: `e2e-author-${stamp}@workmesh.test`, passwordHash: 'not-used-in-e2e', isActive: true, authVersion: 1 },
+      data: {
+        email: `e2e-author-${stamp}@workmesh.test`,
+        passwordHash: 'not-used-in-e2e',
+        isActive: true,
+        authVersion: 1,
+      },
     });
     const reader = await prisma.user.create({
-      data: { email: `e2e-reader-${stamp}@workmesh.test`, passwordHash: 'not-used-in-e2e', isActive: true, authVersion: 1 },
+      data: {
+        email: `e2e-reader-${stamp}@workmesh.test`,
+        passwordHash: 'not-used-in-e2e',
+        isActive: true,
+        authVersion: 1,
+      },
     });
     const project = await prisma.project.create({
       data: { key: `e${String(stamp).slice(-5)}`, name: 'e2e project', createdById: user.id },
     });
-    const role = await prisma.projectRole.create({ data: { projectId: project.id, key: 'product', title: 'Product' } });
+    const role = await prisma.projectRole.create({
+      data: { projectId: project.id, key: 'product', title: 'Product' },
+    });
     await prisma.projectMember.createMany({
       data: [
         { projectId: project.id, userId: user.id, role: 'ADMIN' },
         { projectId: project.id, userId: reader.id, role: 'MEMBER' },
       ],
     });
-    await prisma.projectRoleAssignment.create({ data: { projectId: project.id, userId: user.id, roleId: role.id } });
+    await prisma.projectRoleAssignment.create({
+      data: { projectId: project.id, userId: user.id, roleId: role.id },
+    });
     const knowledgeBase = await prisma.knowledgeBase.create({
       data: {
         projectId: project.id,
@@ -93,10 +126,22 @@ suite('v1 knowledge publication over HTTP with a real database', () => {
       },
     });
     await prisma.knowledgeBaseGrant.create({
-      data: { projectId: project.id, knowledgeBaseId: knowledgeBase.id, subjectKind: 'USER', subjectUserId: user.id, permissions: ['READ', 'PROPOSE', 'PUBLISH'] },
+      data: {
+        projectId: project.id,
+        knowledgeBaseId: knowledgeBase.id,
+        subjectKind: 'USER',
+        subjectUserId: user.id,
+        permissions: ['READ', 'PROPOSE', 'PUBLISH'],
+      },
     });
     await prisma.knowledgeBaseGrant.create({
-      data: { projectId: project.id, knowledgeBaseId: knowledgeBase.id, subjectKind: 'USER', subjectUserId: reader.id, permissions: ['READ'] },
+      data: {
+        projectId: project.id,
+        knowledgeBaseId: knowledgeBase.id,
+        subjectKind: 'USER',
+        subjectUserId: reader.id,
+        permissions: ['READ'],
+      },
     });
     const document = await prisma.knowledgeDocument.create({
       data: { projectId: project.id, knowledgeBaseId: knowledgeBase.id, kind: 'KNOWLEDGE' },
@@ -141,16 +186,24 @@ suite('v1 knowledge publication over HTTP with a real database', () => {
     }).compile();
     app = moduleRef.createNestApplication({ rawBody: true });
     app.setGlobalPrefix('api');
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+    );
     app.useGlobalInterceptors(new ResponseInterceptor(), new StrictJsonInterceptor());
     app.useGlobalFilters(new HttpExceptionFilter());
-    app.use((req: { requestId?: string }, res: { setHeader: (n: string, v: string) => void }, next: () => void) => {
-      const id = randomBytes(16).toString('hex');
-      req.requestId = id;
-      res.setHeader('X-Request-Id', id);
-      res.setHeader('Cache-Control', 'no-store');
-      next();
-    });
+    app.use(
+      (
+        req: { requestId?: string },
+        res: { setHeader: (n: string, v: string) => void },
+        next: () => void,
+      ) => {
+        const id = randomBytes(16).toString('hex');
+        req.requestId = id;
+        res.setHeader('X-Request-Id', id);
+        res.setHeader('Cache-Control', 'no-store');
+        next();
+      },
+    );
     await app.init();
   }, 90_000);
 
@@ -186,15 +239,22 @@ suite('v1 knowledge publication over HTTP with a real database', () => {
   };
 
   const get = (path: string) =>
-    request(app.getHttpServer()).get(path).set('Cookie', cookie).set('Origin', process.env.WORKMESH_PUBLIC_ORIGIN ?? 'http://127.0.0.1:5173');
+    request(app.getHttpServer())
+      .get(path)
+      .set('Cookie', cookie)
+      .set('Origin', process.env.WORKMESH_PUBLIC_ORIGIN ?? 'http://127.0.0.1:5173');
 
   it('proposes a candidate, publishes it after approval and exposes one version downstream', async () => {
     const body = '# e2e body';
-    const proposed = await post(`/api/v1/documents/${ids.document}/revisions`, {
-      title: 'e2e note',
-      mimeType: 'text/markdown; charset=utf-8',
-      bodyBase64: Buffer.from(body, 'utf8').toString('base64'),
-    });
+    const proposed = await post(
+      `/api/v1/documents/${ids.document}/revisions`,
+      {
+        title: 'e2e note',
+        mimeType: 'text/markdown; charset=utf-8',
+        bodyBase64: Buffer.from(body, 'utf8').toString('base64'),
+      },
+      randomUUID(),
+    );
     expect(proposed.status).toBe(201);
     const reviewRequestId = proposed.body.data.reviewRequestId as string;
     const slotId = proposed.body.data.slots[0].id as string;
@@ -271,6 +331,8 @@ suite('v1 knowledge publication over HTTP with a real database', () => {
       .set('Origin', process.env.WORKMESH_PUBLIC_ORIGIN ?? 'http://127.0.0.1:5173');
     expect(read.status).toBe(200);
     expect(Buffer.from(read.body.data.bodyBase64, 'base64').toString('utf8')).toBe(body);
-    expect(read.body.data.sha256).toBe(published.body.data.revision?.digest ?? candidate.body.data.sha256);
+    expect(read.body.data.sha256).toBe(
+      published.body.data.revision?.digest ?? candidate.body.data.sha256,
+    );
   }, 90_000);
 });

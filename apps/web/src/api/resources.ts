@@ -54,6 +54,8 @@ export interface RevisionView {
   basisUnderstandingRevisionId: string | null;
   deliveryScope: Record<string, unknown> | null;
   acceptance: Array<{ key: string; text: string; verification: string }> | null;
+  /** 最近一次与该 revision 关联的评审请求，供 PRD 页面进入人工评审。 */
+  reviewRequestId?: string | null;
 }
 
 export interface DocumentDetail {
@@ -229,7 +231,10 @@ export const projectApi = {
     apiRequest<ProjectView>(projectPath(projectId), { method: 'DELETE', idempotencyKey: 'auto' }),
   members: (projectId: string) => apiRequest<MemberView[]>(`${projectPath(projectId)}/members`),
   addMember: (projectId: string, email: string) =>
-    apiRequest<MemberView>(`${projectPath(projectId)}/members`, { method: 'POST', body: { email } }),
+    apiRequest<MemberView>(`${projectPath(projectId)}/members`, {
+      method: 'POST',
+      body: { email },
+    }),
   roles: (projectId: string) => apiRequest<RoleView[]>(`${projectPath(projectId)}/roles`),
   assignRole: (
     projectId: string,
@@ -237,20 +242,22 @@ export const projectApi = {
     roleId: string,
     input: { expectedVersion: number; reason: string; confirmation: Confirmation },
   ) =>
-    apiRequest(
-      `${projectPath(projectId)}/members/${enc(userId)}/roles/${enc(roleId)}`,
-      { method: 'PUT', body: input, idempotencyKey: 'auto' },
-    ),
+    apiRequest(`${projectPath(projectId)}/members/${enc(userId)}/roles/${enc(roleId)}`, {
+      method: 'PUT',
+      body: input,
+      idempotencyKey: 'auto',
+    }),
   revokeRole: (
     projectId: string,
     userId: string,
     roleId: string,
     input: { expectedVersion: number; reason: string; confirmation: Confirmation },
   ) =>
-    apiRequest(
-      `${projectPath(projectId)}/members/${enc(userId)}/roles/${enc(roleId)}/revoke`,
-      { method: 'POST', body: input, idempotencyKey: 'auto' },
-    ),
+    apiRequest(`${projectPath(projectId)}/members/${enc(userId)}/roles/${enc(roleId)}/revoke`, {
+      method: 'POST',
+      body: input,
+      idempotencyKey: 'auto',
+    }),
 };
 
 export const requirementApi = {
@@ -260,7 +267,10 @@ export const requirementApi = {
     return apiRequest<ListPage<RequirementView>>(`${projectPath(projectId)}/requirements?${query}`);
   },
   create: (projectId: string, data: { title: string; description?: string }) =>
-    apiRequest<RequirementView>(`${projectPath(projectId)}/requirements`, { method: 'POST', body: data }),
+    apiRequest<RequirementView>(`${projectPath(projectId)}/requirements`, {
+      method: 'POST',
+      body: data,
+    }),
 };
 
 export const workflowApi = {
@@ -278,7 +288,12 @@ export const workflowApi = {
     input: {
       definitionRevisionId: string;
       expectedRequirementVersion: number;
-      stepBindings: Array<{ stepKey: string; roleId: string; responsibleUserId: string; repositoryIds?: string[] }>;
+      stepBindings: Array<{
+        stepKey: string;
+        roleId: string;
+        responsibleUserId: string;
+        repositoryIds?: string[];
+      }>;
       roleSlotBindings: Array<{ slotKey: string; roleId: string; userId: string }>;
     },
   ) =>
@@ -305,10 +320,7 @@ export const documentApi = {
       byteLength: number;
       sha256: string;
     }>(`/document-revisions/${enc(revisionId)}/content`),
-  /**
-   * 追加候选修订。服务端同时创建对应评审请求，返回 reviewRequestId，
-   * Web 只能凭它进入评审页，不能自行构造槽位或直接发布。
-   */
+  /** Agent-only transport: 页面不调用此生产接口，候选正文应由本地 Product Agent 提交。 */
   proposeRevision: (
     documentId: string,
     data: {
@@ -323,12 +335,14 @@ export const documentApi = {
     apiRequest<ProposeRevisionResult>(`/documents/${enc(documentId)}/revisions`, {
       method: 'POST',
       body: { mimeType: 'text/markdown; charset=utf-8', ...data },
+      idempotencyKey: 'auto',
     }),
-  /** 恢复旧修订同样生成候选评审，不触碰发布指针。 */
+  /** Agent-only transport: 页面不通过历史恢复生产新正文；恢复仍需重新评审。 */
   restore: (documentId: string, input: { sourceRevisionId: string; title?: string }) =>
     apiRequest<ProposeRevisionResult>(`/documents/${enc(documentId)}/restore`, {
       method: 'POST',
       body: input,
+      idempotencyKey: 'auto',
     }),
   /** 撤销发布必须提交 expectedVersion + 一次性票据；不携带 DTO 未声明的字段。 */
   withdraw: (
@@ -339,6 +353,7 @@ export const documentApi = {
       `/documents/${enc(documentId)}/withdraw`,
       { method: 'POST', body: input, idempotencyKey: 'auto' },
     ),
+  /** Agent-only transport: 页面不手写创建文档，保留给本地 Agent 适配层。 */
   create: (
     projectId: string,
     data: {
@@ -362,6 +377,19 @@ export const documentApi = {
 export const reviewApi = {
   /** 评审请求由候选修订创建时生成；Web 只按 ID 读取，不自行创建。 */
   get: (reviewId: string) => apiRequest<ReviewView>(`/review-requests/${enc(reviewId)}`),
+  /** 项目评审收件箱：默认只返回当前用户被指派且仍开放的评审请求。 */
+  list: (
+    projectId: string,
+    input: { assignedToMe?: boolean; status?: string; cursor?: string } = {},
+  ) => {
+    const query = new URLSearchParams({
+      assignedToMe: String(input.assignedToMe ?? true),
+      status: input.status ?? 'OPEN',
+      limit: '50',
+    });
+    if (input.cursor) query.set('cursor', input.cursor);
+    return apiRequest<ListPage<ReviewView>>(`${projectPath(projectId)}/review-requests?${query}`);
+  },
   decide: (
     reviewId: string,
     input: {

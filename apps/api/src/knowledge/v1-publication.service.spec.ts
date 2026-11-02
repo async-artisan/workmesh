@@ -13,12 +13,69 @@ import {
 } from '../auth/v1-authorization';
 import {
   V1PublicationService,
-  type V1CreateDocumentResult,
+  type V1CreateDocumentSnapshot,
   type V1DocumentView,
-  type V1ProposeRevisionResult,
+  type V1DocumentWriteContext,
+  type V1ProposeRevisionSnapshot,
   type V1PublicationRepository,
   type V1RevisionView,
+  type V1WriteOperation,
 } from './v1-publication.service';
+import type { V1IdempotencyRepository, V1OperationRecord } from '../common/v1-idempotency';
+
+const IDEMPOTENCY_KEY = '44444444-4444-4444-8444-444444444444';
+const WRITE_ROUTE = '/api/v1/documents/doc-1/revisions';
+
+/**
+ * 固定幂等上下文：同一次"重试"用同一个 key 与 operationId。
+ * 需要区分两次不同写入的用例显式传入不同的 key。
+ */
+function writeContext(overrides: Partial<V1DocumentWriteContext> = {}): V1DocumentWriteContext {
+  return {
+    idempotencyKey: IDEMPOTENCY_KEY,
+    method: 'POST',
+    route: WRITE_ROUTE,
+    now: new Date('2026-11-01T00:00:00Z'),
+    operationId: 'op-fixed-1',
+    ...overrides,
+  };
+}
+
+class MemoryIdempotencyRepository implements V1IdempotencyRepository {
+  readonly operations = new Map<string, V1OperationRecord>();
+
+  async findOperation(input: {
+    projectScopeKey: string;
+    principalScopeKey: string;
+    key: string;
+  }): Promise<V1OperationRecord | null> {
+    return (
+      this.operations.get(`${input.projectScopeKey}|${input.principalScopeKey}|${input.key}`) ??
+      null
+    );
+  }
+
+  /** 模拟仓储在业务事务内落库。 */
+  record(operation: V1WriteOperation, resultRefs: unknown): void {
+    this.operations.set(
+      `${operation.projectScopeKey}|${operation.principalScopeKey}|${operation.key}`,
+      {
+        id: operation.id,
+        projectScopeKey: operation.projectScopeKey,
+        principalScopeKey: operation.principalScopeKey,
+        key: operation.key,
+        method: operation.method,
+        route: operation.route,
+        requestDigest: operation.requestDigest,
+        resultRefs: resultRefs as Record<string, unknown>,
+        committedAt: new Date('2026-11-01T00:00:00Z'),
+      },
+    );
+  }
+}
+
+/** 当前用例的幂等仓储；`beforeEach` 重新赋值，仓储 fake 从这里落库。 */
+let operations = new MemoryIdempotencyRepository();
 
 const author: Principal = { kind: 'HUMAN', userId: 'alice', scopes: [] };
 const authorSession: Principal & { sessionId: string } = { ...author, sessionId: 'sess-1' };
@@ -167,7 +224,11 @@ type State = {
   reviewers: string[];
   proposed: number;
   requirement: { currentUnderstandingRevisionId: string | null };
-  createdDocuments: Array<{ kind: string; reviewKind: string; basisUnderstandingRevisionId: string | null }>;
+  createdDocuments: Array<{
+    kind: string;
+    reviewKind: string;
+    basisUnderstandingRevisionId: string | null;
+  }>;
   restored: number;
   withdrawn: Array<{ expectedVersion: number; reason: string; ticketWebSessionId: string }>;
 };
@@ -177,7 +238,11 @@ function repository(state: State): V1PublicationRepository {
     'doc-1': document,
     'doc-understanding': understandingDocument,
     'doc-prd': prdDocument,
-    'doc-archived': { ...document, id: 'doc-archived', archivedAt: new Date('2026-01-01T00:00:00Z') },
+    'doc-archived': {
+      ...document,
+      id: 'doc-archived',
+      archivedAt: new Date('2026-01-01T00:00:00Z'),
+    },
   };
   const revs: Record<string, V1RevisionView> = {
     'rev-1': revision(),
@@ -198,7 +263,9 @@ function repository(state: State): V1PublicationRepository {
   };
   const feedback = {
     reviewRequestId: 'rr-1',
-    slots: [{ id: 'slot-1', slotKey: 'publication', requiredUserId: 'alice', requiredRoleId: null }],
+    slots: [
+      { id: 'slot-1', slotKey: 'publication', requiredUserId: 'alice', requiredRoleId: null },
+    ],
   };
   return {
     async findDocument(documentId) {
@@ -234,21 +301,40 @@ function repository(state: State): V1PublicationRepository {
     async listDocuments() {
       return { items: [document], nextCursor: null };
     },
-    async createDocument(input): Promise<V1CreateDocumentResult> {
+    async createDocument(input): Promise<V1CreateDocumentSnapshot> {
       state.createdDocuments.push({
         kind: input.kind,
         reviewKind: input.reviewKind,
         basisUnderstandingRevisionId: input.basisUnderstandingRevisionId,
       });
-      return { document: { ...prdDocument, id: 'doc-created' }, revision: revision({ id: 'rev-created' }), reviewKind: input.reviewKind, ...feedback };
+      const result: V1CreateDocumentSnapshot = {
+        document: { ...prdDocument, id: 'doc-created' },
+        revision: revision({ id: 'rev-created' }),
+        reviewKind: input.reviewKind,
+        ...feedback,
+      };
+      operations.record(input.operation, result);
+      return result;
     },
-    async proposeRevision(input): Promise<V1ProposeRevisionResult> {
+    async proposeRevision(input): Promise<V1ProposeRevisionSnapshot> {
       state.proposed += 1;
-      return { revision: revision(), reviewKind: input.reviewKind, ...feedback };
+      const result: V1ProposeRevisionSnapshot = {
+        revision: revision(),
+        reviewKind: input.reviewKind,
+        ...feedback,
+      };
+      operations.record(input.operation, result);
+      return result;
     },
-    async restoreRevision(input): Promise<V1ProposeRevisionResult> {
+    async restoreRevision(input): Promise<V1ProposeRevisionSnapshot> {
       state.restored += 1;
-      return { revision: revision({ id: 'rev-restored' }), reviewKind: input.reviewKind, ...feedback };
+      const result: V1ProposeRevisionSnapshot = {
+        revision: revision({ id: 'rev-restored' }),
+        reviewKind: input.reviewKind,
+        ...feedback,
+      };
+      operations.record(input.operation, result);
+      return result;
     },
     async withdraw(input) {
       state.withdrawn.push({
@@ -313,8 +399,16 @@ describe('V1PublicationService', () => {
   let state: State;
   let service: V1PublicationService;
 
-  function build(ticket: V1TicketRecord | null = null, repo: V1PublicationRepository = repository(state)) {
-    return new V1PublicationService(repo, new V1AuthorizationService(authorizationRepository()), ticketRepository(ticket));
+  function build(
+    ticket: V1TicketRecord | null = null,
+    repo: V1PublicationRepository = repository(state),
+  ) {
+    return new V1PublicationService(
+      repo,
+      new V1AuthorizationService(authorizationRepository()),
+      ticketRepository(ticket),
+      operations,
+    );
   }
 
   beforeEach(() => {
@@ -326,11 +420,15 @@ describe('V1PublicationService', () => {
       restored: 0,
       withdrawn: [],
     };
+    operations = new MemoryIdempotencyRepository();
     service = build();
   });
 
   it('shows a candidate to its author who still has READ', async () => {
-    await expect(service.getRevision(author, 'rev-1')).resolves.toMatchObject({ id: 'rev-1', state: 'CANDIDATE' });
+    await expect(service.getRevision(author, 'rev-1')).resolves.toMatchObject({
+      id: 'rev-1',
+      state: 'CANDIDATE',
+    });
   });
 
   it('hides a candidate from a member who only has READ', async () => {
@@ -351,7 +449,12 @@ describe('V1PublicationService', () => {
         return [];
       },
     });
-    const denied = new V1PublicationService(repository(state), authorization, ticketRepository(null));
+    const denied = new V1PublicationService(
+      repository(state),
+      authorization,
+      ticketRepository(null),
+      operations,
+    );
     await expect(denied.getRevision(author, 'rev-1')).rejects.toMatchObject({
       code: 'RESOURCE_NOT_FOUND',
       status: 404,
@@ -360,6 +463,148 @@ describe('V1PublicationService', () => {
 
   it('shows a published revision to any principal with current READ', async () => {
     await expect(service.getRevision(reader, 'rev-pub')).resolves.toMatchObject({ id: 'rev-pub' });
+  });
+
+  describe('idempotency', () => {
+    const propose = (context = writeContext()) =>
+      service.proposeRevision(
+        author,
+        'doc-1',
+        {
+          title: '候选',
+          mimeType: 'text/markdown; charset=utf-8',
+          bodyBytes: new Uint8Array(Buffer.from('hello')),
+        },
+        context,
+      );
+
+    it('replays the first result for the same key and payload without a second write', async () => {
+      const first = await propose();
+      const second = await propose();
+      expect(state.proposed).toBe(1);
+      expect(second.revision.id).toBe(first.revision.id);
+      expect(second.reviewRequestId).toBe(first.reviewRequestId);
+    });
+
+    it('writes twice for distinct keys even with the same payload', async () => {
+      await propose(
+        writeContext({
+          idempotencyKey: '55555555-5555-4555-8555-555555555555',
+          operationId: 'op-2',
+        }),
+      );
+      await propose(
+        writeContext({
+          idempotencyKey: '66666666-6666-4666-8666-666666666666',
+          operationId: 'op-3',
+        }),
+      );
+      expect(state.proposed).toBe(2);
+    });
+
+    it('rejects the same key with a different payload instead of silently overwriting', async () => {
+      await propose();
+      await expect(
+        service.proposeRevision(
+          author,
+          'doc-1',
+          {
+            title: '改过的候选',
+            mimeType: 'text/markdown; charset=utf-8',
+            bodyBytes: new Uint8Array(Buffer.from('hello')),
+          },
+          writeContext(),
+        ),
+      ).rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT', status: 409 });
+      expect(state.proposed).toBe(1);
+    });
+
+    it('rejects the same key on a different route', async () => {
+      await propose();
+      await expect(
+        service.createDocument(
+          author,
+          'p-a',
+          {
+            projectId: 'p-a',
+            knowledgeBaseId: 'kb-1',
+            kind: 'KNOWLEDGE',
+            title: 'K',
+            mimeType: 'text/markdown; charset=utf-8',
+            bodyBytes: new Uint8Array(Buffer.from('x')),
+          },
+          writeContext({ route: '/api/v1/projects/p-a/documents' }),
+        ),
+      ).rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT', status: 409 });
+      expect(state.createdDocuments).toHaveLength(0);
+    });
+
+    it('replays a committed candidate even after its PRD basis moved on', async () => {
+      const prdContext = writeContext({ route: '/api/v1/documents/doc-prd/revisions' });
+      const proposePrd = () =>
+        service.proposeRevision(
+          author,
+          'doc-prd',
+          {
+            title: 'PRD 候选',
+            mimeType: 'text/markdown; charset=utf-8',
+            bodyBytes: new Uint8Array(Buffer.from('# PRD')),
+            basisUnderstandingRevisionId: 'rev-understanding',
+            deliveryScope: { participatingRoleIds: ['r-product'], requiredOutputKinds: ['IMPL'] },
+            acceptance: [{ key: 'login-works', text: '登录可用', verification: 'TEST' }],
+          },
+          prdContext,
+        );
+
+      const first = await proposePrd();
+      // 首次提交后理解基线前进：直接重发同样入参会得到 BASELINE_STALE，
+      // 但同一 Idempotency-Key 的重放必须返回首次结果，而不是让已生效的操作"消失"。
+      state.requirement.currentUnderstandingRevisionId = 'rev-understanding-old';
+      await expect(
+        service.proposeRevision(
+          author,
+          'doc-prd',
+          {
+            title: 'PRD 候选',
+            mimeType: 'text/markdown; charset=utf-8',
+            bodyBytes: new Uint8Array(Buffer.from('# PRD')),
+            basisUnderstandingRevisionId: 'rev-understanding',
+            deliveryScope: { participatingRoleIds: ['r-product'], requiredOutputKinds: ['IMPL'] },
+            acceptance: [{ key: 'login-works', text: '登录可用', verification: 'TEST' }],
+          },
+          writeContext({
+            idempotencyKey: '77777777-7777-4777-8777-777777777777',
+            operationId: 'op-other',
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'BASELINE_STALE' });
+
+      const replayed = await proposePrd();
+      expect(replayed.revision.id).toBe(first.revision.id);
+      expect(state.proposed).toBe(1);
+    });
+
+    it('rejects a body that cannot be canonicalised with 422 instead of 500', async () => {
+      await expect(
+        service.proposeRevision(
+          author,
+          'doc-prd',
+          {
+            title: 't',
+            mimeType: 'text/markdown; charset=utf-8',
+            bodyBytes: new Uint8Array(Buffer.from('x')),
+            basisUnderstandingRevisionId: 'rev-understanding',
+            deliveryScope: {
+              participatingRoleIds: ['r-product'],
+              requiredOutputKinds: ['IMPL'],
+              ratio: 1.5,
+            },
+            acceptance: [{ key: 'a-b', text: 'x', verification: 'TEST' }],
+          },
+          writeContext(),
+        ),
+      ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 422 });
+    });
   });
 
   it('filters candidate revisions out of listing for read-only members', async () => {
@@ -375,20 +620,30 @@ describe('V1PublicationService', () => {
 
   it('denies an Agent proposing without the derived propose scope', async () => {
     await expect(
-      service.proposeRevision(agentRead, 'doc-1', {
-        title: 't',
-        mimeType: 'text/markdown; charset=utf-8',
-        bodyBytes: new Uint8Array(Buffer.from('x')),
-      }),
+      service.proposeRevision(
+        agentRead,
+        'doc-1',
+        {
+          title: 't',
+          mimeType: 'text/markdown; charset=utf-8',
+          bodyBytes: new Uint8Array(Buffer.from('x')),
+        },
+        writeContext(),
+      ),
     ).rejects.toMatchObject({ code: 'KNOWLEDGE_PROPOSE_PERMISSION_REQUIRED' });
   });
 
   it('allows an Agent with the derived propose scope to create a candidate', async () => {
-    const result = await service.proposeRevision(agentPropose, 'doc-1', {
-      title: 't',
-      mimeType: 'text/markdown; charset=utf-8',
-      bodyBytes: new Uint8Array(Buffer.from('x')),
-    });
+    const result = await service.proposeRevision(
+      agentPropose,
+      'doc-1',
+      {
+        title: 't',
+        mimeType: 'text/markdown; charset=utf-8',
+        bodyBytes: new Uint8Array(Buffer.from('x')),
+      },
+      writeContext(),
+    );
     expect(state.proposed).toBe(1);
     expect(result.reviewKind).toBe('KNOWLEDGE_PUBLICATION');
     expect(result.slots[0]).toMatchObject({ slotKey: 'publication', requiredUserId: 'alice' });
@@ -401,12 +656,22 @@ describe('V1PublicationService', () => {
         return { ...document, kind: 'UNDERSTANDING', requirementId: 'req-1' };
       },
     };
-    const withDoc = new V1PublicationService(kindRepo, new V1AuthorizationService(authorizationRepository()), ticketRepository(null));
+    const withDoc = new V1PublicationService(
+      kindRepo,
+      new V1AuthorizationService(authorizationRepository()),
+      ticketRepository(null),
+      operations,
+    );
     await expect(
       withDoc.proposeRevision(
         { ...agentPropose, scopes: ['knowledge:read', 'knowledge:propose'] },
         'doc-1',
-        { title: 't', mimeType: 'text/markdown; charset=utf-8', bodyBytes: new Uint8Array(Buffer.from('x')) },
+        {
+          title: 't',
+          mimeType: 'text/markdown; charset=utf-8',
+          bodyBytes: new Uint8Array(Buffer.from('x')),
+        },
+        writeContext(),
       ),
     ).rejects.toMatchObject({ code: 'SCOPE_DENIED' });
   });
@@ -419,42 +684,60 @@ describe('V1PublicationService', () => {
   });
 
   describe('PRD binding', () => {
-    const deliveryScope = { participatingRoleIds: ['r-product'], requiredOutputKinds: ['IMPL', 'PRD'] };
+    const deliveryScope = {
+      participatingRoleIds: ['r-product'],
+      requiredOutputKinds: ['IMPL', 'PRD'],
+    };
     const acceptance = [{ key: 'login-works', text: '登录可用', verification: 'TEST' as const }];
 
     it('rejects binding fields on non-PRD documents', async () => {
       await expect(
-        service.proposeRevision(author, 'doc-1', {
-          title: 't',
-          mimeType: 'text/markdown; charset=utf-8',
-          bodyBytes: new Uint8Array(Buffer.from('x')),
-          deliveryScope,
-        }),
+        service.proposeRevision(
+          author,
+          'doc-1',
+          {
+            title: 't',
+            mimeType: 'text/markdown; charset=utf-8',
+            bodyBytes: new Uint8Array(Buffer.from('x')),
+            deliveryScope,
+          },
+          writeContext(),
+        ),
       ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 422 });
     });
 
     it('requires basisUnderstandingRevisionId for PRD candidates', async () => {
       await expect(
-        service.proposeRevision(author, 'doc-prd', {
-          title: 't',
-          mimeType: 'text/markdown; charset=utf-8',
-          bodyBytes: new Uint8Array(Buffer.from('x')),
-          deliveryScope,
-          acceptance,
-        }),
+        service.proposeRevision(
+          author,
+          'doc-prd',
+          {
+            title: 't',
+            mimeType: 'text/markdown; charset=utf-8',
+            bodyBytes: new Uint8Array(Buffer.from('x')),
+            deliveryScope,
+            acceptance,
+          },
+          writeContext(),
+        ),
       ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 422 });
     });
 
     it('rejects a basis that is not the current understanding of the requirement', async () => {
       await expect(
-        service.proposeRevision(author, 'doc-prd', {
-          title: 't',
-          mimeType: 'text/markdown; charset=utf-8',
-          bodyBytes: new Uint8Array(Buffer.from('x')),
-          basisUnderstandingRevisionId: 'rev-understanding-old',
-          deliveryScope,
-          acceptance,
-        }),
+        service.proposeRevision(
+          author,
+          'doc-prd',
+          {
+            title: 't',
+            mimeType: 'text/markdown; charset=utf-8',
+            bodyBytes: new Uint8Array(Buffer.from('x')),
+            basisUnderstandingRevisionId: 'rev-understanding-old',
+            deliveryScope,
+            acceptance,
+          },
+          writeContext(),
+        ),
       ).rejects.toMatchObject({ code: 'BASELINE_STALE', status: 409 });
     });
 
@@ -471,122 +754,176 @@ describe('V1PublicationService', () => {
       };
       const stale = build(null, stalePointer);
       await expect(
-        stale.proposeRevision(author, 'doc-prd', {
-          title: 't',
-          mimeType: 'text/markdown; charset=utf-8',
-          bodyBytes: new Uint8Array(Buffer.from('x')),
-          basisUnderstandingRevisionId: 'rev-understanding',
-          deliveryScope,
-          acceptance,
-        }),
+        stale.proposeRevision(
+          author,
+          'doc-prd',
+          {
+            title: 't',
+            mimeType: 'text/markdown; charset=utf-8',
+            bodyBytes: new Uint8Array(Buffer.from('x')),
+            basisUnderstandingRevisionId: 'rev-understanding',
+            deliveryScope,
+            acceptance,
+          },
+          writeContext(),
+        ),
       ).rejects.toMatchObject({ code: 'BASELINE_STALE', status: 409 });
     });
 
     it('requires IMPL in deliveryScope', async () => {
       await expect(
-        service.proposeRevision(author, 'doc-prd', {
-          title: 't',
-          mimeType: 'text/markdown; charset=utf-8',
-          bodyBytes: new Uint8Array(Buffer.from('x')),
-          basisUnderstandingRevisionId: 'rev-understanding',
-          deliveryScope: { participatingRoleIds: ['r-product'], requiredOutputKinds: ['PRD'] },
-          acceptance,
-        }),
+        service.proposeRevision(
+          author,
+          'doc-prd',
+          {
+            title: 't',
+            mimeType: 'text/markdown; charset=utf-8',
+            bodyBytes: new Uint8Array(Buffer.from('x')),
+            basisUnderstandingRevisionId: 'rev-understanding',
+            deliveryScope: { participatingRoleIds: ['r-product'], requiredOutputKinds: ['PRD'] },
+            acceptance,
+          },
+          writeContext(),
+        ),
       ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 422 });
     });
 
     it('rejects excluded roles that also participate', async () => {
       await expect(
-        service.proposeRevision(author, 'doc-prd', {
-          title: 't',
-          mimeType: 'text/markdown; charset=utf-8',
-          bodyBytes: new Uint8Array(Buffer.from('x')),
-          basisUnderstandingRevisionId: 'rev-understanding',
-          deliveryScope: {
-            participatingRoleIds: ['r-product'],
-            requiredOutputKinds: ['IMPL'],
-            excludedRoles: [{ roleId: 'r-product', reason: '同时参与又排除' }],
+        service.proposeRevision(
+          author,
+          'doc-prd',
+          {
+            title: 't',
+            mimeType: 'text/markdown; charset=utf-8',
+            bodyBytes: new Uint8Array(Buffer.from('x')),
+            basisUnderstandingRevisionId: 'rev-understanding',
+            deliveryScope: {
+              participatingRoleIds: ['r-product'],
+              requiredOutputKinds: ['IMPL'],
+              excludedRoles: [{ roleId: 'r-product', reason: '同时参与又排除' }],
+            },
+            acceptance,
           },
-          acceptance,
-        }),
+          writeContext(),
+        ),
       ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 422 });
     });
 
     it('rejects duplicate acceptance keys', async () => {
       await expect(
-        service.proposeRevision(author, 'doc-prd', {
+        service.proposeRevision(
+          author,
+          'doc-prd',
+          {
+            title: 't',
+            mimeType: 'text/markdown; charset=utf-8',
+            bodyBytes: new Uint8Array(Buffer.from('x')),
+            basisUnderstandingRevisionId: 'rev-understanding',
+            deliveryScope,
+            acceptance: [...acceptance, ...acceptance],
+          },
+          writeContext(),
+        ),
+      ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 422 });
+    });
+
+    it('creates a PRD candidate bound to the published understanding with PRD_PUBLICATION review', async () => {
+      const result = await service.proposeRevision(
+        author,
+        'doc-prd',
+        {
           title: 't',
           mimeType: 'text/markdown; charset=utf-8',
           bodyBytes: new Uint8Array(Buffer.from('x')),
           basisUnderstandingRevisionId: 'rev-understanding',
           deliveryScope,
-          acceptance: [...acceptance, ...acceptance],
-        }),
-      ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 422 });
-    });
-
-    it('creates a PRD candidate bound to the published understanding with PRD_PUBLICATION review', async () => {
-      const result = await service.proposeRevision(author, 'doc-prd', {
-        title: 't',
-        mimeType: 'text/markdown; charset=utf-8',
-        bodyBytes: new Uint8Array(Buffer.from('x')),
-        basisUnderstandingRevisionId: 'rev-understanding',
-        deliveryScope,
-        acceptance,
-      });
+          acceptance,
+        },
+        writeContext(),
+      );
       expect(result.reviewKind).toBe('PRD_PUBLICATION');
       expect(state.proposed).toBe(1);
     });
 
     it('creates a PRD document only with a valid published understanding basis', async () => {
-      const created = await service.createDocument(author, 'p-a', {
-        projectId: 'p-a',
-        knowledgeBaseId: 'kb-1',
-        kind: 'PRD',
-        requirementId: 'req-1',
-        title: 'PRD',
-        mimeType: 'text/markdown; charset=utf-8',
-        bodyBytes: new Uint8Array(Buffer.from('# PRD')),
-        basisUnderstandingRevisionId: 'rev-understanding',
-        deliveryScope,
-        acceptance,
-      });
+      const created = await service.createDocument(
+        author,
+        'p-a',
+        {
+          projectId: 'p-a',
+          knowledgeBaseId: 'kb-1',
+          kind: 'PRD',
+          requirementId: 'req-1',
+          title: 'PRD',
+          mimeType: 'text/markdown; charset=utf-8',
+          bodyBytes: new Uint8Array(Buffer.from('# PRD')),
+          basisUnderstandingRevisionId: 'rev-understanding',
+          deliveryScope,
+          acceptance,
+        },
+        writeContext(),
+      );
       expect(created.document.id).toBe('doc-created');
       expect(state.createdDocuments).toEqual([
-        { kind: 'PRD', reviewKind: 'PRD_PUBLICATION', basisUnderstandingRevisionId: 'rev-understanding' },
+        {
+          kind: 'PRD',
+          reviewKind: 'PRD_PUBLICATION',
+          basisUnderstandingRevisionId: 'rev-understanding',
+        },
       ]);
     });
 
     it('rejects a PRD document whose knowledge base belongs to another project', async () => {
       await expect(
-        service.createDocument(author, 'p-a', {
-          projectId: 'p-a',
-          knowledgeBaseId: 'kb-other',
-          kind: 'KNOWLEDGE',
-          title: 'K',
-          mimeType: 'text/markdown; charset=utf-8',
-          bodyBytes: new Uint8Array(Buffer.from('x')),
-        }),
+        service.createDocument(
+          author,
+          'p-a',
+          {
+            projectId: 'p-a',
+            knowledgeBaseId: 'kb-other',
+            kind: 'KNOWLEDGE',
+            title: 'K',
+            mimeType: 'text/markdown; charset=utf-8',
+            bodyBytes: new Uint8Array(Buffer.from('x')),
+          },
+          writeContext(),
+        ),
       ).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND', status: 404 });
     });
   });
 
   describe('restore', () => {
     it('creates a new candidate without touching the published pointer', async () => {
-      const result = await service.restoreRevision(author, 'doc-1', { sourceRevisionId: 'rev-2' });
+      const result = await service.restoreRevision(
+        author,
+        'doc-1',
+        { sourceRevisionId: 'rev-2' },
+        writeContext(),
+      );
       expect(result.revision.id).toBe('rev-restored');
       expect(state.restored).toBe(1);
     });
 
     it('refuses restoring a revision from another document', async () => {
       await expect(
-        service.restoreRevision(author, 'doc-1', { sourceRevisionId: 'rev-understanding' }),
+        service.restoreRevision(
+          author,
+          'doc-1',
+          { sourceRevisionId: 'rev-understanding' },
+          writeContext(),
+        ),
       ).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND', status: 404 });
     });
 
     it('refuses writing to an archived document', async () => {
       await expect(
-        service.restoreRevision(author, 'doc-archived', { sourceRevisionId: 'rev-1' }),
+        service.restoreRevision(
+          author,
+          'doc-archived',
+          { sourceRevisionId: 'rev-1' },
+          writeContext(),
+        ),
       ).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND', status: 404 });
     });
   });
@@ -625,13 +962,22 @@ describe('V1PublicationService', () => {
     });
 
     it('rejects a consumed ticket', async () => {
-      const other = build(withdrawTicket({ consumedAt: new Date('2026-10-31T23:00:00Z'), consumedOperationId: 'op-1' }));
-      await expect(other.withdraw(authorSession, 'doc-1', withdrawInput)).rejects.toMatchObject({ code: 'CONFIRMATION_USED' });
+      const other = build(
+        withdrawTicket({
+          consumedAt: new Date('2026-10-31T23:00:00Z'),
+          consumedOperationId: 'op-1',
+        }),
+      );
+      await expect(other.withdraw(authorSession, 'doc-1', withdrawInput)).rejects.toMatchObject({
+        code: 'CONFIRMATION_USED',
+      });
     });
 
     it('refuses an Agent even when the granting user holds PUBLISH', async () => {
       // PUBLISH/REVOKE 永不下放给 Agent，因此无论供权人的 grant 如何都只能是 HUMAN 才能撤回。
-      await expect(build(withdrawTicket()).withdraw(agentPropose, 'doc-1', withdrawInput)).rejects.toMatchObject({
+      await expect(
+        build(withdrawTicket()).withdraw(agentPropose, 'doc-1', withdrawInput),
+      ).rejects.toMatchObject({
         code: 'HUMAN_SESSION_REQUIRED',
         status: 403,
       });
@@ -639,7 +985,10 @@ describe('V1PublicationService', () => {
 
     it('refuses an empty reason before consuming any ticket', async () => {
       await expect(
-        build(withdrawTicket()).withdraw(authorSession, 'doc-1', { ...withdrawInput, reason: '   ' }),
+        build(withdrawTicket()).withdraw(authorSession, 'doc-1', {
+          ...withdrawInput,
+          reason: '   ',
+        }),
       ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 422 });
       expect(state.withdrawn).toEqual([]);
     });
@@ -647,7 +996,9 @@ describe('V1PublicationService', () => {
     it('consumes a bound ticket and delegates the pointer clear to the repository', async () => {
       const result = await build(withdrawTicket()).withdraw(authorSession, 'doc-1', withdrawInput);
       expect(result).toEqual({ documentVersion: 4, publicationId: 'pub-1' });
-      expect(state.withdrawn).toEqual([{ expectedVersion: 3, reason: '内容已过时', ticketWebSessionId: 'sess-1' }]);
+      expect(state.withdrawn).toEqual([
+        { expectedVersion: 3, reason: '内容已过时', ticketWebSessionId: 'sess-1' },
+      ]);
     });
   });
 });
