@@ -104,6 +104,7 @@ PRD 的生产入口在本地 Product Agent。Web 负责读取候选、查看正�
 - `POST /api/v1/tasks/:taskId/artifact-sets`、`GET /api/v1/artifact-sets/:id` — 交付并读取工件集（只接受真实字节或完整代码引用，交付时复核基线）。
 - `POST /api/v1/tasks/:taskId/context-snapshots`、`GET /api/v1/context-snapshots/:snapshotId`、`GET /api/v1/context-snapshots/:snapshotId/resources/:refId` — 确定性上下文快照与受限资源读取。
 - `GET /api/v1/projects/:projectId/board` — 项目看板聚合。
+- `GET /api/v1/projects/:projectId/metrics/flow?days=30` — 流程度量：两端时长（首次认领、首次交付、批准）、端到端 lead time、WIP 与变更确认率；只从既有时间戳派生，口径见 [docs/metrics.md](metrics.md)。
 - `GET /api/v1/change-recipients`、`POST /api/v1/change-recipients/:id/ack` — 变更传播收件人与确认。
 
 ## 代码证据

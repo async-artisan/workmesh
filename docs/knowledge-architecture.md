@@ -221,6 +221,8 @@ sequenceDiagram
 | 文档模板 `freshnessPolicy`                     | 模板                                                                 | `BLOCK \| WARN \| ALLOW`                                  |
 | 验收 `acceptance[]` 结构                       | PRD revision JSON                                                    | key / text / verification / category / criticality / hash |
 
+> 迁移分批、执行纪律与回滚方式见 [migration-plan.md](migration-plan.md)。
+
 ## 11. 分期与验收
 
 | 期  | 交付                                | 验收                                            |

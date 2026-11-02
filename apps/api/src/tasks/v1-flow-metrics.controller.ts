@@ -32,12 +32,7 @@ export class V1FlowMetricsController {
       );
     const parsed = days === undefined ? 30 : Number(days);
     if (!Number.isInteger(parsed) || parsed < 1 || parsed > 365)
-      throw new WorkmeshError(
-        V1_ERROR_CODES.VALIDATION_FAILED,
-        'DAYS_INVALID',
-        { days },
-        422,
-      );
+      throw new WorkmeshError(V1_ERROR_CODES.VALIDATION_FAILED, 'DAYS_INVALID', { days }, 422);
     return this.metrics.flow(principalOf(request), projectId, parsed);
   }
 }
