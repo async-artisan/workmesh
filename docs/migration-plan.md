@@ -214,6 +214,8 @@ model Task {
 
 ## 8. M5 通用化收尾
 
+> 状态：已实施（`0011_kinds_as_strings`），隔离库验证通过；生产 apply 待运维。
+
 **内容**
 
 1. 文档 kind 从枚举改为字符串 + 模板注册表（`DocumentKind` 枚举保留为兼容，逐步停用）。

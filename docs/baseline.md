@@ -37,6 +37,10 @@ prisma generate --schema prisma/schema.prisma
 
 `0005_knowledge_governance` 建了 `KnowledgeDocument(projectId, scopeKind, scopeId)` 索引，但 `schema.prisma` 未声明，导致 `migrate diff` 报 `Removed index`。已补 `@@index([projectId, scopeKind, scopeId])`，比对归零。
 
+## M5 追加验证（0011）
+
+`0011_kinds_as_strings` 已在 `workmesh_m5` 应用：`DocumentKind` / `ReviewKind` 枚举删除，`KnowledgeDocument.kind` 与 `ReviewRequest.kind` 改为 `VARCHAR(48)`。应用后 `migrate diff` 仍为 `No difference detected`，API 全量 422 个单测通过。
+
 ## CI 闸门
 
 `.github/workflows/ci.yml` 新增 Postgres service，并在 `prisma validate` 之后执行：

@@ -35,7 +35,7 @@
 | WP2  | M2 验收映射 `acceptanceKeys`                 | WP1                 | ✅ 已完成                       |
 | WP3  | M3 变更管理（ChangeRequest / 策略 / 冻结）   | WP2                 | ✅ 已完成（apply 受 B1 限制）   |
 | WP4  | M4 单元与依赖                                | WP1                 | ✅ 已完成（apply 受 B1 限制）   |
-| WP5  | M5 通用化（kind 注册、枚举字符串化）         | WP4                 | ⛔ 暂缓（B5）                   |
+| WP5  | M5 通用化（kind 注册、枚举字符串化）         | WP4                 | ✅ 已完成（生产 apply 待运维）  |
 | WP6  | 角色包 schema 1.1（`skills[]` / `evidence`） | 无                  | ✅ 已完成                       |
 | WP7  | 审批批处理（同类型、逐条校验）               | 无                  | ✅ 已完成（E2E 受 B3/B4 限制）  |
 | WP8  | 委托与超时升级                               | WP3（槽位 `dueAt`） | ✅ 已完成（升级动作可手动触发） |

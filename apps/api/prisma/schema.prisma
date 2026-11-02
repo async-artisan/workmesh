@@ -26,13 +26,6 @@ enum GrantSubjectKind {
   ROLE
   @@schema("workmesh_v1")
 }
-enum DocumentKind {
-  UNDERSTANDING
-  DECISION
-  PRD
-  KNOWLEDGE
-  @@schema("workmesh_v1")
-}
 enum PublicationKind {
   PUBLISH
   WITHDRAW
@@ -75,15 +68,6 @@ enum ArtifactKind {
 enum ArtifactStorage {
   HOSTED
   GIT_REF
-  @@schema("workmesh_v1")
-}
-enum ReviewKind {
-  UNDERSTANDING_CONFIRM
-  PRD_PUBLICATION
-  KNOWLEDGE_PUBLICATION
-  TASK_ACCEPTANCE
-  RELEASE_ACCEPTANCE
-  CHANGE_APPROVAL
   @@schema("workmesh_v1")
 }
 enum ReviewStatus {
@@ -271,7 +255,7 @@ model KnowledgeDocument {
   projectId               String @db.Uuid
   knowledgeBaseId         String @db.Uuid
   requirementId           String? @db.Uuid
-  kind                    DocumentKind
+  kind                    String @db.VarChar(48)
   /// PROJECT | UNIT | ROLE
   scopeKind               String @default("PROJECT") @db.VarChar(16)
   scopeId                 String? @db.Uuid
@@ -712,7 +696,7 @@ model Artifact {
 model ReviewRequest {
   id             String @id @default(uuid()) @db.Uuid
   projectId      String @db.Uuid
-  kind           ReviewKind
+  kind           String @db.VarChar(48)
   documentRevisionId String? @db.Uuid
   artifactSetId  String? @db.Uuid
   taskId         String? @db.Uuid
