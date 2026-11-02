@@ -5,6 +5,8 @@ import type {
   ChangeAffected,
   CreateChangeRequestDto,
   DecideChangeRequestDto,
+  FreezeMode,
+  UpdateChangePolicyDto,
 } from './change-requests.dto';
 
 const LEVEL_BY_AFFECTED: Record<ChangeAffected, string> = {
@@ -19,6 +21,15 @@ const LEVEL_RANK: Record<string, number> = { L0: 0, L1: 1, L2: 2, L3: 3 };
 
 /** 分级到处理时限（小时）：越靠近需求目标，越急。 */
 const SLA_HOURS: Record<string, number> = { L0: 168, L1: 72, L2: 48, L3: 24 };
+
+const DEFAULT_LEVELS: Record<string, string[]> = {
+  L0: ['product'],
+  L1: ['product', 'qa'],
+  L2: ['product', 'engineering-lead'],
+  L3: ['owner'],
+};
+
+export type ChangePolicyView = { freezeMode: FreezeMode; levels: Record<string, string[]> };
 
 export type ChangeRequestView = {
   id: string;
@@ -84,6 +95,75 @@ export class ChangeRequestsService {
     }, 'L0');
   }
 
+  private async freezeModeOf(projectId: string): Promise<FreezeMode> {
+    const row = await this.prisma.projectChangePolicy.findFirst({
+      where: { projectId, level: 'FREEZE' },
+    });
+    const mode = (row?.slots as { mode?: unknown } | null)?.mode;
+    return mode === 'WARN' || mode === 'ALLOW' ? mode : 'BLOCK';
+  }
+
+  private async readPolicy(projectId: string): Promise<ChangePolicyView> {
+    const rows = await this.prisma.projectChangePolicy.findMany({ where: { projectId } });
+    if (rows.length === 0) return { freezeMode: 'BLOCK', levels: DEFAULT_LEVELS };
+    const freeze = rows.find((row) => row.level === 'FREEZE');
+    const levels: Record<string, string[]> = {};
+    for (const row of rows) {
+      if (row.level === 'FREEZE') continue;
+      levels[row.level] = Array.isArray(row.slots) ? (row.slots as string[]) : [];
+    }
+    const mode = (freeze?.slots as { mode?: unknown } | null)?.mode;
+    return {
+      freezeMode: mode === 'WARN' || mode === 'ALLOW' ? mode : 'BLOCK',
+      levels: Object.keys(levels).length > 0 ? levels : DEFAULT_LEVELS,
+    };
+  }
+
+  async getPolicy(projectId: string, userId: string): Promise<ChangePolicyView> {
+    await this.membership(projectId, userId, false);
+    return this.readPolicy(projectId);
+  }
+
+  async updatePolicy(
+    projectId: string,
+    userId: string,
+    input: UpdateChangePolicyDto,
+  ): Promise<ChangePolicyView> {
+    await this.membership(projectId, userId, true);
+    const levels = input.levels ?? {};
+    for (const [level, reviewers] of Object.entries(levels)) {
+      if (!['L0', 'L1', 'L2', 'L3'].includes(level))
+        throw new WorkmeshError(
+          V1_ERROR_CODES.VALIDATION_FAILED,
+          'INVALID_CHANGE_LEVEL',
+          { level },
+          422,
+        );
+      if (!Array.isArray(reviewers) || reviewers.some((item) => typeof item !== 'string'))
+        throw new WorkmeshError(
+          V1_ERROR_CODES.VALIDATION_FAILED,
+          'INVALID_CHANGE_POLICY',
+          { level },
+          422,
+        );
+    }
+    await this.prisma.$transaction([
+      this.prisma.projectChangePolicy.deleteMany({ where: { projectId } }),
+      this.prisma.projectChangePolicy.createMany({
+        data: [
+          ...Object.entries(levels).map(([level, reviewers]) => ({
+            projectId,
+            level,
+            slots: reviewers,
+            version: 1,
+          })),
+          { projectId, level: 'FREEZE', slots: { mode: input.freezeMode }, version: 1 },
+        ],
+      }),
+    ]);
+    return this.readPolicy(projectId);
+  }
+
   async create(projectId: string, userId: string, input: CreateChangeRequestDto) {
     await this.membership(projectId, userId, false);
     const requirement = await this.requirement(projectId, input.requirementId);
@@ -94,7 +174,9 @@ export class ChangeRequestsService {
           where: { projectId, acceptanceKeys: { hasSome: acceptanceKeys } },
         })
       : 0;
-    const deferred = Boolean(requirement.frozenAt) && level !== 'L3';
+    const frozen = Boolean(requirement.frozenAt);
+    const freezeMode = await this.freezeModeOf(projectId);
+    const deferred = frozen && level !== 'L3' && freezeMode === 'BLOCK';
 
     return this.prisma.changeRequest.create({
       data: {
@@ -104,7 +186,14 @@ export class ChangeRequestsService {
         diff: { affected: input.affected, acceptanceKeys },
         reason: input.reason,
         proposedById: userId,
-        impactPreview: { level, acceptanceKeys, taskCount, frozen: Boolean(requirement.frozenAt) },
+        impactPreview: {
+          level,
+          acceptanceKeys,
+          taskCount,
+          frozen,
+          freezeMode,
+          warning: frozen && freezeMode === 'WARN',
+        },
         decision: deferred ? 'DEFERRED' : 'PENDING',
       },
     });

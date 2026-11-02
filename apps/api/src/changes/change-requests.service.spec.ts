@@ -14,6 +14,7 @@ function fakePrisma() {
   const changes: Array<Record<string, unknown> & { id: string }> = [];
   const events: Array<Record<string, unknown> & { id: string }> = [];
   const recipients: Array<Record<string, unknown>> = [];
+  const policies: Array<Record<string, unknown>> = [];
 
   const prisma = {
     projectMember: {
@@ -92,9 +93,36 @@ function fakePrisma() {
         return { count: input.data.length };
       },
     },
+    projectChangePolicy: {
+      findFirst: async (input: { where: { projectId: string; level: string } }) =>
+        policies.find(
+          (policy) =>
+            policy.projectId === input.where.projectId && policy.level === input.where.level,
+        ) ?? null,
+      findMany: async (input: { where: { projectId: string } }) =>
+        policies.filter((policy) => policy.projectId === input.where.projectId),
+      deleteMany: async (input: { where: { projectId: string } }) => {
+        const before = policies.length;
+        for (let index = policies.length - 1; index >= 0; index -= 1) {
+          if (policies[index].projectId === input.where.projectId) policies.splice(index, 1);
+        }
+        return { count: before - policies.length };
+      },
+      createMany: async (input: { data: Array<Record<string, unknown>> }) => {
+        policies.push(...input.data);
+        return { count: input.data.length };
+      },
+    },
+    $transaction: async (operations: Array<Promise<unknown>>) => Promise.all(operations),
   };
 
-  return { service: new ChangeRequestsService(prisma as never), changes, events, recipients };
+  return {
+    service: new ChangeRequestsService(prisma as never),
+    changes,
+    events,
+    recipients,
+    policies,
+  };
 }
 
 describe('ChangeRequestsService', () => {
@@ -192,5 +220,44 @@ describe('ChangeRequestsService', () => {
     await expect(
       service.decide('p1', 'owner', change.id, { decision: 'REJECTED' }),
     ).rejects.toMatchObject({ code: 'RESOURCE_CONFLICT', message: 'CHANGE_ALREADY_DECIDED' });
+  });
+
+  it('returns the default policy when none is stored', async () => {
+    const { service } = fakePrisma();
+    const policy = await service.getPolicy('p1', 'member');
+    expect(policy.freezeMode).toBe('BLOCK');
+    expect(policy.levels.L3).toEqual(['owner']);
+  });
+
+  it('updates and reads back a custom policy', async () => {
+    const { service } = fakePrisma();
+    await service.updatePolicy('p1', 'owner', {
+      freezeMode: 'WARN',
+      levels: { L0: ['product'], L1: ['qa'] },
+    });
+    const policy = await service.getPolicy('p1', 'member');
+    expect(policy).toEqual({ freezeMode: 'WARN', levels: { L0: ['product'], L1: ['qa'] } });
+  });
+
+  it('rejects unknown policy levels', async () => {
+    const { service } = fakePrisma();
+    await expect(
+      service.updatePolicy('p1', 'owner', { freezeMode: 'BLOCK', levels: { L9: ['x'] } }),
+    ).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      message: 'INVALID_CHANGE_LEVEL',
+    });
+  });
+
+  it('WARN freeze lets non-L3 changes stay pending with a warning', async () => {
+    const { service } = fakePrisma();
+    await service.updatePolicy('p1', 'owner', { freezeMode: 'WARN', levels: {} });
+    const change = await service.create('p1', 'owner', {
+      requirementId: 'req-2',
+      affected: ['SCOPE'],
+      reason: '冻结期改范围',
+    });
+    expect(change.decision).toBe('PENDING');
+    expect(change.impactPreview).toMatchObject({ warning: true, freezeMode: 'WARN' });
   });
 });

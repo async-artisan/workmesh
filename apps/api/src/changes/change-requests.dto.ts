@@ -2,6 +2,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsIn,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -10,6 +11,9 @@ import {
 
 export const CHANGE_AFFECTED = ['COPY', 'SCOPE', 'ACCEPTANCE', 'CONTRACT', 'GOAL'] as const;
 export type ChangeAffected = (typeof CHANGE_AFFECTED)[number];
+
+export const FREEZE_MODES = ['BLOCK', 'WARN', 'ALLOW'] as const;
+export type FreezeMode = (typeof FREEZE_MODES)[number];
 
 export class CreateChangeRequestDto {
   @IsUUID() requirementId!: string;
@@ -34,4 +38,11 @@ export class DecideChangeRequestDto {
   @IsIn(['ACCEPTED', 'REJECTED']) decision!: 'ACCEPTED' | 'REJECTED';
 
   @IsOptional() @IsString() @MaxLength(2000) comment?: string;
+}
+
+export class UpdateChangePolicyDto {
+  @IsIn(FREEZE_MODES) freezeMode!: FreezeMode;
+
+  /** 等级 → 审批角色 key 列表；只接受 L0–L3。 */
+  @IsObject() levels!: Record<string, string[]>;
 }

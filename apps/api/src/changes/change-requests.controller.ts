@@ -1,8 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
 import { V1AuthGuard, type V1Request } from '../auth/v1-auth.guard';
 import { ChangeRequestsService } from './change-requests.service';
-import { CreateChangeRequestDto, DecideChangeRequestDto } from './change-requests.dto';
+import {
+  CreateChangeRequestDto,
+  DecideChangeRequestDto,
+  UpdateChangePolicyDto,
+} from './change-requests.dto';
 
 function humanUserId(request: V1Request): string {
   const principal = request.v1Principal;
@@ -59,5 +63,19 @@ export class ChangeRequestsController {
     @Body() dto: DecideChangeRequestDto,
   ) {
     return this.changes.decide(projectId, humanUserId(request), changeId, dto);
+  }
+
+  @Get(':projectId/change-policy')
+  getPolicy(@Req() request: V1Request, @Param('projectId') projectId: string) {
+    return this.changes.getPolicy(projectId, humanUserId(request));
+  }
+
+  @Put(':projectId/change-policy')
+  updatePolicy(
+    @Req() request: V1Request,
+    @Param('projectId') projectId: string,
+    @Body() dto: UpdateChangePolicyDto,
+  ) {
+    return this.changes.updatePolicy(projectId, humanUserId(request), dto);
   }
 }
