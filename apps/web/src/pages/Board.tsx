@@ -33,6 +33,8 @@ export function Board() {
   const [snapshot, setSnapshot] = useState<BoardSnapshot | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
 
   async function load() {
     if (!projectId) {
@@ -55,10 +57,42 @@ export function Board() {
     void load();
   }, [projectId]);
 
-  const total = useMemo(
-    () => (snapshot?.columns ?? []).reduce((sum, column) => sum + column.cards.length, 0),
+  const allCards = useMemo(
+    () => (snapshot?.columns ?? []).flatMap((column) => column.cards),
     [snapshot],
   );
+
+  const total = allCards.length;
+
+  const roleOptions = useMemo(
+    () =>
+      [...new Set(allCards.map((card) => card.roleTitle).filter((value): value is string => Boolean(value)))]
+        .sort((a, b) => a.localeCompare(b, 'zh-CN')),
+    [allCards],
+  );
+
+  const filteredColumns = useMemo(() => {
+    const text = query.trim().toLowerCase();
+    return (snapshot?.columns ?? []).map((column) => ({
+      ...column,
+      cards: column.cards.filter((card) => {
+        if (roleFilter && card.roleTitle !== roleFilter) return false;
+        if (!text) return true;
+        return [
+          card.requirementCode ?? '',
+          card.requirementTitle ?? '',
+          card.stepKey,
+          card.roleTitle ?? '',
+          card.claimedUserEmail ?? '',
+        ]
+          .join(' ')
+          .toLowerCase()
+          .includes(text);
+      }),
+    }));
+  }, [snapshot, query, roleFilter]);
+
+  const visibleTotal = filteredColumns.reduce((sum, column) => sum + column.cards.length, 0);
 
   return (
     <section>
@@ -85,8 +119,34 @@ export function Board() {
       {!projectId && <p className="page-card muted">先选择项目。</p>}
 
       {snapshot && (
+        <div className="board-toolbar">
+          <input
+            aria-label="搜索看板"
+            placeholder="搜索需求编号 / 标题 / 角色"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <select
+            aria-label="看板角色筛选"
+            value={roleFilter}
+            onChange={(event) => setRoleFilter(event.target.value)}
+          >
+            <option value="">全部角色</option>
+            {roleOptions.map((role) => (
+              <option key={role} value={role}>
+                {role}
+              </option>
+            ))}
+          </select>
+          <span className="board-toolbar-count">
+            显示 {visibleTotal} / {total}
+          </span>
+        </div>
+      )}
+
+      {snapshot && (
         <div className="board-grid">
-          {snapshot.columns.map((column) => (
+          {filteredColumns.map((column) => (
             <div className="board-col" key={column.key}>
               <div className="board-col-head">
                 <span className="board-col-title">{COLUMN_LABELS[column.key] ?? column.key}</span>

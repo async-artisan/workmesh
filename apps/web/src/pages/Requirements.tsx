@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { formatApiError } from '../api/client';
 import {
@@ -37,6 +37,10 @@ export function Requirements() {
   const [busy, setBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [workflowTarget, setWorkflowTarget] = useState<RequirementView | null>(null);
+  const [query, setQuery] = useState('');
+  const [phaseFilter, setPhaseFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 12;
 
   useEffect(() => {
     const legacy = searchParams.get('req');
@@ -48,6 +52,37 @@ export function Requirements() {
   const currentMember = members.find((member) => member.id === user?.id);
   const isAdmin = currentMember?.role === 'OWNER' || currentMember?.role === 'ADMIN';
 
+  const phaseOptions = useMemo(
+    () => [...new Set(items.map((item) => item.phase))].sort(),
+    [items],
+  );
+
+  const filteredRequirements = useMemo(() => {
+    const text = query.trim().toLowerCase();
+    return items.filter((item) => {
+      if (phaseFilter && item.phase !== phaseFilter) return false;
+      if (!text) return true;
+      return [item.code, item.title, item.description ?? '']
+        .join(' ')
+        .toLowerCase()
+        .includes(text);
+    });
+  }, [items, phaseFilter, query]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredRequirements.length / PAGE_SIZE));
+  const visibleRequirements = filteredRequirements.slice(
+    (page - 1) * PAGE_SIZE,
+    page * PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [projectId, phaseFilter, query]);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
   async function load() {
     if (!projectId) {
       setItems([]);
@@ -57,13 +92,13 @@ export function Requirements() {
       return;
     }
     try {
-      const [page, memberList, roleList, definitionPage] = await Promise.all([
+      const [requirementPage, memberList, roleList, definitionPage] = await Promise.all([
         requirementApi.list(projectId),
         projectApi.members(projectId),
         projectApi.roles(projectId),
         workflowApi.listDefinitions(projectId),
       ]);
-      setItems(page.items);
+      setItems(requirementPage.items);
       setMembers(memberList);
       setRoles(roleList);
       setDefinitions(definitionPage.items);
@@ -159,8 +194,28 @@ export function Requirements() {
       <div className="table-card">
         <div className="card-head">
           <h3>
-            需求列表<small>{items.length}</small>
+            需求列表<small>{filteredRequirements.length} / {items.length}</small>
           </h3>
+          <div className="card-head-actions req-list-tools">
+            <input
+              aria-label="搜索需求"
+              placeholder="搜索编号 / 标题 / 描述"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            <select
+              aria-label="阶段筛选"
+              value={phaseFilter}
+              onChange={(event) => setPhaseFilter(event.target.value)}
+            >
+              <option value="">全部阶段</option>
+              {phaseOptions.map((phase) => (
+                <option key={phase} value={phase}>
+                  {labelFor(PHASE_LABELS, phase)}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <div className="table-scroll">
           <table className="data-table">
@@ -175,7 +230,7 @@ export function Requirements() {
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
+              {visibleRequirements.map((item) => (
                 <tr key={item.id}>
                   <td>
                     <span className="status-tag">{item.code}</span>
@@ -205,14 +260,43 @@ export function Requirements() {
                   </td>
                 </tr>
               ))}
-              {items.length === 0 && (
+              {visibleRequirements.length === 0 && (
                 <tr className="table-empty">
-                  <td colSpan={6}>{projectId ? '还没有需求，先在上方创建。' : '先选择项目。'}</td>
+                  <td colSpan={6}>
+                    {projectId
+                      ? items.length === 0
+                        ? '还没有需求，先在上方创建。'
+                        : '没有匹配的需求，清空搜索或阶段筛选。'
+                      : '先选择项目。'}
+                  </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        {filteredRequirements.length > PAGE_SIZE && (
+          <div className="table-pagination">
+            <span>
+              第 {page} / {pageCount} 页 · 共 {filteredRequirements.length} 条
+            </span>
+            <div>
+              <button
+                className="ghost"
+                disabled={page <= 1}
+                onClick={() => setPage((value) => Math.max(1, value - 1))}
+              >
+                上一页
+              </button>
+              <button
+                className="ghost"
+                disabled={page >= pageCount}
+                onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+              >
+                下一页
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <ConfirmDialog

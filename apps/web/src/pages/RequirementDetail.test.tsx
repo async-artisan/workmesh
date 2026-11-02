@@ -119,7 +119,7 @@ describe('RequirementDetail（需求详情读模型）', () => {
     expect(screen.getByText(/有 1 条评审待签字/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: /任务/ }));
-    expect(screen.getAllByText('backend-impl').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('后端实现').length).toBeGreaterThan(0);
     expect(screen.getByText(/bob@example.com/)).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /去签字/ }).length).toBeGreaterThan(0);
 

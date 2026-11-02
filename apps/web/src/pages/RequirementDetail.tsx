@@ -21,6 +21,7 @@ import {
   REVIEW_KIND_LABELS,
   REVIEW_STATUS_LABELS,
   REVISION_STATE_LABELS,
+  STEP_LABELS,
   WORK_STATUS_LABELS,
   labelFor,
 } from '../lib/labels';
@@ -675,7 +676,9 @@ export function RequirementDetail({
                         >
                           <div className="task-row-main">
                             <div className="task-row-top">
-                              <strong>{task.stepKey}</strong>
+                              <strong title={task.stepKey}>
+                                {labelFor(STEP_LABELS, task.stepKey)}
+                              </strong>
                               <span className="status-tag">
                                 {labelFor(EXECUTION_STATUS_LABELS, task.executionStatus)}
                               </span>
