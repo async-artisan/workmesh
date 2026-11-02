@@ -291,6 +291,7 @@ model KnowledgeDocument {
 
   @@unique([id, projectId])
   @@index([projectId, knowledgeBaseId])
+  @@index([projectId, scopeKind, scopeId])
   @@schema("workmesh_v1")
 }
 
