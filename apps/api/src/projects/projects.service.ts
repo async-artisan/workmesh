@@ -21,7 +21,7 @@ import {
   type V1OperationRecord,
 } from '../common/v1-idempotency';
 import { PrismaService } from '../prisma/prisma.service';
-import type { CreateProjectDto, UpdateProjectDto } from './dto';
+import type { CreateProjectDto, CreateProjectRepositoryDto, UpdateProjectDto } from './dto';
 import {
   PROJECT_ROLE_REPOSITORY,
   type ProjectRoleChangeInput,
@@ -506,5 +506,159 @@ export class ProjectsService {
       },
       now: context.now,
     };
+  }
+
+  /**
+   * 代码仓库登记：身份用厂商稳定 ID，改名不影响引用。
+   * 同一 (adapter, externalId) 重复登记返回 409；已归档的仓库重新登记即恢复。
+   */
+  async repositories(userId: string, projectId: string) {
+    await this.membership(userId, projectId);
+    return this.prisma.projectRepository.findMany({
+      where: { projectId, archivedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        adapter: true,
+        externalId: true,
+        owner: true,
+        name: true,
+        defaultBranch: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  async createRepository(
+    userId: string,
+    projectId: string,
+    dto: CreateProjectRepositoryDto,
+    now = new Date(),
+  ) {
+    await this.membership(userId, projectId, true);
+    const existing = await this.prisma.projectRepository.findFirst({
+      where: { projectId, adapter: dto.adapter, externalId: dto.externalId },
+    });
+    if (existing) {
+      if (!existing.archivedAt)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_CONFLICT,
+          'REPOSITORY_EXISTS',
+          { repositoryId: existing.id },
+          409,
+        );
+      return this.prisma.projectRepository.update({
+        where: { id: existing.id },
+        data: {
+          archivedAt: null,
+          owner: dto.owner,
+          name: dto.name,
+          defaultBranch: dto.defaultBranch ?? existing.defaultBranch,
+        },
+      });
+    }
+    return this.prisma.projectRepository.create({
+      data: {
+        projectId,
+        adapter: dto.adapter,
+        externalId: dto.externalId,
+        owner: dto.owner,
+        name: dto.name,
+        defaultBranch: dto.defaultBranch ?? null,
+        createdAt: now,
+      },
+    });
+  }
+
+  async archiveRepository(
+    userId: string,
+    projectId: string,
+    repositoryId: string,
+    now = new Date(),
+  ) {
+    await this.membership(userId, projectId, true);
+    const repository = await this.prisma.projectRepository.findFirst({
+      where: { id: repositoryId, projectId },
+    });
+    if (!repository) throw resourceNotFound('仓库不存在', { repositoryId });
+    if (repository.archivedAt) return repository;
+    return this.prisma.projectRepository.update({
+      where: { id: repository.id },
+      data: { archivedAt: now },
+    });
+  }
+
+  /**
+   * 自定义业务角色：key 不可变，停用用 isActive，不物理删除。
+   * 停用只要求没有在任成员；历史任务与工作流引用保留。
+   */
+  async createRole(userId: string, projectId: string, dto: { key: string; title: string }) {
+    await this.membership(userId, projectId, true);
+    const existing = await this.prisma.projectRole.findUnique({
+      where: { projectId_key: { projectId, key: dto.key } },
+    });
+    if (existing) {
+      if (existing.isActive)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_CONFLICT,
+          'ROLE_KEY_EXISTS',
+          { roleId: existing.id, key: dto.key },
+          409,
+        );
+      return this.prisma.projectRole.update({
+        where: { id: existing.id },
+        data: { isActive: true, title: dto.title, version: { increment: 1 } },
+      });
+    }
+    return this.prisma.projectRole.create({
+      data: { projectId, key: dto.key, title: dto.title },
+    });
+  }
+
+  async updateRole(
+    userId: string,
+    projectId: string,
+    roleId: string,
+    dto: { title: string; expectedVersion: number },
+  ) {
+    await this.membership(userId, projectId, true);
+    const role = await this.prisma.projectRole.findFirst({
+      where: { id: roleId, projectId },
+    });
+    if (!role) throw resourceNotFound('角色不存在', { roleId });
+    if (role.version !== dto.expectedVersion)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.VERSION_CONFLICT,
+        'ROLE_VERSION_CONFLICT',
+        { expectedVersion: dto.expectedVersion, currentVersion: role.version },
+        409,
+      );
+    return this.prisma.projectRole.update({
+      where: { id: role.id },
+      data: { title: dto.title, version: { increment: 1 } },
+    });
+  }
+
+  async deactivateRole(userId: string, projectId: string, roleId: string) {
+    await this.membership(userId, projectId, true);
+    const role = await this.prisma.projectRole.findFirst({
+      where: { id: roleId, projectId },
+    });
+    if (!role) throw resourceNotFound('角色不存在', { roleId });
+    if (!role.isActive) return role;
+    const activeAssignments = await this.prisma.projectRoleAssignment.count({
+      where: { projectId, roleId, revokedAt: null },
+    });
+    if (activeAssignments > 0)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_CONFLICT,
+        'ROLE_IN_USE',
+        { roleId, activeAssignments },
+        409,
+      );
+    return this.prisma.projectRole.update({
+      where: { id: role.id },
+      data: { isActive: false, version: { increment: 1 } },
+    });
   }
 }

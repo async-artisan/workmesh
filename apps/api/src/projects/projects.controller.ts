@@ -5,6 +5,7 @@ import {
   Get,
   Headers,
   Param,
+  Patch,
   Post,
   Put,
   Req,
@@ -18,8 +19,11 @@ import { requireIdempotencyKey } from '../common/v1-idempotency';
 import {
   CreateProjectDto,
   AddProjectMemberDto,
+  CreateProjectRepositoryDto,
+  CreateProjectRoleDto,
   ProjectRoleChangeDto,
   UpdateProjectDto,
+  UpdateProjectRoleDto,
 } from './dto';
 import { ProjectsService, type ProjectRoleChangeContext } from './projects.service';
 
@@ -84,6 +88,57 @@ export class ProjectsController {
   @Get(':projectId/roles')
   roles(@Req() request: V1Request, @Param('projectId') projectId: string) {
     return this.projects.roles(humanUserId(request), projectId);
+  }
+
+  @Get(':projectId/repositories')
+  repositories(@Req() request: V1Request, @Param('projectId') projectId: string) {
+    return this.projects.repositories(humanUserId(request), projectId);
+  }
+
+  @Post(':projectId/roles')
+  createRole(
+    @Req() request: V1Request,
+    @Param('projectId') projectId: string,
+    @Body() dto: CreateProjectRoleDto,
+  ) {
+    return this.projects.createRole(humanUserId(request), projectId, dto);
+  }
+
+  @Patch(':projectId/roles/:roleId')
+  updateRole(
+    @Req() request: V1Request,
+    @Param('projectId') projectId: string,
+    @Param('roleId') roleId: string,
+    @Body() dto: UpdateProjectRoleDto,
+  ) {
+    return this.projects.updateRole(humanUserId(request), projectId, roleId, dto);
+  }
+
+  @Delete(':projectId/roles/:roleId')
+  deactivateRole(
+    @Req() request: V1Request,
+    @Param('projectId') projectId: string,
+    @Param('roleId') roleId: string,
+  ) {
+    return this.projects.deactivateRole(humanUserId(request), projectId, roleId);
+  }
+
+  @Post(':projectId/repositories')
+  createRepository(
+    @Req() request: V1Request,
+    @Param('projectId') projectId: string,
+    @Body() dto: CreateProjectRepositoryDto,
+  ) {
+    return this.projects.createRepository(humanUserId(request), projectId, dto);
+  }
+
+  @Delete(':projectId/repositories/:repositoryId')
+  archiveRepository(
+    @Req() request: V1Request,
+    @Param('projectId') projectId: string,
+    @Param('repositoryId') repositoryId: string,
+  ) {
+    return this.projects.archiveRepository(humanUserId(request), projectId, repositoryId);
   }
 
   @Put(':projectId/members/:userId/roles/:roleId')

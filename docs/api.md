@@ -25,6 +25,8 @@
 
 - `GET/POST /api/v1/projects`、`PUT/DELETE /api/v1/projects/:projectId`、`GET /api/v1/projects/:projectId/members`、`GET /api/v1/projects/:projectId/roles` — 项目、成员与业务角色；项目视图始终带 `defaultKnowledgeBaseId`。
 - `PUT /api/v1/projects/:projectId/members/:userId/roles/:roleId`、`POST /api/v1/projects/:projectId/members/:userId/roles/:roleId/revoke` — 授权 OWNER/ADMIN 的 HUMAN 授予/撤销业务角色；票据绑定 `PROJECT_ROLE_ASSIGN`/`PROJECT_ROLE_UNASSIGN`、目标 `PROJECT_MEMBER`、`expectedVersion` 为成员版本。
+- `GET/POST /api/v1/projects/:projectId/repositories`、`DELETE /api/v1/projects/:projectId/repositories/:repositoryId` — 代码仓库登记与归档；`adapter` 当前仅 `github`，`externalId` 使用厂商稳定 ID（GitHub 数值仓库 ID），改名不影响引用；重复登记返回 `409 REPOSITORY_EXISTS`，归档不物理删除，已归档仓库重新登记即恢复。
+- `POST /api/v1/projects/:projectId/roles`、`PATCH /api/v1/projects/:projectId/roles/:roleId`、`DELETE /api/v1/projects/:projectId/roles/:roleId` — 自定义业务角色：`key` 创建后不可变；重命名需 `expectedVersion`，冲突返回 `409 ROLE_VERSION_CONFLICT`；停用用 `isActive`，有在任成员时返回 `409 ROLE_IN_USE`，停用不删除历史任务与工作流引用。
 - `GET/POST /api/v1/projects/:projectId/knowledge-bases` — 知识库分页列表（PROJECT 库默认可读，RESTRICTED 库按当前用户/活动角色 grant 过滤）与创建（OWNER/ADMIN，需幂等键）。
 - `GET/PUT /api/v1/knowledge-bases/:knowledgeBaseId/access` — 读取/替换知识库 ACL；替换需 `expectedVersion`、`expectedAuthzVersion`、`KB_ACCESS_REPLACE` 票据与幂等键，撤销的 grant 保留历史。
 - `GET /api/v1/knowledge-bases/:knowledgeBaseId/search?q` — 只在当前已发布修订中做标题/正文包含检索，返回摘要片段与稳定游标。

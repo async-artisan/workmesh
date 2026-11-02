@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -55,4 +56,33 @@ export class ProjectRoleChangeDto {
   @IsString() @MinLength(1) @MaxLength(1000) reason!: string;
 
   @ValidateNested() @Type(() => ConfirmationDto) confirmation!: ConfirmationDto;
+}
+
+/**
+ * 代码仓库登记：externalId 使用厂商稳定 ID（GitHub 数值仓库 ID），
+ * 仓库改名不影响身份；重复登记同一 (adapter, externalId) 返回 409。
+ */
+export class CreateProjectRepositoryDto {
+  @IsIn(['github']) adapter!: 'github';
+
+  @IsString() @MinLength(1) @MaxLength(120) externalId!: string;
+
+  @IsString() @MinLength(1) @MaxLength(120) owner!: string;
+
+  @IsString() @MinLength(1) @MaxLength(120) name!: string;
+
+  @IsOptional() @IsString() @MaxLength(200) defaultBranch?: string;
+}
+
+/** 自定义业务角色：key 创建后不可变，否则工作流、角色包与历史引用会断链。 */
+export class CreateProjectRoleDto {
+  @IsString() @Matches(/^[a-z][a-z0-9-]{0,47}$/) key!: string;
+
+  @IsString() @MinLength(1) @MaxLength(80) title!: string;
+}
+
+export class UpdateProjectRoleDto {
+  @IsInt() @Min(1) expectedVersion!: number;
+
+  @IsString() @MinLength(1) @MaxLength(80) title!: string;
 }
