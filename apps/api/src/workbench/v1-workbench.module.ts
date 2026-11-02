@@ -12,11 +12,6 @@ import { V1WorkbenchService } from './v1-workbench.service';
 @Module({
   imports: [V1ReviewModule, V1TaskModule],
   controllers: [V1WorkbenchController, V1ActivityController, V1NotificationController],
-  providers: [
-    V1WorkbenchService,
-    V1ActivityService,
-    V1EmailService,
-    V1NotificationService,
-  ],
+  providers: [V1WorkbenchService, V1ActivityService, V1EmailService, V1NotificationService],
 })
 export class V1WorkbenchModule {}

@@ -88,9 +88,11 @@ export function ReviewDecision({
 
   const [review, setReview] = useState<ReviewView | null>(null);
   const [document, setDocument] = useState<DocumentDetail | null>(null);
-  const [content, setContent] = useState<{ revisionId: string; text: string; sha256: string } | null>(
-    null,
-  );
+  const [content, setContent] = useState<{
+    revisionId: string;
+    text: string;
+    sha256: string;
+  } | null>(null);
   const [publishedText, setPublishedText] = useState<string | null>(null);
   const [artifactSet, setArtifactSet] = useState<ArtifactSetView | null>(null);
   const [requirement, setRequirement] = useState<RequirementView | null>(null);
@@ -491,9 +493,7 @@ export function ReviewDecision({
             ) : (
               <div className="task-groups">
                 {review.slots.map((slot) => {
-                  const decided = review.decisions.find(
-                    (item) => item.approvalSlotId === slot.id,
-                  );
+                  const decided = review.decisions.find((item) => item.approvalSlotId === slot.id);
                   return (
                     <div className="task-row" key={slot.id}>
                       <div className="task-row-main">
@@ -565,8 +565,7 @@ export function ReviewDecision({
                 <button
                   className="primary"
                   disabled={
-                    (decision === 'CHANGES_REQUESTED' || decision === 'REJECT') &&
-                    !comment.trim()
+                    (decision === 'CHANGES_REQUESTED' || decision === 'REJECT') && !comment.trim()
                   }
                   onClick={() => setPending({ slot: activeSlot, decision, comment })}
                 >
@@ -578,14 +577,10 @@ export function ReviewDecision({
           )}
 
           {open && actionableSlots.length === 0 && (
-            <div className="detail-card detail-empty">
-              没有轮到你处理的槽位；等待指定审批人。
-            </div>
+            <div className="detail-card detail-empty">没有轮到你处理的槽位；等待指定审批人。</div>
           )}
 
-          {!open && (
-            <div className="detail-card detail-empty">该评审已结束，只读。</div>
-          )}
+          {!open && <div className="detail-card detail-empty">该评审已结束，只读。</div>}
 
           {!requirement && task && (
             <div className="detail-card">

@@ -14,7 +14,9 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 20.17+ 才有 require(ESM)；api 的 vitest 集成配置经 unplugin-swc 加载，
+          # 低版本会在启动阶段直接失败。
+          node-version: 20.19
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
@@ -22,4 +24,9 @@ jobs:
       - run: pnpm lint:eslint
       - run: pnpm --filter @workmesh/api exec prisma validate --schema prisma/schema.prisma
       - run: pnpm test
+      # 契约脚本与进程内 HTTP 套件此前不在流水线里：
+      # `pnpm test` 只匹配 src/**/*.spec.ts，test/** 从不执行。
+      - run: pnpm --filter @workmesh/shared build
+      - run: node scripts/test-contracts.mjs
+      - run: pnpm --filter @workmesh/api test:integration
       - run: pnpm build

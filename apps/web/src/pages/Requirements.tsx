@@ -99,7 +99,8 @@ export function Requirements() {
         <div>
           <h2>需求</h2>
           <p className="page-sub">
-            这里提交最小产品意图并查看状态；PRD、知识和实现产物由本地 Agent 生成后送入 Web 评审。流程实例由项目管理员初始化。
+            这里提交最小产品意图并查看状态；PRD、知识和实现产物由本地 Agent 生成后送入 Web
+            评审。流程实例由项目管理员初始化。
           </p>
         </div>
         <div className="page-actions">

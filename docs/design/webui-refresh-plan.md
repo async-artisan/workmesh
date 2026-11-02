@@ -46,21 +46,21 @@
 
 ### 2.1 四个直接症状
 
-| # | 症状 | 证据 |
-| --- | --- | --- |
-| 1 | 打开一条待评审，需要手工粘贴评审请求 UUID | [Workbench.tsx](../../apps/web/src/pages/Workbench.tsx#L120-L134) |
-| 2 | 评审页只有 id、digest、revision id、槽位 UUID，看不到正文、验收、工件、PR | [Reviews.tsx](../../apps/web/src/pages/Reviews.tsx#L290-L367) |
-| 3 | 决定记录不显示“决定人”，只显示槽位、摘要、说明、时间 | [Reviews.tsx](../../apps/web/src/pages/Reviews.tsx#L398-L411) |
-| 4 | 在 PRD 页看完 diff，点“进入评审”就跳走，diff 消失 | [Prds.tsx](../../apps/web/src/pages/Prds.tsx#L124-L127) |
+| #   | 症状                                                                      | 证据                                                              |
+| --- | ------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| 1   | 打开一条待评审，需要手工粘贴评审请求 UUID                                 | [Workbench.tsx](../../apps/web/src/pages/Workbench.tsx#L120-L134) |
+| 2   | 评审页只有 id、digest、revision id、槽位 UUID，看不到正文、验收、工件、PR | [Reviews.tsx](../../apps/web/src/pages/Reviews.tsx#L290-L367)     |
+| 3   | 决定记录不显示“决定人”，只显示槽位、摘要、说明、时间                      | [Reviews.tsx](../../apps/web/src/pages/Reviews.tsx#L398-L411)     |
+| 4   | 在 PRD 页看完 diff，点“进入评审”就跳走，diff 消失                         | [Prds.tsx](../../apps/web/src/pages/Prds.tsx#L124-L127)           |
 
 ### 2.2 对照定位的四条原则
 
-| 原则 | 现状 | 后果 |
-| --- | --- | --- |
-| 待办优先 | 工作台只列当前项目的变更收件人；无评审、无审批、无计数、无等待时长 | 人不知道“现在轮到我做什么” |
-| 证据可见 | 工件集内容从未在 Web 请求；`GET /v1/artifact-sets/:id` 早已存在 | 签字变成盲签，审计时无法自证 |
-| 一门一动作 | 一次签字跨“选槽位 → 选决定 → 填意见 → 密码 → 票据 → 提交”，两个弹窗 | 摩擦高，容易放弃或敷衍 |
-| 可追溯 | 没有需求详情页、没有 `/requirements/:code`、没有时间线；决定记录无决定人 | “谁批的、批的哪一版”在 UI 上答不出来 |
+| 原则       | 现状                                                                     | 后果                                 |
+| ---------- | ------------------------------------------------------------------------ | ------------------------------------ |
+| 待办优先   | 工作台只列当前项目的变更收件人；无评审、无审批、无计数、无等待时长       | 人不知道“现在轮到我做什么”           |
+| 证据可见   | 工件集内容从未在 Web 请求；`GET /v1/artifact-sets/:id` 早已存在          | 签字变成盲签，审计时无法自证         |
+| 一门一动作 | 一次签字跨“选槽位 → 选决定 → 填意见 → 密码 → 票据 → 提交”，两个弹窗      | 摩擦高，容易放弃或敷衍               |
+| 可追溯     | 没有需求详情页、没有 `/requirements/:code`、没有时间线；决定记录无决定人 | “谁批的、批的哪一版”在 UI 上答不出来 |
 
 ### 2.3 一个治理语义问题
 
@@ -68,8 +68,8 @@ Web 的“创建流程实例”会把每个步骤的责任人和每个审批槽�
 
 ```ts
 // apps/web/src/pages/Requirements.tsx L96-L105
-responsibleUserId: user.id
-userId: user.id
+responsibleUserId: user.id;
+userId: user.id;
 ```
 
 UI 既不让改，也不提示。如果服务端没有额外约束，这就是结构化的自审，与“禁止作者自审”的定位直接冲突。**已定**：保留为管理员初始化，普通成员不可见；必须逐项选择责任人与审批人，并阻断同角色“责任人 = 审批人”的组合。后续有 CLI / 默认实例路径后，再评估完全移出 Web。
@@ -91,13 +91,13 @@ UI 既不让改，也不提示。如果服务端没有额外约束，这就是�
 
 ### 3.1 目标
 
-| 编号 | 目标 | 可测结果 |
-| --- | --- | --- |
-| G1 | 待办聚合 | 跨项目聚合签字 / 变更 / 可开工；每行有人类可读标识与等待时长 |
-| G2 | 证据前置 | 文档类看到正文 + 真实 diff + 验收；工件类看到 sha256 / commit / checks / PR |
-| G3 | 一门一动作 | 一个决定页 + 一个确认框完成；成功后给回执 |
-| G4 | 可追溯 | 决定记录显示决定人、时间、当时版本与摘要；回执可复制 |
-| G5 | 仪器感 | 深色台面 + 纸张 + 单一信号色；关键数字与印章形成记忆点 |
+| 编号 | 目标       | 可测结果                                                                    |
+| ---- | ---------- | --------------------------------------------------------------------------- |
+| G1   | 待办聚合   | 跨项目聚合签字 / 变更 / 可开工；每行有人类可读标识与等待时长                |
+| G2   | 证据前置   | 文档类看到正文 + 真实 diff + 验收；工件类看到 sha256 / commit / checks / PR |
+| G3   | 一门一动作 | 一个决定页 + 一个确认框完成；成功后给回执                                   |
+| G4   | 可追溯     | 决定记录显示决定人、时间、当时版本与摘要；回执可复制                        |
+| G5   | 仪器感     | 深色台面 + 纸张 + 单一信号色；关键数字与印章形成记忆点                      |
 
 ### 3.2 非目标（本计划明确不做）
 
@@ -143,13 +143,13 @@ UI 既不让改，也不提示。如果服务端没有额外约束，这就是�
 
 旧路径保留重定向：
 
-| 旧路径 | 新去向 |
-| --- | --- |
+| 旧路径               | 新去向                                                 |
+| -------------------- | ------------------------------------------------------ |
 | `/knowledge`、`/prd` | `/requirements` 的文档视图（或 `/documents?kind=PRD`） |
-| `/board` | `/requirements?view=board` |
-| `/roles` | `/settings/members` |
-| `/authorization` | `/settings/device` |
-| `/profile` | 保留，用户菜单进入 |
+| `/board`             | `/requirements?view=board`                             |
+| `/roles`             | `/settings/members`                                    |
+| `/authorization`     | `/settings/device`                                     |
+| `/profile`           | 保留，用户菜单进入                                     |
 
 > 导航收敛放在 M3；M1/M2 先不改菜单结构，避免和路由改造互相干扰。
 
@@ -275,11 +275,11 @@ UI 既不让改，也不提示。如果服务端没有额外约束，这就是�
 
 深色台面、亮色纸张、单一信号色、等宽数据。把品牌词翻译成视觉：
 
-| 品牌词 | 视觉载体 |
-| --- | --- |
-| 事实 | 等宽数字、版本号、时间戳、sha256 短码 |
-| 证据 | 纸张质感的长文面板、账本式时间线、校验 LED |
-| 签字 | 印章式回执、一次性“落章”动效 |
+| 品牌词 | 视觉载体                                   |
+| ------ | ------------------------------------------ |
+| 事实   | 等宽数字、版本号、时间戳、sha256 短码      |
+| 证据   | 纸张质感的长文面板、账本式时间线、校验 LED |
+| 签字   | 印章式回执、一次性“落章”动效               |
 
 一句话：像飞行仪表盘或审计终端，不像游戏大厅。
 
@@ -314,12 +314,12 @@ UI 既不让改，也不提示。如果服务端没有额外约束，这就是�
 
 ### 7.3 字体
 
-| 用途 | 字体 | 说明 |
-| --- | --- | --- |
-| 拉丁标题 / 数字 | Space Grotesk | 工程感，tabular nums |
-| 正文 | Inter | 现有字体，保留 |
-| 中文 | MiSans / HarmonyOS Sans SC | 比 Noto 更几何；落地前复核许可证 |
-| 数据 / ID / hash | JetBrains Mono | 版本、时间、摘要 |
+| 用途             | 字体                       | 说明                             |
+| ---------------- | -------------------------- | -------------------------------- |
+| 拉丁标题 / 数字  | Space Grotesk              | 工程感，tabular nums             |
+| 正文             | Inter                      | 现有字体，保留                   |
+| 中文             | MiSans / HarmonyOS Sans SC | 比 Noto 更几何；落地前复核许可证 |
+| 数据 / ID / hash | JetBrains Mono             | 版本、时间、摘要                 |
 
 全部自托管、子集化、`font-display: swap`；删除 [index.css](../../apps/web/src/index.css#L7) 的 Google Fonts `@import`。
 
@@ -355,19 +355,19 @@ UI 既不让改，也不提示。如果服务端没有额外约束，这就是�
 
 ### 8.1 现有可用的读接口
 
-| 能力 | 接口 | 备注 |
-| --- | --- | --- |
-| 项目列表 | `GET /v1/projects` | 已有，Web 在用 |
-| 需求列表 / 创建 | `GET/POST /v1/projects/:projectId/requirements` | 无单条详情 |
-| 文档列表 / 详情 | `GET /v1/projects/:projectId/documents`、`GET /v1/documents/:documentId` | 含 revisions |
-| 文档正文 | `GET /v1/document-revisions/:revisionId/content` | base64 + sha256 |
-| 评审列表 / 详情 | `GET /v1/projects/:projectId/review-requests`、`GET /v1/review-requests/:reviewId` | 只有 id / digest / 槽位 |
-| 评审决定 / 撤销 | `POST /v1/review-requests/:reviewId/decisions`、`POST /v1/review-decisions/:decisionId/revoke` | 已有票据流程 |
-| 工件集 | `GET /v1/artifact-sets/:id` | **Web 从未调用** |
-| 任务 / 流程实例 | `GET /v1/tasks/:taskId`、`GET /v1/workflow-instances/:instanceId` | 可拼出需求上下文 |
-| 变更收件人 | `GET /v1/change-recipients?projectId=` | 只有 eventId / 版本 |
-| 可开工任务 | `GET /v1/projects/:projectId/tasks/ready` | 已有 |
-| 看板 | `GET /v1/projects/:projectId/board` | 保留 |
+| 能力            | 接口                                                                                           | 备注                    |
+| --------------- | ---------------------------------------------------------------------------------------------- | ----------------------- |
+| 项目列表        | `GET /v1/projects`                                                                             | 已有，Web 在用          |
+| 需求列表 / 创建 | `GET/POST /v1/projects/:projectId/requirements`                                                | 无单条详情              |
+| 文档列表 / 详情 | `GET /v1/projects/:projectId/documents`、`GET /v1/documents/:documentId`                       | 含 revisions            |
+| 文档正文        | `GET /v1/document-revisions/:revisionId/content`                                               | base64 + sha256         |
+| 评审列表 / 详情 | `GET /v1/projects/:projectId/review-requests`、`GET /v1/review-requests/:reviewId`             | 只有 id / digest / 槽位 |
+| 评审决定 / 撤销 | `POST /v1/review-requests/:reviewId/decisions`、`POST /v1/review-decisions/:decisionId/revoke` | 已有票据流程            |
+| 工件集          | `GET /v1/artifact-sets/:id`                                                                    | **Web 从未调用**        |
+| 任务 / 流程实例 | `GET /v1/tasks/:taskId`、`GET /v1/workflow-instances/:instanceId`                              | 可拼出需求上下文        |
+| 变更收件人      | `GET /v1/change-recipients?projectId=`                                                         | 只有 eventId / 版本     |
+| 可开工任务      | `GET /v1/projects/:projectId/tasks/ready`                                                      | 已有                    |
+| 看板            | `GET /v1/projects/:projectId/board`                                                            | 保留                    |
 
 ### 8.2 缺口
 
@@ -387,35 +387,41 @@ GET /api/v1/workbench?projectId=<optional>
 {
   "data": {
     "counts": { "reviews": 3, "changes": 2, "readyTasks": 5 },
-    "reviews": [{
-      "reviewId": "...",
-      "kind": "PRD_PUBLICATION",
-      "projectId": "...",
-      "projectName": "YFF",
-      "requirement": { "code": "YFF-REQ-12", "title": "登录页改版" },
-      "subjectLabel": "PRD v3",
-      "role": { "key": "BACKEND", "title": "后端" },
-      "slots": [{ "id": "...", "slotKey": "backend", "viewerCanDecide": true }],
-      "ageSeconds": 259200,
-      "evidence": { "artifactCount": 2, "hasPr": true }
-    }],
-    "changes": [{
-      "recipientId": "...",
-      "eventId": "...",
-      "requirement": { "code": "YFF-REQ-8", "title": "订单取消规则调整" },
-      "changedFields": ["acceptance"],
-      "targets": {},
-      "pendingRoles": ["BACKEND", "QA"],
-      "version": 4,
-      "ageSeconds": 172800
-    }],
-    "readyTasks": [{
-      "taskId": "...",
-      "projectName": "YFF",
-      "requirement": { "code": "YFF-REQ-9", "title": "支付回调重试" },
-      "role": { "key": "BACKEND", "title": "后端" },
-      "stepKey": "backend-impl"
-    }]
+    "reviews": [
+      {
+        "reviewId": "...",
+        "kind": "PRD_PUBLICATION",
+        "projectId": "...",
+        "projectName": "YFF",
+        "requirement": { "code": "YFF-REQ-12", "title": "登录页改版" },
+        "subjectLabel": "PRD v3",
+        "role": { "key": "BACKEND", "title": "后端" },
+        "slots": [{ "id": "...", "slotKey": "backend", "viewerCanDecide": true }],
+        "ageSeconds": 259200,
+        "evidence": { "artifactCount": 2, "hasPr": true }
+      }
+    ],
+    "changes": [
+      {
+        "recipientId": "...",
+        "eventId": "...",
+        "requirement": { "code": "YFF-REQ-8", "title": "订单取消规则调整" },
+        "changedFields": ["acceptance"],
+        "targets": {},
+        "pendingRoles": ["BACKEND", "QA"],
+        "version": 4,
+        "ageSeconds": 172800
+      }
+    ],
+    "readyTasks": [
+      {
+        "taskId": "...",
+        "projectName": "YFF",
+        "requirement": { "code": "YFF-REQ-9", "title": "支付回调重试" },
+        "role": { "key": "BACKEND", "title": "后端" },
+        "stepKey": "backend-impl"
+      }
+    ]
   },
   "meta": { "requestId": "..." }
 }
@@ -430,12 +436,12 @@ GET /api/v1/workbench?projectId=<optional>
 
 ### 8.4 `ReviewView` 增量字段
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `subjectLabel` | `string` | 文档标题 / 任务步骤的人类可读标签 |
-| `requirement` | `{ code, title } \| null` | 关联需求；文档类通过 `document.requirementId` 单独查 |
-| `slots[].viewerCanDecide` | `boolean` | 当前用户是否可对该槽位作出决定 |
-| `decisions[].actor` | `{ id, name, email }` | 决定人；现在只有 `createdById` |
+| 字段                      | 类型                      | 说明                                                 |
+| ------------------------- | ------------------------- | ---------------------------------------------------- |
+| `subjectLabel`            | `string`                  | 文档标题 / 任务步骤的人类可读标签                    |
+| `requirement`             | `{ code, title } \| null` | 关联需求；文档类通过 `document.requirementId` 单独查 |
+| `slots[].viewerCanDecide` | `boolean`                 | 当前用户是否可对该槽位作出决定                       |
+| `decisions[].actor`       | `{ id, name, email }`     | 决定人；现在只有 `createdById`                       |
 
 均为 additive，不改变现有调用方。
 
@@ -457,13 +463,13 @@ GET /api/v1/workbench?projectId=<optional>
 
 ### 9.1 里程碑
 
-| 里程碑 | 内容 | 人日 | 依赖 | 可演示结果 |
-| --- | --- | --- | --- | --- |
-| **M0 读模型** | `GET /workbench`；`ReviewView` 增量字段；契约测试 | 0.5–1 | 无 | 一条请求拿到工作台首屏 |
-| **M1 工作台** | 视觉 token + 壳层 + 工作台 + 徽标；任务认领移出 Web；创建流程实例收进管理员并强制显式绑定 | 2–3 | M0 | 登录后看到“谁在等我” |
-| **M2 决定页** | `/reviews/:reviewId`；文档 / 工件证据；一次确认；回执 | 3 | M1 | 从待办进入、看证据、签字、拿回执 |
-| **M3 说人话** | 字典 / 名称解析 / 错误条 / 设置页 IA / 可访问性 | 1–2 | M2 | 0 裸 UUID；键盘可走完 |
-| **M4 需求详情** | `GET /requirements/:id`；`/requirements/:code`；门禁 + 时间线 | 2–3 | M0 | 一条需求的全链路可追溯 |
+| 里程碑          | 内容                                                                                      | 人日  | 依赖 | 可演示结果                       |
+| --------------- | ----------------------------------------------------------------------------------------- | ----- | ---- | -------------------------------- |
+| **M0 读模型**   | `GET /workbench`；`ReviewView` 增量字段；契约测试                                         | 0.5–1 | 无   | 一条请求拿到工作台首屏           |
+| **M1 工作台**   | 视觉 token + 壳层 + 工作台 + 徽标；任务认领移出 Web；创建流程实例收进管理员并强制显式绑定 | 2–3   | M0   | 登录后看到“谁在等我”             |
+| **M2 决定页**   | `/reviews/:reviewId`；文档 / 工件证据；一次确认；回执                                     | 3     | M1   | 从待办进入、看证据、签字、拿回执 |
+| **M3 说人话**   | 字典 / 名称解析 / 错误条 / 设置页 IA / 可访问性                                           | 1–2   | M2   | 0 裸 UUID；键盘可走完            |
+| **M4 需求详情** | `GET /requirements/:id`；`/requirements/:code`；门禁 + 时间线                             | 2–3   | M0   | 一条需求的全链路可追溯           |
 
 合计 **8.5–12.5 人日**。一人约两周；两人并行（后端读模型 + 前端视觉）可压到一周半。
 
@@ -486,14 +492,14 @@ E2E 用例（M2 开始写，M3 跑通）
 
 ### 9.4 技术选择
 
-| 决策 | 选择 | 理由 |
-| --- | --- | --- |
-| 数据请求 / 轮询 | `@tanstack/react-query`（已在依赖里，当前未启用） | 缓存、窗口聚焦刷新、`refetchInterval`、局部错误隔离；不用自己写轮询 |
-| Markdown 渲染 | `react-markdown` + `remark-gfm` | 默认不渲染 raw HTML，避免 XSS；替换 `<pre>` 纯文本 |
-| Diff | `diff`（jsdiff）或自写 LCS | 现有按行号对齐会在插入一行时全量误报 |
-| 状态管理 | 不新增 | 现有 zustand 只放 auth / project / toast；服务端状态交给 React Query |
-| 清理 | 移除未使用的 `axios` | 当前所有请求走 `fetch` |
-| 样式 | 复用已有 `wb-*` / `gate-*` / `evidence-*` 类 | 约 50 个类已写好，只缺组件 |
+| 决策            | 选择                                              | 理由                                                                 |
+| --------------- | ------------------------------------------------- | -------------------------------------------------------------------- |
+| 数据请求 / 轮询 | `@tanstack/react-query`（已在依赖里，当前未启用） | 缓存、窗口聚焦刷新、`refetchInterval`、局部错误隔离；不用自己写轮询  |
+| Markdown 渲染   | `react-markdown` + `remark-gfm`                   | 默认不渲染 raw HTML，避免 XSS；替换 `<pre>` 纯文本                   |
+| Diff            | `diff`（jsdiff）或自写 LCS                        | 现有按行号对齐会在插入一行时全量误报                                 |
+| 状态管理        | 不新增                                            | 现有 zustand 只放 auth / project / toast；服务端状态交给 React Query |
+| 清理            | 移除未使用的 `axios`                              | 当前所有请求走 `fetch`                                               |
+| 样式            | 复用已有 `wb-*` / `gate-*` / `evidence-*` 类      | 约 50 个类已写好，只缺组件                                           |
 
 运行时新依赖控制在三个以内（Playwright 为 devDependency）；M2 首屏不加载 Markdown / diff 解析，按需动态引入或仅在决定页加载。
 
@@ -503,13 +509,13 @@ E2E 用例（M2 开始写，M3 跑通）
 
 ### 10.1 里程碑验收
 
-| 里程碑 | 验收 |
-| --- | --- |
-| M0 | 契约测试通过；10 个项目规模下 p95 < 300ms；无写入；权限过滤有测试 |
-| M1 | 待办 0 裸 UUID；登录 → 工作台 → 决定页 ≤2 点击；空 / 错 / 加载三态分离；徽标数正确 |
-| M2 | 文档类看到正文 + diff + 验收；工件类看到 sha256 / commit / checks；决定记录显示决定人；一次 `ConfirmationPrompt` 完成；回执可复制；失败原样展示 |
-| M3 | 字典覆盖率 100%；正文对比度 ≥ 4.5:1；键盘可完成签字；`reduced-motion` 生效；旧路径重定向正确 |
-| M4 | `/requirements/:code` 可直接打开；门禁七段与后端一致；时间线含决定 / 变更 / 交付 |
+| 里程碑 | 验收                                                                                                                                            |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| M0     | 契约测试通过；10 个项目规模下 p95 < 300ms；无写入；权限过滤有测试                                                                               |
+| M1     | 待办 0 裸 UUID；登录 → 工作台 → 决定页 ≤2 点击；空 / 错 / 加载三态分离；徽标数正确                                                              |
+| M2     | 文档类看到正文 + diff + 验收；工件类看到 sha256 / commit / checks；决定记录显示决定人；一次 `ConfirmationPrompt` 完成；回执可复制；失败原样展示 |
+| M3     | 字典覆盖率 100%；正文对比度 ≥ 4.5:1；键盘可完成签字；`reduced-motion` 生效；旧路径重定向正确                                                    |
+| M4     | `/requirements/:code` 可直接打开；门禁七段与后端一致；时间线含决定 / 变更 / 交付                                                                |
 
 ### 10.2 全局指标
 
@@ -533,15 +539,15 @@ E2E 用例（M2 开始写，M3 跑通）
 
 ## 12. 风险与对策
 
-| 风险 | 影响 | 对策 |
-| --- | --- | --- |
-| 聚合接口泄露越权项目 | 高 | 只复用 authorization service 做过滤；加“非成员项目不出现”测试 |
-| N+1 查询拖慢工作台 | 中 | 30 秒缓存 + 项目数上限；后续合并 SQL |
-| CSS 硬编码颜色导致深色主题遗漏 | 中 | 先 token 化再换主题；关键页截图对比 |
-| 字体许可证 / 体积 | 中 | 选 OFL / 可免费商用字体；子集化；落地前复核 |
-| 范围蔓延到执行平台 | 高 | 以“决定页”为界；非目标写进评审 checklist |
-| 旧工作树冲突 | 中 | additive 文件为主；M0 前提交 / stash |
-| 文档继续漂移 | 中 | M3 更新 `CYBER_UI_COMPLETE.md` 与 README 的 Web 描述 |
+| 风险                           | 影响 | 对策                                                          |
+| ------------------------------ | ---- | ------------------------------------------------------------- |
+| 聚合接口泄露越权项目           | 高   | 只复用 authorization service 做过滤；加“非成员项目不出现”测试 |
+| N+1 查询拖慢工作台             | 中   | 30 秒缓存 + 项目数上限；后续合并 SQL                          |
+| CSS 硬编码颜色导致深色主题遗漏 | 中   | 先 token 化再换主题；关键页截图对比                           |
+| 字体许可证 / 体积              | 中   | 选 OFL / 可免费商用字体；子集化；落地前复核                   |
+| 范围蔓延到执行平台             | 高   | 以“决定页”为界；非目标写进评审 checklist                      |
+| 旧工作树冲突                   | 中   | additive 文件为主；M0 前提交 / stash                          |
+| 文档继续漂移                   | 中   | M3 更新 `CYBER_UI_COMPLETE.md` 与 README 的 Web 描述          |
 
 **回滚**：新路由 + 新组件，旧页面保留；`/` 可切回旧工作台；API 均为只读增量，回滚不影响写入链路。
 
@@ -551,16 +557,16 @@ E2E 用例（M2 开始写，M3 跑通）
 
 > 这一节不是“选型”，是“别重造轮子”的边界说明。详细对比见讨论记录；落地时以各仓库 LICENSE 为准。
 
-| 项目 | 可借鉴 | 不要照搬 |
-| --- | --- | --- |
-| [Warrant](https://github.com/mv2a/warrant) | `intent / promise / check / evidence / gate / ledger` 词汇；隐藏检查防作弊 | 它只做代码 merge/release，且是 v0.1 单人项目 |
-| [Microsoft AGT](https://github.com/microsoft/agent-governance-toolkit) | 策略引擎、零信任身份、审计、`require_approval` 的结构 | 它是运行时 tool-call 治理，不是交付物签字 |
-| [HumanLayer](https://github.com/humanlayer/humanlayer) | 审批收件箱、上下文呈现 | 它自己跑 Agent；WorkMesh 明确不执行 |
-| [in-toto](https://github.com/in-toto/in-toto) / [Sigstore cosign](https://github.com/sigstore/cosign) | 给“签字回执”做可验证签名 | 不要自建哈希链再补签名；先对齐标准 |
-| [Flowable](https://github.com/flowable/flowable-engine) / [Temporal](https://github.com/temporalio/temporal) | 人工任务、超时、升级、durable execution | 通用 BPM 没有交付物模型；别把 WorkMesh 做成 BPMN 前端 |
-| [Spec Kit](https://github.com/github/spec-kit) / [BMAD](https://github.com/bmad-code-org/BMAD-METHOD) / [OpenSpec](https://github.com/Fission-AI/OpenSpec) | 角色 SOP、规格 → 计划 → 任务、变更提案 | 它们是本地工作流，没有跨人权威与证据托管 |
-| [Documenso](https://github.com/documenso/documenso) / [Gerrit](https://github.com/GerritCodeReview/gerrit) | 签署仪式 / 回执；change page 的“左证据右投票” | Documenso 是 AGPL-3.0，不能把代码抄进 MIT 项目 |
-| [Backstage](https://github.com/backstage/backstage) | 目录、scorecards 的信息组织 | 它没有交付门禁 |
+| 项目                                                                                                                                                       | 可借鉴                                                                     | 不要照搬                                              |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------- |
+| [Warrant](https://github.com/mv2a/warrant)                                                                                                                 | `intent / promise / check / evidence / gate / ledger` 词汇；隐藏检查防作弊 | 它只做代码 merge/release，且是 v0.1 单人项目          |
+| [Microsoft AGT](https://github.com/microsoft/agent-governance-toolkit)                                                                                     | 策略引擎、零信任身份、审计、`require_approval` 的结构                      | 它是运行时 tool-call 治理，不是交付物签字             |
+| [HumanLayer](https://github.com/humanlayer/humanlayer)                                                                                                     | 审批收件箱、上下文呈现                                                     | 它自己跑 Agent；WorkMesh 明确不执行                   |
+| [in-toto](https://github.com/in-toto/in-toto) / [Sigstore cosign](https://github.com/sigstore/cosign)                                                      | 给“签字回执”做可验证签名                                                   | 不要自建哈希链再补签名；先对齐标准                    |
+| [Flowable](https://github.com/flowable/flowable-engine) / [Temporal](https://github.com/temporalio/temporal)                                               | 人工任务、超时、升级、durable execution                                    | 通用 BPM 没有交付物模型；别把 WorkMesh 做成 BPMN 前端 |
+| [Spec Kit](https://github.com/github/spec-kit) / [BMAD](https://github.com/bmad-code-org/BMAD-METHOD) / [OpenSpec](https://github.com/Fission-AI/OpenSpec) | 角色 SOP、规格 → 计划 → 任务、变更提案                                     | 它们是本地工作流，没有跨人权威与证据托管              |
+| [Documenso](https://github.com/documenso/documenso) / [Gerrit](https://github.com/GerritCodeReview/gerrit)                                                 | 签署仪式 / 回执；change page 的“左证据右投票”                              | Documenso 是 AGPL-3.0，不能把代码抄进 MIT 项目        |
+| [Backstage](https://github.com/backstage/backstage)                                                                                                        | 目录、scorecards 的信息组织                                                | 它没有交付门禁                                        |
 
 热度参考（2026-11）：HumanLayer ≈12.7k、Microsoft AGT ≈6.5k、Spec Kit ≈145k、OpenSpec ≈74k、Documenso ≈15.6k、Gerrit ≈1.2k；Warrant 仍是个位数 star 的实验。热度只说明生态位置，不说明适配度。
 
@@ -577,13 +583,13 @@ E2E 用例（M2 开始写，M3 跑通）
 
 ## 14. 待决策项
 
-| 编号 | 问题 | 建议默认 |
-| --- | --- | --- |
-| D1 | 工作台默认范围：全部项目还是当前项目？ | 全部项目 + 项目筛选 |
-| D2 | 决定页形态：全屏路由还是右侧抽屉？ | 全屏路由；抽屉只用于“确认变更”等短动作 |
-| D3 | 是否允许新增只读接口和 additive 字段？ | 允许；不做迁移 |
-| D4 | 视觉默认：深色台面还是提供切换？ | 深色默认；文档用纸张面板；完整亮色主题后置 |
-| D5 | 是否本期做 M4 需求详情？ | 先做 M0–M3，M4 视验收后排期 |
+| 编号 | 问题                                   | 建议默认                                   |
+| ---- | -------------------------------------- | ------------------------------------------ |
+| D1   | 工作台默认范围：全部项目还是当前项目？ | 全部项目 + 项目筛选                        |
+| D2   | 决定页形态：全屏路由还是右侧抽屉？     | 全屏路由；抽屉只用于“确认变更”等短动作     |
+| D3   | 是否允许新增只读接口和 additive 字段？ | 允许；不做迁移                             |
+| D4   | 视觉默认：深色台面还是提供切换？       | 深色默认；文档用纸张面板；完整亮色主题后置 |
+| D5   | 是否本期做 M4 需求详情？               | 先做 M0–M3，M4 视验收后排期                |
 
 ---
 
@@ -641,13 +647,13 @@ E2E 用例（M2 开始写，M3 跑通）
 
 ### 15.3 术语
 
-| 术语 | 含义 |
-| --- | --- |
-| 待办 | 需要当前用户做出动作的评审 / 变更 / 可开工任务 |
-| 决定页 | 一个待办的证据 + 动作 + 回执的完整页面 |
-| 槽位（slot） | 评审中一个必须被满足的审批位置 |
-| 回执 | 决定成功后的可复制审计记录（人 / 时间 / 版本 / 摘要 / requestId） |
-| 证据 | 正文、diff、验收标准、工件、commit / PR、历史决定 |
+| 术语         | 含义                                                              |
+| ------------ | ----------------------------------------------------------------- |
+| 待办         | 需要当前用户做出动作的评审 / 变更 / 可开工任务                    |
+| 决定页       | 一个待办的证据 + 动作 + 回执的完整页面                            |
+| 槽位（slot） | 评审中一个必须被满足的审批位置                                    |
+| 回执         | 决定成功后的可复制审计记录（人 / 时间 / 版本 / 摘要 / requestId） |
+| 证据         | 正文、diff、验收标准、工件、commit / PR、历史决定                 |
 
 ### 15.4 参考
 

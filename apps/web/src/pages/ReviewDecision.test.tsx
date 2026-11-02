@@ -117,7 +117,10 @@ describe('ReviewDecision（证据 + 一次确认 + 回执）', () => {
           }),
         };
       if (path === '/api/v1/document-revisions/rev-2/content' && method === 'GET')
-        return { status: 200, body: envelope(contentOf('rev-2', '# 登录页改版\n- 新增记住登录\n')) };
+        return {
+          status: 200,
+          body: envelope(contentOf('rev-2', '# 登录页改版\n- 新增记住登录\n')),
+        };
       if (path === '/api/v1/document-revisions/rev-1/content' && method === 'GET')
         return { status: 200, body: envelope(contentOf('rev-1', '# 登录页改版\n- 旧行为\n')) };
       if (path === '/api/v1/auth/action-previews' && method === 'POST')

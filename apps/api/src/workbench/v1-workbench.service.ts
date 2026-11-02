@@ -189,7 +189,9 @@ export class V1WorkbenchService {
 
     const reviewIds = items.map((item) => item.id);
     const revisionIds = [
-      ...new Set(items.flatMap((item) => (item.documentRevisionId ? [item.documentRevisionId] : []))),
+      ...new Set(
+        items.flatMap((item) => (item.documentRevisionId ? [item.documentRevisionId] : [])),
+      ),
     ];
     const taskIds = [...new Set(items.flatMap((item) => (item.taskId ? [item.taskId] : [])))];
     const artifactSetIds = [
@@ -279,7 +281,8 @@ export class V1WorkbenchService {
         (revision?.document.requirementId
           ? documentRequirementById.get(revision.document.requirementId)
           : undefined) ?? task?.instance.requirement;
-      const roleId = task?.roleId ?? (item.slots.length === 1 ? item.slots[0].requiredRoleId : null);
+      const roleId =
+        task?.roleId ?? (item.slots.length === 1 ? item.slots[0].requiredRoleId : null);
       const role = roleId ? roleById.get(roleId) : undefined;
       const decidedSlotIds = new Set(item.decisions.map((decision) => decision.approvalSlotId));
       const slots = item.slots.map((slot) => {

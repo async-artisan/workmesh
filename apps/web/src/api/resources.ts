@@ -354,10 +354,11 @@ export const requirementApi = {
     requirementId: string,
     input: { expectedVersion: number; title?: string; description?: string },
   ) =>
-    apiRequest<RequirementView>(
-      `${projectPath(projectId)}/requirements/${enc(requirementId)}`,
-      { method: 'PATCH', body: input, idempotencyKey: 'auto' },
-    ),
+    apiRequest<RequirementView>(`${projectPath(projectId)}/requirements/${enc(requirementId)}`, {
+      method: 'PATCH',
+      body: input,
+      idempotencyKey: 'auto',
+    }),
 };
 
 /** 工作流定义摘要：不含定义体，只看当前修订号与已发布指针。 */
@@ -725,9 +726,7 @@ export const notificationApi = {
 
 export const workbenchApi = {
   get: (projectId?: string | null) =>
-    apiRequest<WorkbenchSnapshot>(
-      `/workbench${projectId ? `?projectId=${enc(projectId)}` : ''}`,
-    ),
+    apiRequest<WorkbenchSnapshot>(`/workbench${projectId ? `?projectId=${enc(projectId)}` : ''}`),
 };
 
 export const aclApi = {

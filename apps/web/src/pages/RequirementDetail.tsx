@@ -133,9 +133,7 @@ function buildGates(tasks: RequirementTaskDetail[]): GateNode[] {
   let currentAssigned = false;
   return raw.map((gate) => {
     const applicable =
-      gate.key === 'draft' ||
-      gate.roleKeys.length === 0 ||
-      byRole(gate.roleKeys).length > 0;
+      gate.key === 'draft' || gate.roleKeys.length === 0 || byRole(gate.roleKeys).length > 0;
     if (!applicable) return { ...gate, state: 'na', stateLabel: '不适用' };
     if (gate.done) return { ...gate, state: 'done', stateLabel: '已满足' };
     if (!currentAssigned) {
@@ -469,199 +467,201 @@ export function RequirementDetail() {
           )}
 
           {tab === 'tasks' && (
-          <div className="detail-card">
-            <div className="detail-card-head">
-              <h3>
-                任务<small>{detail.counts.tasks}</small>
-              </h3>
-            </div>
-            {taskGroups.length === 0 ? (
-              <p className="detail-empty">还没有任务；等待管理员初始化流程实例。</p>
-            ) : (
-              <div className="task-groups">
-                {taskGroups.map((group) => (
-                  <div className="task-group" id={`task-group-${group.key}`} key={group.key}>
-                    <div className="task-group-head">
-                      <strong>{group.title}</strong>
-                      <span className="task-row-meta">{group.tasks.length} 个任务</span>
-                    </div>
-                    {group.tasks.map((task) => (
-                      <div
-                        className={`task-row${task.review?.status === 'OPEN' ? ' is-pending' : ''}`}
-                        key={task.id}
-                      >
-                        <div className="task-row-main">
-                          <div className="task-row-top">
-                            <strong>{task.stepKey}</strong>
-                            <span className="status-tag">
-                              {labelFor(EXECUTION_STATUS_LABELS, task.executionStatus)}
-                            </span>
-                            {task.workStatus !== 'ACTIVE' && (
+            <div className="detail-card">
+              <div className="detail-card-head">
+                <h3>
+                  任务<small>{detail.counts.tasks}</small>
+                </h3>
+              </div>
+              {taskGroups.length === 0 ? (
+                <p className="detail-empty">还没有任务；等待管理员初始化流程实例。</p>
+              ) : (
+                <div className="task-groups">
+                  {taskGroups.map((group) => (
+                    <div className="task-group" id={`task-group-${group.key}`} key={group.key}>
+                      <div className="task-group-head">
+                        <strong>{group.title}</strong>
+                        <span className="task-row-meta">{group.tasks.length} 个任务</span>
+                      </div>
+                      {group.tasks.map((task) => (
+                        <div
+                          className={`task-row${task.review?.status === 'OPEN' ? ' is-pending' : ''}`}
+                          key={task.id}
+                        >
+                          <div className="task-row-main">
+                            <div className="task-row-top">
+                              <strong>{task.stepKey}</strong>
                               <span className="status-tag">
-                                {labelFor(WORK_STATUS_LABELS, task.workStatus)}
+                                {labelFor(EXECUTION_STATUS_LABELS, task.executionStatus)}
                               </span>
-                            )}
-                            {task.review && (
-                              <span className="status-tag">
+                              {task.workStatus !== 'ACTIVE' && (
+                                <span className="status-tag">
+                                  {labelFor(WORK_STATUS_LABELS, task.workStatus)}
+                                </span>
+                              )}
+                              {task.review && (
+                                <span className="status-tag">
+                                  {labelFor(REVIEW_STATUS_LABELS, task.review.status)}
+                                </span>
+                              )}
+                            </div>
+                            <div className="task-row-meta">
+                              责任人 {task.responsibleUser.email} · 工件 {task.artifactCount} 件 · v
+                              {task.version}
+                            </div>
+                          </div>
+                          <div className="task-row-actions">
+                            {task.review?.status === 'OPEN' ? (
+                              <button
+                                className="primary"
+                                onClick={() => navigate(`/reviews/${task.review!.id}`)}
+                              >
+                                去签字
+                                <ArrowRight size={14} />
+                              </button>
+                            ) : task.review ? (
+                              <span className="task-signed">
                                 {labelFor(REVIEW_STATUS_LABELS, task.review.status)}
                               </span>
-                            )}
-                          </div>
-                          <div className="task-row-meta">
-                            责任人 {task.responsibleUser.email} · 工件 {task.artifactCount} 件 · v
-                            {task.version}
+                            ) : null}
                           </div>
                         </div>
-                        <div className="task-row-actions">
-                          {task.review?.status === 'OPEN' ? (
-                            <button
-                              className="primary"
-                              onClick={() => navigate(`/reviews/${task.review!.id}`)}
-                            >
-                              去签字
-                              <ArrowRight size={14} />
-                            </button>
-                          ) : task.review ? (
-                            <span className="task-signed">
-                              {labelFor(REVIEW_STATUS_LABELS, task.review.status)}
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           {tab === 'artifacts' && (
-          <div className="detail-card">
-            <div className="detail-card-head">
-              <h3>
-                交付物<small>{detail.counts.artifacts}</small>
-              </h3>
-            </div>
-            {detail.artifacts.length === 0 ? (
-              <p className="detail-empty">还没有交付物；Agent 交付后会出现在这里。</p>
-            ) : (
-              <div className="artifact-group">
-                {detail.artifacts.map((artifact: RequirementArtifactDetail) => (
-                  <div className="task-row" key={artifact.id}>
-                    <div className="task-row-main">
-                      <div className="task-row-top">
-                        <strong>{labelFor(ARTIFACT_KIND_LABELS, artifact.kind)}</strong>
-                        <span className="status-tag">{artifact.mediaType}</span>
-                        <span className="task-row-meta">{artifact.byteLength} B</span>
-                      </div>
-                      <div className="task-row-meta cell-mono" title={artifact.sha256}>
-                        sha256 {shortDigest(artifact.sha256)}
-                        {artifact.commitSha ? ` · commit ${artifact.commitSha.slice(0, 8)}` : ''}
-                        {artifact.repoPath ? ` · ${artifact.repoPath}` : ''}
-                      </div>
-                      {artifact.summary && <div className="task-row-meta">{artifact.summary}</div>}
-                    </div>
-                  </div>
-                ))}
+            <div className="detail-card">
+              <div className="detail-card-head">
+                <h3>
+                  交付物<small>{detail.counts.artifacts}</small>
+                </h3>
               </div>
-            )}
-          </div>
+              {detail.artifacts.length === 0 ? (
+                <p className="detail-empty">还没有交付物；Agent 交付后会出现在这里。</p>
+              ) : (
+                <div className="artifact-group">
+                  {detail.artifacts.map((artifact: RequirementArtifactDetail) => (
+                    <div className="task-row" key={artifact.id}>
+                      <div className="task-row-main">
+                        <div className="task-row-top">
+                          <strong>{labelFor(ARTIFACT_KIND_LABELS, artifact.kind)}</strong>
+                          <span className="status-tag">{artifact.mediaType}</span>
+                          <span className="task-row-meta">{artifact.byteLength} B</span>
+                        </div>
+                        <div className="task-row-meta cell-mono" title={artifact.sha256}>
+                          sha256 {shortDigest(artifact.sha256)}
+                          {artifact.commitSha ? ` · commit ${artifact.commitSha.slice(0, 8)}` : ''}
+                          {artifact.repoPath ? ` · ${artifact.repoPath}` : ''}
+                        </div>
+                        {artifact.summary && (
+                          <div className="task-row-meta">{artifact.summary}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           {tab === 'reviews' && (
-          <div className="detail-card">
-            <div className="detail-card-head">
-              <h3>
-                评审<small>{detail.counts.reviews}</small>
-              </h3>
-            </div>
-            {detail.reviews.length === 0 ? (
-              <p className="detail-empty">还没有评审请求。</p>
-            ) : (
-              <div className="table-scroll">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>类型</th>
-                      <th>对象</th>
-                      <th>状态</th>
-                      <th>版本</th>
-                      <th>决定</th>
-                      <th className="col-actions">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detail.reviews.map((review: RequirementReviewDetail) => (
-                      <tr key={review.id}>
-                        <td>{labelFor(REVIEW_KIND_LABELS, review.kind)}</td>
-                        <td>{review.subjectLabel}</td>
-                        <td>
-                          <span className="status-tag">
-                            {labelFor(REVIEW_STATUS_LABELS, review.status)}
-                          </span>
-                        </td>
-                        <td className="cell-num">v{review.version}</td>
-                        <td>
-                          {review.decisions.length === 0
-                            ? '—'
-                            : review.decisions
-                                .map(
-                                  (decision) =>
-                                    `${labelFor(DECISION_LABELS, decision.decision)}${
-                                      decision.actor ? `（${decision.actor.email}）` : ''
-                                    }`,
-                                )
-                                .join(' / ')}
-                        </td>
-                        <td className="col-actions">
-                          <button
-                            className="ghost"
-                            onClick={() => navigate(`/reviews/${review.id}`)}
-                          >
-                            {review.status === 'OPEN' ? '去签字' : '查看'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <div className="detail-card">
+              <div className="detail-card-head">
+                <h3>
+                  评审<small>{detail.counts.reviews}</small>
+                </h3>
               </div>
-            )}
-          </div>
+              {detail.reviews.length === 0 ? (
+                <p className="detail-empty">还没有评审请求。</p>
+              ) : (
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>类型</th>
+                        <th>对象</th>
+                        <th>状态</th>
+                        <th>版本</th>
+                        <th>决定</th>
+                        <th className="col-actions">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.reviews.map((review: RequirementReviewDetail) => (
+                        <tr key={review.id}>
+                          <td>{labelFor(REVIEW_KIND_LABELS, review.kind)}</td>
+                          <td>{review.subjectLabel}</td>
+                          <td>
+                            <span className="status-tag">
+                              {labelFor(REVIEW_STATUS_LABELS, review.status)}
+                            </span>
+                          </td>
+                          <td className="cell-num">v{review.version}</td>
+                          <td>
+                            {review.decisions.length === 0
+                              ? '—'
+                              : review.decisions
+                                  .map(
+                                    (decision) =>
+                                      `${labelFor(DECISION_LABELS, decision.decision)}${
+                                        decision.actor ? `（${decision.actor.email}）` : ''
+                                      }`,
+                                  )
+                                  .join(' / ')}
+                          </td>
+                          <td className="col-actions">
+                            <button
+                              className="ghost"
+                              onClick={() => navigate(`/reviews/${review.id}`)}
+                            >
+                              {review.status === 'OPEN' ? '去签字' : '查看'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           )}
 
           {tab === 'changes' && (
-          <div className="detail-card">
-            <div className="detail-card-head">
-              <h3>
-                变更<small>{detail.counts.changes}</small>
-              </h3>
-            </div>
-            {detail.changes.length === 0 ? (
-              <p className="detail-empty">还没有变更事件。</p>
-            ) : (
-              <div className="task-groups">
-                {detail.changes.map((change) => (
-                  <div className="task-row" key={change.id}>
-                    <div className="task-row-main">
-                      <div className="task-row-top">
-                        <strong>{change.sourceKind}</strong>
-                        <span className="task-row-meta">{dateTime(change.createdAt)}</span>
-                      </div>
-                      <div className="task-row-meta">
-                        变更字段：{change.changedFields.join(' / ') || '未标注'}
-                      </div>
-                      <div className="task-row-meta">
-                        确认 {change.recipients.filter((item) => item.ackedAt).length}/
-                        {change.recipients.length}
+            <div className="detail-card">
+              <div className="detail-card-head">
+                <h3>
+                  变更<small>{detail.counts.changes}</small>
+                </h3>
+              </div>
+              {detail.changes.length === 0 ? (
+                <p className="detail-empty">还没有变更事件。</p>
+              ) : (
+                <div className="task-groups">
+                  {detail.changes.map((change) => (
+                    <div className="task-row" key={change.id}>
+                      <div className="task-row-main">
+                        <div className="task-row-top">
+                          <strong>{change.sourceKind}</strong>
+                          <span className="task-row-meta">{dateTime(change.createdAt)}</span>
+                        </div>
+                        <div className="task-row-meta">
+                          变更字段：{change.changedFields.join(' / ') || '未标注'}
+                        </div>
+                        <div className="task-row-meta">
+                          确认 {change.recipients.filter((item) => item.ackedAt).length}/
+                          {change.recipients.length}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           {tab === 'prd' && (
@@ -686,7 +686,11 @@ export function RequirementDetail() {
                           </strong>
                           <span className="status-tag">v{item.document.version}</span>
                           <span className="task-row-meta">
-                            候选 {item.revisions.filter((revision) => revision.state === 'CANDIDATE').length}
+                            候选{' '}
+                            {
+                              item.revisions.filter((revision) => revision.state === 'CANDIDATE')
+                                .length
+                            }
                           </span>
                         </div>
                         <div className="task-row-meta">

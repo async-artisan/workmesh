@@ -123,9 +123,7 @@ export class RequirementsService {
       where: { id: requirementId, projectId, version: dto.expectedVersion },
       data: {
         ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
-        ...(dto.description !== undefined
-          ? { description: dto.description.trim() || null }
-          : {}),
+        ...(dto.description !== undefined ? { description: dto.description.trim() || null } : {}),
         version: { increment: 1 },
       },
     });
@@ -158,9 +156,8 @@ export class RequirementsService {
     await this.authorization.resolveProjectContext(principal, projectId);
     await this.authorization.requireScope(principal, projectId, 'requirement:read');
 
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      key,
-    );
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key);
     const row = await this.prisma.requirement.findFirst({
       where: { projectId, ...(isUuid ? { id: key } : { code: key }) },
     });
@@ -305,8 +302,7 @@ export class RequirementsService {
         artifactSetId: review.artifactSetId,
         taskId: review.taskId,
         createdAt: review.createdAt,
-        subjectLabel:
-          review.documentRevision?.title ?? review.task?.stepKey ?? String(review.kind),
+        subjectLabel: review.documentRevision?.title ?? review.task?.stepKey ?? String(review.kind),
         slots: review.approvalSlots,
         decisions: review.decisions.map((decision) => ({
           id: decision.id,

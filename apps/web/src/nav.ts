@@ -37,7 +37,9 @@ export const navItems: NavItem[] = [
 export function findNav(pathname: string): NavItem {
   return (
     navItems.find((item) =>
-      item.path === '/' ? pathname === '/' : pathname === item.path || pathname.startsWith(`${item.path}/`),
+      item.path === '/'
+        ? pathname === '/'
+        : pathname === item.path || pathname.startsWith(`${item.path}/`),
     ) ?? navItems[0]
   );
 }

@@ -279,15 +279,12 @@ export function Workbench() {
             {ageLabel(review.ageSeconds)}
           </div>
           <div className="wb-row-context">
-            证据 {review.evidence.artifactCount} 件
-            {review.evidence.hasPr ? ' · 含 PR' : ''} · v{review.version}
+            证据 {review.evidence.artifactCount} 件{review.evidence.hasPr ? ' · 含 PR' : ''} · v
+            {review.version}
           </div>
         </div>
         <div className="wb-row-actions">
-          <button
-            className="primary"
-            onClick={() => setReviewTarget(review.reviewId)}
-          >
+          <button className="primary" onClick={() => setReviewTarget(review.reviewId)}>
             打开决定
             <ArrowRight size={14} />
           </button>
@@ -379,7 +376,9 @@ export function Workbench() {
       <header className="page-head">
         <div>
           <h2>工作台</h2>
-          <p className="page-sub">只回答一件事：现在有什么在等我。签字与确认仍由服务端校验版本与权限。</p>
+          <p className="page-sub">
+            只回答一件事：现在有什么在等我。签字与确认仍由服务端校验版本与权限。
+          </p>
         </div>
         <div className="page-actions">
           <select
@@ -521,7 +520,9 @@ export function Workbench() {
             </button>
           ))}
         </div>
-        {updatedAt && <span className="wb-updated">更新于 {updatedAt.toLocaleTimeString('zh-CN')}</span>}
+        {updatedAt && (
+          <span className="wb-updated">更新于 {updatedAt.toLocaleTimeString('zh-CN')}</span>
+        )}
       </div>
 
       {loading && !snapshot && (
@@ -582,13 +583,12 @@ export function Workbench() {
               <div className="task-row" key={item.id}>
                 <div className="task-row-main">
                   <div className="task-row-top">
-                    <span className="status-tag">
-                      {labelFor(ACTION_LABELS, item.action)}
-                    </span>
+                    <span className="status-tag">{labelFor(ACTION_LABELS, item.action)}</span>
                     <strong>{item.projectName ?? '—'}</strong>
                   </div>
                   <div className="task-row-meta">
-                    {item.actor?.email ?? '系统'} · {new Date(item.createdAt).toLocaleString('zh-CN')}
+                    {item.actor?.email ?? '系统'} ·{' '}
+                    {new Date(item.createdAt).toLocaleString('zh-CN')}
                   </div>
                 </div>
               </div>
@@ -611,10 +611,7 @@ export function Workbench() {
         onConfirm={() => void batchAck()}
       />
 
-      <ReviewDecisionDrawer
-        reviewId={reviewTarget}
-        onClose={() => setReviewTarget(null)}
-      />
+      <ReviewDecisionDrawer reviewId={reviewTarget} onClose={() => setReviewTarget(null)} />
 
       <ChangeDrawer
         change={changeTarget}

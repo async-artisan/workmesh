@@ -37,10 +37,7 @@ const publishedDefinition = {
   currentPublishedRevisionId: 'rev-1',
 };
 
-function handler(input: {
-  definitions?: unknown[];
-  definition?: Record<string, unknown>;
-}) {
+function handler(input: { definitions?: unknown[]; definition?: Record<string, unknown> }) {
   return (url: string, init: RequestInit) => {
     const path = pathOf(url);
     const method = methodOf(init);

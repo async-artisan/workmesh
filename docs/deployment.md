@@ -16,8 +16,8 @@ WorkMesh 使用 Node.js 20+、pnpm 10.28.2（`corepack pnpm`）与 PostgreSQL 15
 | `RATE_LIMIT_MAX`             | 每 IP 每分钟请求上限，默认 120。                                                               |
 | `PORT`                       | API 端口，默认 3000。                                                                          |
 | `REDIS_URL`                  | 可选；未设置时缓存直通，不影响正确性。                                                         |
-| `WORKMESH_SMTP_URL`          | 可选；SMTP 连接串（如 `smtp://user:pass@host:587`），用于手动“邮件摘要”。                       |
-| `WORKMESH_EMAIL_FROM`        | 可选；邮件发件人，默认 `no-reply@workmesh.local`。                                              |
+| `WORKMESH_SMTP_URL`          | 可选；SMTP 连接串（如 `smtp://user:pass@host:587`），用于手动“邮件摘要”。                      |
+| `WORKMESH_EMAIL_FROM`        | 可选；邮件发件人，默认 `no-reply@workmesh.local`。                                             |
 
 `WORKMESH_COOKIE_MODE=SECURE` 必须配合 HTTPS；`LOCAL_INSECURE` 只允许 loopback 且必须为 HTTP，不会根据 Host/Origin/Forwarded 头自动降级。
 

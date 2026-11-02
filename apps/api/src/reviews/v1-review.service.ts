@@ -227,9 +227,7 @@ export class V1ReviewService {
           review.status === 'OPEN' &&
           !decided.has(slot.id) &&
           (slot.requiredUserId === principal.userId ||
-            (slot.requiredRoleId
-              ? context.activeRoleIds.includes(slot.requiredRoleId)
-              : false)),
+            (slot.requiredRoleId ? context.activeRoleIds.includes(slot.requiredRoleId) : false)),
       })),
     };
   }

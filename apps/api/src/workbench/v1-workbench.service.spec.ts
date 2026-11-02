@@ -122,19 +122,21 @@ describe('V1WorkbenchService', () => {
     prisma.documentRevision.findMany.mockResolvedValue([
       { id: 'rev-1', title: 'PRD v3', document: { requirementId: 'req-1' } },
     ]);
-    prisma.task.findMany.mockImplementation(async (args: { where?: { id?: { in?: string[] } } }) => {
-      const ids = args?.where?.id?.in ?? [];
-      if (!ids.includes('task-1')) return [];
-      return [
-        {
-          id: 'task-1',
-          stepKey: 'backend-impl',
-          roleId: 'role-backend',
-          instance: { requirement: { code: 'DEMO-REQ-3', title: '支付回调重试' } },
-          role: { key: 'backend', title: '后端' },
-        },
-      ];
-    });
+    prisma.task.findMany.mockImplementation(
+      async (args: { where?: { id?: { in?: string[] } } }) => {
+        const ids = args?.where?.id?.in ?? [];
+        if (!ids.includes('task-1')) return [];
+        return [
+          {
+            id: 'task-1',
+            stepKey: 'backend-impl',
+            roleId: 'role-backend',
+            instance: { requirement: { code: 'DEMO-REQ-3', title: '支付回调重试' } },
+            role: { key: 'backend', title: '后端' },
+          },
+        ];
+      },
+    );
     prisma.artifactSet.findMany.mockResolvedValue([]);
     prisma.projectRole.findMany.mockResolvedValue([
       { id: 'role-product', key: 'product', title: '产品' },

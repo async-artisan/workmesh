@@ -3,7 +3,15 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Workbench } from './Workbench';
 import { setCsrfToken } from '../api/client';
-import { bodyOf, envelope, headersOf, methodOf, mockFetch, pathOf, useProject } from '../test-utils';
+import {
+  bodyOf,
+  envelope,
+  headersOf,
+  methodOf,
+  mockFetch,
+  pathOf,
+  useProject,
+} from '../test-utils';
 
 const project = { id: 'p1', key: 'DEMO', name: 'Demo', version: 1 };
 

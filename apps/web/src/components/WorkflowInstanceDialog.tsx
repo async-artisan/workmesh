@@ -77,7 +77,6 @@ export function WorkflowInstanceDialog({
     setSlotUsers({});
     setError('');
     // `published` 由父级 definitions 派生；打开时取第一个已发布修订即可。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, requirement?.id, definitions]);
 
   useEffect(() => {
@@ -131,7 +130,8 @@ export function WorkflowInstanceDialog({
     return messages;
   }, [slots, steps, slotUsers, stepUsers]);
 
-  const missing = steps.some((step) => !stepUsers[step.key]) || slots.some((slot) => !slotUsers[slot.key]);
+  const missing =
+    steps.some((step) => !stepUsers[step.key]) || slots.some((slot) => !slotUsers[slot.key]);
   const canSubmit = Boolean(
     requirement && revision && !busy && !missing && conflicts.length === 0 && steps.length > 0,
   );
@@ -205,8 +205,12 @@ export function WorkflowInstanceDialog({
               onChange={(event) => setRevisionId(event.target.value)}
             >
               {published.map((definition) => (
-                <option key={definition.workflowKey} value={definition.currentPublishedRevisionId ?? ''}>
-                  {definition.title}（{definition.workflowKey} · 第 {definition.currentRevision} 版）
+                <option
+                  key={definition.workflowKey}
+                  value={definition.currentPublishedRevisionId ?? ''}
+                >
+                  {definition.title}（{definition.workflowKey} · 第 {definition.currentRevision}{' '}
+                  版）
                 </option>
               ))}
             </select>
@@ -237,7 +241,10 @@ export function WorkflowInstanceDialog({
                           aria-label={`步骤 ${step.key} 责任人`}
                           value={stepUsers[step.key] ?? ''}
                           onChange={(event) =>
-                            setStepUsers((current) => ({ ...current, [step.key]: event.target.value }))
+                            setStepUsers((current) => ({
+                              ...current,
+                              [step.key]: event.target.value,
+                            }))
                           }
                         >
                           <option value="">选择责任人</option>
@@ -278,7 +285,10 @@ export function WorkflowInstanceDialog({
                           aria-label={`审批槽 ${slot.key} 审批人`}
                           value={slotUsers[slot.key] ?? ''}
                           onChange={(event) =>
-                            setSlotUsers((current) => ({ ...current, [slot.key]: event.target.value }))
+                            setSlotUsers((current) => ({
+                              ...current,
+                              [slot.key]: event.target.value,
+                            }))
                           }
                         >
                           <option value="">选择审批人</option>

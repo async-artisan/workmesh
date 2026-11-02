@@ -32,7 +32,8 @@ function fakePrisma() {
           findFirst: async (input: { where: { packageId: string; version: string } }) => {
             return (
               versions.find(
-                (row) => row.packageId === input.where.packageId && row.version === input.where.version,
+                (row) =>
+                  row.packageId === input.where.packageId && row.version === input.where.version,
               ) ?? null
             );
           },
@@ -80,7 +81,9 @@ describe('内置角色包播种', () => {
       const row = versions.find((item) => item.packageId === entry.packageId);
       expect(row).toBeDefined();
       const expected = await sha256Bytes(
-        new TextEncoder().encode(canonicalJson(entry.manifest as unknown as Record<string, unknown>)),
+        new TextEncoder().encode(
+          canonicalJson(entry.manifest as unknown as Record<string, unknown>),
+        ),
       );
       expect(row?.manifestDigest).toBe(expected);
       expect(row?.roleKey).toBe(entry.roleKey);

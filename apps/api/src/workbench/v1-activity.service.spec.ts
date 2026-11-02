@@ -15,9 +15,7 @@ describe('V1ActivityService', () => {
       project: { findMany: vi.fn() },
       auditEvent: { findMany: vi.fn() },
     };
-    prisma.project.findMany.mockResolvedValue([
-      { id: 'p1', key: 'DEMO', name: 'Demo' },
-    ]);
+    prisma.project.findMany.mockResolvedValue([{ id: 'p1', key: 'DEMO', name: 'Demo' }]);
     prisma.auditEvent.findMany.mockResolvedValue([
       {
         id: 'a1',

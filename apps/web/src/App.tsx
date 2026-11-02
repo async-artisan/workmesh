@@ -3,12 +3,7 @@ import { Bell, ChevronDown, Menu, User, X } from 'lucide-react';
 import { Navigate, matchPath, useLocation, useNavigate } from 'react-router-dom';
 import { SESSION_EXPIRED_EVENT, formatApiError } from './api/client';
 import { authApi, bootstrapSession } from './api/auth';
-import {
-  activityApi,
-  notificationApi,
-  workbenchApi,
-  type ActivityItem,
-} from './api/resources';
+import { activityApi, notificationApi, workbenchApi, type ActivityItem } from './api/resources';
 import { ACTION_LABELS, labelFor } from './lib/labels';
 import { useAuthStore } from './store/auth';
 import { findNav, navItems } from './nav';
@@ -75,8 +70,7 @@ export function App() {
         .then((value) => {
           if (!alive) return;
           const signOffs = value.reviews.filter(
-            (review) =>
-              review.kind === 'TASK_ACCEPTANCE' || review.kind === 'RELEASE_ACCEPTANCE',
+            (review) => review.kind === 'TASK_ACCEPTANCE' || review.kind === 'RELEASE_ACCEPTANCE',
           ).length;
           setTodoCounts({
             signOffs,
@@ -345,9 +339,7 @@ export function App() {
                   ) : (
                     recentActivity.map((item) => (
                       <div className="notification-item" key={item.id}>
-                        <span className="status-tag">
-                          {labelFor(ACTION_LABELS, item.action)}
-                        </span>
+                        <span className="status-tag">{labelFor(ACTION_LABELS, item.action)}</span>
                         <span>{item.projectName ?? '—'}</span>
                         <small>
                           {item.actor?.email ?? '系统'} ·{' '}

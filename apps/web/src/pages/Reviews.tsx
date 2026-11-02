@@ -6,12 +6,7 @@ import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
-import {
-  DECISION_LABELS,
-  REVIEW_KIND_LABELS,
-  REVIEW_STATUS_LABELS,
-  labelFor,
-} from '../lib/labels';
+import { DECISION_LABELS, REVIEW_KIND_LABELS, REVIEW_STATUS_LABELS, labelFor } from '../lib/labels';
 
 type DecisionValue = 'APPROVE' | 'CHANGES_REQUESTED' | 'REJECT';
 
