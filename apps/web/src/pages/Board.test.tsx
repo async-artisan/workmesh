@@ -115,6 +115,8 @@ describe('Board（任务认领由服务端判定）', () => {
     const claimButton = await screen.findByRole('button', { name: '认领' });
     expect(claimButton).toBeEnabled();
     fireEvent.click(claimButton);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '确认认领' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '[FORBIDDEN] 当前用户不具备该任务角色 · requestId req-403',

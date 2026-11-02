@@ -26,7 +26,7 @@ import {
 } from './config';
 import { CliError, asCliError, errorEnvelopeOf } from './errors';
 import { materializeSnapshot, createSnapshot, fetchSnapshot } from './context';
-import { buildCandidate, type CandidateKind } from './candidate';
+import { buildCandidate, parseCandidateJson, type CandidateKind } from './candidate';
 import { buildDeliver } from './deliver';
 import { installRolePackage } from './roles';
 import {
@@ -657,23 +657,37 @@ function buildProgram(): Command {
     program
       .command('candidate')
       .description('提交知识/理解/PRD 候选（不发布，不递归扫描目录）')
-      .requiredOption('--kb <id>', 'knowledge base UUID')
+      .option('--kb <id>', 'knowledge base UUID (required when creating a new document)')
       .requiredOption('--kind <kind>', 'UNDERSTANDING | DECISION | PRD | KNOWLEDGE')
       .requiredOption('--file <path>', 'single candidate file')
       .option('--title <title>', 'candidate title (defaults to file name)')
-      .option('--requirement <id>', 'requirement UUID (required for UNDERSTANDING/PRD)')
+      .option('--requirement <id>', 'requirement UUID (required when creating UNDERSTANDING/PRD; inferred for --document)')
       .option('--document <id>', 'existing document UUID to add a revision to')
+      .option('--basis-understanding-revision <id>', 'PRD basis Understanding revision UUID')
+      .option('--delivery-scope <json>', 'PRD deliveryScope JSON, or @path/to/delivery-scope.json')
+      .option('--acceptance <json>', 'PRD acceptance JSON array, or @path/to/acceptance.json')
       .option('--operation <uuid>', 'reuse an existing Idempotency-Key for retry'),
   ).action(async (raw: Options, command: Command) => {
     const connection = await connect(command);
     const kind = (str(raw, 'kind') ?? '').toUpperCase() as CandidateKind;
+    const basisUnderstandingRevisionId =
+      str(raw, 'basisUnderstandingRevision') ?? str(raw, 'basis-understanding-revision');
+    const deliveryScopeInput = str(raw, 'deliveryScope') ?? str(raw, 'delivery-scope');
+    const acceptanceInput = str(raw, 'acceptance');
+    const deliveryScope = deliveryScopeInput
+      ? await parseCandidateJson(deliveryScopeInput, '--delivery-scope')
+      : undefined;
+    const acceptance = acceptanceInput ? await parseCandidateJson(acceptanceInput, '--acceptance') : undefined;
     const built = await buildCandidate(connection.workspace.projectId, {
-      knowledgeBaseId: str(raw, 'kb') ?? '',
+      knowledgeBaseId: str(raw, 'kb'),
       kind,
       file: str(raw, 'file') ?? '',
       title: str(raw, 'title'),
       requirementId: str(raw, 'requirement'),
       documentId: str(raw, 'document'),
+      basisUnderstandingRevisionId,
+      deliveryScope,
+      acceptance,
     });
     const written = await writeWithReceipt(connection, command, {
       method: 'POST',
@@ -698,18 +712,32 @@ function buildProgram(): Command {
               : typeof revision?.id === 'string'
                 ? revision.id
                 : null,
+          reviewRequestId:
+            typeof record.reviewRequestId === 'string'
+              ? record.reviewRequestId
+              : typeof revision?.reviewRequestId === 'string'
+                ? revision.reviewRequestId
+                : null,
         };
       },
     });
     const record = asRecord(written.data, '候选响应结构非法');
     const revision = record.revision ? asRecord(record.revision, '候选 revision 非法') : undefined;
     const document = record.document ? asRecord(record.document, '候选 document 非法') : undefined;
+    const reviewRequestId =
+      typeof record.reviewRequestId === 'string'
+        ? record.reviewRequestId
+        : typeof revision?.reviewRequestId === 'string'
+          ? revision.reviewRequestId
+          : null;
     emit(
       command,
       {
-        ...pick(record, ['documentId', 'revisionId', 'status', 'version']),
+        ...pick(record, ['documentId', 'revisionId', 'status', 'version', 'reviewRequestId']),
         document: document ? pick(document, ['id', 'kind', 'version']) : null,
-        revision: revision ? pick(revision, ['id', 'seq', 'status', 'sha256', 'byteLength']) : null,
+        revision: revision
+          ? { ...pick(revision, ['id', 'seq', 'status', 'sha256', 'byteLength', 'reviewRequestId']), reviewRequestId }
+          : null,
         operationId: written.operationId,
       },
       written.requestId,
@@ -719,6 +747,7 @@ function buildProgram(): Command {
         console.log(
           `已提交候选 ${built.title}${documentId ? `（document ${String(documentId)}）` : ''}${revisionId ? ` revision ${String(revisionId)}` : ''}。`,
         );
+        if (reviewRequestId) console.log(`评审请求 ${reviewRequestId}，请在 Web 中由 HUMAN 完成决策。`);
         console.log('候选尚未发布；发布需在 Web 由有权 HUMAN 独立确认。');
       },
     );

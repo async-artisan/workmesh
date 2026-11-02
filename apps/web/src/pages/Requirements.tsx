@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatApiError } from '../api/client';
 import { projectApi, requirementApi, workflowApi, type RequirementView, type RoleView } from '../api/resources';
+import { ConfirmDialog } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { useAuthStore } from '../store/auth';
@@ -16,8 +17,8 @@ interface SlotShape {
 }
 
 /**
- * 空项目入门：创建并列出需求，随后可用已发布 workflow 修订的最小入口创建流程实例。
- * 所有写入由服务端校验项目成员、scope 与需求版本。
+ * 需求页只收集最小产品意图并展示服务端状态；PRD、知识和实现产物由本地 Agent 生成。
+ * 创建需求和流程实例都是人类确认后的写操作，所有写入仍由服务端校验项目成员、scope 与版本。
  */
 export function Requirements() {
   const { projectId } = useProjectContext();
@@ -30,6 +31,8 @@ export function Requirements() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [workflowTarget, setWorkflowTarget] = useState<RequirementView | null>(null);
 
   async function load() {
     if (!projectId) {
@@ -67,6 +70,7 @@ export function Requirements() {
       });
       setTitle('');
       setDescription('');
+      setCreateOpen(false);
       setNotice('需求已创建。');
       setError('');
       await load();
@@ -120,7 +124,7 @@ export function Requirements() {
       <header className="page-head">
         <div>
           <h2>需求</h2>
-          <p className="page-sub">首个需求创建入口；流程实例只能从当前已发布修订创建。</p>
+          <p className="page-sub">这里提交最小产品意图并查看状态；PRD、知识和实现产物由本地 Agent 生成后送入 Web 评审。</p>
         </div>
         <div className="page-actions">
           <ProjectSelect onChange={() => setItems([])} />
@@ -162,7 +166,11 @@ export function Requirements() {
           </div>
         </div>
         <div className="toolbar">
-          <button className="primary" disabled={busy || !projectId} onClick={() => void create()}>
+          <button
+            className="primary"
+            disabled={busy || !projectId || !title.trim()}
+            onClick={() => setCreateOpen(true)}
+          >
             {busy ? '提交中…' : '创建需求'}
           </button>
         </div>
@@ -201,7 +209,11 @@ export function Requirements() {
                   <td className="cell-num">v{item.version}</td>
                   <td>{item.phase}</td>
                   <td className="col-actions">
-                    <button className="ghost" disabled={busy} onClick={() => void createWorkflow(item)}>
+                    <button
+                      className="ghost"
+                      disabled={busy || !revisionId.trim() || !user}
+                      onClick={() => setWorkflowTarget(item)}
+                    >
                       创建流程实例
                     </button>
                   </td>
@@ -216,6 +228,40 @@ export function Requirements() {
           </table>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={createOpen}
+        title="确认提交产品意图"
+        description={`将创建需求「${title.trim()}」${description.trim() ? `：${description.trim()}` : ''}。后续 PRD 由本地 Product Agent 生成。`}
+        confirmLabel="确认创建需求"
+        busy={busy}
+        onCancel={() => {
+          if (!busy) setCreateOpen(false);
+        }}
+        onConfirm={() => void create()}
+      />
+
+      <ConfirmDialog
+        open={Boolean(workflowTarget)}
+        title="确认创建流程实例"
+        description={
+          workflowTarget
+            ? `需求 ${workflowTarget.code} 将绑定已填写的 workflow 修订，并按当前页面派生的角色和责任人创建实例。`
+            : ''
+        }
+        confirmLabel="确认创建流程"
+        busy={busy}
+        onCancel={() => {
+          if (!busy) setWorkflowTarget(null);
+        }}
+        onConfirm={() => {
+          if (workflowTarget) {
+            const target = workflowTarget;
+            setWorkflowTarget(null);
+            void createWorkflow(target);
+          }
+        }}
+      />
     </section>
   );
 }

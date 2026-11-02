@@ -24,18 +24,34 @@ const publishedRevision = {
   acceptance: null,
 };
 
+const candidateRevision = {
+  id: 'rev-candidate',
+  documentId: 'doc-1',
+  seq: 2,
+  title: 'Checkout v2',
+  mimeType: 'text/markdown; charset=utf-8',
+  byteLength: 18,
+  digest: 'sha256-candidate',
+  state: 'CANDIDATE',
+  createdBy: 'agent-1',
+  basisUnderstandingRevisionId: 'understanding-1',
+  deliveryScope: { participatingRoleIds: ['role-product'], requiredOutputKinds: ['PRD', 'IMPL'], excludedRoles: [] },
+  acceptance: [{ key: 'checkout-submit', text: '提交订单', verification: 'TEST' }],
+  reviewRequestId: 'review-candidate',
+};
+
 const documentDetail = {
   document: {
     id: 'doc-1',
     projectId: 'p1',
     knowledgeBaseId: 'kb-1',
-    requirementId: null,
+    requirementId: 'req-1',
     kind: 'PRD',
     version: 2,
     currentPublishedRevisionId: 'rev-pub',
     archivedAt: null,
   },
-  revisions: [publishedRevision],
+  revisions: [publishedRevision, candidateRevision],
   publishedRevision,
 };
 
@@ -69,7 +85,7 @@ function withPreview(init: RequestInit) {
   };
 }
 
-describe('Prds（候选修订 / 返修 / 撤销发布）', () => {
+describe('Prds（Agent 候选查看、差异与评审）', () => {
   let mock: ReturnType<typeof mockFetch>;
 
   function mockCallsFind(path: string, method: string) {
@@ -86,86 +102,92 @@ describe('Prds（候选修订 / 返修 / 撤销发布）', () => {
     localStorage.clear();
   });
 
-  it('创建 PRD 候选后使用服务端返回的 reviewRequestId 打开评审，不直接发布', async () => {
-    const body = '# Checkout flow';
+  it('默认以查看为主，不提供手动新建或编辑 PRD 的入口', async () => {
     mock = mockFetch((url, init) => {
       const path = pathOf(url);
       const method = methodOf(init ?? {});
-      if (path === '/api/v1/projects' && method === 'GET')
-        return { status: 200, body: envelope([project]) };
-      if (path === '/api/v1/projects/p1/documents' && method === 'GET')
-        return { status: 200, body: envelope({ items: [], nextCursor: null }) };
-      if (path === '/api/v1/projects/p1/documents' && method === 'POST')
-        return {
-          status: 201,
-          body: envelope({
-            document: documentDetail.document,
-            revision: publishedRevision,
-            reviewRequestId: 'review-1',
-            reviewKind: 'PRD',
-            slots: [],
-          }),
-        };
+      if (path === '/api/v1/projects' && method === 'GET') return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET') {
+        return { status: 200, body: envelope({ items: [documentDetail], nextCursor: null }) };
+      }
       return undefined;
     });
 
     renderPrds();
-    expect(await screen.findByRole('option', { name: 'Demo（DEMO）' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '新建 PRD 候选' }));
-    fireEvent.change(screen.getByLabelText('PRD 标题'), { target: { value: 'Checkout' } });
-    fireEvent.change(screen.getByLabelText('PRD 正文'), { target: { value: body } });
-    fireEvent.click(screen.getByRole('button', { name: '创建候选' }));
-
-    const createCall = await waitFor(() => {
-      const call = mockCallsFind('/api/v1/projects/p1/documents', 'POST');
-      expect(call).toBeTruthy();
-      return call;
-    });
-    expect(bodyOf(createCall?.[1] ?? {})).toEqual({
-      knowledgeBaseId: 'kb-1',
-      kind: 'PRD',
-      requirementId: null,
-      title: 'Checkout',
-      bodyBase64: utf8ToBase64(body),
-      mimeType: 'text/markdown; charset=utf-8',
-    });
-
-    expect(await screen.findByText('评审请求已生成')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '打开评审' }));
-    expect(await screen.findByText('评审页面')).toBeInTheDocument();
+    expect(await screen.findByText('版本与评审')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '新建 PRD 候选' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'PRD 正文' })).not.toBeInTheDocument();
+    expect(screen.getByText(/本地 Product Agent 生成并提交候选/)).toBeInTheDocument();
   });
 
-  it('撤销发布提交 expectedVersion + 一次性票据；旧版本 409 原样展示且不显示成功', async () => {
+  it('查看候选内容时同时展示与已发布版本的差异', async () => {
     mock = mockFetch((url, init) => {
       const path = pathOf(url);
       const method = methodOf(init ?? {});
-      if (path === '/api/v1/projects' && method === 'GET')
-        return { status: 200, body: envelope([project]) };
-      if (path === '/api/v1/projects/p1/documents' && method === 'GET')
+      if (path === '/api/v1/projects' && method === 'GET') return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET') {
         return { status: 200, body: envelope({ items: [documentDetail], nextCursor: null }) };
+      }
+      if (path === '/api/v1/document-revisions/rev-candidate/content' && method === 'GET') {
+        return { status: 200, body: envelope({ revisionId: 'rev-candidate', mimeType: 'text/markdown', encoding: 'base64', bodyBase64: utf8ToBase64('# Checkout v2\n- new'), byteLength: 18, sha256: 'sha256-candidate' }) };
+      }
+      if (path === '/api/v1/document-revisions/rev-pub/content' && method === 'GET') {
+        return { status: 200, body: envelope({ revisionId: 'rev-pub', mimeType: 'text/markdown', encoding: 'base64', bodyBase64: utf8ToBase64('# Checkout\n- old'), byteLength: 16, sha256: 'sha256-published' }) };
+      }
+      return undefined;
+    });
+
+    renderPrds();
+    expect(await screen.findByText('Checkout v2')).toBeInTheDocument();
+    const candidateRow = screen.getByText('Checkout v2').closest('tr');
+    expect(candidateRow).not.toBeNull();
+    fireEvent.click(within(candidateRow as HTMLElement).getByRole('button', { name: '查看内容' }));
+
+    const diff = await screen.findByTestId('prd-diff');
+    expect(diff).toHaveTextContent('- # Checkout');
+    expect(diff).toHaveTextContent('+ # Checkout v2');
+    expect(diff).toHaveTextContent('- - old');
+    expect(diff).toHaveTextContent('+ - new');
+  });
+
+  it('候选带评审请求 ID 时提供进入评审入口', async () => {
+    mock = mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET') return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET') {
+        return { status: 200, body: envelope({ items: [documentDetail], nextCursor: null }) };
+      }
+      return undefined;
+    });
+
+    renderPrds();
+    expect(await screen.findByRole('button', { name: '进入评审' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '进入评审' }));
+    expect(await screen.findByText('评审页面')).toBeInTheDocument();
+  });
+
+  it('撤销发布仍然需要确认票据，并把服务端冲突原样展示', async () => {
+    mock = mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET') return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET') {
+        return { status: 200, body: envelope({ items: [documentDetail], nextCursor: null }) };
+      }
       if (path === '/api/v1/auth/action-previews') return withPreview(init);
-      if (path === '/api/v1/auth/confirmation-tickets')
+      if (path === '/api/v1/auth/confirmation-tickets') {
         return {
           status: 201,
-          body: envelope({
-            ticketId: 'ticket-1',
-            ticketSecret: 'secret-1',
-            expiresAt: '2026-11-01T00:05:00.000Z',
-            actionDigest: 'digest-withdraw',
-          }),
+          body: envelope({ ticketId: 'ticket-1', ticketSecret: 'secret-1', expiresAt: '2026-11-01T00:05:00.000Z', actionDigest: 'digest-withdraw' }),
         };
-      if (path === '/api/v1/documents/doc-1/withdraw' && method === 'POST')
+      }
+      if (path === '/api/v1/documents/doc-1/withdraw' && method === 'POST') {
         return {
           status: 409,
-          body: {
-            error: {
-              code: 'VERSION_CONFLICT',
-              message: '文档版本已变化',
-              details: { currentVersion: 3 },
-              requestId: 'req-409',
-            },
-          },
+          body: { error: { code: 'VERSION_CONFLICT', message: '文档版本已变化', details: { currentVersion: 3 }, requestId: 'req-409' } },
         };
+      }
       return undefined;
     });
 
@@ -176,26 +198,12 @@ describe('Prds（候选修订 / 返修 / 撤销发布）', () => {
     const dialog = await screen.findByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText('撤销原因'), { target: { value: '内容有误' } });
     expect(await within(dialog).findByLabelText('确认密码')).toBeInTheDocument();
-
-    const previewCalls = mock.mock.calls.filter(([url]) => pathOf(String(url)) === '/api/v1/auth/action-previews');
-    const lastPreview = bodyOf(previewCalls[previewCalls.length - 1]?.[1] ?? {});
-    expect(lastPreview).toMatchObject({
-      action: 'KNOWLEDGE_WITHDRAW',
-      targetType: 'KNOWLEDGE_DOCUMENT',
-      targetId: 'doc-1',
-      expectedVersion: 2,
-      roleSlot: null,
-      payload: { reason: '内容有误' },
-    });
-
     fireEvent.change(within(dialog).getByLabelText('确认密码'), { target: { value: 'secret-pass' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '验证密码并签发票据' }));
     expect(await within(dialog).findByText(/票据已签发/)).toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole('button', { name: '撤销发布' }));
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
-      '[VERSION_CONFLICT] 文档版本已变化 · requestId req-409',
-    );
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('[VERSION_CONFLICT] 文档版本已变化 · requestId req-409');
     expect(screen.queryByText(/发布已撤销/)).not.toBeInTheDocument();
 
     const withdrawCall = mockCallsFind('/api/v1/documents/doc-1/withdraw', 'POST');

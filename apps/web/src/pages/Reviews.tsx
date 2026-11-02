@@ -4,6 +4,8 @@ import { formatApiError } from '../api/client';
 import { reviewApi, type ReviewDecision, type ReviewSlot, type ReviewView } from '../api/resources';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { Modal } from '../components/Modal';
+import { ProjectSelect } from '../components/ProjectSelect';
+import { useProjectContext } from '../hooks/useProjectContext';
 
 type DecisionValue = 'APPROVE' | 'CHANGES_REQUESTED' | 'REJECT';
 
@@ -30,10 +32,12 @@ interface RevokeTarget {
  * 槽位不符一律原样展示服务端错误，不根据按钮状态推断权限。
  */
 export function Reviews() {
+  const { projectId } = useProjectContext();
   const [params, setParams] = useSearchParams();
   const reviewId = params.get('id') ?? '';
-  const [idInput, setIdInput] = useState(reviewId);
   const [review, setReview] = useState<ReviewView | null>(null);
+  const [reviews, setReviews] = useState<ReviewView[]>([]);
+  const [listLoading, setListLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [decideTarget, setDecideTarget] = useState<DecideTarget | null>(null);
@@ -42,13 +46,38 @@ export function Reviews() {
   const [pendingRevoke, setPendingRevoke] = useState<RevokeTarget | null>(null);
 
   useEffect(() => {
-    setIdInput(reviewId);
-    if (!reviewId) {
-      setReview(null);
-      return;
-    }
     let alive = true;
     setError('');
+    if (!reviewId) {
+      setReview(null);
+      if (!projectId) {
+        setReviews([]);
+        setListLoading(false);
+        return () => {
+          alive = false;
+        };
+      }
+      setListLoading(true);
+      reviewApi
+        .list(projectId, { assignedToMe: true, status: 'OPEN' })
+        .then((page) => {
+          if (!alive) return;
+          setReviews(page.items);
+          setNotice('');
+        })
+        .catch((caught: unknown) => {
+          if (!alive) return;
+          setReviews([]);
+          setError(formatApiError(caught));
+        })
+        .finally(() => {
+          if (alive) setListLoading(false);
+        });
+      return () => {
+        alive = false;
+      };
+    }
+    setListLoading(false);
     reviewApi
       .get(reviewId)
       .then((value) => {
@@ -65,7 +94,7 @@ export function Reviews() {
     return () => {
       alive = false;
     };
-  }, [reviewId]);
+  }, [reviewId, projectId]);
 
   async function reload() {
     if (!reviewId) return;
@@ -77,18 +106,26 @@ export function Reviews() {
     }
   }
 
-  function openReview() {
-    const next = idInput.trim();
-    setParams(next ? { id: next } : {}, { replace: true });
+  function openReview(next: ReviewView) {
+    setParams({ id: next.id });
+  }
+
+  function backToInbox() {
+    setParams({}, { replace: true });
   }
 
   function decideSlot(slot: ReviewSlot) {
     setDecideTarget({ slot, decision: 'APPROVE', comment: '' });
   }
 
+  function commentRequired(decision: DecisionValue): boolean {
+    return decision === 'CHANGES_REQUESTED' || decision === 'REJECT';
+  }
+
   async function submitDecision(confirmation: { ticketId: string; ticketSecret: string }) {
     if (!review || !pendingDecision) throw new Error('缺少评审目标');
     const target = pendingDecision;
+    if (commentRequired(target.decision) && !target.comment.trim()) throw new Error('要求修改或驳回时必须填写说明');
     const result = await reviewApi.decide(review.id, {
       slotId: target.slot.id,
       decision: target.decision,
@@ -134,15 +171,31 @@ export function Reviews() {
           </p>
         </div>
         <div className="page-actions">
-          <input
-            value={idInput}
-            onChange={(event) => setIdInput(event.target.value)}
-            aria-label="评审 ID"
-            placeholder="评审请求 ID"
-          />
-          <button className="primary" onClick={openReview}>
-            加载评审
-          </button>
+          <ProjectSelect onChange={() => setReviews([])} />
+          {reviewId ? (
+            <button className="ghost" onClick={backToInbox}>
+              返回待评审
+            </button>
+          ) : (
+            <button
+              className="ghost"
+              disabled={!projectId || listLoading}
+              onClick={() => {
+                if (!projectId) return;
+                setListLoading(true);
+                reviewApi
+                  .list(projectId, { assignedToMe: true, status: 'OPEN' })
+                  .then((page) => {
+                    setReviews(page.items);
+                    setError('');
+                  })
+                  .catch((caught: unknown) => setError(formatApiError(caught)))
+                  .finally(() => setListLoading(false));
+              }}
+            >
+              {listLoading ? '加载中…' : '刷新'}
+            </button>
+          )}
         </div>
       </header>
 
@@ -153,7 +206,63 @@ export function Reviews() {
       )}
       {notice && <p className="kb-notice">{notice}</p>}
 
-      {!reviewId && <p className="page-card muted">从 PRD/知识页提交候选后打开评审，或输入评审 ID。</p>}
+      {!reviewId && !projectId && <p className="page-card muted">先选择项目。</p>}
+
+      {!reviewId && projectId && (
+        <div className="table-card">
+          <div className="card-head">
+            <h3>
+              待评审收件箱<small>{reviews.length}</small>
+            </h3>
+            <span className="card-head-actions">
+              <small>当前用户 · OPEN</small>
+            </span>
+          </div>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>类型</th>
+                  <th>评审请求</th>
+                  <th>候选版本</th>
+                  <th>状态</th>
+                  <th className="col-actions">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reviews.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.kind}</td>
+                    <td>
+                      <span className="cell-mono cell-truncate" title={item.id}>
+                        {item.id}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="cell-mono cell-truncate">
+                        {item.documentRevisionId ?? item.artifactSetId ?? '—'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="status-tag">{item.status}</span>
+                    </td>
+                    <td className="col-actions">
+                      <button className="ghost" onClick={() => openReview(item)}>
+                        打开评审
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {reviews.length === 0 && (
+                  <tr className="table-empty">
+                    <td colSpan={5}>{listLoading ? '加载中…' : '当前没有待评审请求。'}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {review && (
         <>
@@ -330,7 +439,7 @@ export function Reviews() {
             </button>
             <button
               className="primary"
-              disabled={!decideTarget}
+              disabled={!decideTarget || (commentRequired(decideTarget.decision) && !decideTarget.comment.trim())}
               onClick={() => {
                 if (!decideTarget) return;
                 const target = decideTarget;
@@ -362,13 +471,14 @@ export function Reviews() {
               </select>
             </div>
             <div className="field">
-              <span>说明</span>
+              <span>说明{commentRequired(decideTarget.decision) ? '（必填）' : ''}</span>
               <textarea
                 value={decideTarget.comment}
                 aria-label="评审说明"
                 rows={3}
                 onChange={(event) => setDecideTarget({ ...decideTarget, comment: event.target.value })}
               />
+              {commentRequired(decideTarget.decision) && <small>要求修改或驳回时必须填写说明。</small>}
             </div>
           </div>
         )}

@@ -104,6 +104,11 @@ describe('Knowledge（撤销发布必须带版本与票据）', () => {
       </MemoryRouter>,
     );
 
+    expect(await screen.findByRole('heading', { name: '知识库' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '新建候选文档' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '追加候选修订' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('文档正文')).not.toBeInTheDocument();
+
     expect(await screen.findByRole('button', { name: '撤销发布' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '撤销发布' }));
 

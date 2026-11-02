@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatApiError } from '../api/client';
 import { boardApi, taskApi, type BoardCard, type BoardSnapshot } from '../api/resources';
+import { ConfirmDialog } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
 
@@ -20,8 +21,8 @@ const WORK_STATUS_LABELS: Record<string, string> = {
 };
 
 /**
- * 看板只读派生自服务端任务状态；认领是显式写操作，失败时原样展示服务端 envelope，
- * 不根据卡片上的认领状态推断当前用户权限。
+ * 看板主要用于查看服务端任务状态；正常认领由本地 Agent 完成，页面上的认领是人工接管动作，
+ * 必须经过二次确认。失败时原样展示服务端 envelope，不根据卡片上的认领状态推断权限。
  */
 export function Board() {
   const { projectId } = useProjectContext();
@@ -29,6 +30,8 @@ export function Board() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
+  const [claimTarget, setClaimTarget] = useState<BoardCard | null>(null);
+  const [claimBusy, setClaimBusy] = useState(false);
 
   async function load() {
     if (!projectId) {
@@ -57,13 +60,17 @@ export function Board() {
   );
 
   async function claim(card: BoardCard) {
+    setClaimBusy(true);
     try {
       await taskApi.claim(card.taskId);
       setNotice(`任务 ${card.taskId} 已认领。`);
       setError('');
+      setClaimTarget(null);
       await load();
     } catch (caught) {
       setError(formatApiError(caught));
+    } finally {
+      setClaimBusy(false);
     }
   }
 
@@ -111,7 +118,7 @@ export function Board() {
                     <div className="board-foot">
                       <span className="board-meta">角色 {card.roleId}</span>
                       {!card.currentClaimId && card.executionStatus === 'OPEN' && (
-                        <button className="ghost" onClick={() => void claim(card)}>
+                        <button className="ghost" onClick={() => setClaimTarget(card)}>
                           认领
                         </button>
                       )}
@@ -125,6 +132,20 @@ export function Board() {
       )}
 
       {snapshot && total === 0 && <p className="table-empty">该项目还没有任务。</p>}
+
+      <ConfirmDialog
+        open={Boolean(claimTarget)}
+        title="人工接管任务"
+        description={claimTarget ? `任务 ${claimTarget.taskId} 当前没有活动认领。确认由当前用户接管？` : ''}
+        confirmLabel="确认认领"
+        busy={claimBusy}
+        onCancel={() => {
+          if (!claimBusy) setClaimTarget(null);
+        }}
+        onConfirm={() => {
+          if (claimTarget) void claim(claimTarget);
+        }}
+      />
     </section>
   );
 }

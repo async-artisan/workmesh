@@ -1,53 +1,72 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  base64ToUtf8,
-  documentApi,
-  utf8ToBase64,
-  type DocumentDetail,
-  type RevisionView,
-} from '../api/resources';
+import { base64ToUtf8, documentApi, type DocumentDetail, type RevisionView } from '../api/resources';
 import { formatApiError } from '../api/client';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
-import { Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
-import { toast } from '../store/toast';
+
+type RevisionWithReview = RevisionView & { reviewRequestId?: string | null };
+
+type ContentView = {
+  revisionId: string;
+  text: string;
+  sha256: string;
+  baseRevisionId?: string;
+  baseText?: string;
+};
+
+function revisionReviewId(revision: RevisionView): string | null {
+  const value = (revision as RevisionWithReview).reviewRequestId;
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function diffLines(baseText: string, candidateText: string): string[] {
+  const base = baseText.split(/\r?\n/);
+  const candidate = candidateText.split(/\r?\n/);
+  const lines: string[] = [];
+  const max = Math.max(base.length, candidate.length);
+  for (let index = 0; index < max; index += 1) {
+    const before = base[index];
+    const after = candidate[index];
+    if (before === after) {
+      if (after !== undefined) lines.push(`  ${after}`);
+      continue;
+    }
+    if (before !== undefined) lines.push(`- ${before}`);
+    if (after !== undefined) lines.push(`+ ${after}`);
+  }
+  return lines;
+}
 
 /**
- * PRD 页只处理 kind='PRD' 的文档：候选修订、返修、查看与撤销发布。
- * 页面没有任何直接发布/签字入口；发布只由评审槽位全部批准后由服务端完成。
+ * PRD 页面是 Agent 产物的查看与决策台。
+ * PRD 由本地 Product Agent 生成并提交候选；这里展示版本、差异和评审入口，
+ * 只保留撤销发布等需要人工确认的高风险操作。
  */
 export function Prds() {
   const navigate = useNavigate();
-  const { projectId, projects } = useProjectContext();
+  const { projectId } = useProjectContext();
   const [docs, setDocs] = useState<DocumentDetail[]>([]);
   const [selectedId, setSelectedId] = useState('');
-  const [content, setContent] = useState<{ revisionId: string; text: string; sha256: string } | null>(null);
+  const [content, setContent] = useState<ContentView | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [reviewLink, setReviewLink] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [modalError, setModalError] = useState('');
-  const [createOpen, setCreateOpen] = useState(false);
-  const [revisionOpen, setRevisionOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
-  const [createForm, setCreateForm] = useState({
-    title: '',
-    body: '',
-    knowledgeBaseId: '',
-    requirementId: '',
-  });
-  const [revisionForm, setRevisionForm] = useState({ title: '', body: '' });
   const [withdrawReason, setWithdrawReason] = useState('');
 
-  const project = projects.find((item) => item.id === projectId);
   const selected = docs.find((item) => item.document.id === selectedId) ?? null;
-  const published = selected?.publishedRevision ?? null;
+  const candidateCount = selected?.revisions.filter((revision) => revision.state === 'CANDIDATE').length ?? 0;
+  const diff = useMemo(
+    () => (content?.baseText === undefined ? [] : diffLines(content.baseText, content.text)),
+    [content],
+  );
 
   async function load() {
     if (!projectId) {
       setDocs([]);
+      setSelectedId('');
+      setContent(null);
       return;
     }
     try {
@@ -55,10 +74,9 @@ export function Prds() {
       setDocs(page.items);
       setError('');
       setSelectedId((current) =>
-        page.items.some((item) => item.document.id === current)
-          ? current
-          : (page.items[0]?.document.id ?? ''),
+        page.items.some((item) => item.document.id === current) ? current : (page.items[0]?.document.id ?? ''),
       );
+      setContent(null);
     } catch (caught) {
       setError(formatApiError(caught));
     }
@@ -71,86 +89,21 @@ export function Prds() {
   async function openContent(revision: RevisionView) {
     try {
       const body = await documentApi.content(revision.id);
-      setContent({ revisionId: revision.id, text: base64ToUtf8(body.bodyBase64), sha256: body.sha256 });
+      const next: ContentView = {
+        revisionId: revision.id,
+        text: base64ToUtf8(body.bodyBase64),
+        sha256: body.sha256,
+      };
+      const published = selected?.publishedRevision;
+      if (published && published.id !== revision.id && revision.state === 'CANDIDATE') {
+        const publishedBody = await documentApi.content(published.id);
+        next.baseRevisionId = published.id;
+        next.baseText = base64ToUtf8(publishedBody.bodyBase64);
+      }
+      setContent(next);
       setError('');
     } catch (caught) {
       setError(formatApiError(caught));
-    }
-  }
-
-  async function createPrd() {
-    if (!projectId || !createForm.title.trim() || !createForm.body.trim()) {
-      setModalError('标题与正文不能为空。');
-      return;
-    }
-    const knowledgeBaseId = createForm.knowledgeBaseId.trim() || project?.defaultKnowledgeBaseId || '';
-    if (!knowledgeBaseId) {
-      setModalError('缺少知识库 ID：请填写目标知识库。');
-      return;
-    }
-    setBusy(true);
-    setModalError('');
-    try {
-      const created = await documentApi.create(projectId, {
-        knowledgeBaseId,
-        kind: 'PRD',
-        requirementId: createForm.requirementId.trim() || null,
-        title: createForm.title.trim(),
-        bodyBase64: utf8ToBase64(createForm.body),
-      });
-      setCreateOpen(false);
-      setCreateForm({ title: '', body: '', knowledgeBaseId: '', requirementId: '' });
-      await load();
-      setSelectedId(created.document.id);
-      setReviewLink(`/reviews?id=${encodeURIComponent(created.reviewRequestId)}`);
-      toast.success('PRD 候选已创建，需经评审槽位全部批准才会发布。');
-    } catch (caught) {
-      setModalError(formatApiError(caught));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function proposeRevision() {
-    if (!selected || !revisionForm.body.trim()) {
-      setModalError('新版本正文不能为空。');
-      return;
-    }
-    setBusy(true);
-    setModalError('');
-    try {
-      const result = await documentApi.proposeRevision(selected.document.id, {
-        title: revisionForm.title.trim() || published?.title || 'PRD',
-        bodyBase64: utf8ToBase64(revisionForm.body),
-      });
-      setRevisionOpen(false);
-      setRevisionForm({ title: '', body: '' });
-      await load();
-      setReviewLink(`/reviews?id=${encodeURIComponent(result.reviewRequestId)}`);
-      setNotice('返修候选已提交，服务端已生成新的评审请求。');
-    } catch (caught) {
-      setModalError(formatApiError(caught));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function restoreRevision(revision: RevisionView) {
-    if (!selected) return;
-    setBusy(true);
-    setError('');
-    try {
-      const result = await documentApi.restore(selected.document.id, {
-        sourceRevisionId: revision.id,
-        title: revision.title,
-      });
-      await load();
-      setReviewLink(`/reviews?id=${encodeURIComponent(result.reviewRequestId)}`);
-      setNotice(`已基于 ${revision.title} 生成候选修订，需重新走评审。`);
-    } catch (caught) {
-      setError(formatApiError(caught));
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -162,8 +115,15 @@ export function Prds() {
       reason: withdrawReason.trim(),
       confirmation,
     });
+    setWithdrawOpen(false);
+    setWithdrawReason('');
     await load();
-    setNotice('发布已撤销；历史修订仍保留，旧发布指针不会自动回退。');
+    setNotice('发布已撤销；历史修订仍保留，原发布指针不会自动回退。');
+  }
+
+  function openReview(revision: RevisionView) {
+    const reviewId = revisionReviewId(revision);
+    if (reviewId) navigate(`/reviews?id=${encodeURIComponent(reviewId)}`);
   }
 
   return (
@@ -172,7 +132,7 @@ export function Prds() {
         <div>
           <h2>PRD 文档</h2>
           <p className="page-sub">
-            候选修订先经评审槽位全部批准后由服务端发布。撤销发布必须提交当前文档版本与一次性票据。
+            PRD 由本地 Product Agent 生成并提交候选。此页面用于查看版本、比较差异和进入评审，人工只在关键决策处介入。
           </p>
         </div>
         <div className="page-actions">
@@ -182,15 +142,6 @@ export function Prds() {
               setContent(null);
             }}
           />
-          <button
-            className="primary"
-            onClick={() => {
-              setModalError('');
-              setCreateOpen(true);
-            }}
-          >
-            新建 PRD 候选
-          </button>
         </div>
       </header>
 
@@ -200,14 +151,10 @@ export function Prds() {
         </p>
       )}
       {notice && <p className="kb-notice">{notice}</p>}
-      {reviewLink && (
-        <div className="toolbar">
-          <span className="muted">评审请求已生成</span>
-          <button className="ghost" onClick={() => navigate(reviewLink)}>
-            打开评审
-          </button>
-        </div>
-      )}
+
+      <div className="page-card muted">
+        Agent 生成的候选会自动出现在这里。页面不提供手动新建或编辑 PRD 的入口；需要返修时，请在评审中提出意见，由 Agent 生成下一版。
+      </div>
 
       <div className="table-card">
         <div className="card-head">
@@ -219,9 +166,10 @@ export function Prds() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>当前发布版</th>
+                <th>当前发布版本</th>
+                <th>需求</th>
                 <th>文档版本</th>
-                <th>修订数</th>
+                <th>候选</th>
                 <th className="col-actions">操作</th>
               </tr>
             </thead>
@@ -230,21 +178,31 @@ export function Prds() {
                 <tr key={item.document.id} className={selectedId === item.document.id ? 'is-selected' : undefined}>
                   <td>
                     <strong>{item.publishedRevision?.title ?? '尚未发布'}</strong>
+                    <div className="cell-mono cell-truncate">{item.document.id}</div>
+                  </td>
+                  <td>
+                    <span className="cell-mono cell-truncate">{item.document.requirementId ?? '—'}</span>
                   </td>
                   <td className="cell-num">v{item.document.version}</td>
-                  <td className="cell-num">{item.revisions.length}</td>
+                  <td className="cell-num">
+                    {item.revisions.filter((revision) => revision.state === 'CANDIDATE').length}
+                  </td>
                   <td className="col-actions">
-                    <div className="cell-actions row-actions">
-                      <button className="ghost" onClick={() => setSelectedId(item.document.id)}>
-                        {selectedId === item.document.id ? '当前' : '查看修订'}
-                      </button>
-                    </div>
+                    <button
+                      className="ghost"
+                      onClick={() => {
+                        setSelectedId(item.document.id);
+                        setContent(null);
+                      }}
+                    >
+                      {selectedId === item.document.id ? '当前' : '查看版本'}
+                    </button>
                   </td>
                 </tr>
               ))}
               {docs.length === 0 && (
                 <tr className="table-empty">
-                  <td colSpan={4}>{projectId ? '该项目还没有 PRD 文档。' : '先选择项目。'}</td>
+                  <td colSpan={5}>{projectId ? '该项目还没有 PRD 文档，等待 Product Agent 提交候选。' : '先选择项目。'}</td>
                 </tr>
               )}
             </tbody>
@@ -256,76 +214,74 @@ export function Prds() {
         <div className="table-card">
           <div className="card-head">
             <h3>
-              修订<small>{selected.document.id}</small>
+              版本与评审<small>{selected.document.id}</small>
             </h3>
             <span className="card-head-actions">
-              <button
-                className="ghost"
-                onClick={() => {
-                  setRevisionForm({ title: '', body: '' });
-                  setModalError('');
-                  setRevisionOpen(true);
-                }}
-              >
-                返修（追加候选修订）
-              </button>
+              <small>{candidateCount} 个候选待处理</small>
             </span>
           </div>
           <div className="table-scroll">
             <table className="data-table">
               <thead>
                 <tr>
+                  <th>版本</th>
                   <th>标题</th>
                   <th>状态</th>
-                  <th>摘要（sha256）</th>
-                  <th>字节</th>
+                  <th>理解基线</th>
+                  <th>验收标准</th>
                   <th className="col-actions">操作</th>
                 </tr>
               </thead>
               <tbody>
-                {selected.revisions.map((revision) => (
-                  <tr key={revision.id}>
-                    <td>
-                      <strong>{revision.title}</strong>
-                    </td>
-                    <td>
-                      <span className="status-tag">{revision.state}</span>
-                    </td>
-                    <td>
-                      <span className="cell-mono cell-truncate" title={revision.digest}>
-                        {revision.digest.slice(0, 16)}
-                      </span>
-                    </td>
-                    <td className="cell-num">{revision.byteLength}</td>
-                    <td className="col-actions">
-                      <div className="cell-actions row-actions">
-                        <button className="ghost" onClick={() => void openContent(revision)}>
-                          查看正文
-                        </button>
-                        {revision.state !== 'PUBLISHED' && (
-                          <button className="ghost" onClick={() => void restoreRevision(revision)}>
-                            恢复为候选
+                {selected.revisions.map((revision) => {
+                  const reviewId = revisionReviewId(revision);
+                  return (
+                    <tr key={revision.id}>
+                      <td className="cell-num">v{revision.seq}</td>
+                      <td>
+                        <strong>{revision.title}</strong>
+                        <div className="cell-mono cell-truncate">{revision.id}</div>
+                      </td>
+                      <td>
+                        <span className="status-tag">{revision.state}</span>
+                      </td>
+                      <td>
+                        <span className="cell-mono cell-truncate">
+                          {revision.basisUnderstandingRevisionId ?? '—'}
+                        </span>
+                      </td>
+                      <td className="cell-num">{revision.acceptance?.length ?? 0}</td>
+                      <td className="col-actions">
+                        <div className="cell-actions row-actions">
+                          <button className="ghost" onClick={() => void openContent(revision)}>
+                            查看内容{content?.revisionId === revision.id ? '（当前）' : ''}
                           </button>
-                        )}
-                        {revision.state === 'PUBLISHED' && (
-                          <button
-                            className="danger"
-                            onClick={() => {
-                              setWithdrawReason('');
-                              setModalError('');
-                              setWithdrawOpen(true);
-                            }}
-                          >
-                            撤销发布
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {revision.state === 'CANDIDATE' && reviewId ? (
+                            <button className="primary" onClick={() => openReview(revision)}>
+                              进入评审
+                            </button>
+                          ) : revision.state === 'CANDIDATE' ? (
+                            <span className="muted">等待评审入口</span>
+                          ) : null}
+                          {revision.state === 'PUBLISHED' && (
+                            <button
+                              className="danger"
+                              onClick={() => {
+                                setWithdrawReason('');
+                                setWithdrawOpen(true);
+                              }}
+                            >
+                              撤销发布
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {selected.revisions.length === 0 && (
                   <tr className="table-empty">
-                    <td colSpan={5}>该文档还没有修订。</td>
+                    <td colSpan={6}>该文档还没有修订。</td>
                   </tr>
                 )}
               </tbody>
@@ -338,119 +294,27 @@ export function Prds() {
         <div className="table-card">
           <div className="card-head">
             <h3>
-              正文<small>{content.revisionId}</small>
+              文档内容<small>{content.revisionId}</small>
             </h3>
             <span className="card-head-actions">
               <small className="cell-mono">sha256 {content.sha256}</small>
             </span>
           </div>
           <pre className="search-result">{content.text}</pre>
+          {content.baseText !== undefined && (
+            <>
+              <div className="card-head">
+                <h3>
+                  与已发布版本的差异<small>{content.baseRevisionId}</small>
+                </h3>
+              </div>
+              <pre className="search-result" data-testid="prd-diff">
+                {diff.length > 0 ? diff.join('\n') : '与已发布版本内容相同。'}
+              </pre>
+            </>
+          )}
         </div>
       )}
-
-      <Modal
-        open={createOpen}
-        title="新建 PRD 候选"
-        description="创建后生成候选修订与评审请求；没有直接发布入口。"
-        size="lg"
-        onClose={() => setCreateOpen(false)}
-        footer={
-          <>
-            <button className="ghost" onClick={() => setCreateOpen(false)}>
-              取消
-            </button>
-            <button className="primary" disabled={busy} onClick={() => void createPrd()}>
-              {busy ? '创建中…' : '创建候选'}
-            </button>
-          </>
-        }
-      >
-        <div className="form-grid">
-          <div className="field">
-            <span>知识库 ID</span>
-            <input
-              value={createForm.knowledgeBaseId}
-              onChange={(event) => setCreateForm({ ...createForm, knowledgeBaseId: event.target.value })}
-              aria-label="知识库 ID"
-              placeholder={project?.defaultKnowledgeBaseId ?? 'UUID'}
-            />
-          </div>
-          <div className="field">
-            <span>绑定需求 ID（PRD 必填）</span>
-            <input
-              value={createForm.requirementId}
-              onChange={(event) => setCreateForm({ ...createForm, requirementId: event.target.value })}
-              aria-label="绑定需求 ID"
-              placeholder="UUID"
-            />
-          </div>
-          <div className="field">
-            <span>标题</span>
-            <input
-              value={createForm.title}
-              onChange={(event) => setCreateForm({ ...createForm, title: event.target.value })}
-              aria-label="PRD 标题"
-            />
-          </div>
-          <div className="field">
-            <span>正文（Markdown）</span>
-            <textarea
-              value={createForm.body}
-              onChange={(event) => setCreateForm({ ...createForm, body: event.target.value })}
-              rows={14}
-              aria-label="PRD 正文"
-            />
-          </div>
-          {modalError && (
-            <p className="modal-error" role="alert">
-              {modalError}
-            </p>
-          )}
-        </div>
-      </Modal>
-
-      <Modal
-        open={revisionOpen}
-        title="返修：追加候选修订"
-        description="基于当前发布版返修，生成新的候选评审；不直接改变发布指针。"
-        size="lg"
-        onClose={() => setRevisionOpen(false)}
-        footer={
-          <>
-            <button className="ghost" onClick={() => setRevisionOpen(false)}>
-              取消
-            </button>
-            <button className="primary" disabled={busy} onClick={() => void proposeRevision()}>
-              {busy ? '提交中…' : '提交返修'}
-            </button>
-          </>
-        }
-      >
-        <div className="form-grid">
-          <div className="field">
-            <span>标题</span>
-            <input
-              value={revisionForm.title}
-              onChange={(event) => setRevisionForm({ ...revisionForm, title: event.target.value })}
-              aria-label="修订标题"
-            />
-          </div>
-          <div className="field">
-            <span>正文（Markdown）</span>
-            <textarea
-              value={revisionForm.body}
-              onChange={(event) => setRevisionForm({ ...revisionForm, body: event.target.value })}
-              rows={14}
-              aria-label="修订正文"
-            />
-          </div>
-          {modalError && (
-            <p className="modal-error" role="alert">
-              {modalError}
-            </p>
-          )}
-        </div>
-      </Modal>
 
       <ConfirmationPrompt
         open={withdrawOpen}

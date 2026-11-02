@@ -425,6 +425,14 @@ export class V1ReviewService {
     }
 
     // 4) 请求与状态校验。
+    if ((input.decision === 'CHANGES_REQUESTED' || input.decision === 'REJECT') && !input.comment?.trim())
+      throw new WorkmeshError(
+        V1_ERROR_CODES.VALIDATION_FAILED,
+        'REVIEW_COMMENT_REQUIRED',
+        { decision: input.decision },
+        422,
+      );
+
     const expectedVersion = requireExpectedVersion(input.expectedVersion);
     if (review.status !== 'OPEN')
       throw new WorkmeshError(V1_ERROR_CODES.REVIEW_CLOSED, 'REVIEW_CLOSED', { reviewId, status: review.status }, 409);

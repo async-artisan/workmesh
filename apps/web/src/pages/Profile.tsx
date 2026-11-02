@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatApiError } from '../api/client';
 import { authApi } from '../api/auth';
+import { ConfirmDialog } from '../components/Modal';
 import { useAuthStore } from '../store/auth';
 
 interface CredentialView {
@@ -22,6 +23,8 @@ export function Profile() {
   const [credentials, setCredentials] = useState<CredentialView[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [revokeTarget, setRevokeTarget] = useState<CredentialView | null>(null);
+  const [revokeBusy, setRevokeBusy] = useState(false);
 
   async function load() {
     try {
@@ -36,14 +39,18 @@ export function Profile() {
     void load();
   }, []);
 
-  async function revoke(id: string) {
+  async function revoke(credential: CredentialView) {
+    setRevokeBusy(true);
     try {
-      await authApi.revokeCredential(id);
+      await authApi.revokeCredential(credential.id);
       setNotice('凭据已撤销，立即失效。');
       setError('');
+      setRevokeTarget(null);
       await load();
     } catch (caught) {
       setError(formatApiError(caught));
+    } finally {
+      setRevokeBusy(false);
     }
   }
 
@@ -109,7 +116,7 @@ export function Profile() {
                       {credential.revokedAt ? (
                         <span className="status-tag">已撤销</span>
                       ) : (
-                        <button className="danger" onClick={() => void revoke(credential.id)}>
+                        <button className="danger" onClick={() => setRevokeTarget(credential)}>
                           撤销
                         </button>
                       )}
@@ -126,6 +133,24 @@ export function Profile() {
           </table>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(revokeTarget)}
+        title="撤销 Agent 凭据"
+        description={
+          revokeTarget
+            ? `凭据「${revokeTarget.name}」将立即失效。项目 ${revokeTarget.projectId} · 角色 ${revokeTarget.roleId} · Scopes ${revokeTarget.scopes.join('、')} · 到期 ${new Date(revokeTarget.expiresAt).toLocaleString('zh-CN')}`
+            : ''
+        }
+        confirmLabel="确认撤销凭据"
+        busy={revokeBusy}
+        onCancel={() => {
+          if (!revokeBusy) setRevokeTarget(null);
+        }}
+        onConfirm={() => {
+          if (revokeTarget) void revoke(revokeTarget);
+        }}
+      />
     </section>
   );
 }

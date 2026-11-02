@@ -543,6 +543,15 @@ describe('V1ReviewService.decide', () => {
     });
   });
 
+  it('requires a non-empty comment when requesting changes or rejecting', async () => {
+    await expect(
+      service.decide(alice, 'rr-1', { ...baseInput, decision: 'CHANGES_REQUESTED', comment: '  ' }, context()),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', message: 'REVIEW_COMMENT_REQUIRED', status: 422 });
+    await expect(
+      service.decide(alice, 'rr-1', { ...baseInput, decision: 'REJECT', comment: null }, context()),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', message: 'REVIEW_COMMENT_REQUIRED', status: 422 });
+  });
+
   it('rejects decisions on a closed review', async () => {
     state.review.status = 'APPROVED';
     await expect(service.decide(alice, 'rr-1', baseInput, context())).rejects.toMatchObject({

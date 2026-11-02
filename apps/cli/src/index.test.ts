@@ -104,6 +104,14 @@ describe('CLI command surface', () => {
     expect(roles?.commands.map((command) => command.name())).toEqual(['install']);
     const receipt = program.commands.find((command) => command.name() === 'receipt');
     expect(receipt?.commands.map((command) => command.name())).toEqual(['show', 'reconcile']);
+    const candidate = program.commands.find((command) => command.name() === 'candidate');
+    expect(candidate?.options.map((option) => option.flags)).toEqual(
+      expect.arrayContaining([
+        '--basis-understanding-revision <id>',
+        '--delivery-scope <json>',
+        '--acceptance <json>',
+      ]),
+    );
   });
 
   it('无参数输出起步说明并返回 0', async () => {
