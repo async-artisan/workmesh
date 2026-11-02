@@ -3,6 +3,7 @@ import { homedir, platform as osPlatform } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { CliError } from './errors';
 import { parsePlatform, platformFromParts, type Platform } from './platform';
+import { hostSupported as hostSupportedPlatform } from './private-fs';
 
 export const CONFIG_SCHEMA_VERSION = '1.0';
 export const CLI_VERSION = '1.0.0';
@@ -194,10 +195,8 @@ export function resolvePlatform(config: WorkspaceConfig | undefined, api?: strin
 }
 
 export function hostSupported(): boolean {
-  return osPlatform() !== 'win32';
+  return hostSupportedPlatform();
 }
 
-export async function ensurePrivateDir(path: string): Promise<void> {
-  await mkdir(path, { recursive: true, mode: 0o700 });
-  await chmod(path, 0o700);
-}
+export { ensurePrivateDir } from './private-fs';
+

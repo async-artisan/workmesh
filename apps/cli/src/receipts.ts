@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { canonicalJson, sha256Bytes } from '@workmesh/shared';
 import { CliError } from './errors';
 import { receiptsDir } from './config';
+import { writePrivateFile } from './private-fs';
 
 export type SourceFile = { path: string; sha256: string; byteLength: number };
 
@@ -52,14 +53,7 @@ export function receiptPath(workspaceDir: string, operationId: string): string {
 
 async function writeReceipt(workspaceDir: string, receipt: OperationReceipt): Promise<void> {
   const path = receiptPath(workspaceDir, receipt.operationId);
-  const dir = receiptsDir(workspaceDir);
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  await chmod(dir, 0o700);
-  const temporary = `${path}.${process.pid}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(receipt)}\n`, { mode: 0o600, flag: 'wx' });
-  await chmod(temporary, 0o600);
-  await rename(temporary, path);
-  await chmod(path, 0o600);
+  await writePrivateFile(path, `${JSON.stringify(receipt)}\n`, { flag: 'wx' });
 }
 
 function assertReceipt(value: unknown, path: string): asserts value is OperationReceipt {

@@ -52,17 +52,27 @@ type Connection = {
 
 const DESCRIPTION = 'WorkMesh command line tools';
 
+/**
+ * commander 12 把 `--credential-store` 存成 `credentialStore`，只认 camelCase。
+ * 这里统一按 kebab 键读，再回退到 camelCase，避免多词参数被静默忽略。
+ */
+function readOption(options: Options, key: string): unknown {
+  const direct = options[key];
+  if (direct !== undefined) return direct;
+  return options[key.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase())];
+}
+
 function str(options: Options, key: string): string | undefined {
-  const value = options[key];
+  const value = readOption(options, key);
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function flag(options: Options, key: string): boolean {
-  return options[key] === true;
+  return readOption(options, key) === true;
 }
 
 function listOf(options: Options, key: string): string[] {
-  const value = options[key];
+  const value = readOption(options, key);
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string');
 }
@@ -103,7 +113,7 @@ function operationIdOf(value?: string): string {
 }
 
 function positiveVersion(options: Options, key: string): number {
-  const raw = options[key];
+  const raw = readOption(options, key);
   const value = typeof raw === 'string' ? Number(raw) : typeof raw === 'number' ? raw : Number.NaN;
   if (!Number.isSafeInteger(value) || value < 1)
     throw new CliError('VALIDATION_FAILED', `--${key} 必须是 >= 1 的整数`);

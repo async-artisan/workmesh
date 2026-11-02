@@ -24,6 +24,7 @@ import {
   type WorkspaceConfig,
   type WorkspaceHost,
 } from './config';
+import { writePrivateFile } from './private-fs';
 
 export type InstalledFile = { path: string; sha256: string; kind: string };
 
@@ -215,11 +216,7 @@ async function readLock(path: string): Promise<RoleLock> {
 }
 
 async function writeAtomic(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const temporary = `${path}.${process.pid}.tmp`;
-  await writeFile(temporary, content, { mode: 0o600, flag: 'wx' });
-  await chmod(temporary, 0o600);
-  await rename(temporary, path);
+  await writePrivateFile(path, content, { flag: 'wx' });
 }
 
 async function assertInstalledCopy(target: string, resources: VerifiedResource[]): Promise<void> {
@@ -320,11 +317,9 @@ export async function installRolePackage(options: {
     try {
       for (const resource of resources) {
         const path = join(staging, resource.path);
-        await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-        await writeFile(path, resource.bytes, { mode: 0o600 });
-        await chmod(path, 0o600);
+        await writePrivateFile(path, resource.bytes);
       }
-      await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+      await ensurePrivateDir(dirname(target));
       await rename(staging, target);
     } catch (error) {
       await rm(staging, { recursive: true, force: true });

@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { canonicalJson } from '@workmesh/shared';
 import { CliError } from './errors';
 import { credentialsDir, ensurePrivateDir, pendingAuthorizationsDir } from './config';
+import { hardenWindowsPath, IS_WINDOWS, verifyWindowsPath } from './private-fs';
 
 export type AgentCredential = {
   version: '1.0';
@@ -90,7 +91,7 @@ function assertCredential(value: unknown): asserts value is AgentCredential {
     throw new CliError('CREDENTIAL_STORE_UNSAFE', '凭据时间字段非法');
 }
 
-/** 读之前先拒绝 symlink、非当前 UID 与过宽权限，不修复后继续。 */
+/** 读之前先拒绝 symlink、非当前用户与过宽权限，不修复后继续。 */
 async function readProtectedFile(path: string): Promise<string> {
   let info;
   try {
@@ -101,6 +102,17 @@ async function readProtectedFile(path: string): Promise<string> {
   if (info.isSymbolicLink())
     throw new CliError('CREDENTIAL_STORE_UNSAFE', `${path} 是符号链接，拒绝读取`);
   if (!info.isFile()) throw new CliError('CREDENTIAL_STORE_UNSAFE', `${path} 不是普通文件`);
+  if (IS_WINDOWS) {
+    try {
+      await verifyWindowsPath(path);
+    } catch (error) {
+      throw new CliError(
+        'CREDENTIAL_STORE_UNSAFE',
+        `${path} 权限过宽（${(error as Error).message}），拒绝读取`,
+      );
+    }
+    return readFile(path, 'utf8');
+  }
   const owner = typeof process.getuid === 'function' ? process.getuid() : info.uid;
   if (info.uid !== owner)
     throw new CliError('CREDENTIAL_STORE_UNSAFE', `${path} 不属于当前用户，拒绝读取`);
@@ -110,6 +122,16 @@ async function readProtectedFile(path: string): Promise<string> {
 }
 
 async function writeProtectedFile(path: string, content: string): Promise<void> {
+  if (IS_WINDOWS) {
+    await mkdir(dirname(path), { recursive: true });
+    await hardenWindowsPath(dirname(path), true);
+    const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
+    await writeFile(temporary, content, { flag: 'wx' });
+    await hardenWindowsPath(temporary, false);
+    await rename(temporary, path);
+    await hardenWindowsPath(path, false);
+    return;
+  }
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   await chmod(dirname(path), 0o700);
   const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;

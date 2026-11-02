@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
 import { V1AuthGuard, type V1Request } from '../auth/v1-auth.guard';
 import { requireIdempotencyKey } from '../common/v1-idempotency';
@@ -28,7 +29,8 @@ class ListQueryDto {
 
   @IsOptional() @IsString() @IsUUID() cursor?: string;
 
-  @IsOptional() @IsInt() @Min(1) @Max(200) limit?: number;
+  // 查询参数来自 URL，永远是字符串；不做 Number 转换会让 limit 恒定为非法。
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(200) limit?: number;
 }
 
 function principalOf(request: V1Request) {

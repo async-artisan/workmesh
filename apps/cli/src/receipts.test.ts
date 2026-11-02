@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import { IS_WINDOWS, verifyWindowsPath } from './private-fs';
 import {
   assertReusable,
   beginOperation,
@@ -49,9 +50,15 @@ describe('operation receipts', () => {
     expect(parsed).not.toHaveProperty('response');
     expect(raw).not.toMatch(/wm_a1|bearer|deviceCode|codeVerifier/i);
     const info = await stat(path);
-    expect(info.mode & 0o777).toBe(0o600);
-    const parent = await stat(join(dir, '.workmesh', 'local', 'receipts'));
-    expect(parent.mode & 0o777).toBe(0o700);
+    if (IS_WINDOWS) {
+      // Windows 没有 mode 位，等价保证是“只授予当前用户”的 NTFS DACL。
+      await expect(verifyWindowsPath(path)).resolves.toBeUndefined();
+      await expect(verifyWindowsPath(join(dir, '.workmesh', 'local', 'receipts'))).resolves.toBeUndefined();
+    } else {
+      expect(info.mode & 0o777).toBe(0o600);
+      const parent = await stat(join(dir, '.workmesh', 'local', 'receipts'));
+      expect(parent.mode & 0o777).toBe(0o700);
+    }
   });
 
   it('requestDigest 对方法、路由与语义 body 稳定且区分为不同请求', async () => {

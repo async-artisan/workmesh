@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { canonicalJson, sha256Bytes } from '@workmesh/shared';
 import { CliError } from './errors';
 import { contextDir, ensurePrivateDir } from './config';
+import { writePrivateFile } from './private-fs';
 import type { V1Client } from './client';
 
 export type SnapshotResource = {
@@ -259,7 +260,7 @@ export async function materializeSnapshot(options: {
   await ensurePrivateDir(root);
   const target = join(root, snapshot.id);
   const staging = join(root, `.staging-${randomUUID()}`);
-  await mkdir(staging, { recursive: true, mode: 0o700 });
+  await ensurePrivateDir(staging);
 
   const expected = new Map<string, string>();
   const receiptFiles: Array<{ name: string; refId: string; sha256: string; byteLength: number }> =
@@ -291,8 +292,7 @@ export async function materializeSnapshot(options: {
         throw new CliError('CONTENT_INTEGRITY_FAILED', `资源 ${resource.refId} 的 sha256 不一致`);
       const name = safeFileName(index, resource);
       const path = join(staging, name);
-      await writeFile(path, bytes, { mode: 0o600 });
-      await chmod(path, 0o600);
+      await writePrivateFile(path, bytes);
       expected.set(name, resource.sha256);
       receiptFiles.push({
         name,
@@ -308,9 +308,9 @@ export async function materializeSnapshot(options: {
     );
     if (canonicalDigest !== snapshot.manifestDigest)
       throw new CliError('CONTENT_INTEGRITY_FAILED', '快照 manifest 摘要与 manifestDigest 不一致');
-    await writeFile(join(staging, 'manifest.json'), manifestBytes, { mode: 0o600 });
+    await writePrivateFile(join(staging, 'manifest.json'), manifestBytes);
     const manifestFileDigest = await sha256Bytes(new TextEncoder().encode(manifestBytes));
-    await writeFile(
+    await writePrivateFile(
       join(staging, 'input-receipt.json'),
       `${JSON.stringify(
         {
@@ -331,7 +331,6 @@ export async function materializeSnapshot(options: {
         null,
         2,
       )}\n`,
-      { mode: 0o600 },
     );
 
     await assertManagedTree(target, expected, manifestFileDigest);

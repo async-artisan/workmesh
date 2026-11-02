@@ -3,6 +3,7 @@ import { mkdtemp, readdir, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { IS_WINDOWS, verifyWindowsPath } from './private-fs';
 import { createProof, deviceLogin } from './auth';
 import { credentialsDir, pendingAuthorizationsDir } from './config';
 import type { FetchLike } from './client';
@@ -145,7 +146,13 @@ describe('deviceLogin', () => {
     expect(credentialFiles).toHaveLength(1);
     const credentialPath = join(credentialsDir(home), credentialFiles[0] ?? '');
     const info = await stat(credentialPath);
-    expect(info.mode & 0o777).toBe(0o600);
+    if (IS_WINDOWS) {
+      // Windows 没有 mode 位，等价保证是“只授予当前用户”的 NTFS DACL。
+      await expect(verifyWindowsPath(credentialPath)).resolves.toBeUndefined();
+      expect(info.isFile()).toBe(true);
+    } else {
+      expect(info.mode & 0o777).toBe(0o600);
+    }
     const stored = JSON.parse(await readFile(credentialPath, 'utf8')) as Record<string, unknown>;
     expect(stored).not.toHaveProperty('accessToken');
     expect(stored).not.toHaveProperty('refreshToken');

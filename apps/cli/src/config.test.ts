@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, stat, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   CONFIG_SCHEMA_VERSION,
@@ -93,7 +93,8 @@ describe('workspace config', () => {
   });
 
   it('--config-home 必须是绝对路径，未显式时使用 WORKMESH_CONFIG_HOME', () => {
-    expect(configHome('/tmp/wm-home')).toBe('/tmp/wm-home');
+    const absolute = resolve('/tmp/wm-home');
+    expect(configHome(absolute)).toBe(absolute);
     expect(() => configHome('relative')).toThrow(/绝对路径/);
   });
 

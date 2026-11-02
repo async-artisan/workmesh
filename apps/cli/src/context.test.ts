@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalJson, sha256Bytes } from '@workmesh/shared';
 import { describe, expect, it } from 'vitest';
+import { IS_WINDOWS, verifyWindowsPath } from './private-fs';
 import { V1Client } from './client';
 import {
   materializeSnapshot,
@@ -167,7 +168,13 @@ describe('materializeSnapshot', () => {
       'manifest',
     ]);
     const info = await stat(join(result.path, 'manifest.json'));
-    expect(info.mode & 0o777).toBe(0o600);
+    if (IS_WINDOWS) {
+      // Windows 没有 mode 位，等价保证是“只授予当前用户”的 NTFS DACL。
+      await expect(verifyWindowsPath(join(result.path, 'manifest.json'))).resolves.toBeUndefined();
+      expect(info.isFile()).toBe(true);
+    } else {
+      expect(info.mode & 0o777).toBe(0o600);
+    }
   });
 
   it('资源摘要与 manifest 不一致时失败，且不切 current.json', async () => {
