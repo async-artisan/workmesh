@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 
 type ModalSize = 'sm' | 'md' | 'lg';
 
@@ -7,6 +7,7 @@ interface ModalProps {
   title: string;
   description?: string;
   size?: ModalSize;
+  variant?: 'dialog' | 'drawer';
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
@@ -20,12 +21,20 @@ export function Modal({
   title,
   description,
   size = 'md',
+  variant = 'dialog',
   onClose,
   children,
   footer,
 }: ModalProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
+  const onCloseRef = useRef(onClose);
+
+  // 父组件常传内联 onClose；只同步 ref，避免每次输入都重建 effect 导致焦点跳回第一个输入框
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -39,7 +48,7 @@ export function Modal({
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         event.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab' || !cardRef.current) return;
@@ -64,27 +73,27 @@ export function Modal({
       document.body.style.overflow = previousOverflow;
       openerRef.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
   return (
     <div
-      className="modal-layer"
+      className={`modal-layer${variant === 'drawer' ? ' is-drawer' : ''}`}
       role="presentation"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className={`modal-card modal-${size}`}
+        className={`modal-card modal-${size}${variant === 'drawer' ? ' is-drawer' : ''}`}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-title"
+        aria-labelledby={titleId}
         tabIndex={-1}
         ref={cardRef}
       >
         <header className="modal-head">
           <div>
-            <h3 id="modal-title">{title}</h3>
+            <h3 id={titleId}>{title}</h3>
             {description && <p className="modal-desc">{description}</p>}
           </div>
           <button type="button" className="modal-close" aria-label="关闭弹窗" onClick={onClose}>

@@ -1,457 +1,1054 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  output          = "../../node_modules/.prisma/workmesh-v1-client"
+  previewFeatures = ["multiSchema"]
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url      = env("WORKMESH_V1_DATABASE_URL")
+  schemas  = ["workmesh_v1"]
 }
 
-enum Role {
-  USER
-  ADMIN
-  SUPER_ADMIN
-}
-enum ProjectMemberRole {
+enum MemberRole {
   OWNER
   ADMIN
   MEMBER
+  @@schema("workmesh_v1")
 }
-enum RoleType {
+enum Visibility {
+  PROJECT
+  RESTRICTED
+  @@schema("workmesh_v1")
+}
+enum GrantSubjectKind {
+  USER
+  ROLE
+  @@schema("workmesh_v1")
+}
+enum DocumentKind {
+  UNDERSTANDING
+  DECISION
+  PRD
+  KNOWLEDGE
+  @@schema("workmesh_v1")
+}
+enum PublicationKind {
+  PUBLISH
+  WITHDRAW
+  @@schema("workmesh_v1")
+}
+enum WorkflowStepKind {
   PRODUCT
-  UI
-  FRONTEND
-  BACKEND
-  QA
-  OPS
+  DELIVERY
+  VERIFY
+  RELEASE
+  @@schema("workmesh_v1")
 }
-enum TaskStatus {
+enum BaselinePolicy {
+  NONE
+  PUBLISHED_PRD
+  @@schema("workmesh_v1")
+}
+enum TaskExecutionStatus {
   OPEN
   IN_PROGRESS
   REVIEW_PENDING
   DONE
+  @@schema("workmesh_v1")
 }
-enum RequirementStatus {
-  DRAFT
-  PRD_READY
-  DESIGN_READY
-  IN_DEV
-  CODE_LINKED
-  TESTED
-  RELEASED
-  ARCHIVED
+enum WorkStatus {
+  ACTIVE
+  BLOCKED
+  PAUSED
+  CANCELLED
+  @@schema("workmesh_v1")
 }
-enum Priority {
-  LOW
-  MEDIUM
-  HIGH
-  URGENT
+enum ArtifactKind {
+  PRD
+  DESIGN
+  IMPL
+  CASES
+  RELEASE
+  @@schema("workmesh_v1")
 }
-enum PrdStatus {
-  DRAFT
-  IN_REVIEW
+enum ArtifactStorage {
+  HOSTED
+  GIT_REF
+  @@schema("workmesh_v1")
+}
+enum ReviewKind {
+  UNDERSTANDING_CONFIRM
+  PRD_PUBLICATION
+  KNOWLEDGE_PUBLICATION
+  TASK_ACCEPTANCE
+  RELEASE_ACCEPTANCE
+  @@schema("workmesh_v1")
+}
+enum ReviewStatus {
+  OPEN
   APPROVED
-  REJECTED
-  ARCHIVED
-}
-enum ApprovalStatus {
-  PENDING
-  APPROVED
-  REJECTED
   CHANGES_REQUESTED
-}
-enum SpecStatus {
-  DRAFT
-  IN_REVIEW
-  APPROVED
-  ARCHIVED
-}
-enum DecisionStatus {
-  PROPOSED
-  ACCEPTED
-  SUPERSEDED
   REJECTED
+  INVALIDATED
+  @@schema("workmesh_v1")
 }
-
-model Organization {
-  id        String   @id @default(uuid())
-  name      String
-  slug      String   @unique
-  createdAt DateTime @default(now()) @map("created_at")
-  users     User[]
-  projects  Project[]
-  @@map("organizations")
+enum DecisionKind {
+  APPROVE
+  CHANGES_REQUESTED
+  REJECT
+  @@schema("workmesh_v1")
 }
 
 model User {
-  id            String   @id @default(uuid())
-  organizationId String? @map("organization_id")
-  email         String   @unique
-  passwordHash  String   @map("password_hash")
-  name          String?
-  avatarData    Bytes?   @map("avatar_data")
-  avatarMimeType String? @map("avatar_mime_type")
-  role          Role     @default(USER)
-  isActive      Boolean  @default(true) @map("is_active")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-  lastLoginAt   DateTime? @map("last_login_at")
-  organization  Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  refreshTokens RefreshToken[]
-  memberships   ProjectMember[]
-  createdProjects Project[] @relation("project_creator")
-  requirements  Requirement[]
-  createdTemplates PrdTemplate[] @relation("template_creator")
-  approvals     PrdApproval[] @relation("approval_approver")
-  createdPrds   Prd[] @relation("prd_creator")
-  createdVersions PrdVersion[] @relation("version_creator")
-  createdSpecs  TechnicalSpec[] @relation("spec_creator")
-  createdDecisions TechnicalDecision[] @relation("decision_creator")
-  @@index([organizationId])
-  @@map("users")
-}
+  id           String @id @default(uuid()) @db.Uuid
+  email        String @unique @db.VarChar(254)
+  passwordHash String @db.VarChar(255)
+  isActive     Boolean @default(true)
+  authVersion  Int @default(1)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+  projects     ProjectMember[]
+  roles        ProjectRoleAssignment[]
+  grants       KnowledgeBaseGrant[]
+  sessions     WebSession[]
+  credentials  AgentCredential[]
+  approverFor  KnowledgeBase[] @relation("KnowledgeBaseApprover")
+  responsibleTasks Task[] @relation("TaskResponsible")
+  claims       TaskClaim[] @relation("TaskClaimUser")
+  changeRecipients ChangeRecipient[] @relation("ChangeRecipientUser")
+  approvalSlots ApprovalSlot[] @relation("ApprovalSlotUser")
+  authoredRevisions DocumentRevision[] @relation("DocumentRevisionAuthor")
+  tickets       ConfirmationTicket[]
+  stamps        PrincipalStamp[] @relation("StampUser")
+  cliViews      CliAuthorizationView[]
+  cliApprovals  CliAuthorizationRequest[] @relation("CliApprovedUser")
 
-model RefreshToken {
-  id        String   @id @default(uuid())
-  tokenHash String   @unique @map("token_hash")
-  userId    String   @map("user_id")
-  expiresAt DateTime @map("expires_at")
-  revokedAt DateTime? @map("revoked_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@index([userId, expiresAt])
-  @@map("refresh_tokens")
+  @@schema("workmesh_v1")
 }
 
 model Project {
-  id             String   @id @default(uuid())
-  organizationId String   @map("organization_id")
-  name           String
-  key            String
-  description    String?
-  repositoryUrl  String?  @unique @map("repository_url")
-  createdById    String?  @map("created_by_id")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  members        ProjectMember[]
-  creator        User?    @relation("project_creator", fields: [createdById], references: [id], onDelete: SetNull)
-  requirements   Requirement[]
-  templates      PrdTemplate[]
-  specs          TechnicalSpec[]
-  decisions      TechnicalDecision[]
-  knowledgeBases KnowledgeBase[]
-  @@unique([organizationId, key])
-  @@index([organizationId, createdAt])
-  @@map("projects")
+  id                    String @id @default(uuid()) @db.Uuid
+  key                   String @db.VarChar(6)
+  name                  String @db.VarChar(120)
+  description           String? @db.VarChar(10000)
+  version               Int @default(1)
+  knowledgeBindingsVersion Int @default(1)
+  archivedAt            DateTime? @db.Timestamptz(3)
+  createdById           String @db.Uuid
+  createdAt             DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime @updatedAt @db.Timestamptz(3)
+  members               ProjectMember[]
+  roles                 ProjectRole[]
+  roleAssignments       ProjectRoleAssignment[]
+  grants                KnowledgeBaseGrant[]
+  knowledgeBases        KnowledgeBase[]
+  documents             KnowledgeDocument[]
+  requirements          Requirement[]
+  credentials           AgentCredential[]
+  workflows             WorkflowDefinition[]
+  operations            IdempotentOperation[]
+  codeReviewEvidence    CodeReviewEvidence[]
+  webhookReceipts       WebhookReceipt[]
+  rolePackages          RolePackageVersion[]
+  knowledgeBindings     ProjectKnowledgeBinding[]
+  repositories          ProjectRepository[]
+  tickets               ConfirmationTicket[] @relation("TicketProject")
+  stamps                PrincipalStamp[] @relation("StampProject")
+  auditEvents           AuditEvent[] @relation("AuditProject")
+
+  @@unique([key])
+  @@index([archivedAt])
+  @@schema("workmesh_v1")
 }
 
 model ProjectMember {
-  projectId String @map("project_id")
-  userId    String @map("user_id")
-  role      ProjectMemberRole @default(MEMBER)
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId    String @db.Uuid
+  userId       String @db.Uuid
+  role         MemberRole
+  version      Int @default(1)
+  grantedAt    DateTime @default(now()) @db.Timestamptz(3)
+  revokedAt    DateTime? @db.Timestamptz(3)
+  project      Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  user         User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
   @@id([projectId, userId])
-  @@index([userId])
-  @@map("project_members")
+  @@index([userId, revokedAt])
+  @@schema("workmesh_v1")
 }
 
-model Requirement {
-  id                 String            @id @default(uuid())
-  projectId          String            @map("project_id")
-  seq                Int               @map("seq")
-  code               String            @map("code")
-  createdById        String            @map("created_by_id")
-  title              String
-  description        String            @default("")
-  status             RequirementStatus @default(DRAFT)
-  priority           Priority          @default(MEDIUM)
-  acceptanceCriteria Json              @default("[]") @map("acceptance_criteria")
-  userStories        Json              @default("[]") @map("user_stories")
-  createdAt          DateTime          @default(now()) @map("created_at")
-  updatedAt          DateTime          @updatedAt @map("updated_at")
-  project            Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy          User              @relation(fields: [createdById], references: [id], onDelete: Restrict)
-  prds               Prd[]
-  outgoingLinks      RequirementLink[] @relation("link_from")
-  incomingLinks      RequirementLink[] @relation("link_to")
-  traces             Trace[]
-  dependenciesFrom   RequirementDependency[] @relation("dependency_from")
-  dependenciesTo     RequirementDependency[] @relation("dependency_to")
-  tasks              Task[]
-  @@unique([projectId, seq])
-  @@unique([projectId, code])
-  @@index([projectId, updatedAt])
-  @@index([createdById])
-  @@map("requirements")
-}
-
-model Task {
-  id            String     @id @default(uuid())
-  requirementId String     @map("requirement_id")
-  seq           Int
-  code          String
-  title         String
-  role          RoleType
-  assigneeType  String     @default("HUMAN") @map("assignee_type")
-  assigneeId    String?    @map("assignee_id")
-  status        TaskStatus @default(OPEN)
-  acceptance    Json       @default("[]")
-  createdAt     DateTime   @default(now()) @map("created_at")
-  updatedAt     DateTime   @updatedAt @map("updated_at")
-  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
-  blocking      TaskDependency[] @relation("dependency_from")
-  blockedBy     TaskDependency[] @relation("dependency_to")
-  @@unique([requirementId, seq])
-  @@unique([requirementId, code])
-  @@index([requirementId, status])
-  @@index([role, status])
-  @@map("tasks")
-}
-
-model TaskDependency {
-  id     String @id @default(uuid())
-  fromId String @map("from_id")
-  toId   String @map("to_id")
-  type   String @default("blocks")
-  from   Task   @relation("dependency_from", fields: [fromId], references: [id], onDelete: Cascade)
-  to     Task   @relation("dependency_to", fields: [toId], references: [id], onDelete: Cascade)
-  @@unique([fromId, toId, type])
-  @@map("task_dependencies")
-}
-
-model RequirementLink {
-  id             String @id @default(uuid())
-  fromId         String @map("from_id")
-  toId           String @map("to_id")
-  relation       String @default("depends_on")
-  fromRequirement Requirement @relation("link_from", fields: [fromId], references: [id], onDelete: Cascade)
-  toRequirement   Requirement @relation("link_to", fields: [toId], references: [id], onDelete: Cascade)
-  @@unique([fromId, toId, relation])
-  @@map("requirement_links")
-}
-
-model RequirementDependency {
-  id        String @id @default(uuid())
-  fromId    String @map("from_id")
-  toId      String @map("to_id")
-  type      String @default("depends_on")
-  createdAt DateTime @default(now()) @map("created_at")
-  from      Requirement @relation("dependency_from", fields: [fromId], references: [id], onDelete: Cascade)
-  to        Requirement @relation("dependency_to", fields: [toId], references: [id], onDelete: Cascade)
-  @@unique([fromId, toId, type])
-  @@index([toId])
-  @@map("requirement_dependencies")
-}
-
-model Prd {
-  id            String    @id @default(uuid())
-  requirementId String    @map("requirement_id")
-  version       Int       @default(1)
-  title         String
-  content       String
-  status        PrdStatus @default(DRAFT)
-  templateId    String?   @map("template_id")
-  createdById   String?   @map("created_by_id")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
-  template      PrdTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  createdBy     User? @relation("prd_creator", fields: [createdById], references: [id], onDelete: SetNull)
-  approvals     PrdApproval[]
-  versions      PrdVersion[]
-  specs         TechnicalSpec[]
-  traces        Trace[]
-  @@unique([requirementId, version])
-  @@index([status])
-  @@map("prds")
-}
-
-model PrdTemplate {
-  id          String @id @default(uuid())
-  projectId   String? @map("project_id")
-  name        String
-  description String?
-  content     String
-  variables   Json @default("[]")
-  isDefault   Boolean @default(false) @map("is_default")
-  createdById String @map("created_by_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy   User @relation("template_creator", fields: [createdById], references: [id], onDelete: Restrict)
-  prds        Prd[]
-  @@index([projectId, isDefault])
-  @@map("prd_templates")
-}
-
-model PrdApproval {
-  id         String @id @default(uuid())
-  prdId      String @map("prd_id")
-  approverId String @map("approver_id")
-  status     ApprovalStatus @default(PENDING)
-  comment    String?
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-  prd        Prd @relation(fields: [prdId], references: [id], onDelete: Cascade)
-  approver   User @relation("approval_approver", fields: [approverId], references: [id], onDelete: Restrict)
-  @@unique([prdId, approverId])
-  @@index([approverId])
-  @@map("prd_approvals")
-}
-
-model PrdVersion {
-  id        String @id @default(uuid())
-  prdId     String @map("prd_id")
-  version   Int
-  content   String
-  createdById String? @map("created_by_id")
-  createdAt DateTime @default(now()) @map("created_at")
-  prd       Prd @relation(fields: [prdId], references: [id], onDelete: Cascade)
-  createdBy User? @relation("version_creator", fields: [createdById], references: [id], onDelete: SetNull)
-  @@unique([prdId, version])
-  @@map("prd_versions")
-}
-
-model TechnicalSpec {
-  id          String @id @default(uuid())
-  projectId   String @map("project_id")
-  prdId       String? @map("prd_id")
-  title       String
-  content     String
+model ProjectRole {
+  id          String @id @default(uuid()) @db.Uuid
+  projectId   String @db.Uuid
+  key         String @db.VarChar(48)
+  title       String @db.VarChar(80)
+  isActive    Boolean @default(true)
   version     Int @default(1)
-  status      SpecStatus @default(DRAFT)
-  createdById String @map("created_by_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  prd         Prd? @relation(fields: [prdId], references: [id], onDelete: SetNull)
-  createdBy   User @relation("spec_creator", fields: [createdById], references: [id], onDelete: Restrict)
-  @@index([projectId, status])
-  @@map("technical_specs")
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  assignments ProjectRoleAssignment[]
+  grants      KnowledgeBaseGrant[]
+  credentials AgentCredential[]
+  tasks       Task[]
+  approvalSlots ApprovalSlot[]
+  approverForKnowledgeBases KnowledgeBase[] @relation("KnowledgeBaseApproverRole")
+  knowledgeBindings ProjectKnowledgeBinding[]
+
+  @@unique([projectId, key])
+  @@unique([id, projectId])
+  @@index([projectId, isActive])
+  @@schema("workmesh_v1")
 }
 
-model TechnicalDecision {
-  id          String @id @default(uuid())
-  projectId   String @map("project_id")
-  title       String
-  context     String
-  decision    String
-  consequences String?
-  status      DecisionStatus @default(PROPOSED)
-  createdById String @map("created_by_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy   User @relation("decision_creator", fields: [createdById], references: [id], onDelete: Restrict)
-  @@index([projectId, status])
-  @@map("technical_decisions")
+model ProjectRoleAssignment {
+  id         String @id @default(uuid()) @db.Uuid
+  projectId  String @db.Uuid
+  userId     String @db.Uuid
+  roleId     String @db.Uuid
+  version    Int @default(1)
+  grantedAt  DateTime @default(now()) @db.Timestamptz(3)
+  revokedAt  DateTime? @db.Timestamptz(3)
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  user       User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  role       ProjectRole @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([projectId, userId, roleId])
+  @@index([projectId, roleId, revokedAt])
+  @@schema("workmesh_v1")
 }
 
 model KnowledgeBase {
-  id          String   @id @default(uuid())
-  projectId   String   @map("project_id")
-  name        String
-  description String?
-  createdAt   DateTime @default(now()) @map("created_at")
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  documents   KnowledgeDocument[]
-  @@index([projectId])
-  @@map("knowledge_bases")
+  id                      String @id @default(uuid()) @db.Uuid
+  projectId               String @db.Uuid
+  key                     String @db.VarChar(48)
+  name                    String @db.VarChar(120)
+  visibility              Visibility
+  version                 Int @default(1)
+  authzVersion            Int @default(1)
+  publicationApproverUserId String @db.Uuid
+  publicationApproverRoleId String? @db.Uuid
+  archivedAt              DateTime? @db.Timestamptz(3)
+  createdAt               DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime @updatedAt @db.Timestamptz(3)
+  project                 Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  approver                User @relation("KnowledgeBaseApprover", fields: [publicationApproverUserId], references: [id], onDelete: Restrict)
+  approverRole            ProjectRole? @relation("KnowledgeBaseApproverRole", fields: [publicationApproverRoleId], references: [id], onDelete: Restrict)
+  grants                  KnowledgeBaseGrant[]
+  documents               KnowledgeDocument[]
+
+  @@unique([projectId, key])
+  @@index([projectId, archivedAt])
+  @@schema("workmesh_v1")
+}
+
+model KnowledgeBaseGrant {
+  id              String @id @default(uuid()) @db.Uuid
+  projectId       String @db.Uuid
+  knowledgeBaseId String @db.Uuid
+  subjectKind     GrantSubjectKind
+  subjectUserId   String? @db.Uuid
+  subjectRoleId   String? @db.Uuid
+  permissions     String[]
+  version         Int @default(1)
+  grantedAt       DateTime @default(now()) @db.Timestamptz(3)
+  revokedAt       DateTime? @db.Timestamptz(3)
+  project         Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Restrict)
+  subjectUser     User? @relation(fields: [subjectUserId], references: [id], onDelete: Restrict)
+  subjectRole     ProjectRole? @relation(fields: [subjectRoleId], references: [id], onDelete: Restrict)
+
+  @@index([knowledgeBaseId, revokedAt])
+  @@schema("workmesh_v1")
 }
 
 model KnowledgeDocument {
-  id              String @id @default(uuid())
-  knowledgeBaseId String @map("knowledge_base_id")
-  filename        String
-  mimeType        String @map("mime_type")
-  content         String
-  createdAt       DateTime @default(now()) @map("created_at")
-  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
-  chunks          DocumentChunk[]
-  @@index([knowledgeBaseId, createdAt])
-  @@map("knowledge_documents")
+  id                      String @id @default(uuid()) @db.Uuid
+  projectId               String @db.Uuid
+  knowledgeBaseId         String @db.Uuid
+  requirementId           String? @db.Uuid
+  kind                    DocumentKind
+  version                 Int @default(1)
+  nextRevisionSeq         Int @default(1)
+  currentPublishedRevisionId String? @db.Uuid
+  archivedAt              DateTime? @db.Timestamptz(3)
+  createdAt               DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime @updatedAt @db.Timestamptz(3)
+  project                 Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  knowledgeBase           KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Restrict)
+  revisions               DocumentRevision[]
+  knowledgeBindings       ProjectKnowledgeBinding[]
+
+  @@unique([id, projectId])
+  @@index([projectId, knowledgeBaseId])
+  @@schema("workmesh_v1")
 }
 
-model DocumentChunk {
-  id         String   @id @default(uuid())
-  documentId String   @map("document_id")
-  content    String
-  embedding  Json?
-  position   Int
-  document   KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  @@unique([documentId, position])
-  @@map("document_chunks")
+model DocumentRevision {
+  id          String @id @default(uuid()) @db.Uuid
+  projectId   String @db.Uuid
+  documentId  String @db.Uuid
+  seq         Int
+  title       String @db.VarChar(200)
+  mimeType    String @db.VarChar(100)
+  bodyBytes   Bytes
+  byteLength  Int
+  sha256      String @db.Char(64)
+  sourceRef   Json?
+  basisUnderstandingRevisionId String? @db.Uuid
+  deliveryScope Json?
+  acceptance Json?
+  createdById String @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  document    KnowledgeDocument @relation(fields: [documentId, projectId], references: [id, projectId], onDelete: Restrict)
+  author      User @relation("DocumentRevisionAuthor", fields: [createdById], references: [id], onDelete: Restrict)
+  publications DocumentPublication[]
+  reviewRequests ReviewRequest[]
+  requirementUnderstandingFor Requirement[] @relation("RequirementCurrentUnderstanding")
+  requirementPrdFor Requirement[] @relation("RequirementCurrentPrd")
+  artifactSetItems ArtifactSetItem[]
+
+  @@unique([documentId, seq])
+  @@unique([id, projectId])
+  @@index([projectId, sha256])
+  @@schema("workmesh_v1")
 }
 
-model Trace {
-  id            String @id @default(uuid())
-  requirementId String @map("requirement_id")
-  prdId         String? @map("prd_id")
-  kind          String
-  targetId      String @map("target_id")
-  metadata      Json?
-  createdAt     DateTime @default(now()) @map("created_at")
-  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
-  prd           Prd? @relation(fields: [prdId], references: [id], onDelete: Cascade)
-  @@index([requirementId, kind])
-  @@index([prdId])
-  @@map("traces")
+model DocumentPublication {
+  id         String @id @default(uuid()) @db.Uuid
+  projectId  String @db.Uuid
+  documentId String @db.Uuid
+  revisionId String @db.Uuid
+  kind       PublicationKind
+  reviewRequestId String? @db.Uuid
+  previousPublicationId String? @db.Uuid
+  reason     String? @db.VarChar(1000)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  revision   DocumentRevision @relation(fields: [revisionId, projectId], references: [id, projectId], onDelete: Restrict)
+
+  @@index([documentId, createdAt])
+  @@schema("workmesh_v1")
 }
 
-model GitCommit {
-  id          String   @id @default(uuid())
-  sha         String
-  repositoryUrl String? @map("repository_url")
-  message     String
-  author      String
-  url         String
-  committedAt DateTime @map("committed_at")
-  createdAt   DateTime @default(now()) @map("created_at")
-  @@unique([repositoryUrl, sha])
-  @@index([sha])
-  @@map("git_commits")
+model Requirement {
+  id          String @id @default(uuid()) @db.Uuid
+  projectId   String @db.Uuid
+  seq         Int
+  code        String @db.VarChar(32)
+  title       String @db.VarChar(200)
+  description String? @db.VarChar(10000)
+  version     Int @default(1)
+  generation  Int @default(1)
+  phase       String @default("DISCOVERY") @db.VarChar(32)
+  workStatus  WorkStatus @default(ACTIVE)
+  currentUnderstandingRevisionId String? @db.Uuid
+  currentPrdRevisionId String? @db.Uuid
+  deliveryScope Json?
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  instances   WorkflowInstance[]
+  currentUnderstandingRevision DocumentRevision? @relation("RequirementCurrentUnderstanding", fields: [currentUnderstandingRevisionId], references: [id], onDelete: Restrict)
+  currentPrdRevision DocumentRevision? @relation("RequirementCurrentPrd", fields: [currentPrdRevisionId], references: [id], onDelete: Restrict)
+  snapshots   ContextSnapshot[]
+
+  @@unique([projectId, seq])
+  @@unique([projectId, code])
+  @@unique([id, projectId])
+  @@schema("workmesh_v1")
 }
 
-model PullRequest {
-  id        String   @id @default(uuid())
-  provider  String
-  number    Int
-  repositoryUrl String? @map("repository_url")
-  title     String
-  url       String
-  state     String
-  author    String
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  @@unique([provider, number, url])
-  @@index([provider, number])
-  @@map("pull_requests")
+model WebSession {
+  id             String @id @default(uuid()) @db.Uuid
+  userId         String? @db.Uuid
+  tokenHash      String @unique @db.Char(64)
+  csrfTokenHash  String @db.Char(64)
+  userAuthVersion Int?
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  lastSeenAt     DateTime @default(now()) @db.Timestamptz(3)
+  idleExpiresAt  DateTime @db.Timestamptz(3)
+  expiresAt      DateTime @db.Timestamptz(3)
+  revokedAt      DateTime? @db.Timestamptz(3)
+  user           User? @relation(fields: [userId], references: [id], onDelete: Restrict)
+  tickets        ConfirmationTicket[]
+  stamps         PrincipalStamp[]
+  cliViews       CliAuthorizationView[]
+
+  @@index([userId, revokedAt, expiresAt])
+  @@schema("workmesh_v1")
 }
 
-model TraceLink {
-  id         String   @id @default(uuid())
-  sourceType String   @map("source_type")
-  sourceId   String   @map("source_id")
-  targetType String   @map("target_type")
-  targetId   String   @map("target_id")
-  linkType   String   @map("link_type")
-  createdAt  DateTime @default(now()) @map("created_at")
-  @@unique([sourceType, sourceId, targetType, targetId])
-  @@index([sourceType, sourceId])
-  @@index([targetType, targetId])
-  @@map("trace_links")
+model AgentCredential {
+  id                     String @id @default(uuid()) @db.Uuid
+  userId                 String @db.Uuid
+  projectId              String @db.Uuid
+  roleId                 String @db.Uuid
+  tokenHash              String @unique @db.Char(64)
+  name                   String @db.VarChar(80)
+  scopes                 String[]
+  userAuthVersion        Int
+  authorizedAt           DateTime @default(now()) @db.Timestamptz(3)
+  createdAt              DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt              DateTime @db.Timestamptz(3)
+  revokedAt              DateTime? @db.Timestamptz(3)
+  user                   User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  project                Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  role                   ProjectRole @relation(fields: [roleId, projectId], references: [id, projectId], onDelete: Restrict)
+  authorizedByStampId    String? @db.Uuid
+  authorizedByStamp      PrincipalStamp? @relation("CredentialAuthorizedByStamp", fields: [authorizedByStampId], references: [id], onDelete: Restrict)
+  authorizationRequest   CliAuthorizationRequest?
+  stamps                 PrincipalStamp[]
+
+  @@index([projectId, revokedAt, expiresAt])
+  @@schema("workmesh_v1")
 }
 
-model AuditLog {
-  id        String   @id @default(uuid())
-  actorId   String?  @map("actor_id")
-  action    String
-  target    String
-  targetId  String?  @map("target_id")
-  metadata  Json?
-  createdAt DateTime @default(now()) @map("created_at")
-  @@index([createdAt])
-  @@index([actorId, createdAt])
-  @@map("audit_logs")
+model WorkflowDefinition {
+  id          String @id @default(uuid()) @db.Uuid
+  projectId   String @db.Uuid
+  workflowKey String @db.VarChar(48)
+  version     Int @default(1)
+  currentRevisionId String? @db.Uuid
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  revisions   WorkflowRevision[]
+  instances   WorkflowInstance[]
+  @@unique([projectId, workflowKey])
+  @@schema("workmesh_v1")
+}
+
+model WorkflowRevision {
+  id           String @id @default(uuid()) @db.Uuid
+  projectId    String @db.Uuid
+  definitionId String @db.Uuid
+  revision     Int
+  digest       String @db.Char(64)
+  definition   Json
+  compiledRules Json
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  definitionRel WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+  snapshots    ContextSnapshot[]
+  artifactSets ArtifactSet[]
+  @@unique([definitionId, revision])
+  @@schema("workmesh_v1")
+}
+
+model WorkflowInstance {
+  id             String @id @default(uuid()) @db.Uuid
+  projectId      String @db.Uuid
+  definitionId   String @db.Uuid
+  definitionRevisionId String? @db.Uuid
+  definitionDigest String? @db.Char(64)
+  requirementId  String @db.Uuid
+  version        Int @default(1)
+  workStatus     WorkStatus @default(ACTIVE)
+  bindings       Json?
+  retiredAt      DateTime? @db.Timestamptz(3)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  definition     WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+  requirement    Requirement @relation(fields: [requirementId, projectId], references: [id, projectId], onDelete: Restrict)
+  tasks          Task[]
+  @@unique([id, projectId])
+  @@index([requirementId, retiredAt])
+  @@schema("workmesh_v1")
+}
+
+model Task {
+  id              String @id @default(uuid()) @db.Uuid
+  projectId       String @db.Uuid
+  workflowInstanceId String @db.Uuid
+  stepKey         String @db.VarChar(48)
+  roleId          String @db.Uuid
+  responsibleUserId String @db.Uuid
+  version         Int @default(1)
+  generation      Int @default(1)
+  executionStatus TaskExecutionStatus @default(OPEN)
+  workStatus      WorkStatus @default(ACTIVE)
+  currentClaimId  String? @db.Uuid
+  currentSnapshotId String? @db.Uuid
+  currentArtifactSetId String? @db.Uuid
+  instance        WorkflowInstance @relation(fields: [workflowInstanceId, projectId], references: [id, projectId], onDelete: Restrict)
+  role            ProjectRole @relation(fields: [roleId, projectId], references: [id, projectId], onDelete: Restrict)
+  responsibleUser User @relation("TaskResponsible", fields: [responsibleUserId], references: [id], onDelete: Restrict)
+  claims          TaskClaim[]
+  snapshots       ContextSnapshot[]
+  artifactSets    ArtifactSet[]
+  reviews         ReviewRequest[]
+  @@unique([workflowInstanceId, stepKey])
+  @@unique([id, projectId])
+  @@schema("workmesh_v1")
+}
+
+model TaskClaim {
+  id          String @id @default(uuid()) @db.Uuid
+  projectId   String @db.Uuid
+  taskId      String @db.Uuid
+  taskGeneration Int
+  userId      String @db.Uuid
+  credentialId String? @db.Uuid
+  claimedAt   DateTime @default(now()) @db.Timestamptz(3)
+  releasedAt  DateTime? @db.Timestamptz(3)
+  releaseReason String? @db.VarChar(1000)
+  task        Task @relation(fields: [taskId, projectId], references: [id, projectId], onDelete: Restrict)
+  user        User @relation("TaskClaimUser", fields: [userId], references: [id], onDelete: Restrict)
+  snapshots   ContextSnapshot[]
+  @@index([taskId, releasedAt])
+  @@schema("workmesh_v1")
+}
+
+/// 上下文快照不可变：manifest 只记录可验证的引用与摘要，读取时按当前授权逐项复核。
+model ContextSnapshot {
+  id              String @id @default(uuid()) @db.Uuid
+  projectId       String @db.Uuid
+  requirementId   String @db.Uuid
+  taskId          String @db.Uuid
+  requirementGeneration Int
+  taskGeneration  Int
+  workflowDefinitionRevisionId String @db.Uuid
+  claimId         String @db.Uuid
+  manifest        Json
+  manifestDigest  String @db.Char(64)
+  createdByStampId String @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  task            Task @relation(fields: [taskId, projectId], references: [id, projectId], onDelete: Restrict)
+  requirement     Requirement @relation(fields: [requirementId, projectId], references: [id, projectId], onDelete: Restrict)
+  definitionRevision WorkflowRevision @relation(fields: [workflowDefinitionRevisionId], references: [id], onDelete: Restrict)
+  claim           TaskClaim @relation(fields: [claimId], references: [id], onDelete: Restrict)
+  createdByStamp  PrincipalStamp @relation(fields: [createdByStampId], references: [id], onDelete: Restrict)
+  resources       SnapshotResourceRef[]
+  @@unique([id, projectId])
+  @@index([taskId, taskGeneration])
+  @@index([requirementId, requirementGeneration])
+  @@schema("workmesh_v1")
+}
+
+/// 管理员显式指定的项目知识绑定；roleId 为空表示对全项目角色生效。
+model ProjectKnowledgeBinding {
+  id               String   @id @default(uuid()) @db.Uuid
+  projectId        String   @db.Uuid
+  documentId       String   @db.Uuid
+  roleId           String?  @db.Uuid
+  required         Boolean  @default(true)
+  createdByStampId String?  @db.Uuid
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  document         KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  role             ProjectRole? @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  createdByStamp   PrincipalStamp? @relation(fields: [createdByStampId], references: [id], onDelete: Restrict)
+
+  @@unique([projectId, documentId, roleId])
+  @@index([projectId, roleId])
+  @@schema("workmesh_v1")
+}
+
+model ArtifactSet {
+  id              String @id @default(uuid()) @db.Uuid
+  projectId       String @db.Uuid
+  taskId          String @db.Uuid
+  taskGeneration  Int
+  snapshotId      String @db.Uuid
+  manifestDigest  String @db.Char(64)
+  workflowDefinitionRevisionId String @db.Uuid
+  localRunId      String @db.VarChar(120)
+  createdByStampId String @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  task            Task @relation(fields: [taskId, projectId], references: [id, projectId], onDelete: Restrict)
+  definitionRevision WorkflowRevision @relation(fields: [workflowDefinitionRevisionId], references: [id], onDelete: Restrict)
+  createdByStamp  PrincipalStamp @relation(fields: [createdByStampId], references: [id], onDelete: Restrict)
+  artifacts       Artifact[]
+  items           ArtifactSetItem[]
+  codeReviewEvidence CodeReviewEvidence[]
+  @@unique([id, projectId])
+  @@index([taskId, taskGeneration])
+  @@schema("workmesh_v1")
+}
+
+model ArtifactSetItem {
+  id                  String @id @default(uuid()) @db.Uuid
+  projectId           String @db.Uuid
+  artifactSetId       String @db.Uuid
+  artifactId          String? @db.Uuid
+  candidateRevisionId String? @db.Uuid
+  artifactSet         ArtifactSet @relation(fields: [artifactSetId, projectId], references: [id, projectId], onDelete: Restrict)
+  artifact            Artifact? @relation(fields: [artifactId], references: [id], onDelete: Restrict)
+  candidateRevision   DocumentRevision? @relation(fields: [candidateRevisionId], references: [id], onDelete: Restrict)
+  @@unique([artifactSetId, artifactId])
+  @@unique([artifactSetId, candidateRevisionId])
+  @@index([candidateRevisionId])
+  @@schema("workmesh_v1")
+}
+
+model Artifact {
+  id             String @id @default(uuid()) @db.Uuid
+  projectId      String @db.Uuid
+  taskId         String @db.Uuid
+  artifactSetId  String @db.Uuid
+  kind           ArtifactKind
+  schemaVersion  String @db.VarChar(16)
+  storage        ArtifactStorage
+  mediaType      String @db.VarChar(100)
+  byteLength     Int
+  sha256         String @db.Char(64)
+  bodyBytes      Bytes?
+  projectRepositoryId String? @db.Uuid
+  commitSha      String? @db.VarChar(128)
+  repoPath       String? @db.VarChar(500)
+  summary        String? @db.VarChar(2000)
+  checks         Json
+  submittedByStampId String @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  artifactSet    ArtifactSet @relation(fields: [artifactSetId, projectId], references: [id, projectId], onDelete: Restrict)
+  submittedByStamp PrincipalStamp @relation(fields: [submittedByStampId], references: [id], onDelete: Restrict)
+  setItems       ArtifactSetItem[]
+  @@index([taskId, kind])
+  @@schema("workmesh_v1")
+}
+
+model ReviewRequest {
+  id             String @id @default(uuid()) @db.Uuid
+  projectId      String @db.Uuid
+  kind           ReviewKind
+  documentRevisionId String? @db.Uuid
+  artifactSetId  String? @db.Uuid
+  taskId         String? @db.Uuid
+  taskGeneration Int?
+  subjectDigest  String @db.Char(64)
+  version        Int @default(1)
+  status         ReviewStatus @default(OPEN)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  documentRevision DocumentRevision? @relation(fields: [documentRevisionId], references: [id], onDelete: Restrict)
+  task           Task? @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  approvalSlots  ApprovalSlot[]
+  decisions      ReviewDecision[]
+  @@unique([id, projectId])
+  @@index([projectId, status])
+  @@index([documentRevisionId, status])
+  @@schema("workmesh_v1")
+}
+
+model ApprovalSlot {
+  id              String @id @default(uuid()) @db.Uuid
+  projectId       String @db.Uuid
+  reviewRequestId String @db.Uuid
+  slotKey         String @db.VarChar(48)
+  kind            String @db.VarChar(48)
+  requiredUserId  String? @db.Uuid
+  requiredRoleId  String? @db.Uuid
+  sourceSlotBindingId String? @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  reviewRequest   ReviewRequest @relation(fields: [reviewRequestId, projectId], references: [id, projectId], onDelete: Restrict)
+  requiredUser    User? @relation("ApprovalSlotUser", fields: [requiredUserId], references: [id], onDelete: Restrict)
+  requiredRole    ProjectRole? @relation(fields: [requiredRoleId], references: [id], onDelete: Restrict)
+  decisions       ReviewDecision[]
+  tickets         ConfirmationTicket[]
+  @@unique([reviewRequestId, slotKey])
+  @@unique([id, projectId])
+  @@schema("workmesh_v1")
+}
+
+model ReviewDecision {
+  id              String @id @default(uuid()) @db.Uuid
+  projectId       String @db.Uuid
+  reviewRequestId String @db.Uuid
+  approvalSlotId  String @db.Uuid
+  decision        DecisionKind
+  subjectDigest   String @db.Char(64)
+  comment         String? @db.VarChar(2000)
+  confirmationTicketId String? @db.Uuid
+  createdByStampId String? @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  reviewRequest   ReviewRequest @relation(fields: [reviewRequestId, projectId], references: [id, projectId], onDelete: Restrict)
+  approvalSlot    ApprovalSlot @relation(fields: [approvalSlotId, projectId], references: [id, projectId], onDelete: Restrict)
+  confirmationTicket ConfirmationTicket? @relation(fields: [confirmationTicketId], references: [id], onDelete: Restrict)
+  createdByStamp  PrincipalStamp? @relation(fields: [createdByStampId], references: [id], onDelete: Restrict)
+  revocation      ReviewDecisionRevocation?
+  @@unique([reviewRequestId, approvalSlotId])
+  @@index([approvalSlotId])
+  @@schema("workmesh_v1")
+}
+
+model ReviewDecisionRevocation {
+  id              String @id @default(uuid()) @db.Uuid
+  projectId       String @db.Uuid
+  decisionId      String @db.Uuid
+  reason          String @db.VarChar(1000)
+  confirmationTicketId String? @db.Uuid
+  createdByStampId String? @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  decision        ReviewDecision @relation(fields: [decisionId], references: [id], onDelete: Restrict)
+  createdByStamp  PrincipalStamp? @relation("RevocationStamp", fields: [createdByStampId], references: [id], onDelete: Restrict)
+  @@unique([decisionId])
+  @@schema("workmesh_v1")
+}
+
+model ChangeEvent {
+  id          String @id @default(uuid()) @db.Uuid
+  projectId   String @db.Uuid
+  requirementId String? @db.Uuid
+  sourceKind  String @db.VarChar(40)
+  sourceId    String @db.Uuid
+  changedFields String[]
+  targets     Json
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  recipients  ChangeRecipient[]
+  @@index([projectId, createdAt])
+  @@schema("workmesh_v1")
+}
+
+model ChangeRecipient {
+  id         String @id @default(uuid()) @db.Uuid
+  projectId  String @db.Uuid
+  eventId    String @db.Uuid
+  userId     String @db.Uuid
+  roleId     String? @db.Uuid
+  version    Int @default(1)
+  ackedAt    DateTime? @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  event      ChangeEvent @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  user       User @relation("ChangeRecipientUser", fields: [userId], references: [id], onDelete: Restrict)
+  @@index([userId, ackedAt, createdAt])
+  @@schema("workmesh_v1")
+}
+
+model ConfirmationTicket {
+  id              String @id @default(uuid()) @db.Uuid
+  secretHash      String @unique @db.Char(64)
+  userId          String @db.Uuid
+  webSessionId    String @db.Uuid
+  projectId       String? @db.Uuid
+  userAuthVersion Int
+  action          String @db.VarChar(64)
+  targetType      String @db.VarChar(40)
+  targetId        String @db.Uuid
+  expectedVersion Int
+  actionDigest    String @db.Char(64)
+  roleId          String? @db.Uuid
+  approvalSlotId  String? @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt       DateTime @db.Timestamptz(3)
+  consumedAt      DateTime? @db.Timestamptz(3)
+  consumedRequestId String? @db.Uuid
+  consumedOperationId String? @db.Uuid
+  invalidatedAt   DateTime? @db.Timestamptz(3)
+  user            User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  webSession      WebSession @relation(fields: [webSessionId], references: [id], onDelete: Restrict)
+  project         Project? @relation("TicketProject", fields: [projectId], references: [id], onDelete: Restrict)
+  approvalSlot    ApprovalSlot? @relation(fields: [approvalSlotId], references: [id], onDelete: Restrict)
+  consumedOperation IdempotentOperation? @relation("TicketConsumedOperation", fields: [consumedOperationId], references: [id], onDelete: Restrict)
+  decisions       ReviewDecision[]
+
+  @@index([webSessionId, expiresAt])
+  @@index([userId, action, targetId])
+  @@index([expiresAt])
+  @@schema("workmesh_v1")
+}
+
+model PrincipalStamp {
+  id                  String @id @default(uuid()) @db.Uuid
+  kind                String @db.VarChar(8)
+  userId              String @db.Uuid
+  webSessionId        String? @db.Uuid
+  agentCredentialId   String? @db.Uuid
+  projectId           String? @db.Uuid
+  roleId              String? @db.Uuid
+  roleKeySnapshot     String? @db.VarChar(48)
+  scopeSnapshot       String[]
+  userAuthVersion     Int
+  memberVersion       Int?
+  roleAssignmentVersion Int?
+  credentialVersion   Int?
+  requestId           String? @db.Uuid
+  createdAt           DateTime @default(now()) @db.Timestamptz(3)
+  user                User @relation("StampUser", fields: [userId], references: [id], onDelete: Restrict)
+  webSession          WebSession? @relation(fields: [webSessionId], references: [id], onDelete: Restrict)
+  agentCredential     AgentCredential? @relation(fields: [agentCredentialId], references: [id], onDelete: Restrict)
+  project             Project? @relation("StampProject", fields: [projectId], references: [id], onDelete: Restrict)
+  auditEvents         AuditEvent[]
+  decisions           ReviewDecision[]
+  revocations         ReviewDecisionRevocation[] @relation("RevocationStamp")
+  cliApprovals        CliAuthorizationRequest[] @relation("CliApprovedByStamp")
+  cliDenials          CliAuthorizationRequest[] @relation("CliDeniedByStamp")
+  issuedCredentials   AgentCredential[] @relation("CredentialAuthorizedByStamp")
+  rolePackageVersions RolePackageVersion[]
+  snapshots           ContextSnapshot[]
+  knowledgeBindings   ProjectKnowledgeBinding[]
+  artifactSets        ArtifactSet[]
+  submittedArtifacts  Artifact[]
+
+  @@index([projectId, createdAt])
+  @@index([userId, createdAt])
+  @@index([agentCredentialId, createdAt])
+  @@schema("workmesh_v1")
+}
+
+model AuditEvent {
+  id          String @id @default(uuid()) @db.Uuid
+  projectId   String? @db.Uuid
+  actorStampId String? @db.Uuid
+  webhookReceiptId String? @db.Uuid
+  action      String @db.VarChar(64)
+  targetType  String @db.VarChar(40)
+  targetId    String @db.Uuid
+  targetVersion Int?
+  outcome     String @db.VarChar(16)
+  reasonCode  String? @db.VarChar(64)
+  details     Json?
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  project     Project? @relation("AuditProject", fields: [projectId], references: [id], onDelete: Restrict)
+  actorStamp  PrincipalStamp? @relation(fields: [actorStampId], references: [id], onDelete: Restrict)
+
+  @@index([projectId, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([actorStampId])
+  @@schema("workmesh_v1")
+}
+
+model CliAuthorizationRequest {
+  id                   String @id @default(uuid()) @db.Uuid
+  clientName           String @db.VarChar(80)
+  deviceCodeHash       String @unique @db.Char(64)
+  userCodeHash         String @unique @db.Char(64)
+  codeChallenge        String @db.Char(43)
+  codeChallengeMethod  String @db.VarChar(8)
+  credentialSecretHash String @db.Char(64)
+  status               String @default("PENDING") @db.VarChar(16)
+  version              Int @default(1)
+  createdAt            DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt            DateTime @db.Timestamptz(3)
+  nextPollAt           DateTime @default(now()) @db.Timestamptz(3)
+  approvedUserId       String? @db.Uuid
+  approvedProjectId    String? @db.Uuid
+  approvedRoleId       String? @db.Uuid
+  approvedScopes       String[]
+  approvedExpiresInDays Int?
+  approvedByStampId    String? @db.Uuid
+  approvedAt           DateTime? @db.Timestamptz(3)
+  issuedCredentialId   String? @unique @db.Uuid
+  issuedAt             DateTime? @db.Timestamptz(3)
+  recoveryExpiresAt    DateTime? @db.Timestamptz(3)
+  deniedAt             DateTime? @db.Timestamptz(3)
+  deniedByStampId      String? @db.Uuid
+  approvedUser         User? @relation("CliApprovedUser", fields: [approvedUserId], references: [id], onDelete: Restrict)
+  approvedByStamp      PrincipalStamp? @relation("CliApprovedByStamp", fields: [approvedByStampId], references: [id], onDelete: Restrict)
+  deniedByStamp        PrincipalStamp? @relation("CliDeniedByStamp", fields: [deniedByStampId], references: [id], onDelete: Restrict)
+  issuedCredential     AgentCredential? @relation(fields: [issuedCredentialId], references: [id], onDelete: Restrict)
+  views                CliAuthorizationView[]
+
+  @@index([status, expiresAt])
+  @@index([approvedUserId, createdAt])
+  @@schema("workmesh_v1")
+}
+
+model CliAuthorizationView {
+  authorizationRequestId String @db.Uuid
+  webSessionId  String @db.Uuid
+  userId        String @db.Uuid
+  viewedAt      DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt     DateTime @db.Timestamptz(3)
+  request       CliAuthorizationRequest @relation(fields: [authorizationRequestId], references: [id], onDelete: Restrict)
+  webSession    WebSession @relation(fields: [webSessionId], references: [id], onDelete: Restrict)
+  user          User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([authorizationRequestId, webSessionId])
+  @@index([webSessionId, expiresAt])
+  @@schema("workmesh_v1")
+}
+
+model AuthRateWindow {
+  id          String @id @default(uuid()) @db.Uuid
+  kind        String @db.VarChar(32)
+  keyHash     String @db.Char(64)
+  windowStart DateTime @db.Timestamptz(3)
+  attempts    Int @default(0)
+  expiresAt   DateTime @db.Timestamptz(3)
+
+  @@unique([kind, keyHash, windowStart])
+  @@index([expiresAt])
+  @@schema("workmesh_v1")
+}
+
+model IdempotentOperation {
+  id                 String @id @default(uuid()) @db.Uuid
+  projectId          String? @db.Uuid
+  projectScopeKey    String @db.VarChar(80)
+  principalScopeKey  String @db.VarChar(80)
+  key                String @db.Uuid
+  method             String @db.VarChar(8)
+  route              String @db.VarChar(200)
+  requestDigest      String @db.Char(64)
+  resultRefs         Json
+  responseMetadata   Json
+  createdAt          DateTime @default(now()) @db.Timestamptz(3)
+  committedAt        DateTime @default(now()) @db.Timestamptz(3)
+  project            Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  tickets            ConfirmationTicket[] @relation("TicketConsumedOperation")
+
+  @@unique([projectScopeKey, principalScopeKey, key])
+  @@schema("workmesh_v1")
+}
+
+enum ReviewerKind {
+  USER
+  BOT
+  @@schema("workmesh_v1")
+}
+
+enum ReviewEvidenceState {
+  APPROVED
+  CHANGES_REQUESTED
+  DISMISSED
+  COMMENTED
+  PENDING
+  @@schema("workmesh_v1")
+}
+
+enum WebhookSource {
+  GITHUB
+  @@schema("workmesh_v1")
+}
+
+/// 不可变代码评审证据：来自外部 GitHub 归一化后落盘，绝不被覆盖或更新内容字段。
+model CodeReviewEvidence {
+  id               String             @id @default(uuid()) @db.Uuid
+  projectId        String             @db.Uuid
+  repositoryId     String             @db.VarChar(120)
+  changeRequestId  String             @db.VarChar(120)
+  headSha          String             @db.Char(40)
+  authorExternalId String             @db.VarChar(120)
+  reviewerExternalId String           @db.VarChar(120)
+  reviewerKind     ReviewerKind
+  state            ReviewEvidenceState
+  commitSha        String?            @db.Char(40)
+  submittedAt      DateTime?          @db.Timestamptz(3)
+  reviewExternalId String             @db.VarChar(120)
+  artifactSetId    String?            @db.Uuid
+  /// 归一化输入的 SHA-256 指纹，作为不可变去重与篡改检测的键。
+  evidenceFingerprint String          @db.Char(64)
+  /// prepare-code-evidence 绑定到工件集/代次的有版本票据：secretHash + 过期时间；消费后置空。
+  preparedSecretHash String?          @db.Char(64)
+  preparedExpiresAt   DateTime?       @db.Timestamptz(3)
+  /// 票据绑定的已批准证据与工件代次；票据失效后历史仍保留。
+  preparedEvidenceId  String?         @db.Uuid
+  ticketGeneration    Int?
+  receiptId        String?            @db.Uuid
+  createdAt        DateTime           @default(now()) @db.Timestamptz(3)
+  project          Project            @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  artifactSet      ArtifactSet?       @relation(fields: [artifactSetId], references: [id], onDelete: Restrict)
+  receipt          WebhookReceipt?    @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+
+  @@unique([evidenceFingerprint])
+  @@index([projectId, repositoryId, changeRequestId])
+  @@index([artifactSetId])
+  @@schema("workmesh_v1")
+}
+
+/// Webhook 收据：记录每次外部投递的接收、签名校验与处理状态，不可变。
+model WebhookReceipt {
+  id            String        @id @default(uuid()) @db.Uuid
+  projectId     String        @db.Uuid
+  source        WebhookSource
+  eventType     String        @db.VarChar(64)
+  deliveryId    String        @db.VarChar(120)
+  signatureValid Boolean
+  payloadDigest String        @db.Char(64)
+  receivedAt    DateTime      @default(now()) @db.Timestamptz(3)
+  processedAt   DateTime?     @db.Timestamptz(3)
+  status        String        @db.VarChar(32) @default("PENDING")
+  errorMessage  String?       @db.VarChar(400)
+  project       Project       @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  evidence      CodeReviewEvidence[]
+
+  @@unique([source, deliveryId])
+  @@index([projectId, receivedAt])
+  @@schema("workmesh_v1")
+}
+
+enum SnapshotRefKind {
+  DOCUMENT_REVISION
+  ARTIFACT
+  ROLE_RESOURCE
+  @@schema("workmesh_v1")
+}
+
+enum SnapshotAuthority {
+  PUBLISHED
+  CANDIDATE
+  @@schema("workmesh_v1")
+}
+
+/// 角色包版本一旦登记不可覆盖；改内容必须换 SemVer。projectId 为 null 表示内置包。
+model RolePackageVersion {
+  id               String                @id @default(uuid()) @db.Uuid
+  projectId        String?               @db.Uuid
+  packageId        String                @db.VarChar(64)
+  version          String                @db.VarChar(64)
+  roleKey          String                @db.VarChar(48)
+  manifest         Json
+  manifestDigest   String                @db.Char(64)
+  createdByStampId String?               @db.Uuid
+  sourceRef        String?               @db.VarChar(200)
+  createdAt        DateTime              @default(now()) @db.Timestamptz(3)
+  project          Project?              @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  stamp            PrincipalStamp?       @relation(fields: [createdByStampId], references: [id], onDelete: Restrict)
+  resources        RolePackageResource[]
+
+  @@unique([projectId, packageId, version])
+  @@index([packageId, version])
+  @@schema("workmesh_v1")
+}
+
+model RolePackageResource {
+  id                   String              @id @default(uuid()) @db.Uuid
+  rolePackageVersionId String              @db.Uuid
+  resourceKey          String              @db.VarChar(64)
+  path                 String              @db.VarChar(300)
+  mediaType            String              @db.VarChar(100)
+  byteLength           Int
+  sha256               String              @db.Char(64)
+  bodyBytes            Bytes
+  createdAt            DateTime            @default(now()) @db.Timestamptz(3)
+  packageVersion       RolePackageVersion  @relation(fields: [rolePackageVersionId], references: [id], onDelete: Restrict)
+  snapshotRefs         SnapshotResourceRef[]
+
+  @@unique([rolePackageVersionId, resourceKey])
+  @@unique([rolePackageVersionId, path])
+  @@schema("workmesh_v1")
+}
+
+/// 项目代码仓库稳定身份：外部 id 由厂商提供且不随重命名变化，任务交付只引用这里登记的仓库。
+model ProjectRepository {
+  id            String   @id @default(uuid()) @db.Uuid
+  projectId     String   @db.Uuid
+  adapter       String   @db.VarChar(16)
+  externalId    String   @db.VarChar(120)
+  owner         String   @db.VarChar(120)
+  name          String   @db.VarChar(120)
+  defaultBranch String?  @db.VarChar(200)
+  archivedAt    DateTime? @db.Timestamptz(3)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
+  @@unique([projectId, adapter, externalId])
+  @@schema("workmesh_v1")
+}
+
+/// 快照引用：manifest 的每一行都有可验证的资源定位与摘要，读取时按当前授权逐项复核。
+model SnapshotResourceRef {
+  id                    String               @id @default(uuid()) @db.Uuid
+  projectId             String               @db.Uuid
+  snapshotId            String               @db.Uuid
+  refKey                String               @db.VarChar(80)
+  kind                  SnapshotRefKind
+  documentRevisionId    String?              @db.Uuid
+  artifactId            String?              @db.Uuid
+  rolePackageResourceId String?              @db.Uuid
+  sha256                String               @db.Char(64)
+  byteLength            Int
+  mediaType             String               @db.VarChar(100)
+  authority             SnapshotAuthority
+  snapshot              ContextSnapshot      @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  rolePackageResource   RolePackageResource? @relation(fields: [rolePackageResourceId], references: [id], onDelete: Restrict)
+
+  @@unique([snapshotId, refKey])
+  @@index([documentRevisionId])
+  @@index([artifactId])
+  @@schema("workmesh_v1")
 }

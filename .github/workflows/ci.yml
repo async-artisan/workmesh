@@ -20,6 +20,6 @@ jobs:
       - run: pnpm format:check
       - run: pnpm type-check
       - run: pnpm lint:eslint
-      - run: pnpm --filter @reqflow/api exec prisma validate --schema prisma/schema.prisma
+      - run: pnpm --filter @workmesh/api exec prisma validate --schema prisma/schema.prisma
       - run: pnpm test
       - run: pnpm build

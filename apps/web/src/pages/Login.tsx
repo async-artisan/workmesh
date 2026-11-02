@@ -1,44 +1,55 @@
 import { FormEvent, useState } from 'react';
-import { authApi } from '../api/auth';
-import { useAuthStore } from '../store/auth';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { authApi, bootstrapSession } from '../api/auth';
+import { formatApiError, getCsrfToken } from '../api/client';
 
 export function Login() {
-  const setAuth = useAuthStore((state) => state.setAuth);
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from;
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    setBusy(true);
+    setError('');
     try {
-      const result = await authApi.login({
+      // 登录前必须有匿名会话 cookie 与 CSRF；缺失时先做 bootstrap，不把任何凭据写进存储。
+      if (!getCsrfToken()) await bootstrapSession();
+      await authApi.login({
         email: String(form.get('email')),
         password: String(form.get('password')),
       });
-      setAuth(result.user, result.accessToken, result.refreshToken);
       navigate(from && from !== '/login' ? from : '/', { replace: true });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '登录失败');
+      setError(formatApiError(caught));
+    } finally {
+      setBusy(false);
     }
   }
+
   return (
     <section className="auth-card">
-      <span className="eyebrow">REQFLOW ACCESS</span>
+      <span className="eyebrow">WORKMESH ACCESS</span>
       <h1>登录工作台</h1>
       <form onSubmit={submit}>
         <label>
           邮箱
-          <input name="email" type="email" required />
+          <input name="email" type="email" required autoComplete="email" />
         </label>
         <label>
           密码
-          <input name="password" type="password" required />
+          <input name="password" type="password" required autoComplete="current-password" />
         </label>
-        {error && <p className="error">{error}</p>}
-        <button className="primary" type="submit">
-          登录
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <button className="primary" type="submit" disabled={busy}>
+          {busy ? '登录中…' : '登录'}
         </button>
         <button
           className="ghost"

@@ -3,9 +3,12 @@ import {
   ClipboardList,
   FileText,
   FolderKanban,
-  GitBranch,
+  Kanban,
+  KeyRound,
   LayoutDashboard,
+  ShieldCheck,
   User,
+  Users,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -17,13 +20,16 @@ export interface NavItem {
 }
 
 export const navItems: NavItem[] = [
-  { key: '控制台', icon: LayoutDashboard, path: '/', desc: '工作区概览与最近动态' },
-  { key: '项目列表', icon: FolderKanban, path: '/projects', desc: '按项目隔离需求、PRD 与知识库' },
-  { key: '需求管理', icon: ClipboardList, path: '/requirements', desc: '维护需求条目与状态流转' },
-  { key: 'PRD', icon: FileText, path: '/prds', desc: '从需求生成 PRD，管理版本与审批' },
-  { key: '知识库', icon: BookOpen, path: '/knowledge', desc: '沉淀项目知识，支持全文检索' },
-  { key: '追溯', icon: GitBranch, path: '/trace', desc: '需求到代码的追溯关系' },
-  { key: '用户中心', icon: User, path: '/profile', desc: '账号资料与安全设置' },
+  { key: '工作台', icon: LayoutDashboard, path: '/', desc: '待确认变更与评审入口' },
+  { key: '项目', icon: FolderKanban, path: '/projects', desc: '项目创建、归档与文档入口' },
+  { key: '需求', icon: ClipboardList, path: '/requirements', desc: '需求创建、列表与流程实例入口' },
+  { key: '知识库', icon: BookOpen, path: '/knowledge', desc: '候选文档、修订与撤销发布' },
+  { key: 'PRD', icon: FileText, path: '/prd', desc: 'PRD 候选、返修与撤销发布' },
+  { key: '评审', icon: ShieldCheck, path: '/reviews', desc: '槽位、摘要、版本与批准/撤销' },
+  { key: '看板', icon: Kanban, path: '/board', desc: '任务认领与交付状态' },
+  { key: '角色/ACL', icon: Users, path: '/roles', desc: '成员、业务角色与知识库访问集合' },
+  { key: '设备授权', icon: KeyRound, path: '/authorization', desc: 'CLI 设备授权批准' },
+  { key: '用户中心', icon: User, path: '/profile', desc: '当前会话与 Agent 凭据' },
 ];
 
 export function findNav(pathname: string): NavItem {

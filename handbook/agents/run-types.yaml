@@ -1,7 +1,7 @@
 run_types:
   - id: code-change
     name: 代码变更
-    description: ReqFlow 源码、配置与文档实现
+    description: WorkMesh 源码、配置与文档实现
     verification:
       - rule: lint
         policy_id: manual.attestation
@@ -21,7 +21,7 @@ run_types:
     rollback:
       available: true
       auto_backup: false
-      instructions: Revert only the ReqFlow paths changed by this task.
+      instructions: Revert only the WorkMesh paths changed by this task.
 
   - id: database-migration
     name: 数据库迁移
@@ -45,4 +45,4 @@ run_types:
     rollback:
       available: true
       manual: true
-      instructions: 删除本次创建的 reqflow-demo 组织、管理员和 DEMO 项目；结构迁移通过 Prisma 备份恢复。
+      instructions: 删除本次创建的 workmesh-demo 组织、管理员和 DEMO 项目；结构迁移通过 Prisma 备份恢复。

@@ -1,10 +1,8 @@
 import { Module } from '@nestjs/common';
-import { WebhookController } from './webhook.controller';
-import { CommitParserService } from './commit-parser.service';
-import { GitIntegrationService } from './git-integration.service';
+import { V1GithubEvidenceModule } from './v1-github-evidence.module';
+
 @Module({
-  controllers: [WebhookController],
-  providers: [CommitParserService, GitIntegrationService],
-  exports: [CommitParserService, GitIntegrationService],
+  imports: [V1GithubEvidenceModule],
+  exports: [V1GithubEvidenceModule],
 })
 export class IntegrationsModule {}

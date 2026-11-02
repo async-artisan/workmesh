@@ -1,87 +1,171 @@
-import axios, { type InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '../store/auth';
 
-export const SESSION_EXPIRED_EVENT = 'reqflow:session-expired';
+/** 正式协议只有 v1；浏览器同源访问，不使用其它 API root。 */
+export const API_ROOT = '/api/v1';
+export const SESSION_EXPIRED_EVENT = 'workmesh:session-expired';
 
-export const client = axios.create({
-  baseURL: '/api',
-  timeout: 30000,
-  headers: { 'Content-Type': 'application/json' },
-});
+/**
+ * 错误不再折叠成 axios 的通用 message：保留 HTTP 状态、v1 code、details 与 requestId，
+ * 401/403/409/410 等业务拒绝一律向上抛出，由页面决定如何展示。
+ */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+    readonly details?: Record<string, unknown>,
+    readonly requestId?: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 
-client.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().accessToken;
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
+/** 会话 CSRF 仅保存在内存（bootstrap 响应或同源可读 cookie），不写 localStorage。 */
+let csrfToken = '';
 
-type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean };
+export function setCsrfToken(token: string | null | undefined): void {
+  csrfToken = token ?? '';
+}
 
-const isAuthRequest = (url?: string) =>
-  Boolean(url && /\/auth\/(login|register|refresh)/.test(url));
+export function getCsrfToken(): string {
+  return csrfToken;
+}
 
-const endSession = () => {
-  const { user, clearAuth } = useAuthStore.getState();
-  clearAuth();
-  if (user) window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
-};
+const CSRF_COOKIE_NAMES = ['__Host-wm_csrf', 'wm_csrf'] as const;
 
-let refreshPromise: Promise<string> | null = null;
-
-const readServerMessage = (body: unknown) => {
-  const raw = (body as { message?: unknown } | undefined)?.message;
-  if (typeof raw === 'string') return raw;
-  if (Array.isArray(raw)) return raw.filter((item) => typeof item === 'string').join('；');
-  if (raw && typeof raw === 'object') {
-    const nested = (raw as { message?: unknown }).message;
-    if (typeof nested === 'string') return nested;
-    if (Array.isArray(nested)) return nested.filter((item) => typeof item === 'string').join('；');
+function readCookie(name: string): string {
+  const prefix = `${name}=`;
+  for (const part of document.cookie.split(';')) {
+    const entry = part.trim();
+    if (entry.startsWith(prefix)) return decodeURIComponent(entry.slice(prefix.length));
   }
   return '';
-};
+}
 
-const refreshAccessToken = () => {
-  const refreshToken = useAuthStore.getState().refreshToken;
-  if (!refreshToken) return Promise.reject(new Error('no refresh token'));
-  refreshPromise ??= client
-    .post('/auth/refresh', { refreshToken })
-    .then((raw) => {
-      const payload = raw as unknown as { accessToken: string };
-      const current = useAuthStore.getState();
-      if (!current.user) throw new Error('no user');
-      current.setAuth(current.user, payload.accessToken, refreshToken);
-      return payload.accessToken;
-    })
-    .finally(() => {
-      refreshPromise = null;
-    });
-  return refreshPromise;
-};
-
-client.interceptors.response.use(
-  (response) => response.data?.data ?? response.data,
-  async (error) => {
-    const message = readServerMessage(error.response?.data);
-    if (message) error.message = message;
-
-    const original = error.config as RetryConfig | undefined;
-    if (error.response?.status !== 401 || !original) throw error;
-
-    if (isAuthRequest(original.url)) throw error;
-
-    if (original._retry) {
-      endSession();
-      throw error;
+/** 服务端 bootstrap 已下发 CSRF 时优先使用内存值；缺失时回退到同源可读 cookie。 */
+function activeCsrfToken(): string {
+  if (csrfToken) return csrfToken;
+  for (const name of CSRF_COOKIE_NAMES) {
+    const value = readCookie(name);
+    if (value) {
+      csrfToken = value;
+      return value;
     }
+  }
+  return '';
+}
 
-    original._retry = true;
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+export interface RequestOptions {
+  method?: HttpMethod;
+  body?: unknown;
+  /** 'auto' 表示业务写操作自动生成 Idempotency-Key；字符串用于重放同一意图。 */
+  idempotencyKey?: 'auto' | string;
+  signal?: AbortSignal;
+  headers?: Record<string, string>;
+}
+
+interface SuccessEnvelope<T> {
+  data: T;
+  meta?: { requestId?: string };
+}
+
+interface ErrorEnvelope {
+  error?: { code?: unknown; message?: unknown; details?: unknown; requestId?: unknown };
+}
+
+const MUTATING: ReadonlySet<HttpMethod> = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function randomKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  throw new ApiError(0, 'CRYPTO_UNAVAILABLE', '当前浏览器无法生成幂等键');
+}
+
+function parseError(status: number, payload: unknown, fallback: string): ApiError {
+  const envelope = (payload as ErrorEnvelope | null)?.error;
+  const code = typeof envelope?.code === 'string' ? envelope.code : `HTTP_${status}`;
+  const message =
+    typeof envelope?.message === 'string' && envelope.message.trim() ? envelope.message : fallback;
+  const details =
+    envelope?.details && typeof envelope.details === 'object'
+      ? (envelope.details as Record<string, unknown>)
+      : undefined;
+  const requestId = typeof envelope?.requestId === 'string' ? envelope.requestId : undefined;
+  return new ApiError(status, code, message, details, requestId);
+}
+
+function endSession(): void {
+  const { user, clearAuth } = useAuthStore.getState();
+  clearAuth();
+  setCsrfToken(null);
+  if (user) window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+}
+
+/**
+ * 统一请求：同源 /api/v1、credentials:'include'、写操作自动带 X-CSRF-Token。
+ * 成功取 envelope.data；错误按 envelope 解析后抛出，不做自动刷新或自动重试。
+ */
+export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const method = options.method ?? 'GET';
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    ...options.headers,
+  };
+  if (options.body !== undefined) headers['Content-Type'] = 'application/json';
+  if (MUTATING.has(method)) {
+    const token = activeCsrfToken();
+    if (token) headers['X-CSRF-Token'] = token;
+    if (options.idempotencyKey === 'auto') headers['Idempotency-Key'] = randomKey();
+    else if (typeof options.idempotencyKey === 'string' && options.idempotencyKey)
+      headers['Idempotency-Key'] = options.idempotencyKey;
+  }
+
+  const response = await fetch(`${API_ROOT}${path}`, {
+    method,
+    credentials: 'include',
+    headers,
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    signal: options.signal,
+  });
+
+  const text = await response.text();
+  let payload: unknown = null;
+  if (text) {
     try {
-      const token = await refreshAccessToken();
-      original.headers.Authorization = `Bearer ${token}`;
-      return client(original);
-    } catch (refreshError) {
-      endSession();
-      throw refreshError;
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
     }
-  },
-);
+  }
+
+  if (!response.ok) {
+    const error = parseError(response.status, payload, `请求失败（HTTP ${response.status}）`);
+    if (response.status === 401) endSession();
+    throw error;
+  }
+
+  if (payload && typeof payload === 'object' && 'data' in payload) {
+    return (payload as SuccessEnvelope<T>).data;
+  }
+  return payload as T;
+}
+
+export const apiGet = <T>(path: string, signal?: AbortSignal) => apiRequest<T>(path, { signal });
+
+/** 面向用户的错误文本：同时保留服务端 code 与 requestId，便于核对审计。 */
+export function formatApiError(error: unknown): string {
+  if (error instanceof ApiError) {
+    const requestId = error.requestId ? ` · requestId ${error.requestId}` : '';
+    return `[${error.code}] ${error.message}${requestId}`;
+  }
+  if (error instanceof Error) return error.message;
+  return '请求失败';
+}
+
+export function apiErrorCode(error: unknown): string | null {
+  return error instanceof ApiError ? error.code : null;
+}

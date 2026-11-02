@@ -23,7 +23,7 @@ embedding 模型质量。
 ## 知识库批量导入
 
 ```bash
-pnpm --filter @reqflow/api db:import-kb -- --source=<知识库根目录> [--project-key=DEMO] [--name=知识库名称] [--dry-run]
+pnpm --filter @workmesh/api db:import-kb -- --source=<知识库根目录> [--project-key=DEMO] [--name=知识库名称] [--dry-run]
 ```
 
 脚本读取 `<source>/raw/prd/**/*.md`，按 `--name` 在目标项目下复用或新建知识库，每份文档的
@@ -36,7 +36,7 @@ pnpm --filter @reqflow/api db:import-kb -- --source=<知识库根目录> [--proj
 
 ## 审计日志
 
-默认保留 180 天。`pnpm --filter @reqflow/api db:audit-cleanup` 只做 dry-run 并输出待清理数量；
+默认保留 180 天。`pnpm --filter @workmesh/api db:audit-cleanup` 只做 dry-run 并输出待清理数量；
 确认隔离数据库和影响范围后，追加 `--apply` 执行删除。保留天数可通过
 `AUDIT_LOG_RETENTION_DAYS` 配置，脚本限制在 1 至 3650 天，并按 `created_at` 索引范围删除。
 

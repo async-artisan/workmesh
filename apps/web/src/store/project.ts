@@ -1,10 +1,11 @@
 import { create } from 'zustand';
-import { projectApi, type ProjectItem } from '../api/resources';
+import { projectApi, type ProjectView } from '../api/resources';
 
-const STORAGE_KEY = 'reqflow.projectId';
+/** 只记住当前项目 ID；会话凭据不进入 localStorage。 */
+const STORAGE_KEY = 'workmesh.projectId';
 
-let cache: ProjectItem[] | null = null;
-let inflight: Promise<ProjectItem[]> | null = null;
+let cache: ProjectView[] | null = null;
+let inflight: Promise<ProjectView[]> | null = null;
 
 export async function loadProjects(force = false) {
   if (force) {

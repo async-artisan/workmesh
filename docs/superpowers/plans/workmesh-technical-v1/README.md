@@ -1,0 +1,26 @@
+# WorkMesh 技术规格 v1 导航
+
+> 当前执行顺序见[单一实现收敛计划](../2026-11-01-workmesh-single-implementation-plan.md)：将已有新实现整合为唯一正式模块，不维护旧接口兼容层；本目录的 v1 是规格版本，不要求业务文件使用 `v1-` 前缀。
+
+请先读[主实施方案](../2026-11-01-workmesh-technical-implementation.md)，再按任务职责读取分册。产品与架构选择来自[已确认总纲](../2026-11-01-workmesh-open-source-collaboration-plan.md)；本目录给出供开发执行的技术决策，不启动实施。
+
+| 顺序 | 分册 | 权威范围 |
+| --- | --- | --- |
+| 1 | [身份、权限与人工确认](01-identity-permissions.md) | Principal、scope、WebSession、Agent、角色／KB ACL和确认票据。 |
+| 2 | [领域模型、状态与事务](02-domain-state-transactions.md) | 不可变修订、共享基线、工作状态、claim、快照、工件、评审、事件和事务。 |
+| 3 | [本地角色工作流与客户端](03-local-workflows-clients.md) | JSON Schema、包与宿主、工作区配置、CLI／Web、本地产品工作流集成。 |
+| 4 | [代码托管适配器](04-code-hosting-adapters.md) | 厂商中立仓库引用、GitHub证据、Webhook、Codeup准入。 |
+| 5 | [API契约](05-api-contract.md) | HTTP输入输出、错误、业务幂等、资料／角色包传输及各子系统接口。 |
+| 6 | [开发任务与验证](06-development-tasks-and-verification.md) | 文件责任、T00–T09依赖、迁移映射、fixtures、测试命令、发布与恢复。 |
+
+代码开发从T00开始，不从任选一册各自解释接口开始。01–04中细分契约与05表格需共同满足，冲突必须先澄清并在本目录修正；不存在自动放宽授权或省略验收的优先级。
+
+所有命令、API和类型均为目标实现，除明确标为当前源码证据者外，不据此宣称已存在或已通过。当前仅文档交付，未运行应用测试、数据库或公司仓库集成。
+
+[development-fixtures.json](development-fixtures.json)提供可直接复制到T00测试的角色包、资源bytes、合法流程与结构合法但语义非法的流程。已声明资源的摘要与bytes一致；执行语义测试还需按06建立真实role、包、slot和项目fixture，不能把JSON Schema通过当成workflow业务验证通过。
+
+## 本次文档验证
+
+2026-11-01：六个技术分册、主入口与本导航完成结构／相对链接／表格／代码围栏检查；角色包和流程JSON Schema由本机现有AJV 8严格编译，合法样例及角色包资源原始bytes摘要通过检查。语义非法流程刻意保持结构合法，预期的语义拒绝仍由未来实现测试证明。
+
+身份、客户端与领域关键交叉契约经过只读复核，已统一发布效应、确认来源、操作键、暂停权限、澄清建议及撤销版本。没有运行应用单元、HTTP、数据库、浏览器、迁移或外部仓库测试；这份检查记录只说明技术方案文档与样例自洽，不说明目标系统已实现或运行正确。

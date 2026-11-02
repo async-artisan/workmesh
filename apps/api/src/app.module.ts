@@ -1,24 +1,22 @@
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
-import { AiModule } from './ai/ai.module';
-import { PrdModule } from './prd/prd.module';
-import { RequirementsModule } from './requirements/requirements.module';
 import { ProjectsModule } from './projects/projects.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
-import { TasksModule } from './tasks/tasks.module';
-import { TraceModule } from './trace/trace.module';
+import { V1ReviewModule } from './reviews/v1-review.module';
+import { V1TaskModule } from './tasks/v1-task.module';
+import { WorkflowsModule } from './workflows/workflows.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { HttpExceptionFilter } from './common/http-exception.filter';
+import { V1OperationReceiptModule } from './common/v1-operation-receipt.module';
 import { ResponseInterceptor } from './common/response.interceptor';
+import { StrictJsonInterceptor } from './common/strict-json.interceptor';
 import { MetricsInterceptor } from './common/metrics.interceptor';
 import { MetricsService } from './common/metrics.service';
-import { AuditInterceptor } from './common/audit.interceptor';
-import { AuditService } from './common/audit.service';
 import { PrismaModule } from './prisma/prisma.module';
-import { DashboardModule } from './dashboard/dashboard.module';
+import { RequestContextMiddleware } from './common/request-context.middleware';
 
 @Module({
   imports: [
@@ -26,39 +24,28 @@ import { DashboardModule } from './dashboard/dashboard.module';
       isGlobal: true,
       ignoreEnvFile: process.env.NODE_ENV === 'test',
       envFilePath: ['.env', '../../.env'],
-      validate: (env) => {
-        for (const key of ['JWT_SECRET', 'JWT_REFRESH_SECRET']) {
-          if (
-            typeof env[key] !== 'string' ||
-            env[key].length < 32 ||
-            env[key].startsWith('replace-with-')
-          ) {
-            throw new Error(`${key} must be a unique random secret with at least 32 characters`);
-          }
-        }
-        return env;
-      },
     }),
     PrismaModule,
     AuthModule,
-    AiModule,
     ProjectsModule,
-    RequirementsModule,
     KnowledgeModule,
-    PrdModule,
-    TasksModule,
-    TraceModule,
+    V1ReviewModule,
+    V1TaskModule,
+    WorkflowsModule,
     IntegrationsModule,
-    DashboardModule,
+    V1OperationReceiptModule,
   ],
   controllers: [AppController],
   providers: [
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: StrictJsonInterceptor },
     { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
     MetricsService,
-    { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
-    AuditService,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(RequestContextMiddleware).forRoutes('*');
+  }
+}

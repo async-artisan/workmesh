@@ -1,5 +1,5 @@
 services:
-  reqflow-redis:
+  workmesh-redis:
     image: redis:6-alpine
     command: ['redis-server', '--save', '', '--appendonly', 'no']
     ports:

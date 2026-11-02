@@ -1,5 +1,5 @@
 {
-  "name": "@reqflow/web",
+  "name": "@workmesh/web",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -12,8 +12,8 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@reqflow/shared": "workspace:*",
-    "@reqflow/ui": "workspace:*",
+    "@workmesh/shared": "workspace:*",
+    "@workmesh/ui": "workspace:*",
     "@tanstack/react-query": "^5.59.16",
     "axios": "^1.7.7",
     "lucide-react": "^0.468.0",

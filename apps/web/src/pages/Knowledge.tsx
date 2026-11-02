@@ -1,298 +1,229 @@
-import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { knowledgeApi } from '../api/resources';
-import { useAuthStore } from '../store/auth';
+import { useEffect, useState } from 'react';
+import { documentApi, utf8ToBase64, base64ToUtf8, type DocumentDetail, type DocumentKind, type RevisionView } from '../api/resources';
+import { formatApiError } from '../api/client';
+import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
+import { toast } from '../store/toast';
 
-interface KnowledgeDocumentItem {
-  id: string;
-  filename: string;
-}
-
-interface KnowledgeBaseItem {
-  id: string;
-  name: string;
-  documents?: KnowledgeDocumentItem[];
-}
-
-interface SearchHit {
-  content: string;
-  score: number;
-  document?: { filename?: string };
-}
-
-interface SearchMetrics {
-  candidateCount: number;
-  totalDurationMs: number;
-  truncated: boolean;
-}
-
-type SearchPayload =
-  | SearchHit[]
-  | {
-      items?: SearchHit[];
-      hasMore?: boolean;
-      truncated?: boolean;
-      metrics?: { candidateCount: number; totalDurationMs: number };
-    };
-
-const SEARCH_PAGE_SIZE = 20;
-const EXAMPLE_QUERIES = ['进入公海条件', '运费计费规则怎么改', '汇率换算'];
-
-const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-function highlight(text: string, query: string) {
-  const terms = Array.from(new Set(query.trim().split(/\s+/).filter(Boolean)));
-  if (terms.length === 0) return text;
-  const pattern = new RegExp(`(${terms.map(escapeRegExp).join('|')})`, 'gi');
-  return text
-    .split(pattern)
-    .map((part, index) => (index % 2 === 1 ? <mark key={index}>{part}</mark> : part));
-}
-
-function splitFilename(filename: string) {
-  const slash = filename.indexOf('/');
-  return slash > 0
-    ? { dir: filename.slice(0, slash), name: filename.slice(slash + 1) }
-    : { dir: '', name: filename };
-}
+const KINDS: DocumentKind[] = ['UNDERSTANDING', 'DECISION', 'PRD', 'KNOWLEDGE'];
+const KIND_LABELS: Record<DocumentKind, string> = {
+  UNDERSTANDING: '理解',
+  DECISION: '决策',
+  PRD: 'PRD',
+  KNOWLEDGE: '知识',
+};
 
 export function Knowledge() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const { projectId, setProjectId } = useProjectContext();
-  const [bases, setBases] = useState<KnowledgeBaseItem[]>([]);
-  const [knowledgeBaseId, setKnowledgeBaseId] = useState(searchParams.get('kb') ?? '');
+  const { projectId, projects } = useProjectContext();
+  const [docs, setDocs] = useState<DocumentDetail[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [content, setContent] = useState<{ revisionId: string; text: string; sha256: string } | null>(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [newBaseName, setNewBaseName] = useState('');
-  const [query, setQuery] = useState('');
-  const [hits, setHits] = useState<SearchHit[]>([]);
-  const [metrics, setMetrics] = useState<SearchMetrics | null>(null);
-  const [searched, setSearched] = useState(false);
-  const [searching, setSearching] = useState(false);
-  const [searchPage, setSearchPage] = useState(1);
-  const [searchHasMore, setSearchHasMore] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [loadError, setLoadError] = useState('');
-  const [searchError, setSearchError] = useState('');
+  const [revisionOpen, setRevisionOpen] = useState(false);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState('');
-  const accessToken = useAuthStore((state) => state.accessToken);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [createForm, setCreateForm] = useState({
+    kind: 'KNOWLEDGE' as DocumentKind,
+    title: '',
+    body: '',
+    knowledgeBaseId: '',
+    requirementId: '',
+  });
+  const [revisionForm, setRevisionForm] = useState({ title: '', body: '' });
+  const [withdrawReason, setWithdrawReason] = useState('');
 
-  // 深链接优先：URL 指定的项目写入共享上下文
-  useEffect(() => {
-    const requested = searchParams.get('project');
-    if (requested && requested !== projectId) setProjectId(requested);
-  }, []);
+  const project = projects.find((item) => item.id === projectId);
+  const selected = docs.find((item) => item.document.id === selectedId) ?? null;
+  const published = selected?.publishedRevision ?? null;
 
-  async function loadBases(targetProjectId = projectId) {
-    if (!targetProjectId.trim()) return;
+  async function load() {
+    if (!projectId) {
+      setDocs([]);
+      return;
+    }
     try {
-      const value = (await knowledgeApi.list(targetProjectId.trim())) as unknown as {
-        items: KnowledgeBaseItem[];
-      };
-      setBases(value.items);
-      setKnowledgeBaseId(
-        (current) =>
-          value.items.find((base) => base.id === current)?.id ?? value.items[0]?.id ?? '',
+      const page = await documentApi.list(projectId);
+      setDocs(page.items);
+      setError('');
+      setSelectedId((current) =>
+        page.items.some((item) => item.document.id === current)
+          ? current
+          : (page.items[0]?.document.id ?? ''),
       );
-      setLoadError('');
-    } catch {
-      setLoadError('无法加载知识库，请检查项目访问权限。');
+    } catch (caught) {
+      setError(formatApiError(caught));
     }
   }
 
   useEffect(() => {
-    if (projectId) void loadBases(projectId);
+    void load();
+    // 项目切换后重新读取文档；选中的知识库由文档自身携带
   }, [projectId]);
 
-  useEffect(() => {
-    if (!projectId) return;
-    const params = new URLSearchParams({ project: projectId });
-    if (knowledgeBaseId) params.set('kb', knowledgeBaseId);
-    setSearchParams(params, { replace: true });
-  }, [projectId, knowledgeBaseId, setSearchParams]);
-
-  function resetSearch() {
-    setHits([]);
-    setMetrics(null);
-    setSearched(false);
-    setSearchError('');
-    setSearchPage(1);
-  }
-
-  function openCreate() {
-    setNewBaseName('');
-    setModalError('');
-    setCreateOpen(true);
-  }
-
-  function openUpload() {
-    setUploadFile(null);
-    setModalError('');
-    setUploadOpen(true);
-  }
-
-  async function upload() {
-    if (!knowledgeBaseId.trim() || !accessToken || !uploadFile) return;
-    setUploading(true);
-    setModalError('');
+  async function openContent(revision: RevisionView) {
     try {
-      const form = new FormData();
-      form.append('file', uploadFile);
-      const response = await fetch(
-        `/api/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}/upload`,
-        {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}` },
-          body: form,
-        },
-      );
-      if (!response.ok) throw new Error('upload failed');
-      await loadBases();
-      setUploadOpen(false);
-      setUploadFile(null);
-      if (fileRef.current) fileRef.current.value = '';
-    } catch {
-      setModalError('上传失败，仅支持 10MB 以内的 TXT、Markdown 或 PDF。');
-    } finally {
-      setUploading(false);
+      const body = await documentApi.content(revision.id);
+      setContent({ revisionId: revision.id, text: base64ToUtf8(body.bodyBase64), sha256: body.sha256 });
+      setError('');
+    } catch (caught) {
+      setError(formatApiError(caught));
     }
   }
 
-  async function createBase() {
-    if (!projectId.trim() || !newBaseName.trim()) return;
-    try {
-      const created = (await knowledgeApi.create(projectId.trim(), {
-        name: newBaseName.trim(),
-      })) as unknown as KnowledgeBaseItem;
-      setNewBaseName('');
-      setCreateOpen(false);
-      setKnowledgeBaseId(created.id);
-      await loadBases();
-    } catch {
-      setModalError('创建知识库失败，请检查项目权限。');
+  async function createDocument() {
+    if (!projectId || !createForm.title.trim() || !createForm.body.trim()) {
+      setModalError('标题与正文不能为空。');
+      return;
     }
-  }
-
-  async function search(page = searchPage, term = query) {
-    const keyword = term.trim();
-    if (!keyword || !knowledgeBaseId.trim()) return;
-    setSearching(true);
+    const knowledgeBaseId = createForm.knowledgeBaseId.trim() || project?.defaultKnowledgeBaseId || '';
+    if (!knowledgeBaseId) {
+      setModalError('缺少知识库 ID：请填写目标知识库，或由服务端返回默认知识库。');
+      return;
+    }
+    setBusy(true);
+    setModalError('');
     try {
-      const payload = (await knowledgeApi.search(
+      const created = await documentApi.create(projectId, {
         knowledgeBaseId,
-        keyword,
-        page,
-        SEARCH_PAGE_SIZE,
-      )) as unknown as SearchPayload;
-      const list = Array.isArray(payload) ? payload : (payload.items ?? []);
-      const safeList = list.filter(
-        (hit): hit is SearchHit => Boolean(hit) && typeof hit.content === 'string',
-      );
-      setHits(safeList);
-      setSearchHasMore(
-        Array.isArray(payload) ? safeList.length >= SEARCH_PAGE_SIZE : Boolean(payload.hasMore),
-      );
-      setMetrics(
-        !Array.isArray(payload) && payload.metrics
-          ? {
-              candidateCount: payload.metrics.candidateCount,
-              totalDurationMs: payload.metrics.totalDurationMs,
-              truncated: Boolean(payload.truncated),
-            }
-          : null,
-      );
-      setSearched(true);
-      setSearchError('');
-    } catch {
-      setHits([]);
-      setSearched(false);
-      setSearchError('检索失败，请重新选择知识库后重试。');
+        kind: createForm.kind,
+        requirementId: createForm.requirementId.trim() || null,
+        title: createForm.title.trim(),
+        bodyBase64: utf8ToBase64(createForm.body),
+      });
+      setCreateOpen(false);
+      setCreateForm({ kind: 'KNOWLEDGE', title: '', body: '', knowledgeBaseId: '', requirementId: '' });
+      await load();
+      setSelectedId(created.document.id);
+      toast.success('候选文档已创建，发布需经过评审全部批准。');
+    } catch (caught) {
+      setModalError(formatApiError(caught));
     } finally {
-      setSearching(false);
+      setBusy(false);
     }
   }
 
-  const selected = bases.find((base) => base.id === knowledgeBaseId);
-  const documents = selected?.documents ?? [];
+  async function proposeRevision() {
+    if (!selected || !revisionForm.body.trim()) {
+      setModalError('新版本正文不能为空。');
+      return;
+    }
+    setBusy(true);
+    setModalError('');
+    try {
+      await documentApi.proposeRevision(selected.document.id, {
+        title: revisionForm.title.trim() || (published?.title ?? selected.document.kind),
+        bodyBase64: utf8ToBase64(revisionForm.body),
+      });
+      setRevisionOpen(false);
+      setRevisionForm({ title: '', body: '' });
+      await load();
+      setNotice('已追加候选修订；发布仍需评审全槽位批准。');
+    } catch (caught) {
+      setModalError(formatApiError(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openWithdraw() {
+    setWithdrawReason('');
+    setModalError('');
+    setWithdrawOpen(true);
+  }
+
+  async function withdraw(confirmation: { ticketId: string; ticketSecret: string }) {
+    if (!selected) throw new Error('缺少撤销目标');
+    if (!withdrawReason.trim()) throw new Error('撤销原因不能为空');
+    await documentApi.withdraw(selected.document.id, {
+      expectedVersion: selected.document.version,
+      reason: withdrawReason.trim(),
+      confirmation,
+    });
+    await load();
+    setNotice('发布已撤销；旧发布指针不会自动回退。');
+  }
 
   return (
     <section>
       <header className="page-head">
         <div>
           <h2>知识库</h2>
-          <p className="page-sub">沉淀项目知识，支持全文检索</p>
+          <p className="page-sub">候选修订先经评审全槽位批准，页面不提供直接发布入口。</p>
         </div>
         <div className="page-actions">
           <ProjectSelect
             onChange={() => {
-              setKnowledgeBaseId('');
-              setBases([]);
-              resetSearch();
+              setSelectedId('');
+              setContent(null);
             }}
           />
-          <button className="ghost" disabled={!projectId} onClick={openCreate}>
-            新建知识库
-          </button>
-          <button className="primary" disabled={!knowledgeBaseId} onClick={openUpload}>
-            上传文档
+          <button
+            className="primary"
+            onClick={() => {
+              setModalError('');
+              setCreateOpen(true);
+            }}
+          >
+            新建候选文档
           </button>
         </div>
       </header>
 
-      {loadError && <p className="error">{loadError}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && <p className="kb-notice">{notice}</p>}
 
       <div className="table-card">
         <div className="card-head">
           <h3>
-            知识库<small>{bases.length}</small>
+            文档<small>{docs.length}</small>
           </h3>
         </div>
         <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
-                <th>名称</th>
-                <th>文档数</th>
+                <th>类型</th>
+                <th>标题（当前发布版）</th>
+                <th>版本</th>
+                <th>修订数</th>
                 <th className="col-actions">操作</th>
               </tr>
             </thead>
             <tbody>
-              {bases.map((base) => (
+              {docs.map((item) => (
                 <tr
-                  key={base.id}
-                  className={knowledgeBaseId === base.id ? 'is-selected' : undefined}
+                  key={item.document.id}
+                  className={selectedId === item.document.id ? 'is-selected' : undefined}
                 >
                   <td>
-                    <strong>{base.name}</strong>
+                    <span className="status-tag">{KIND_LABELS[item.document.kind]}</span>
                   </td>
-                  <td className="cell-num">{base.documents?.length ?? 0}</td>
+                  <td>
+                    <strong>{item.publishedRevision?.title ?? '尚未发布'}</strong>
+                  </td>
+                  <td className="cell-num">v{item.document.version}</td>
+                  <td className="cell-num">{item.revisions.length}</td>
                   <td className="col-actions">
                     <div className="cell-actions row-actions">
-                      <button
-                        className="ghost"
-                        onClick={() => {
-                          setKnowledgeBaseId(base.id);
-                          resetSearch();
-                        }}
-                      >
-                        {knowledgeBaseId === base.id ? '当前' : '查看文档'}
+                      <button className="ghost" onClick={() => setSelectedId(item.document.id)}>
+                        {selectedId === item.document.id ? '当前' : '查看修订'}
                       </button>
                     </div>
                   </td>
                 </tr>
               ))}
-              {bases.length === 0 && (
+              {docs.length === 0 && (
                 <tr className="table-empty">
-                  <td colSpan={3}>
-                    {projectId
-                      ? '该项目还没有知识库，点右上角「新建知识库」创建。'
-                      : '先选择项目。'}
-                  </td>
+                  <td colSpan={5}>{projectId ? '该项目还没有可读文档。' : '先选择项目。'}</td>
                 </tr>
               )}
             </tbody>
@@ -300,273 +231,241 @@ export function Knowledge() {
         </div>
       </div>
 
-      <div className="table-card">
-        <div className="card-head">
-          <h3>
-            文档<small>{documents.length}</small>
-          </h3>
-          <span className="card-head-actions">
-            <small>{selected ? selected.name : '先选择知识库'}</small>
-          </span>
-        </div>
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>目录</th>
-                <th>文件名</th>
-              </tr>
-            </thead>
-            <tbody>
-              {documents.map((document) => {
-                const { dir, name } = splitFilename(document.filename);
-                return (
-                  <tr key={document.id}>
-                    <td>{dir ? <span className="status-tag">{dir}</span> : '—'}</td>
+      {selected && (
+        <div className="table-card">
+          <div className="card-head">
+            <h3>
+              修订<small>{selected.document.kind}</small>
+            </h3>
+            <span className="card-head-actions">
+              <button
+                className="ghost"
+                onClick={() => {
+                  setRevisionForm({ title: '', body: '' });
+                  setModalError('');
+                  setRevisionOpen(true);
+                }}
+              >
+                追加候选修订
+              </button>
+            </span>
+          </div>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>标题</th>
+                  <th>状态</th>
+                  <th>摘要</th>
+                  <th>字节</th>
+                  <th className="col-actions">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selected.revisions.map((revision) => (
+                  <tr key={revision.id}>
                     <td>
-                      <strong>{name}</strong>
+                      <strong>{revision.title}</strong>
+                    </td>
+                    <td>
+                      <span className="status-tag">{revision.state}</span>
+                    </td>
+                    <td>
+                      <span className="cell-mono cell-truncate" title={revision.digest}>
+                        {revision.digest.slice(0, 16)}
+                      </span>
+                    </td>
+                    <td className="cell-num">{revision.byteLength}</td>
+                    <td className="col-actions">
+                      <div className="cell-actions row-actions">
+                        <button className="ghost" onClick={() => void openContent(revision)}>
+                          查看正文
+                        </button>
+                        {revision.state === 'PUBLISHED' && (
+                          <button className="danger" onClick={openWithdraw}>
+                            撤销发布
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
-                );
-              })}
-              {documents.length === 0 && (
-                <tr className="table-empty">
-                  <td colSpan={2}>
-                    {selected ? '该知识库还没有文档，点右上角「上传文档」添加。' : '先选择知识库。'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="table-card">
-        <div className="card-head">
-          <h3>
-            检索<small>{selected ? `在「${selected.name}」中检索` : '先选择知识库'}</small>
-          </h3>
-          {metrics && (
-            <small>
-              候选 {metrics.candidateCount} · {metrics.totalDurationMs}ms
-              {metrics.truncated ? ' · 已截断' : ''}
-            </small>
-          )}
-        </div>
-        <div className="kb-search-panel">
-          <form
-            className="kb-search-bar"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void search(1);
-            }}
-          >
-            <svg
-              className="kb-search-icon"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              aria-hidden="true"
-            >
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" />
-            </svg>
-            <input
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setSearchPage(1);
-              }}
-              placeholder={knowledgeBaseId ? '输入关键词或问题，回车检索' : '先选择知识库'}
-              disabled={!knowledgeBaseId}
-              aria-label="检索关键词"
-            />
-            <button
-              className="primary"
-              type="submit"
-              disabled={!knowledgeBaseId || !query.trim() || searching}
-            >
-              {searching ? '检索中…' : '检索'}
-            </button>
-          </form>
-          {searchError && <p className="error">{searchError}</p>}
-        </div>
-
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>文档</th>
-                <th>分数</th>
-                <th>片段</th>
-              </tr>
-            </thead>
-            <tbody>
-              {hits.map((hit, index) => (
-                <tr key={`${hit.document?.filename ?? 'hit'}-${index}`}>
-                  <td>
-                    <span className="cell-truncate" title={hit.document?.filename ?? ''}>
-                      {hit.document?.filename ?? '未知文档'}
-                    </span>
-                  </td>
-                  <td className="cell-num">{hit.score.toFixed(2)}</td>
-                  <td>
-                    <p className="kb-hit-body">{highlight(hit.content, query)}</p>
-                  </td>
-                </tr>
-              ))}
-              {!searched && (
-                <tr className="table-empty">
-                  <td colSpan={3}>
-                    {knowledgeBaseId
-                      ? '输入问题检索知识库，回车即可。'
-                      : '选择项目与知识库后开始检索。'}
-                  </td>
-                </tr>
-              )}
-              {searched && hits.length === 0 && (
-                <tr className="table-empty">
-                  <td colSpan={3}>没有匹配的片段，换个关键词试试。</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {!searched && knowledgeBaseId && (
-          <div className="kb-examples kb-examples-foot">
-            {EXAMPLE_QUERIES.map((example) => (
-              <button
-                type="button"
-                className="ghost"
-                key={example}
-                onClick={() => {
-                  setQuery(example);
-                  void search(1, example);
-                }}
-              >
-                {example}
-              </button>
-            ))}
+                ))}
+                {selected.revisions.length === 0 && (
+                  <tr className="table-empty">
+                    <td colSpan={5}>该文档还没有修订。</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
-        )}
+        </div>
+      )}
 
-        {(searchPage > 1 || searchHasMore) && (
-          <div className="table-foot">
-            <span>第 {searchPage} 页</span>
-            <div className="pager">
-              <button
-                className="ghost"
-                disabled={searchPage === 1}
-                onClick={() => {
-                  const page = Math.max(1, searchPage - 1);
-                  setSearchPage(page);
-                  void search(page);
-                }}
-              >
-                上一页
-              </button>
-              <button
-                className="ghost"
-                disabled={!searchHasMore}
-                onClick={() => {
-                  const page = searchPage + 1;
-                  setSearchPage(page);
-                  void search(page);
-                }}
-              >
-                下一页
-              </button>
-            </div>
+      {content && (
+        <div className="table-card">
+          <div className="card-head">
+            <h3>
+              正文<small>{content.revisionId}</small>
+            </h3>
+            <span className="card-head-actions">
+              <small className="cell-mono">sha256 {content.sha256}</small>
+            </span>
           </div>
-        )}
-      </div>
+          <pre className="search-result">{content.text}</pre>
+        </div>
+      )}
 
       <Modal
         open={createOpen}
-        title="新建知识库"
-        description="知识库用于按主题归集文档，可被 PRD 生成引用。"
-        size="sm"
+        title="新建候选文档"
+        description="创建后仍是候选修订，发布必须由评审全部批准。"
+        size="lg"
         onClose={() => setCreateOpen(false)}
         footer={
           <>
             <button className="ghost" onClick={() => setCreateOpen(false)}>
               取消
             </button>
-            <button
-              className="primary"
-              disabled={!newBaseName.trim()}
-              onClick={() => void createBase()}
-            >
-              创建
+            <button className="primary" disabled={busy} onClick={() => void createDocument()}>
+              {busy ? '创建中…' : '创建候选'}
             </button>
           </>
         }
       >
         <div className="form-grid">
           <div className="field">
-            <span>知识库名称</span>
+            <span>文档类型</span>
+            <select
+              value={createForm.kind}
+              aria-label="文档类型"
+              onChange={(event) =>
+                setCreateForm({ ...createForm, kind: event.target.value as DocumentKind })
+              }
+            >
+              {KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {KIND_LABELS[kind]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <span>知识库 ID</span>
             <input
-              value={newBaseName}
-              onChange={(event) => {
-                setNewBaseName(event.target.value);
-                setModalError('');
-              }}
-              placeholder="例如：产品知识库"
-              aria-label="知识库名称"
+              value={createForm.knowledgeBaseId}
+              onChange={(event) => setCreateForm({ ...createForm, knowledgeBaseId: event.target.value })}
+              aria-label="知识库 ID"
+              placeholder={project?.defaultKnowledgeBaseId ?? 'UUID'}
             />
           </div>
-          {modalError && <p className="modal-error">{modalError}</p>}
+          <div className="field">
+            <span>绑定需求 ID（UNDERSTANDING / PRD 必填）</span>
+            <input
+              value={createForm.requirementId}
+              onChange={(event) => setCreateForm({ ...createForm, requirementId: event.target.value })}
+              aria-label="绑定需求 ID"
+              placeholder="UUID"
+            />
+          </div>
+          <div className="field">
+            <span>标题</span>
+            <input
+              value={createForm.title}
+              onChange={(event) => setCreateForm({ ...createForm, title: event.target.value })}
+              aria-label="文档标题"
+            />
+          </div>
+          <div className="field">
+            <span>正文（Markdown）</span>
+            <textarea
+              value={createForm.body}
+              onChange={(event) => setCreateForm({ ...createForm, body: event.target.value })}
+              rows={12}
+              aria-label="文档正文"
+            />
+          </div>
+          {modalError && (
+            <p className="modal-error" role="alert">
+              {modalError}
+            </p>
+          )}
         </div>
       </Modal>
 
       <Modal
-        open={uploadOpen}
-        title="上传文档"
-        description={selected ? `上传到「${selected.name}」` : ''}
-        size="sm"
-        onClose={() => setUploadOpen(false)}
+        open={revisionOpen}
+        title="追加候选修订"
+        description="返修后重新提交评审；不直接改变发布指针。"
+        size="lg"
+        onClose={() => setRevisionOpen(false)}
         footer={
           <>
-            <button className="ghost" onClick={() => setUploadOpen(false)}>
+            <button className="ghost" onClick={() => setRevisionOpen(false)}>
               取消
             </button>
-            <button
-              className="primary"
-              disabled={!uploadFile || uploading}
-              onClick={() => void upload()}
-            >
-              {uploading ? '上传中…' : '上传'}
+            <button className="primary" disabled={busy} onClick={() => void proposeRevision()}>
+              {busy ? '提交中…' : '追加修订'}
             </button>
           </>
         }
       >
         <div className="form-grid">
-          <label className="file-drop">
-            <strong>{uploadFile ? uploadFile.name : '选择文件'}</strong>
-            <span>支持 10MB 以内的 TXT、Markdown 或 PDF</span>
+          <div className="field">
+            <span>标题</span>
             <input
-              ref={fileRef}
-              type="file"
-              accept=".txt,.md,.pdf,text/plain,text/markdown,application/pdf"
-              style={{ display: 'none' }}
-              aria-label="选择文档文件"
-              onChange={(event) => {
-                setUploadFile(event.target.files?.[0] ?? null);
-                setModalError('');
-              }}
+              value={revisionForm.title}
+              onChange={(event) => setRevisionForm({ ...revisionForm, title: event.target.value })}
+              aria-label="修订标题"
             />
-            <button type="button" className="ghost" onClick={() => fileRef.current?.click()}>
-              浏览文件
-            </button>
-          </label>
-          {modalError && <p className="modal-error">{modalError}</p>}
+          </div>
+          <div className="field">
+            <span>正文（Markdown）</span>
+            <textarea
+              value={revisionForm.body}
+              onChange={(event) => setRevisionForm({ ...revisionForm, body: event.target.value })}
+              rows={12}
+              aria-label="修订正文"
+            />
+          </div>
+          {modalError && (
+            <p className="modal-error" role="alert">
+              {modalError}
+            </p>
+          )}
         </div>
       </Modal>
+
+      <ConfirmationPrompt
+        open={withdrawOpen}
+        title="撤销发布（需二次验证）"
+        description={selected ? `文档 ${selected.document.id} v${selected.document.version}` : ''}
+        binding={
+          selected
+            ? {
+                action: 'KNOWLEDGE_WITHDRAW',
+                projectId: selected.document.projectId,
+                targetType: 'KNOWLEDGE_DOCUMENT',
+                targetId: selected.document.id,
+                expectedVersion: selected.document.version,
+                roleSlot: null,
+                payload: { reason: withdrawReason.trim() },
+              }
+            : null
+        }
+        submitLabel="撤销发布"
+        onClose={() => setWithdrawOpen(false)}
+        onConfirmed={withdraw}
+      >
+        <div className="field">
+          <span>撤销原因（必填）</span>
+          <textarea
+            value={withdrawReason}
+            onChange={(event) => setWithdrawReason(event.target.value)}
+            aria-label="撤销原因"
+            rows={3}
+          />
+        </div>
+      </ConfirmationPrompt>
     </section>
   );
 }

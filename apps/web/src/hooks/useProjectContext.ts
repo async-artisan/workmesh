@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ProjectItem } from '../api/resources';
+import type { ProjectView } from '../api/resources';
 import { loadProjects, useProjectStore } from '../store/project';
 
 /**
@@ -9,7 +9,7 @@ import { loadProjects, useProjectStore } from '../store/project';
 export function useProjectContext() {
   const projectId = useProjectStore((state) => state.projectId);
   const setProjectId = useProjectStore((state) => state.setProjectId);
-  const [projects, setProjects] = useState<ProjectItem[]>([]);
+  const [projects, setProjects] = useState<ProjectView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 

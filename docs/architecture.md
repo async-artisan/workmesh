@@ -1,7 +1,9 @@
-# ReqFlow architecture
+# WorkMesh architecture
 
-ReqFlow is a pnpm workspace. `apps/api` owns the NestJS HTTP boundary and Prisma persistence. `apps/web` is the React dashboard, `apps/cli` provides local automation, and `packages/shared` contains cross-app contracts.
+WorkMesh is a pnpm workspace. `apps/api` owns the NestJS HTTP boundary and Prisma persistence, `apps/web` is the React workbench, `apps/cli` provides local automation for agents, and `packages/shared` contains cross-app contracts.
 
-The request path is: controller → service → Prisma/Ai adapter. Authenticated project resources verify membership before reading or writing. AI calls are optional: without provider keys, local deterministic embeddings and a reviewable Markdown draft keep development and tests offline.
+The request path is `controller → domain service → repository → Prisma`. Services never trust client-declared identity, roles, versions or approval state: the guard derives a `Principal` (HUMAN WebSession or AGENT bearer credential), then project membership and knowledge-base read access are re-checked per request.
 
-Trace links use a polymorphic source/target pair so requirements, PRDs, commits and test artifacts can be connected without exposing credentials or coupling the database to a single provider.
+All state-changing domain operations run in a single Serializable transaction with project-row locking, compare-and-set updates on versions, and bounded retries on serialization failures. Identity, decisions, publications, confirmation tickets, idempotent operations and audit events are append-only records: revocations and withdrawals add new records instead of rewriting history.
+
+Agent work is bounded by immutable inputs: a published role-package version, a deterministic `ContextSnapshot`, and a `TaskClaim` generation. Artifacts are accepted only with real bytes or complete code references, and code evidence is normalized from a provider adapter before the platform consumes it. GitHub is the only implemented code host; the adapter interface and stable repository identity keep vendor fields out of the domain layer.

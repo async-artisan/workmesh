@@ -1,47 +1,59 @@
 import { FormEvent, useState } from 'react';
-import { authApi } from '../api/auth';
-import { useAuthStore } from '../store/auth';
 import { useNavigate } from 'react-router-dom';
+import { authApi, bootstrapSession } from '../api/auth';
+import { formatApiError, getCsrfToken } from '../api/client';
 
 export function Register() {
-  const setAuth = useAuthStore((state) => state.setAuth);
   const navigate = useNavigate();
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    setBusy(true);
+    setError('');
     try {
-      const result = await authApi.register({
+      if (!getCsrfToken()) await bootstrapSession();
+      const name = String(form.get('name') || '').trim();
+      await authApi.register({
         email: String(form.get('email')),
         password: String(form.get('password')),
-        name: String(form.get('name') || ''),
+        // 空姓名不提交，避免触发服务端 1–80 长度校验。
+        ...(name ? { name } : {}),
       });
-      setAuth(result.user, result.accessToken, result.refreshToken);
       navigate('/', { replace: true });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '注册失败');
+      setError(formatApiError(caught));
+    } finally {
+      setBusy(false);
     }
   }
+
   return (
     <section className="auth-card">
-      <span className="eyebrow">REQFLOW ONBOARDING</span>
+      <span className="eyebrow">WORKMESH ONBOARDING</span>
       <h1>创建工作区</h1>
       <form onSubmit={submit}>
         <label>
           姓名
-          <input name="name" />
+          <input name="name" autoComplete="name" />
         </label>
         <label>
           邮箱
-          <input name="email" type="email" required />
+          <input name="email" type="email" required autoComplete="email" />
         </label>
         <label>
           密码
-          <input name="password" type="password" minLength={8} required />
+          <input name="password" type="password" minLength={8} required autoComplete="new-password" />
         </label>
-        {error && <p className="error">{error}</p>}
-        <button className="primary" type="submit">
-          注册
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <button className="primary" type="submit" disabled={busy}>
+          {busy ? '注册中…' : '注册'}
         </button>
       </form>
     </section>

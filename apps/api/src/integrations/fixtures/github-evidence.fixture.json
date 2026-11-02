@@ -1,0 +1,278 @@
+{
+  "repository": {
+    "id": 1296269,
+    "name": "Hello-World",
+    "full_name": "octocat/Hello-World",
+    "owner": { "login": "octocat", "type": "User" },
+    "default_branch": "main"
+  },
+  "repositoryRenamed": {
+    "id": 1296269,
+    "name": "Hello-World-Renamed",
+    "full_name": "octocat/Hello-World-Renamed",
+    "owner": { "login": "octocat", "type": "User" },
+    "default_branch": "main"
+  },
+  "secondRepository": {
+    "id": 555001,
+    "name": "Second-Repo",
+    "full_name": "octocat/Second-Repo",
+    "owner": { "login": "octocat", "type": "User" },
+    "default_branch": "main"
+  },
+  "pullRequest": {
+    "id": 987654,
+    "number": 42,
+    "title": "Add evidence normalization",
+    "user": { "id": 1001, "login": "author", "type": "User" },
+    "head": { "sha": "head-sha-current", "ref": "feature/evidence" },
+    "base": { "sha": "base-sha-main", "ref": "main" },
+    "state": "closed",
+    "merged": true,
+    "merged_at": "2026-10-31T10:00:00Z",
+    "merge_commit_sha": "merge-sha-current",
+    "updated_at": "2026-10-31T10:00:00Z"
+  },
+  "openPullRequest": {
+    "id": 987655,
+    "number": 43,
+    "title": "Work in progress",
+    "user": { "id": 1002, "login": "second-author", "type": "User" },
+    "head": { "sha": "head-sha-open", "ref": "feature/wip" },
+    "base": { "sha": "base-sha-main", "ref": "main" },
+    "state": "open",
+    "merged": false,
+    "merged_at": null,
+    "merge_commit_sha": null,
+    "updated_at": "2026-10-31T11:00:00Z"
+  },
+  "thirdPullRequest": {
+    "id": 987656,
+    "number": 44,
+    "title": "Follow-up fix",
+    "user": { "id": 1003, "login": "third-author", "type": "User" },
+    "head": { "sha": "head-sha-third", "ref": "feature/fix" },
+    "base": { "sha": "base-sha-main", "ref": "main" },
+    "state": "closed",
+    "merged": true,
+    "merged_at": "2026-10-31T12:00:00Z",
+    "merge_commit_sha": "merge-sha-third",
+    "updated_at": "2026-10-31T12:00:00Z"
+  },
+  "secondPullRequest": {
+    "id": 7001,
+    "number": 7,
+    "title": "Second repository change",
+    "user": { "id": 1004, "login": "second-repo-author", "type": "User" },
+    "head": { "sha": "head-sha-second-repo", "ref": "feature/second" },
+    "base": { "sha": "base-sha-main", "ref": "main" },
+    "state": "closed",
+    "merged": true,
+    "merged_at": "2026-10-31T13:00:00Z",
+    "merge_commit_sha": "merge-sha-second-repo",
+    "updated_at": "2026-10-31T13:00:00Z"
+  },
+  "pullsPage1": [
+    {
+      "id": 987654,
+      "number": 42,
+      "title": "Add evidence normalization",
+      "user": { "id": 1001, "login": "author", "type": "User" },
+      "head": { "sha": "head-sha-current", "ref": "feature/evidence" },
+      "base": { "sha": "base-sha-main", "ref": "main" },
+      "state": "closed",
+      "merged": true,
+      "merged_at": "2026-10-31T10:00:00Z",
+      "merge_commit_sha": "merge-sha-current",
+      "updated_at": "2026-10-31T10:00:00Z"
+    },
+    {
+      "id": 987655,
+      "number": 43,
+      "title": "Work in progress",
+      "user": { "id": 1002, "login": "second-author", "type": "User" },
+      "head": { "sha": "head-sha-open", "ref": "feature/wip" },
+      "base": { "sha": "base-sha-main", "ref": "main" },
+      "state": "open",
+      "merged": false,
+      "merged_at": null,
+      "merge_commit_sha": null,
+      "updated_at": "2026-10-31T11:00:00Z"
+    }
+  ],
+  "pullsPage2": [
+    {
+      "id": 987656,
+      "number": 44,
+      "title": "Follow-up fix",
+      "user": { "id": 1003, "login": "third-author", "type": "User" },
+      "head": { "sha": "head-sha-third", "ref": "feature/fix" },
+      "base": { "sha": "base-sha-main", "ref": "main" },
+      "state": "closed",
+      "merged": true,
+      "merged_at": "2026-10-31T12:00:00Z",
+      "merge_commit_sha": "merge-sha-third",
+      "updated_at": "2026-10-31T12:00:00Z"
+    }
+  ],
+  "secondPulls": [
+    {
+      "id": 7001,
+      "number": 7,
+      "title": "Second repository change",
+      "user": { "id": 1004, "login": "second-repo-author", "type": "User" },
+      "head": { "sha": "head-sha-second-repo", "ref": "feature/second" },
+      "base": { "sha": "base-sha-main", "ref": "main" },
+      "state": "closed",
+      "merged": true,
+      "merged_at": "2026-10-31T13:00:00Z",
+      "merge_commit_sha": "merge-sha-second-repo",
+      "updated_at": "2026-10-31T13:00:00Z"
+    }
+  ],
+  "reviews": {
+    "valid": [
+      {
+        "id": 501,
+        "user": { "id": 2001, "login": "reviewer", "type": "User" },
+        "state": "approved",
+        "commit_id": "head-sha-current",
+        "submitted_at": "2026-10-31T09:00:00Z"
+      }
+    ],
+    "author_self": [
+      {
+        "id": 510,
+        "user": { "id": 1001, "login": "author", "type": "User" },
+        "state": "approved",
+        "commit_id": "head-sha-current",
+        "submitted_at": "2026-10-31T09:10:00Z"
+      }
+    ],
+    "bot_reviewer": [
+      {
+        "id": 520,
+        "user": { "id": 3001, "login": "automation-bot", "type": "Bot" },
+        "state": "approved",
+        "commit_id": "head-sha-current",
+        "submitted_at": "2026-10-31T09:20:00Z"
+      }
+    ],
+    "stale_commit": [
+      {
+        "id": 530,
+        "user": { "id": 2001, "login": "reviewer", "type": "User" },
+        "state": "approved",
+        "commit_id": "head-sha-old",
+        "submitted_at": "2026-10-31T09:30:00Z"
+      }
+    ],
+    "dismissed": [
+      {
+        "id": 540,
+        "user": { "id": 2001, "login": "reviewer", "type": "User" },
+        "state": "approved",
+        "commit_id": "head-sha-current",
+        "submitted_at": "2026-10-31T08:00:00Z"
+      },
+      {
+        "id": 541,
+        "user": { "id": 2001, "login": "reviewer", "type": "User" },
+        "state": "dismissed",
+        "commit_id": "head-sha-current",
+        "submitted_at": "2026-10-31T09:40:00Z"
+      }
+    ],
+    "changes_requested": [
+      {
+        "id": 550,
+        "user": { "id": 2001, "login": "reviewer", "type": "User" },
+        "state": "changes_requested",
+        "commit_id": "head-sha-current",
+        "submitted_at": "2026-10-31T09:50:00Z"
+      }
+    ]
+  },
+  "reviewsPage1": [
+    {
+      "id": 501,
+      "user": { "id": 2001, "login": "reviewer", "type": "User" },
+      "state": "approved",
+      "commit_id": "head-sha-current",
+      "submitted_at": "2026-10-31T09:00:00Z"
+    }
+  ],
+  "reviewsPage2": [
+    {
+      "id": 502,
+      "user": { "id": 2002, "login": "second-reviewer", "type": "User" },
+      "state": "commented",
+      "commit_id": "head-sha-current",
+      "submitted_at": "2026-10-31T10:30:00Z"
+    }
+  ],
+  "scenarios": {
+    "valid": {
+      "reviewsKey": "valid",
+      "options": { "signatureValid": true, "artifactCommitSha": "head-sha-current" }
+    },
+    "author_self_review": {
+      "reviewsKey": "author_self",
+      "options": { "signatureValid": true, "artifactCommitSha": "head-sha-current" }
+    },
+    "bot_reviewer": {
+      "reviewsKey": "bot_reviewer",
+      "options": { "signatureValid": true, "artifactCommitSha": "head-sha-current" }
+    },
+    "stale_commit": {
+      "reviewsKey": "stale_commit",
+      "options": { "signatureValid": true, "artifactCommitSha": "head-sha-current" }
+    },
+    "dismissed": {
+      "reviewsKey": "dismissed",
+      "options": { "signatureValid": true, "artifactCommitSha": "head-sha-current" }
+    },
+    "changes_requested": {
+      "reviewsKey": "changes_requested",
+      "options": { "signatureValid": true, "artifactCommitSha": "head-sha-current" }
+    },
+    "head_changed": {
+      "reviewsKey": "valid",
+      "options": { "signatureValid": true, "artifactCommitSha": "head-sha-old" }
+    },
+    "bad_signature": {
+      "reviewsKey": "valid",
+      "options": { "signatureValid": false, "artifactCommitSha": "head-sha-current" }
+    }
+  },
+  "webhookReviewPayload": {
+    "action": "submitted",
+    "repository": {
+      "id": 1296269,
+      "name": "Hello-World",
+      "full_name": "octocat/Hello-World",
+      "owner": { "login": "octocat", "type": "User" },
+      "default_branch": "main"
+    },
+    "pull_request": {
+      "id": 987654,
+      "number": 42,
+      "title": "Add evidence normalization",
+      "user": { "id": 1001, "login": "author", "type": "User" },
+      "head": { "sha": "head-sha-current", "ref": "feature/evidence" },
+      "base": { "sha": "base-sha-main", "ref": "main" },
+      "state": "closed",
+      "merged": true,
+      "merged_at": "2026-10-31T10:00:00Z",
+      "merge_commit_sha": "merge-sha-current",
+      "updated_at": "2026-10-31T10:00:00Z"
+    },
+    "review": {
+      "id": 501,
+      "user": { "id": 2001, "login": "reviewer", "type": "User" },
+      "state": "approved",
+      "commit_id": "head-sha-current",
+      "submitted_at": "2026-10-31T09:00:00Z"
+    }
+  }
+}

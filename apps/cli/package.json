@@ -1,13 +1,15 @@
 {
-  "name": "@reqflow/cli",
+  "name": "@workmesh/cli",
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "files": ["dist", "LICENSE"],
   "bin": {
-    "reqflow": "./dist/index.js"
+    "workmesh": "./dist/index.js"
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts",
+    "pack:check": "pnpm build && pnpm pack --pack-destination /tmp/workmesh-cli-pack",
     "dev": "tsx watch src/index.ts",
     "type-check": "tsc --noEmit",
     "lint": "tsc --noEmit",
@@ -15,7 +17,7 @@
   },
   "dependencies": {
     "commander": "^12.1.0",
-    "@reqflow/shared": "workspace:*"
+    "@workmesh/shared": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8.3.0",

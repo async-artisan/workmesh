@@ -1,33 +1,33 @@
 #!/usr/bin/env bash
+# 隔离数据库套件入口。
+# 流程：入口级目标核验 -> 隔离目录 Prisma validate/generate（不加载 .env）-> 只读身份探针 -> 套件内二次核验。
+# 迁移是写操作，默认不执行；需显式 --apply-migrations 且目标已核验。
+# URL 由用户批准通道配置，不在命令行内写连接串。
 set -euo pipefail
 
-if [[ -z "${REQFLOW_TEST_DATABASE_URL:-}" ]]; then
-  echo "Set REQFLOW_TEST_DATABASE_URL to a disposable local reqflow_test_* PostgreSQL database."
-  exit 2
-fi
-
-node -e '
-const value = process.env.REQFLOW_TEST_DATABASE_URL;
-let url;
-try { url = new URL(value); } catch { process.exit(1); }
-const database = url.pathname.replace(/^\//, "");
-const localUser = require("node:os").userInfo().username;
-let username;
-try { username = decodeURIComponent(url.username); } catch { process.exit(1); }
-if (
-  !["127.0.0.1", "localhost", "::1"].includes(url.hostname) ||
-  !database.startsWith("reqflow_test_") ||
-  username !== localUser ||
-  url.password
-) process.exit(1);
-' || {
-  echo "Refusing integration tests outside a local-user reqflow_test_* database without a password."
-  exit 2
-}
+APPLY_MIGRATIONS=0
+for arg in "$@"; do
+  case "$arg" in
+    --apply-migrations) APPLY_MIGRATIONS=1 ;;
+    *) echo "unknown argument: $arg" >&2; exit 2 ;;
+  esac
+done
 
 cd "$(dirname "$0")/.."
-pnpm --filter @reqflow/api build
-DATABASE_URL="$REQFLOW_TEST_DATABASE_URL" NODE_ENV=test \
-  pnpm --filter @reqflow/api exec prisma migrate deploy --schema prisma/schema.prisma
-DATABASE_URL="$REQFLOW_TEST_DATABASE_URL" NODE_ENV=test \
-  pnpm --filter @reqflow/api test:integration
+
+corepack pnpm --filter @workmesh/shared build >/dev/null
+
+node scripts/lib/check-test-database.mjs
+
+node scripts/lib/isolated-prisma.mjs
+
+if [[ "$APPLY_MIGRATIONS" == "1" ]]; then
+  echo "applying formal migrations on the verified isolated target"
+  WORKMESH_V1_DATABASE_URL="$WORKMESH_TEST_DATABASE_URL" NODE_ENV=test \
+    corepack pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/schema.prisma
+else
+  echo "skipping migrations: pass --apply-migrations after the target and backup are confirmed"
+fi
+
+WORKMESH_V1_DATABASE_URL="$WORKMESH_TEST_DATABASE_URL" NODE_ENV=test \
+  corepack pnpm --filter @workmesh/api test:integration

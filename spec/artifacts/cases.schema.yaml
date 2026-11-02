@@ -1,0 +1,29 @@
+# 用例工件规范（kind: CASES）
+# 允许扩展名：.md .yaml .yml .json —— 交付时 --kind CASES
+#
+# 字段约定（YAML 示例）：
+
+requirement: YFF-REQ-123
+task: YFF-REQ-123-T03
+cases:
+  - id: TC-YFF-REQ-123-01
+    title: 未配置 key 时禁用模型选择
+    requirement: YFF-REQ-123
+    precondition: 未配置任何 provider key
+    steps:
+      - 打开设置页
+      - 查看模型选择控件
+    expected: 控件禁用，提示"请先配置 key"
+    status: passed # passed | failed | blocked | skipped
+    evidence: cases/results/TC-YFF-REQ-123-01.log
+
+# 自检项（workmesh deliver 本地执行）：
+#   exists    文件真实存在
+#   fileType  扩展名属于 CASES 白名单（.ts 会被拒）
+#   notEmpty  文件非空
+#   anchor    路径或摘要含需求编号
+#
+# 约定：
+#   - 每条验收标准至少一个用例
+#   - 用例 ID 为 TC-<需求编号>-<序号>
+#   - 缺陷必须挂需求编号，不留孤立缺陷

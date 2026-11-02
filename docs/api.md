@@ -1,15 +1,71 @@
-# API quick reference
+# WorkMesh API
 
-- `GET /api/health` — health probe.
-- `GET /api/dashboard` — authenticated workspace summary scoped to the current user's projects.
-- `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/refresh` — authentication.
-- `GET/PATCH /api/auth/profile`, `PATCH /api/auth/password` — authenticated profile and password changes.
-- `GET/POST /api/projects`, `PUT/DELETE /api/projects/:id` — member-scoped projects.
-- `GET/POST/PATCH/DELETE /api/requirements` — member-scoped requirement lifecycle.
-- `GET/POST /api/requirements/:id/prds` — list and submit PRDs. PRD 正文由角色在本地撰写后提交，平台不做生成。
-- `GET /api/prds/:id/export?format=html` — escaped HTML export; omit `format` for Markdown.
-- `GET/POST /api/knowledge-bases/project/:projectId`, `POST /api/knowledge-bases/:id/upload`, `GET /api/knowledge-bases/:id/search` — knowledge ingestion and hybrid search.
-- `GET/POST /api/traces/...` — trace graph and links.
-- `POST /api/integrations/git/webhook` — GitHub/GitLab signature or token verified webhook.
+正式协议根路径为 `/api/v1`（Nest 全局前缀 `api` + 领域控制器前缀 `v1`）。除健康探针与 Webhook 外，所有接口都要求认证，并在服务端重新校验项目成员资格与知识库读权限。
 
-Swagger is available at `/api/docs` after the API starts.
+## 通用约定
+
+- 请求体为严格 JSON：拒绝浮点数、重复键、尾随内容和超限深度；DTO 开启 `whitelist` 与 `forbidNonWhitelisted`，未声明字段一律 400。
+- 错误 envelope：`{ "error": { "code": "FORBIDDEN", "message": "...", "requestId": "..." } }`。
+- 写接口必须携带 `Idempotency-Key`；同一键同语义重放返回原结果，同键异语义返回 `409 IDEMPOTENCY_CONFLICT`。
+- 带版本的资源（需求、任务、评审请求、文档、附件集等）必须提交 `expectedVersion`，不一致返回 `409 VERSION_CONFLICT`。
+- 需要二次确认的高风险动作（发布、撤销、批准决定、撤回、升级流程等）必须先用 `POST /api/v1/auth/confirmation-tickets` 取得一次性票据，并在请求中携带 `confirmation`；票据绑定主体、会话、动作、目标、版本与 payload 摘要，只能消费一次。
+
+## 认证
+
+- `GET /api/v1/auth/session` — 读取当前浏览器会话与 CSRF 状态。
+- `POST /api/v1/auth/register`、`POST /api/v1/auth/login`、`POST /api/v1/auth/logout` — 注册、登录与登出。
+- `GET /api/v1/auth/me` — 当前主体。
+- `GET /api/v1/auth/credentials`、`DELETE /api/v1/auth/credentials/:credentialId` — 凭据列表（仅 HUMAN）与吊销；AGENT 只能吊销自己当前使用的凭据，其余返回 404。
+- `POST /api/v1/auth/cli-authorizations`、`POST /api/v1/auth/cli-authorizations/lookup`、`POST /api/v1/auth/cli-authorizations/:authorizationId/approve`、`POST /api/v1/auth/cli-authorizations/:authorizationId/deny`、`POST /api/v1/auth/cli-authorizations/poll` — CLI 设备授权（PKCE S256）。
+- `POST /api/v1/auth/action-previews`、`POST /api/v1/auth/confirmation-tickets` — 动作预览与一次性确认票据。
+
+人使用不透明 `WebSession` Cookie（`__Host-wm_session`，本地可显式切到无前缀名）加双值 CSRF（`__Host-wm_csrf`）；Agent 使用 `Authorization: Bearer wm_a1.<credentialId>.<secret>`，凭据只在创建时明文返回一次。只有 HUMAN Web 会话可以作出正式批准或撤销。
+
+## 项目与知识
+
+- `GET/POST /api/v1/projects`、`PUT/DELETE /api/v1/projects/:projectId`、`GET /api/v1/projects/:projectId/members`、`GET /api/v1/projects/:projectId/roles` — 项目、成员与业务角色；项目视图始终带 `defaultKnowledgeBaseId`。
+- `PUT /api/v1/projects/:projectId/members/:userId/roles/:roleId`、`POST /api/v1/projects/:projectId/members/:userId/roles/:roleId/revoke` — 授权 OWNER/ADMIN 的 HUMAN 授予/撤销业务角色；票据绑定 `PROJECT_ROLE_ASSIGN`/`PROJECT_ROLE_UNASSIGN`、目标 `PROJECT_MEMBER`、`expectedVersion` 为成员版本。
+- `GET/POST /api/v1/projects/:projectId/knowledge-bases` — 知识库分页列表（PROJECT 库默认可读，RESTRICTED 库按当前用户/活动角色 grant 过滤）与创建（OWNER/ADMIN，需幂等键）。
+- `GET/PUT /api/v1/knowledge-bases/:knowledgeBaseId/access` — 读取/替换知识库 ACL；替换需 `expectedVersion`、`expectedAuthzVersion`、`KB_ACCESS_REPLACE` 票据与幂等键，撤销的 grant 保留历史。
+- `GET /api/v1/knowledge-bases/:knowledgeBaseId/search?q` — 只在当前已发布修订中做标题/正文包含检索，返回摘要片段与稳定游标。
+- `GET/POST /api/v1/projects/:projectId/documents`、`GET /api/v1/documents/:documentId`、`GET /api/v1/documents/:documentId/revisions`、`GET /api/v1/documents/:documentId/revisions/:revisionId`、`GET /api/v1/document-revisions/:revisionId/content` — 正式文档与修订（正文在发布前仅对有权限的成员可见）。
+- `POST /api/v1/documents/:documentId/revisions`、`POST /api/v1/documents/:documentId/restore` — 提交新候选修订或从历史修订恢复；均生成评审请求，不改发布指针。
+- `POST /api/v1/documents/:documentId/withdraw` — 撤回当前发布（追加 `WITHDRAW` 发布记录，清空发布指针）。
+
+## 流程与角色包
+
+- `GET/POST /api/v1/projects/:projectId/workflow-definitions`、`POST /api/v1/projects/:projectId/workflow-definitions/validate`、`POST /api/v1/projects/:projectId/workflow-definitions/:workflowKey/publish`、`GET /api/v1/workflow-definition-revisions/:revisionId` — 受限 DAG 定义校验与发布。
+- `POST /api/v1/requirements/:requirementId/workflow-instances`、`GET /api/v1/workflow-instances/:instanceId` — 为需求创建流程实例并读取步骤/任务状态。
+- `GET/POST /api/v1/projects/:projectId/role-packages`、`GET /api/v1/projects/:projectId/role-packages/:packageId/versions/:version`、`GET /api/v1/projects/:projectId/role-packages/:packageId/versions/:version/resources/:resourceId` — 角色包清单与锁定版本资源。
+
+## 评审
+
+- `POST /api/v1/review-requests` — 创建评审请求；只接受 `{ subject: { kind: 'DOCUMENT_REVISION' | 'TASK_ARTIFACT_SET', id }, expectedVersion, taskId? }`，kind、审批槽位与 subject 摘要全部服务端派生。同一 subject 已有 `OPEN` 请求时返回既有请求，需幂等键。
+- `GET /api/v1/projects/:projectId/review-requests?assignedToMe&status&limit&cursor` — 项目评审待办分页；按主体可见范围、指派/业务角色与状态过滤。
+- `GET /api/v1/review-requests/:reviewId` — 读取评审请求、槽位与已作决定。
+- `POST /api/v1/review-requests/:reviewId/decisions` — 提交 `APPROVE` / `CHANGES_REQUESTED` / `REJECT`；仅当前槽位资格的 HUMAN，携带父请求 `expectedVersion`、一次性票据与幂等键。全部槽位批准时在同一事务完成发布或任务验收效应。
+- `POST /api/v1/review-decisions/:decisionId/revoke` — 撤销批准；`expectedVersion` 指所属评审请求版本。追加撤销记录，失效发布指针与受影响任务，不删除历史。
+
+## 任务与工件
+
+- `GET /api/v1/tasks/:taskId`、`POST /api/v1/tasks/:taskId/claims`、`POST /api/v1/tasks/:taskId/release`、`POST /api/v1/tasks/:taskId/work-status` — 认领/释放与工作状态；认领按任务当前代次串行，客户端不声明版本。
+- `GET /api/v1/projects/:projectId/tasks/ready?roleId&limit&cursor` — 就绪任务分页：`OPEN`、无活动认领、`ACTIVE`，且同实例同步骤的前序依赖全部 `DONE`。Agent 只能看本凭据角色，HUMAN 按责任人与活动角色范围过滤。
+- `POST /api/v1/tasks/:taskId/artifact-sets`、`GET /api/v1/artifact-sets/:id` — 交付并读取工件集（只接受真实字节或完整代码引用，交付时复核基线）。
+- `POST /api/v1/tasks/:taskId/context-snapshots`、`GET /api/v1/context-snapshots/:snapshotId`、`GET /api/v1/context-snapshots/:snapshotId/resources/:refId` — 确定性上下文快照与受限资源读取。
+- `GET /api/v1/projects/:projectId/board` — 项目看板聚合。
+- `GET /api/v1/change-recipients`、`POST /api/v1/change-recipients/:id/ack` — 变更传播收件人与确认。
+
+## 代码证据
+
+- `POST /api/v1/integrations/github/webhooks` — GitHub Webhook（HMAC-SHA256 签名校验，免会话认证）。
+- `POST /api/v1/integrations/github/code-evidence/prepare`、`POST /api/v1/integrations/github/code-evidence/:ticketId/use` — 准备提交级代码证据并把证据绑定到工件集。仓库身份使用稳定的数值仓库 ID，owner/name 仅作展示；两次读取之间 head/状态变化返回 `UPSTREAM_CHANGED`。
+
+## 操作收据
+
+- `GET /api/v1/operation-receipts/:operationKey?projectId=` — 只读查询已提交操作的收据（`requestDigest`、`resultRefs`、`method`、`route`、`committedAt`）；只允许原主体读取，HUMAN 可代读自己 Agent 的收据，其他主体/跨项目/未提交一律 404，视图不含响应正文，也不自动重放。
+
+## 运维
+
+- `GET /api/health` — 健康探针（不属于 `/api/v1` 协议面）。
+- `GET /api/metrics` — 请求计数、失败数与平均延迟。
+- Swagger 在 API 启动后于 `/api/docs` 可读。

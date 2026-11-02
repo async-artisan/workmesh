@@ -1,13 +1,13 @@
-# ReqFlow 协作规范 v0.1（草案）
+# WorkMesh 协作规范 v0.1（草案）
 
-> 本文定义 ReqFlow 项目的协作契约。**规范优先于实现**：任一角色（人或其本地 AI）在参与项目时，必须先遵守本规范，否则其产出无法被平台装配、校验和追溯。
+> 本文定义 WorkMesh 项目的协作契约。**规范优先于实现**：任一角色（人或其本地 AI）在参与项目时，必须先遵守本规范，否则其产出无法被平台装配、校验和追溯。
 > 状态：草案，待评审。示例项目：易番番。
 
 ---
 
 ## 1. 定位
 
-ReqFlow 不是一个"需求管理系统"，而是**项目事实的联邦层**：
+WorkMesh 不是一个"需求管理系统"，而是**项目事实的联邦层**：
 
 - 每个角色在自己电脑上、用自己的 AI（Claude Code / Codex / WorkBuddy / 其他）干活；
 - 平台不占有任何人的知识内容，只维护**事实、指针与挂靠关系**；
@@ -92,7 +92,7 @@ ReqFlow 不是一个"需求管理系统"，而是**项目事实的联邦层**：
 
 ### 5.3 前端 / 后端
 
-- 输入：`reqflow context YFF-REQ-123` 装配的上下文包（PRD + 设计约束 + 技术知识库相关条目 + 历史 commit）
+- 输入：`workmesh context YFF-REQ-123` 装配的上下文包（PRD + 设计约束 + 技术知识库相关条目 + 历史 commit）
 - 步骤：读上下文 → 出实现方案 → 编码 → 自测 → 提交（commit/PR 带编号）→ 回交实现说明
 - 产出：代码（commit/PR，自动回链）+ `impl.md`（改动范围、受影响接口、遗留项）
 - 出口：代码评审签字 → `CODE_LINKED`
@@ -122,15 +122,15 @@ ReqFlow 不是一个"需求管理系统"，而是**项目事实的联邦层**：
 - **依赖关系**：`blocks / blocked-by / related / discovered-from`，平台据此计算可执行队列；
 - **状态**：`OPEN → IN_PROGRESS → REVIEW_PENDING → DONE`，**agent 只能推进到 `REVIEW_PENDING`，不得自行置为 DONE**；
 - **回链**：commit / PR 优先挂任务编号（`YFF-REQ-123-T01`），平台自动向上聚合到需求；
-- **查询**：`reqflow ready --json` 返回的是本角色"未被阻塞的任务"，而非需求。
+- **查询**：`workmesh ready --json` 返回的是本角色"未被阻塞的任务"，而非需求。
 
 ## 6. 上下文获取规范
 
 **agent 开工第一动作固定为拉取上下文包**，禁止依据聊天记录、记忆或代码推测需求。
 
 ```
-reqflow context YFF-REQ-123            # 人可读
-reqflow context YFF-REQ-123 --json     # agent 使用
+workmesh context YFF-REQ-123            # 人可读
+workmesh context YFF-REQ-123 --json     # agent 使用
 ```
 
 上下文包内容（按优先级）：
@@ -149,7 +149,7 @@ reqflow context YFF-REQ-123 --json     # agent 使用
 **首选形态**（各角色本地知识库统一采用）：
 
 ```
-.reqflow/knowledge/<role>/
+.workmesh/knowledge/<role>/
   index.md        # 人/agent 可读的导航目录（llms.txt 风格：一句话摘要 + 链接）
   log.md          # 变更日志
   index.jsonl     # 机器索引，sync 上报用（每行一条：id/标题/路径哈希/挂靠需求/更新时间）
@@ -180,7 +180,7 @@ updated: 2026-10-31
 
 ### 7.3 上报与传播
 
-- 本地 agent 执行 `reqflow sync` 时，**只上报索引**（条目标题、路径哈希、挂靠需求、更新时间），不上报正文；
+- 本地 agent 执行 `workmesh sync` 时，**只上报索引**（条目标题、路径哈希、挂靠需求、更新时间），不上报正文；
 - 平台据此建立「知识条目 ↔ 需求」挂靠边，用于上下文装配与变更传播；
 - **变更传播**：产品更新 `YFF-REQ-123` 并定稿后，平台向所有挂靠该需求的知识、代码、用例所属角色推送变更通知，要求确认或更新。
 
@@ -241,11 +241,16 @@ DRAFT → PRD_READY → DESIGN_READY → IN_DEV → CODE_LINKED → TESTED → R
 
 | 命令                             | 用途                                          |
 | -------------------------------- | --------------------------------------------- |
-| `reqflow init --role <role>`     | 初始化本地工作区，下发规范文件                |
-| `reqflow ready --json`           | 查询本角色可执行的工作（未被阻塞的需求/任务） |
-| `reqflow context REQ-xxx --json` | 拉取上下文包                                  |
-| `reqflow deliver`                | 提交工件与证据（含锚点与 schema 自检）        |
-| `reqflow sync`                   | 上报本地知识索引与挂靠关系                    |
+| `workmesh init --role <role>`     | 初始化本地工作区，下发规范文件与 agent 入口   |
+| `workmesh ready --json`           | 查询本角色可执行的工作（未被阻塞的需求/任务） |
+| `workmesh context REQ-xxx --json` | 拉取上下文包                                  |
+| `workmesh deliver`                | 提交工件与证据（本地自检 + 平台二次校验）     |
+| `workmesh sign <taskId>`          | 人签字关门（代码任务带 `--pr`，agent 不可用） |
+| `workmesh sync`                   | 上报本地知识索引与挂靠关系（正文不上平台）    |
+| `workmesh changes --role <role>`  | 查看本角色待确认的产品变更                    |
+| `workmesh ack <eventId> --role`   | 确认已按变更处理完本角色受影响的内容          |
+| `workmesh pull`                   | 导出需求 JSON 本地快照（非知识同步）          |
+| `workmesh spec-version`           | 查看本机内置的协作规范版本                    |
 
 同一套能力同时以 MCP 工具暴露，供不支持 CLI 的 agent 直接调用。
 
@@ -254,7 +259,7 @@ DRAFT → PRD_READY → DESIGN_READY → IN_DEV → CODE_LINKED → TESTED → R
 规范不是 wiki 文档，而是随项目下发的文件：
 
 ```
-.reqflow/
+.workmesh/
   SPEC.md                # 全局契约：锚点、红线、上下文来源
   roles/
     product.md           # 各角色工作流 SOP
@@ -268,8 +273,8 @@ DRAFT → PRD_READY → DESIGN_READY → IN_DEV → CODE_LINKED → TESTED → R
     cases.schema.yaml
 ```
 
-`reqflow init --role <role>` 写入工作区，并写入 agent 入口文件（AGENTS.md / slash command），
-使该角色的 AI 每次开工自动加载本规范。
+`workmesh init --role <role>` 写入工作区，并写入 agent 入口文件（AGENTS.md / CLAUDE.md）的规范指针块，
+使该角色的 AI 每次开工自动加载本规范；重复执行幂等，规范升级后本地随 CLI 一起更新。规范源在仓库根 `spec/`。
 
 ## 12. 落地路径（v0.1 验证）
 

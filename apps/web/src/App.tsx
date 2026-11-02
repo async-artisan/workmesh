@@ -1,22 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Menu, User, X } from 'lucide-react';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { SESSION_EXPIRED_EVENT, formatApiError } from './api/client';
+import { authApi, bootstrapSession } from './api/auth';
+import { useAuthStore } from './store/auth';
+import { findNav, navItems } from './nav';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { ToastHost } from './components/ToastHost';
+import { Authorization } from './pages/Authorization';
+import { Board } from './pages/Board';
+import { Knowledge } from './pages/Knowledge';
+import { Login } from './pages/Login';
+import { Prds } from './pages/Prds';
+import { Profile } from './pages/Profile';
 import { Projects } from './pages/Projects';
 import { Requirements } from './pages/Requirements';
-import { Login } from './pages/Login';
-import { useAuthStore } from './store/auth';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { authApi } from './api/auth';
-import { Knowledge } from './pages/Knowledge';
-import { Trace } from './pages/Trace';
-import { Dashboard } from './pages/Dashboard';
-import { Profile } from './pages/Profile';
 import { Register } from './pages/Register';
-import { Prds } from './pages/Prds';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { GlobalSearch } from './components/GlobalSearch';
-import { ToastHost } from './components/ToastHost';
-import { findNav, navItems } from './nav';
-import { SESSION_EXPIRED_EVENT } from './api/client';
+import { Reviews } from './pages/Reviews';
+import { Roles } from './pages/Roles';
+import { Workbench } from './pages/Workbench';
 import { toast } from './store/toast';
 
 export function App() {
@@ -28,9 +30,16 @@ export function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const user = useAuthStore((state) => state.user);
-  const refreshToken = useAuthStore((state) => state.refreshToken);
-  const clearAuth = useAuthStore((state) => state.clearAuth);
+  const status = useAuthStore((state) => state.status);
   const isAuthPage = location.pathname === '/login' || location.pathname === '/register';
+
+  // 启动时只读取同源 cookie 会话与内存 CSRF；不读任何本地 token。
+  useEffect(() => {
+    if (isAuthPage) return;
+    bootstrapSession().catch((caught: unknown) => {
+      toast.error(formatApiError(caught));
+    });
+  }, [isAuthPage]);
 
   useEffect(() => {
     fetch('/api/health')
@@ -79,11 +88,15 @@ export function App() {
     };
   }, [drawerOpen]);
 
-  const logout = () => {
-    if (refreshToken) void authApi.logout(refreshToken).catch(() => undefined);
-    clearAuth();
+  async function logout() {
+    try {
+      // 登出是 cookie + CSRF 写操作；失败时仍以服务端错误提示，不臆造已登出。
+      await authApi.logout();
+    } catch (caught) {
+      toast.error(formatApiError(caught));
+    }
     navigate('/login', { replace: true });
-  };
+  }
 
   if (isAuthPage) {
     return (
@@ -91,6 +104,15 @@ export function App() {
         {location.pathname === '/login' ? <Login /> : <Register />}
         <ToastHost />
       </>
+    );
+  }
+
+  if (status === 'loading') {
+    return (
+      <section className="page-card muted">
+        正在建立会话…
+        <ToastHost />
+      </section>
     );
   }
 
@@ -140,11 +162,11 @@ export function App() {
           >
             {drawerOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
-          <button className="logo" onClick={() => navigate('/')} aria-label="返回控制台">
+          <button className="logo" onClick={() => navigate('/')} aria-label="返回工作台">
             <span className="logo-mark">
               <svg viewBox="0 0 32 32" width="15" height="15" aria-hidden="true">
                 <path
-                  d="M9 20V12h6a3 3 0 0 1 0 6h-3l4 4"
+                  d="m7 10 4 12 5-9 5 9 4-12"
                   stroke="currentColor"
                   strokeWidth="2.4"
                   fill="none"
@@ -153,9 +175,8 @@ export function App() {
                 />
               </svg>
             </span>
-            <span>ReqFlow</span>
+            <span>WorkMesh</span>
           </button>
-          <GlobalSearch />
         </div>
         <div className="navbar-right">
           <div className="user-menu" ref={menuRef}>
@@ -163,20 +184,20 @@ export function App() {
               className="user-profile"
               aria-haspopup="menu"
               aria-expanded={menuOpen}
-              aria-label={`账号菜单：${user.name}`}
+              aria-label={`账号菜单：${user.email}`}
               onClick={() => setMenuOpen((value) => !value)}
             >
               <span className="user-avatar">
                 <User size={13} />
               </span>
-              <span className="user-name">{user.name}</span>
+              <span className="user-name">{user.email}</span>
               <ChevronDown size={12} />
             </button>
             {menuOpen && (
               <div className="user-menu-panel" role="menu">
                 <div className="user-menu-meta">
-                  <strong>{user.name}</strong>
-                  <span>{user.email}</span>
+                  <strong>{user.email}</strong>
+                  <span>{user.id}</span>
                 </div>
                 <button
                   className="user-menu-item"
@@ -188,7 +209,7 @@ export function App() {
                 >
                   用户中心
                 </button>
-                <button className="user-menu-item is-danger" role="menuitem" onClick={logout}>
+                <button className="user-menu-item is-danger" role="menuitem" onClick={() => void logout()}>
                   退出登录
                 </button>
               </div>
@@ -215,20 +236,26 @@ export function App() {
 
         <main className="content-area">
           <ErrorBoundary key={location.pathname}>
-            {location.pathname === '/projects' ? (
+            {location.pathname === '/' ? (
+              <Workbench />
+            ) : location.pathname === '/projects' ? (
               <Projects />
             ) : location.pathname === '/requirements' ? (
               <Requirements />
-            ) : location.pathname === '/prds' ? (
-              <Prds />
             ) : location.pathname === '/knowledge' ? (
               <Knowledge />
-            ) : location.pathname === '/trace' ? (
-              <Trace />
+            ) : location.pathname === '/prd' ? (
+              <Prds />
+            ) : location.pathname === '/reviews' ? (
+              <Reviews />
+            ) : location.pathname === '/board' ? (
+              <Board />
+            ) : location.pathname === '/roles' ? (
+              <Roles />
+            ) : location.pathname === '/authorization' ? (
+              <Authorization />
             ) : location.pathname === '/profile' ? (
               <Profile />
-            ) : location.pathname === '/' ? (
-              <Dashboard />
             ) : (
               <section className="page-card">页面不存在。</section>
             )}

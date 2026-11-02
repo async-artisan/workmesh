@@ -1,15 +1,16 @@
 {
-  "name": "reqflow",
+  "name": "workmesh",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "AI-assisted requirements management platform",
+  "description": "Evidence-driven project collaboration hub for local AI agents",
   "license": "MIT",
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=8.0.0"
   },
   "scripts": {
+    "workmesh": "node apps/cli/dist/index.js",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",
@@ -17,10 +18,14 @@
     "lint:eslint": "eslint .",
     "type-check": "turbo run type-check",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
-    "db:generate": "pnpm --filter @reqflow/api db:generate",
-    "db:push": "pnpm --filter @reqflow/api db:push",
-    "db:seed": "pnpm --filter @reqflow/api db:seed",
-    "test:integration": "bash scripts/test-integration.sh"
+    "db:generate": "pnpm --filter @workmesh/api db:generate",
+    "db:push": "pnpm --filter @workmesh/api db:push",
+    "test:integration": "bash scripts/test-integration.sh",
+    "test:isolated-prisma": "corepack pnpm --filter @workmesh/shared build && node scripts/lib/isolated-prisma.mjs",
+    "test:check-database": "corepack pnpm --filter @workmesh/shared build && node scripts/lib/check-test-database.mjs",
+    "test:contracts": "corepack pnpm --filter @workmesh/shared build && node scripts/test-contracts.mjs",
+    "test:e2e": "corepack pnpm --filter @workmesh/shared build && node scripts/test-e2e.mjs",
+    "test:github-live": "node scripts/test-github-live.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.5.0",
