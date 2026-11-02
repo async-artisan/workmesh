@@ -44,6 +44,9 @@ export function buildStandardWorkflowTemplate(
     roleSlots: [
       { key: 'understanding-owner', roleKey: 'product', kind: 'UNDERSTANDING_CONFIRM' },
       { key: 'prd-owner', roleKey: 'product', kind: 'PRD_PUBLICATION' },
+      // 交付工件集的步骤必须声明任务验收槽：服务端在交付时按它派生验收评审请求，
+      // 没有该闸门的步骤不允许交付（TASK_ACCEPTANCE_GATE_REQUIRED）。
+      { key: 'task-acceptance', roleKey: 'product', kind: 'TASK_ACCEPTANCE' },
       { key: 'release-acceptance', roleKey: 'product', kind: 'RELEASE_ACCEPTANCE' },
     ],
     steps: [
@@ -72,6 +75,7 @@ export function buildStandardWorkflowTemplate(
         deps: ['prd'],
         outputKinds: ['IMPL'],
         baselinePolicy: 'PUBLISHED_PRD',
+        gates: [{ mode: 'ALL', reviewerSlots: ['task-acceptance'] }],
       },
       {
         key: 'cases',
@@ -80,6 +84,7 @@ export function buildStandardWorkflowTemplate(
         deps: ['impl'],
         outputKinds: ['CASES'],
         baselinePolicy: 'PUBLISHED_PRD',
+        gates: [{ mode: 'ALL', reviewerSlots: ['task-acceptance'] }],
       },
       {
         key: 'release',
@@ -87,7 +92,7 @@ export function buildStandardWorkflowTemplate(
         kind: 'RELEASE',
         deps: ['cases'],
         outputKinds: ['RELEASE'],
-        gates: [{ mode: 'ALL', reviewerSlots: ['release-acceptance'] }],
+        gates: [{ mode: 'ALL', reviewerSlots: ['task-acceptance', 'release-acceptance'] }],
       },
     ],
   };
