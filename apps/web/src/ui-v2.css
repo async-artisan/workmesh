@@ -167,7 +167,7 @@ body {
   margin-left: 236px;
   max-width: none;
   min-height: calc(100vh - 60px);
-  padding: 26px max(24px, calc((100vw - 236px - 1480px) / 2));
+  padding: 26px clamp(24px, 2.5vw, 48px);
 }
 
 .page-head {
