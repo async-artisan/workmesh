@@ -153,6 +153,8 @@ model Project {
   rolePackages          RolePackageVersion[]
   knowledgeBindings     ProjectKnowledgeBinding[]
   repositories          ProjectRepository[]
+  units                 Unit[]
+  unitDependencies      UnitDependency[]
   tickets               ConfirmationTicket[] @relation("TicketProject")
   stamps                PrincipalStamp[] @relation("StampProject")
   auditEvents           AuditEvent[] @relation("AuditProject")
@@ -462,6 +464,55 @@ model WorkflowInstance {
   @@schema("workmesh_v1")
 }
 
+/// 工作单元：服务、应用、数据集或外部系统；依赖图以它为节点。
+model Unit {
+  id           String @id @default(uuid()) @db.Uuid
+  projectId    String @db.Uuid
+  key          String @db.VarChar(48)
+  name         String @db.VarChar(120)
+  /// SERVICE | APP | DATASET | EXTERNAL
+  kind         String @default("SERVICE") @db.VarChar(16)
+  repositoryId String? @db.Uuid
+  repoPath     String? @db.VarChar(200)
+  ownerUserId  String? @db.Uuid
+  status       String @default("ACTIVE") @db.VarChar(16)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+  project      Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  outgoing     UnitDependency[] @relation("UnitDependencyFrom")
+  incoming     UnitDependency[] @relation("UnitDependencyTo")
+  tasks        Task[]
+
+  @@unique([projectId, key])
+  @@unique([id, projectId])
+  @@index([projectId, status])
+  @@schema("workmesh_v1")
+}
+
+model UnitDependency {
+  id                 String @id @default(uuid()) @db.Uuid
+  projectId          String @db.Uuid
+  fromUnitId         String @db.Uuid
+  toUnitId           String @db.Uuid
+  /// CALLS | READS | PUBLISHES | UPSTREAM
+  edgeKind           String @default("CALLS") @db.VarChar(16)
+  protocol           String? @db.VarChar(16)
+  contractDocumentId String? @db.Uuid
+  /// DECLARED | INFERRED | RUNTIME
+  source             String @default("DECLARED") @db.VarChar(16)
+  confidence         String @default("MEDIUM") @db.VarChar(16)
+  evidence           String? @db.VarChar(500)
+  verifiedAt         DateTime? @db.Timestamptz(3)
+  createdAt          DateTime @default(now()) @db.Timestamptz(3)
+  project            Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  fromUnit           Unit @relation("UnitDependencyFrom", fields: [fromUnitId, projectId], references: [id, projectId], onDelete: Restrict)
+  toUnit             Unit @relation("UnitDependencyTo", fields: [toUnitId, projectId], references: [id, projectId], onDelete: Restrict)
+
+  @@unique([projectId, fromUnitId, toUnitId, edgeKind])
+  @@index([projectId, toUnitId])
+  @@schema("workmesh_v1")
+}
+
 model Task {
   id              String @id @default(uuid()) @db.Uuid
   projectId       String @db.Uuid
@@ -478,7 +529,9 @@ model Task {
   currentClaimId  String? @db.Uuid
   currentSnapshotId String? @db.Uuid
   currentArtifactSetId String? @db.Uuid
+  unitId          String? @db.Uuid
   instance        WorkflowInstance @relation(fields: [workflowInstanceId, projectId], references: [id, projectId], onDelete: Restrict)
+  unit            Unit? @relation(fields: [unitId, projectId], references: [id, projectId], onDelete: Restrict)
   role            ProjectRole @relation(fields: [roleId, projectId], references: [id, projectId], onDelete: Restrict)
   responsibleUser User @relation("TaskResponsible", fields: [responsibleUserId], references: [id], onDelete: Restrict)
   claims          TaskClaim[]

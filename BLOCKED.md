@@ -45,3 +45,11 @@
 - 现象：`feat/yff-demo-data` 与 `main` 分叉；本轮 WP2/WP6/WP9 提交在功能分支上。
 - 影响：合并到 `main` 前，主干看不到这些提交。
 - 处置：由仓库维护者在功能分支完成后合并；本会话不擅自切分支或 rebase。
+
+## B7 Prisma client 生成被运行中的服务锁住
+
+- 目标：为 M4（`Unit` / `UnitDependency` / `Task.unitId`）重新生成 Prisma client。
+- 现象：`prisma generate` 报 `EPERM: operation not permitted, rename ... query_engine-windows.dll.node`。
+- 原因：本机有 `pnpm dev`（Nest watch）、`dist/main.js`、`prisma studio` 等进程持有查询引擎 DLL。
+- 解除条件：停止上述进程后重试，或换一台没有服务占用的环境。
+- 影响：WP4 的 schema 与迁移已写好，但 client 未更新，服务代码与测试无法通过类型检查；WP3/WP8 同样依赖 schema 变更，一并暂缓。
