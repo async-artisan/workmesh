@@ -339,8 +339,37 @@ body {
   padding: 18px 20px 0;
 }
 
+.table-card > .page-sub {
+  margin: 12px 20px 0;
+}
+
+.table-card > .field {
+  display: grid;
+  gap: 6px;
+  margin: 14px 20px 20px;
+}
+
+.table-card > .field > span {
+  color: #334155;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.table-card > .field textarea {
+  width: 100%;
+  min-height: 320px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.65;
+  resize: vertical;
+}
+
 .table-card > .toolbar {
-  padding: 0 20px 18px;
+  padding: 14px 20px 18px;
 }
 
 .form-grid .field {
