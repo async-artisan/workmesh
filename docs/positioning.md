@@ -228,3 +228,13 @@ corepack pnpm workmesh roles install --package <角色包目录> --project <uuid
 | 架构与未验证边界            | [docs/phase-status.md](phase-status.md#L25-L31)                                                      |
 | 非目标与边界                | [开源协作计划](superpowers/plans/2026-11-01-workmesh-open-source-collaboration-plan.md#L26-L31)      |
 | 人的工位设计                | [docs/design/workbench-and-requirement-detail.md](design/workbench-and-requirement-detail.md#L5-L17) |
+
+## 12. 外部参照
+
+定位与节奏的判断不是凭感觉：
+
+- 瓶颈决定系统产出，非瓶颈提效只增加库存（[TOC](https://en.wikipedia.org/wiki/Theory_of_constraints)）。
+- 在制品 × 周期时间 ≈ 队列长度，等待应该被度量（[Little's Law](https://en.wikipedia.org/wiki/Little%27s_law)）。
+- 交付看四项指标，不看主观感受（[DORA](https://dora.dev/)）。
+
+并行与大厂做法、验收、规范、通用性、度量的完整台账，见 [references.md](references.md)。

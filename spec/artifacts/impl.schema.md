@@ -5,7 +5,7 @@
 ## 内容要求（`impl.md`）
 
 ```markdown
-# 实现说明（YFF-REQ-123 / YFF-REQ-123-T01）
+# 实现说明（YFF-001 / YFF-001/impl）
 
 ## 改动范围
 

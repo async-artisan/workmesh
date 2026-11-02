@@ -181,11 +181,11 @@ UI 既不让改，也不提示。如果服务端没有额外约束，这就是�
 │ [全部 10] [签字 3] [变更 2] [可开工 5]      角色 [全部 ▾]  排序 ▾  │
 ├────────────────────────────────────────────────────────────────────┤
 │ ── YFF 项目 ──────────────────────────────────────────────────────  │
-│ ● 签字   YFF-REQ-12  登录页改版                                    │
+│ ● 签字   YFF-012  登录页改版                                    │
 │          BACKEND · 等待 3 天 · 证据 2 件 · v3          [进入决定]  │
-│ ● 变更   YFF-REQ-8   订单取消规则调整                              │
+│ ● 变更   YFF-008   订单取消规则调整                              │
 │          BACKEND / QA · 等待 2 天 · 影响 4 项          [查看影响]  │
-│ ○ 任务   YFF-REQ-9-T01  支付回调重试 · BACKEND · 无阻塞  [查看上下文] │
+│ ○ 任务   YFF-009/impl  支付回调重试 · BACKEND · 无阻塞  [查看上下文] │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -208,7 +208,7 @@ UI 既不让改，也不提示。如果服务端没有额外约束，这就是�
 
 ```text
 ┌──────────────────────────────────────────────────┬──────────────────┐
-│ YFF-REQ-12 / 登录页改版          v3  ● 待签      │ 你的决定         │
+│ YFF-012 / 登录页改版          v3  ● 待签      │ 你的决定         │
 │ YFF · BACKEND · 等待 3 天 · 2 件证据             │ 槽位 BACKEND     │
 ├──────────────────────────────────────────────────┤                  │
 │ [内容] [差异] [验收] [工件] [历史]               │ [批准]           │
@@ -250,7 +250,7 @@ UI 既不让改，也不提示。如果服务端没有额外约束，这就是�
 ```text
 ┌──────────────────────────────────────────────┐
 │  APPROVED                                    │
-│  YFF-REQ-12 · BACKEND · v3                   │
+│  YFF-012 · BACKEND · v3                   │
 │  决定人  李明                                │
 │  时间    2026-11-02 22:41:07                 │
 │  摘要    7bb39c5c…                           │
@@ -393,7 +393,7 @@ GET /api/v1/workbench?projectId=<optional>
         "kind": "PRD_PUBLICATION",
         "projectId": "...",
         "projectName": "YFF",
-        "requirement": { "code": "YFF-REQ-12", "title": "登录页改版" },
+        "requirement": { "code": "YFF-012", "title": "登录页改版" },
         "subjectLabel": "PRD v3",
         "role": { "key": "BACKEND", "title": "后端" },
         "slots": [{ "id": "...", "slotKey": "backend", "viewerCanDecide": true }],
@@ -405,7 +405,7 @@ GET /api/v1/workbench?projectId=<optional>
       {
         "recipientId": "...",
         "eventId": "...",
-        "requirement": { "code": "YFF-REQ-8", "title": "订单取消规则调整" },
+        "requirement": { "code": "YFF-008", "title": "订单取消规则调整" },
         "changedFields": ["acceptance"],
         "targets": {},
         "pendingRoles": ["BACKEND", "QA"],
@@ -417,7 +417,7 @@ GET /api/v1/workbench?projectId=<optional>
       {
         "taskId": "...",
         "projectName": "YFF",
-        "requirement": { "code": "YFF-REQ-9", "title": "支付回调重试" },
+        "requirement": { "code": "YFF-009", "title": "支付回调重试" },
         "role": { "key": "BACKEND", "title": "后端" },
         "stepKey": "backend-impl"
       }

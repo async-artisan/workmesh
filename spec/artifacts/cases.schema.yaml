@@ -3,19 +3,19 @@
 #
 # 字段约定（YAML 示例）：
 
-requirement: YFF-REQ-123
-task: YFF-REQ-123-T03
+requirement: YFF-001
+task: YFF-001/impl
 cases:
-  - id: TC-YFF-REQ-123-01
+  - id: TC-YFF-001-01
     title: 未配置 key 时禁用模型选择
-    requirement: YFF-REQ-123
+    requirement: YFF-001
     precondition: 未配置任何 provider key
     steps:
       - 打开设置页
       - 查看模型选择控件
     expected: 控件禁用，提示"请先配置 key"
     status: passed # passed | failed | blocked | skipped
-    evidence: cases/results/TC-YFF-REQ-123-01.log
+    evidence: cases/results/TC-YFF-001-01.log
 
 # 自检项（workmesh deliver 本地执行）：
 #   exists    文件真实存在

@@ -255,6 +255,8 @@ sequenceDiagram
 | Keep a Changelog       | 变更通知的 diff 结构                                  | [keepachangelog.com](https://keepachangelog.com/)                                                                                                         |
 | Change Impact Analysis | 反向遍历依赖图、ripple effect                         | [arXiv 2501.11778](https://arxiv.org/abs/2501.11778)                                                                                                      |
 
+> 验收标准与项目规范的来源见 [references.md](references.md)：INVEST、Three Amigos、Example Mapping、AGENTS.md、ESLint/Prettier/commitlint。
+
 ## 14. 已定决策（2026-11-02 确认）
 
 > 以下为已确认的决策，实施时以其为准；模型改动已同步到第 10 节。

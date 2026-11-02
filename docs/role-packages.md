@@ -192,6 +192,8 @@ metadata:
 产出 `acceptance.yaml`，交产品确认、QA 做可测性签核。
 ```
 
+> 包形态的来源与边界见 [references.md](references.md) 第 9 节（Agent Skills、Spec Kit、Claude Plugins、BMAD、OpenSpec）。
+
 ## 6. 六个包的 skill 清单
 
 | 包       | skills                                                   | 关键产出                     |
