@@ -54,6 +54,10 @@ export type V1ReviewSnapshot = {
   slots: V1ReviewSlotRecord[];
   decisions: V1ReviewDecisionRecord[];
   subject: V1ReviewSubject | null;
+  /** 人类可读标签；列表接口会补齐，详情接口可能缺省。 */
+  requirement?: { id: string; code: string; title: string } | null;
+  subjectLabel?: string | null;
+  role?: { id: string; key: string; title: string } | null;
 };
 
 export type V1CommitDecisionInput = {

@@ -97,15 +97,28 @@ const REVIEW_SNAPSHOT_INCLUDE = {
       createdByStamp: { select: { user: { select: { id: true, email: true } } } },
     },
   },
+  task: {
+    select: {
+      stepKey: true,
+      role: { select: { id: true, key: true, title: true } },
+      instance: {
+        select: {
+          requirement: { select: { id: true, code: true, title: true } },
+        },
+      },
+    },
+  },
   documentRevision: {
     select: {
       id: true,
+      title: true,
       sha256: true,
       document: {
         select: {
           id: true,
           projectId: true,
           knowledgeBaseId: true,
+          requirementId: true,
           version: true,
           currentPublishedRevisionId: true,
         },
@@ -130,8 +143,15 @@ type DerivedReview = {
   taskGeneration: number | null;
 };
 
-function toSnapshot(review: ReviewSnapshotRow): V1ReviewSnapshot {
+function toSnapshot(
+  review: ReviewSnapshotRow,
+  requirementById: Map<string, { id: string; code: string; title: string }> = new Map(),
+): V1ReviewSnapshot {
   const document = review.documentRevision?.document ?? null;
+  const requirement =
+    review.task?.instance.requirement ??
+    (document?.requirementId ? requirementById.get(document.requirementId) : null) ??
+    null;
   return {
     id: review.id,
     projectId: review.projectId,
@@ -160,6 +180,9 @@ function toSnapshot(review: ReviewSnapshotRow): V1ReviewSnapshot {
       createdAt: decision.createdAt,
       actor: decision.createdByStamp?.user ?? null,
     })),
+    requirement,
+    subjectLabel: review.documentRevision?.title ?? review.task?.stepKey ?? null,
+    role: review.task?.role ?? null,
     subject:
       document && review.documentRevision
         ? {
@@ -350,9 +373,24 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
     });
     const hasMore = rows.length > query.limit;
     const page = hasMore ? rows.slice(0, query.limit) : rows;
+    const requirementIds = [
+      ...new Set(
+        page
+          .map((row) => row.documentRevision?.document.requirementId)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ];
+    const requirementById = new Map<string, { id: string; code: string; title: string }>();
+    if (requirementIds.length > 0) {
+      const requirements = await this.prisma.requirement.findMany({
+        where: { id: { in: requirementIds } },
+        select: { id: true, code: true, title: true },
+      });
+      for (const requirement of requirements) requirementById.set(requirement.id, requirement);
+    }
     const last = page[page.length - 1];
     return {
-      items: page.map((row) => toSnapshot(row)),
+      items: page.map((row) => toSnapshot(row, requirementById)),
       nextCursor:
         hasMore && last ? encodeReviewCursor({ createdAt: last.createdAt, id: last.id }) : null,
       hasMore,

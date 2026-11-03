@@ -99,6 +99,9 @@ export interface ReviewView {
   slots: ReviewSlot[];
   decisions: ReviewDecision[];
   subject: Record<string, unknown> | null;
+  requirement?: { id: string; code: string; title: string } | null;
+  subjectLabel?: string | null;
+  role?: { id: string; key: string; title: string } | null;
 }
 
 export interface BoardCard {
@@ -305,6 +308,8 @@ export interface RequirementChangeDetail {
 
 export interface RequirementDetail {
   requirement: RequirementView;
+  /** 当前发布 PRD 的验收 key；创建流程实例时必须逐条分配到任务。 */
+  acceptanceKeys: string[];
   tasks: RequirementTaskDetail[];
   artifacts: RequirementArtifactDetail[];
   reviews: RequirementReviewDetail[];
@@ -349,6 +354,42 @@ export const projectApi = {
       body: input,
       idempotencyKey: 'auto',
     }),
+};
+
+export interface ProjectRepositoryView {
+  id: string;
+  adapter: string;
+  externalId: string;
+  owner: string;
+  name: string;
+  defaultBranch: string | null;
+  createdAt: string;
+}
+
+/** 代码仓库登记：流程实例的 IMPL 步骤必须声明仓库范围，GIT_REF 工件只能引用这里的仓库。 */
+export const repositoryApi = {
+  list: (projectId: string) =>
+    apiRequest<ProjectRepositoryView[]>(`${projectPath(projectId)}/repositories`),
+  create: (
+    projectId: string,
+    data: {
+      adapter?: 'github';
+      externalId: string;
+      owner: string;
+      name: string;
+      defaultBranch?: string;
+    },
+  ) =>
+    apiRequest<ProjectRepositoryView>(`${projectPath(projectId)}/repositories`, {
+      method: 'POST',
+      body: { adapter: 'github', ...data },
+      idempotencyKey: 'auto',
+    }),
+  archive: (projectId: string, repositoryId: string) =>
+    apiRequest<ProjectRepositoryView>(
+      `${projectPath(projectId)}/repositories/${enc(repositoryId)}`,
+      { method: 'DELETE', idempotencyKey: 'auto' },
+    ),
 };
 
 export const requirementApi = {
@@ -433,6 +474,10 @@ export interface WorkflowStepDefinition {
   key: string;
   roleKey: string;
   deps?: string[];
+  /** PRODUCT | DELIVERY | VERIFY | RELEASE */
+  kind?: string;
+  /** 步骤产出类型，IMPL 步骤必须声明代码仓库范围。 */
+  outputKinds?: string[];
 }
 
 export interface WorkflowSlotDefinition {

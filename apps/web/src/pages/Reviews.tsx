@@ -3,11 +3,9 @@ import { useSearchParams } from 'react-router-dom';
 import { formatApiError } from '../api/client';
 import {
   reviewApi,
-  workbenchApi,
   type ReviewDecision,
   type ReviewSlot,
   type ReviewView,
-  type WorkbenchReviewItem,
 } from '../api/resources';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { Modal } from '../components/Modal';
@@ -45,7 +43,6 @@ export function Reviews() {
   const reviewId = params.get('id') ?? '';
   const [review, setReview] = useState<ReviewView | null>(null);
   const [reviews, setReviews] = useState<ReviewView[]>([]);
-  const [reviewHints, setReviewHints] = useState<Map<string, WorkbenchReviewItem>>(new Map());
   const [listLoading, setListLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -67,16 +64,11 @@ export function Reviews() {
         };
       }
       setListLoading(true);
-      Promise.all([
-        reviewApi.list(projectId, { assignedToMe: true, status: 'OPEN' }),
-        workbenchApi.get(projectId).catch(() => null),
-      ])
-        .then(([page, snapshot]) => {
+      reviewApi
+        .list(projectId, { assignedToMe: true, status: 'OPEN' })
+        .then((page) => {
           if (!alive) return;
           setReviews(page.items);
-          setReviewHints(
-            new Map((snapshot?.reviews ?? []).map((item) => [item.reviewId, item])),
-          );
           setNotice('');
         })
         .catch((caught: unknown) => {
@@ -186,12 +178,7 @@ export function Reviews() {
           </p>
         </div>
         <div className="page-actions">
-          <ProjectSelect
-            onChange={() => {
-              setReviews([]);
-              setReviewHints(new Map());
-            }}
-          />
+          <ProjectSelect onChange={() => setReviews([])} />
           {reviewId ? (
             <button className="ghost" onClick={backToInbox}>
               返回待评审
@@ -251,24 +238,23 @@ export function Reviews() {
               </thead>
               <tbody>
                 {reviews.map((item) => {
-                  const hint = reviewHints.get(item.id);
                   return (
                     <tr key={item.id}>
                       <td>{labelFor(REVIEW_KIND_LABELS, item.kind)}</td>
                       <td>
                         <strong>
-                          {hint?.requirement
-                            ? `${hint.requirement.code} · ${hint.requirement.title}`
+                          {item.requirement
+                            ? `${item.requirement.code} · ${item.requirement.title}`
                             : item.id.slice(0, 8)}
                         </strong>
                         <div className="task-row-meta">
-                          {hint
-                            ? labelFor(STEP_LABELS, hint.subjectLabel)
+                          {item.subjectLabel
+                            ? labelFor(STEP_LABELS, item.subjectLabel)
                             : `摘要 ${item.subjectDigest.slice(0, 10)}`}
                         </div>
                       </td>
                       <td>
-                        {hint?.role?.title ?? '—'}
+                        {item.role?.title ?? '—'}
                         <span className="cell-mono"> · v{item.version}</span>
                       </td>
                       <td>
