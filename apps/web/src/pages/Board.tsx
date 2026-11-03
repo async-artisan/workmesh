@@ -35,6 +35,7 @@ export function Board() {
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [requirementFilter, setRequirementFilter] = useState('');
 
   async function load() {
     if (!projectId) {
@@ -71,12 +72,22 @@ export function Board() {
     [allCards],
   );
 
+  const requirementOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const card of allCards) {
+      if (card.requirementCode)
+        map.set(card.requirementCode, card.requirementTitle ?? card.requirementCode);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh-CN'));
+  }, [allCards]);
+
   const filteredColumns = useMemo(() => {
     const text = query.trim().toLowerCase();
     return (snapshot?.columns ?? []).map((column) => ({
       ...column,
       cards: column.cards.filter((card) => {
         if (roleFilter && card.roleTitle !== roleFilter) return false;
+        if (requirementFilter && card.requirementCode !== requirementFilter) return false;
         if (!text) return true;
         return [
           card.requirementCode ?? '',
@@ -90,7 +101,7 @@ export function Board() {
           .includes(text);
       }),
     }));
-  }, [snapshot, query, roleFilter]);
+  }, [snapshot, query, roleFilter, requirementFilter]);
 
   const visibleTotal = filteredColumns.reduce((sum, column) => sum + column.cards.length, 0);
 
@@ -135,6 +146,18 @@ export function Board() {
             {roleOptions.map((role) => (
               <option key={role} value={role}>
                 {role}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="看板需求筛选"
+            value={requirementFilter}
+            onChange={(event) => setRequirementFilter(event.target.value)}
+          >
+            <option value="">全部需求</option>
+            {requirementOptions.map(([code, title]) => (
+              <option key={code} value={code}>
+                {code} · {title}
               </option>
             ))}
           </select>
