@@ -20,6 +20,13 @@ const PERMISSIONS: Array<'READ' | 'PROPOSE' | 'PUBLISH' | 'REVOKE'> = [
   'REVOKE',
 ];
 
+const PERMISSION_LABELS: Record<(typeof PERMISSIONS)[number], string> = {
+  READ: '读取',
+  PROPOSE: '提议',
+  PUBLISH: '发布',
+  REVOKE: '撤销',
+};
+
 interface RoleGrantTarget {
   member: MemberView;
   role: RoleView;
@@ -476,32 +483,48 @@ export function Roles() {
               </select>
             </div>
             <div className="field">
-              <span>出版审批人（用户 ID）</span>
-              <input
+              <span>出版审批人</span>
+              <select
                 value={aclForm.publicationApproverUserId}
-                aria-label="出版审批人用户 ID"
+                aria-label="出版审批人"
                 onChange={(event) =>
                   setAclForm({ ...aclForm, publicationApproverUserId: event.target.value })
                 }
-              />
+              >
+                <option value="">未设置</option>
+                {members.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.email}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="field">
-              <span>出版审批人（角色 ID，可选）</span>
-              <input
+              <span>出版审批角色（可选）</span>
+              <select
                 value={aclForm.publicationApproverRoleId}
-                aria-label="出版审批人角色 ID"
+                aria-label="出版审批角色"
                 onChange={(event) =>
                   setAclForm({ ...aclForm, publicationApproverRoleId: event.target.value })
                 }
-              />
+              >
+                <option value="">未设置</option>
+                {roles.map((role) => (
+                  <option key={role.id} value={role.id}>
+                    {role.title}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="field">
               <span>保留 Grant（按当前有效集合整组替换）</span>
               {aclForm.grants.map((grant, index) => (
-                <div className="cell-actions row-actions" key={`${grant.subjectKind}-${index}`}>
-                  <span className="cell-mono">
-                    {grant.subjectKind === 'USER' ? grant.subjectUserId : grant.subjectRoleId}
-                  </span>
+                <div className="cell-actions row-actions acl-grant-row" key={`${grant.subjectKind}-${index}`}>
+                  <strong>
+                    {grant.subjectKind === 'USER'
+                      ? (memberEmailById.get(grant.subjectUserId ?? '') ?? '未知成员')
+                      : (roleTitleById.get(grant.subjectRoleId ?? '') ?? '未知角色')}
+                  </strong>
                   {PERMISSIONS.map((permission) => (
                     <label key={permission} className="inline-check">
                       <input
@@ -519,7 +542,7 @@ export function Roles() {
                           });
                         }}
                       />
-                      {permission}
+                      {PERMISSION_LABELS[permission]}
                     </label>
                   ))}
                   <button

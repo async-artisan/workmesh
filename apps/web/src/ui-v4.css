@@ -1290,3 +1290,18 @@ input[type='radio'] {
   background: #fff1f2;
   color: #be123c;
 }
+
+.acl-grant-row {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  padding: 8px 10px;
+  border: 1px solid #edf2f7;
+  border-radius: 7px;
+  background: #fbfdff;
+}
+
+.acl-grant-row strong {
+  min-width: 150px;
+  color: #0f172a;
+  font-size: 12px;
+}
