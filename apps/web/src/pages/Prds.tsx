@@ -59,6 +59,8 @@ export function Prds() {
     new Map(),
   );
   const [selectedId, setSelectedId] = useState('');
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'candidate' | 'published'>('all');
   const [content, setContent] = useState<ContentView | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -76,6 +78,22 @@ export function Prds() {
     const revision = selected?.revisions.find((item) => item.id === id);
     return revision ? `v${revision.seq}` : '—';
   };
+  const filteredDocs = useMemo(() => {
+    const text = query.trim().toLowerCase();
+    return docs.filter((item) => {
+      if (statusFilter === 'candidate' &&
+        !item.revisions.some((revision) => revision.state === 'CANDIDATE'))
+        return false;
+      if (statusFilter === 'published' && !item.publishedRevision) return false;
+      if (!text) return true;
+      const latest = item.publishedRevision ?? item.revisions[0] ?? null;
+      return [latest?.title ?? '', requirementLabel(item.document.requirementId)]
+        .join(' ')
+        .toLowerCase()
+        .includes(text);
+    });
+  }, [docs, query, statusFilter, requirementsById]);
+
   const candidateCount =
     selected?.revisions.filter((revision) => revision.state === 'CANDIDATE').length ?? 0;
   const diff = useMemo(
@@ -190,8 +208,27 @@ export function Prds() {
       <div className="table-card">
         <div className="card-head">
           <h3>
-            PRD<small>{docs.length}</small>
+            PRD<small>{filteredDocs.length} / {docs.length}</small>
           </h3>
+          <div className="card-head-actions req-list-tools">
+            <input
+              aria-label="搜索 PRD"
+              placeholder="搜索标题 / 需求"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            <select
+              aria-label="PRD 状态筛选"
+              value={statusFilter}
+              onChange={(event) =>
+                setStatusFilter(event.target.value as 'all' | 'candidate' | 'published')
+              }
+            >
+              <option value="all">全部状态</option>
+              <option value="candidate">有候选</option>
+              <option value="published">已发布</option>
+            </select>
+          </div>
         </div>
         <div className="table-scroll">
           <table className="data-table">
@@ -205,7 +242,7 @@ export function Prds() {
               </tr>
             </thead>
             <tbody>
-              {docs.map((item) => {
+              {filteredDocs.map((item) => {
                 const latest = item.publishedRevision ?? item.revisions[0] ?? null;
                 return (
                 <tr
@@ -241,12 +278,14 @@ export function Prds() {
                 </tr>
                 );
               })}
-              {docs.length === 0 && (
+              {filteredDocs.length === 0 && (
                 <tr className="table-empty">
                   <td colSpan={5}>
-                    {projectId
-                      ? '该项目还没有 PRD 文档，等待 Product Agent 提交候选。'
-                      : '先选择项目。'}
+                    {!projectId
+                      ? '先选择项目。'
+                      : docs.length === 0
+                        ? '该项目还没有 PRD 文档，等待 Product Agent 提交候选。'
+                        : '没有匹配的 PRD，清空搜索或状态筛选。'}
                   </td>
                 </tr>
               )}
