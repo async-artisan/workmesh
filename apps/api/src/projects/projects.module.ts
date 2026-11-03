@@ -8,6 +8,8 @@ import { PROJECT_ROLE_REPOSITORY } from './project-role.repository';
 import { ProjectRolePrismaRepository } from './project-role.prisma-repository';
 import { ProjectsController } from './projects.controller';
 import { ProjectsService } from './projects.service';
+import { InvitationsController } from './invitations.controller';
+import { InvitationsService } from './invitations.service';
 import { RequirementsController } from './requirements.controller';
 import { RequirementsService } from './requirements.service';
 import { UnitsController } from './units.controller';
@@ -16,12 +18,14 @@ import { UnitsService } from './units.service';
 @Module({
   controllers: [
     ProjectsController,
+    InvitationsController,
     RequirementsController,
     UnitsController,
     ChangeRequestsController,
   ],
   providers: [
     ProjectsService,
+    InvitationsService,
     RequirementsService,
     UnitsService,
     ChangeRequestsService,

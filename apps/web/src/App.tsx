@@ -13,6 +13,7 @@ import { Authorization } from './pages/Authorization';
 import { Board } from './pages/Board';
 import { Knowledge } from './pages/Knowledge';
 import { Login } from './pages/Login';
+import { Invite } from './pages/Invite';
 import { Prds } from './pages/Prds';
 import { Profile } from './pages/Profile';
 import { Projects } from './pages/Projects';
@@ -33,6 +34,7 @@ export function App() {
   const legacyReviewId = new URLSearchParams(location.search).get('id');
   const requirementMatch = matchPath('/requirements/:requirementId', location.pathname);
   const reviewMatch = matchPath('/reviews/:reviewId', location.pathname);
+  const inviteMatch = matchPath('/invite/:token', location.pathname);
   const [apiStatus, setApiStatus] = useState<'checking' | 'ready' | 'offline'>('checking');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -52,14 +54,16 @@ export function App() {
   const user = useAuthStore((state) => state.user);
   const status = useAuthStore((state) => state.status);
   const isAuthPage = location.pathname === '/login' || location.pathname === '/register';
+  const isInvitePage = Boolean(inviteMatch);
+  const isPublicPage = isAuthPage || isInvitePage;
 
   // 启动时只读取同源 cookie 会话与内存 CSRF；不读任何本地 token。
   useEffect(() => {
-    if (isAuthPage) return;
+    if (isPublicPage) return;
     bootstrapSession().catch((caught: unknown) => {
       toast.error(formatApiError(caught));
     });
-  }, [isAuthPage]);
+  }, [isPublicPage]);
 
   useEffect(() => {
     if (!user) {
@@ -186,10 +190,10 @@ export function App() {
     navigate('/login', { replace: true });
   }
 
-  if (isAuthPage) {
+  if (isPublicPage) {
     return (
       <>
-        {location.pathname === '/login' ? <Login /> : <Register />}
+        {isInvitePage ? <Invite /> : location.pathname === '/login' ? <Login /> : <Register />}
         <ToastHost />
       </>
     );

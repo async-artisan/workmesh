@@ -94,6 +94,17 @@ PRD 的生产入口在本地 Product Agent。Web 负责读取候选、查看正�
 - `POST /api/v1/requirements/:requirementId/workflow-instances`、`GET /api/v1/workflow-instances/:instanceId` — 为需求创建流程实例并读取步骤/任务状态。
 - `GET/POST /api/v1/projects/:projectId/role-packages`、`GET /api/v1/projects/:projectId/role-packages/:packageId/versions/:version`、`GET /api/v1/projects/:projectId/role-packages/:packageId/versions/:version/resources/:resourceId` — 角色包清单与锁定版本资源。
 
+## 邀请链接
+
+- `POST /api/v1/projects/:projectId/invitations` — 管理员生成邀请：`{ roleKeys, email?, expiresInHours?, expectedVersion, confirmation }`。角色按 key 解析成项目角色；票据绑定“项目 + 角色 id 集合 + 邮箱 + 有效期”，创建同时递增项目版本。响应里的 `token`（`wmi_…`）**只返回一次**，服务端只存 sha256。
+- `GET /api/v1/projects/:projectId/invitations` — 管理员查看未接受、未撤销、未过期的邀请；列表只有邮箱、角色与过期时间，没有 token。
+- `POST /api/v1/projects/:projectId/invitations/:invitationId/revoke` — 撤回未接受的邀请；已接受的邀请不受影响。
+- `GET /api/v1/invitations/:token` — 公开解析（接受页用）：返回项目名、角色名、状态（`PENDING` / `ACCEPTED` / `EXPIRED` / `REVOKED`）与过期时间，不返回成员信息。
+- `POST /api/v1/invitations/:token/accept` — 未注册用户接受：`{ password, name?, email? }`。邀请绑定邮箱时忽略 `email`；邮箱已注册返回 `409 EMAIL_ALREADY_REGISTERED`，应改为登录后走 join。成功后建号、自动登录、加入项目并授予角色（一次性，CAS 抢占）。
+- `POST /api/v1/invitations/:token/join` — 已有账号登录后接受；绑定邮箱与当前账号不一致返回 `403 INVITATION_EMAIL_MISMATCH`。
+
+邀请是唯一“不需要管理员在场即可授权角色”的路径，因此创建侧必须票据；接受侧不新增任何权限，只执行票据已授权的角色集合。
+
 ## 评审
 
 - `POST /api/v1/review-requests` — 创建评审请求；只接受 `{ subject: { kind: 'DOCUMENT_REVISION' | 'TASK_ARTIFACT_SET', id }, expectedVersion, taskId? }`，kind、审批槽位与 subject 摘要全部服务端派生。同一 subject 已有 `OPEN` 请求时返回既有请求，需幂等键。

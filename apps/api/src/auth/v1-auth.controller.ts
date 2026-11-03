@@ -12,15 +12,10 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { ActionBinding, Principal } from '@workmesh/shared';
-import {
-  cookieNames,
-  csrfCookieOptions,
-  resolveCookieMode,
-  remainingSeconds,
-  sessionCookieOptions,
-} from './v1-cookie-policy';
+import { cookieNames, resolveCookieMode } from './v1-cookie-policy';
 import { V1AuthGuard, type V1Request } from './v1-auth.guard';
-import { V1AccountService, V1CookiePayload } from './v1-account.service';
+import { V1AccountService } from './v1-account.service';
+import { serializeDeletionCookie, setSessionCookies } from './v1-session-cookies';
 import { V1ActionService } from './v1-action.service';
 import { V1CliAuthorizationService } from './v1-cli-authorization.service';
 import {
@@ -84,7 +79,7 @@ export class V1AuthController {
       sessionCookie: readCookie(request, names.session),
       csrfCookie: readCookie(request, names.csrf),
     });
-    if (result.cookies) this.setCookies(response, mode, result.cookies);
+    if (result.cookies) setSessionCookies(response, mode, result.cookies);
     response.setHeader('Cache-Control', 'no-store');
     return { ...result.view, authenticated: result.view.authenticated };
   }
@@ -115,7 +110,7 @@ export class V1AuthController {
       session,
       ip: emailOf(request),
     });
-    this.setCookies(response, mode, result.cookies);
+    setSessionCookies(response, mode, result.cookies);
     response.status(201);
     response.setHeader('Cache-Control', 'no-store');
     return {
@@ -149,7 +144,7 @@ export class V1AuthController {
       session,
       ip: emailOf(request),
     });
-    this.setCookies(response, mode, result.cookies);
+    setSessionCookies(response, mode, result.cookies);
     response.setHeader('Cache-Control', 'no-store');
     return {
       user: { id: result.user.id, email: result.user.email },
@@ -263,52 +258,8 @@ export class V1AuthController {
     response.status(201);
     return result;
   }
-
-  private setCookies(
-    response: Response,
-    mode: ReturnType<typeof resolveCookieMode>,
-    cookies: V1CookiePayload,
-  ): void {
-    const names = cookieNames(mode);
-    const now = new Date();
-    const maxAge = Math.max(1, remainingSeconds(cookies.expiresAt, now));
-    const sessionOptions = sessionCookieOptions(mode, maxAge);
-    const csrfOptions = csrfCookieOptions(mode, maxAge);
-    response.setHeader('Set-Cookie', [
-      serializeCookie(names.session, cookies.sessionCookie, sessionOptions),
-      serializeCookie(names.csrf, cookies.csrfCookie, csrfOptions),
-    ]);
-  }
 }
 
 function publicOrigin(): string {
   return process.env.WORKMESH_PUBLIC_ORIGIN ?? 'http://127.0.0.1:5173';
-}
-
-/** 删除同名 Cookie：SECURE 模式必须带 Secure，且 __Host- 前缀要求 Path=/、无 Domain。 */
-function serializeDeletionCookie(
-  name: string,
-  mode: ReturnType<typeof resolveCookieMode>,
-  httpOnly: boolean,
-): string {
-  const parts = [`${name}=`, 'Path=/', 'Max-Age=0', 'SameSite=Lax'];
-  if (httpOnly) parts.push('HttpOnly');
-  if (mode === 'SECURE') parts.push('Secure');
-  return parts.join('; ');
-}
-
-function serializeCookie(
-  name: string,
-  value: string,
-  options: { httpOnly: boolean; secure: boolean; sameSite: 'lax'; path: string; maxAge: number },
-): string {
-  const parts = [
-    `${name}=${encodeURIComponent(value)}`,
-    `Path=${options.path}`,
-    `Max-Age=${Math.floor(options.maxAge / 1000)}`,
-    `SameSite=Lax`,
-  ];
-  if (options.httpOnly) parts.push('HttpOnly');
-  if (options.secure) parts.push('Secure');
-  return parts.join('; ');
 }

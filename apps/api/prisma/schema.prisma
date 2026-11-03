@@ -108,6 +108,8 @@ model User {
   stamps        PrincipalStamp[] @relation("StampUser")
   cliViews      CliAuthorizationView[]
   cliApprovals  CliAuthorizationRequest[] @relation("CliApprovedUser")
+  invitationsSent ProjectInvitation[] @relation("InvitationInviter")
+  invitationsAccepted ProjectInvitation[] @relation("InvitationAccepter")
 
   @@schema("workmesh_v1")
 }
@@ -140,6 +142,7 @@ model Project {
   repositories          ProjectRepository[]
   units                 Unit[]
   unitDependencies      UnitDependency[]
+  invitations           ProjectInvitation[]
   tickets               ConfirmationTicket[] @relation("TicketProject")
   stamps                PrincipalStamp[] @relation("StampProject")
   auditEvents           AuditEvent[] @relation("AuditProject")
@@ -201,6 +204,31 @@ model ProjectRoleAssignment {
 
   @@unique([projectId, userId, roleId])
   @@index([projectId, roleId, revokedAt])
+  @@schema("workmesh_v1")
+}
+
+/// 邀请链接：管理员在项目内生成、带角色、限时、一次性接受的入队凭证。
+/// 只存 token 的 sha256；明文 token 仅在创建响应当次返回。
+model ProjectInvitation {
+  id               String @id @default(uuid()) @db.Uuid
+  projectId        String @db.Uuid
+  tokenHash        String @unique @db.Char(64)
+  /// 可选：限定受邀人邮箱；为空表示持链接者皆可接受
+  email            String? @db.VarChar(254)
+  roleIds          String[] @db.Uuid
+  invitedById      String @db.Uuid
+  version          Int @default(1)
+  expiresAt        DateTime @db.Timestamptz(3)
+  acceptedAt       DateTime? @db.Timestamptz(3)
+  acceptedByUserId String? @db.Uuid
+  revokedAt        DateTime? @db.Timestamptz(3)
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  project          Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  invitedBy        User @relation("InvitationInviter", fields: [invitedById], references: [id], onDelete: Restrict)
+  acceptedBy       User? @relation("InvitationAccepter", fields: [acceptedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([projectId, createdAt])
+  @@index([expiresAt])
   @@schema("workmesh_v1")
 }
 

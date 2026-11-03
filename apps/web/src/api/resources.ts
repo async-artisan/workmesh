@@ -392,6 +392,82 @@ export const repositoryApi = {
     ),
 };
 
+export interface InvitationRoleView {
+  id: string;
+  key: string;
+  title: string;
+}
+
+export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'REVOKED' | 'EXPIRED';
+
+export interface InvitationView {
+  id: string;
+  status: InvitationStatus;
+  project: { id: string; key: string; name: string };
+  roles: InvitationRoleView[];
+  email: string | null;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface CreatedInvitationView {
+  id: string;
+  /** 明文 token 只在创建响应当次返回；丢失后只能重新生成。 */
+  token: string | null;
+  projectId: string;
+  roleIds: string[];
+  roleKeys: string[];
+  email: string | null;
+  expiresAt: string;
+  replayed: boolean;
+}
+
+export interface AcceptedInvitationView {
+  user: { id: string; email: string };
+  invitation: { projectId: string; roleKeys: string[] };
+}
+
+/**
+ * 邀请链接：管理员生成（带角色、限时、一次性），成员点开设置密码即入项目。
+ * token 是唯一凭据，前端只拼 URL，不做任何角色或身份推断。
+ */
+export const invitationApi = {
+  resolve: (token: string) =>
+    apiRequest<InvitationView>(`/invitations/${encodeURIComponent(token)}`),
+  create: (
+    projectId: string,
+    input: {
+      roleKeys: string[];
+      email?: string;
+      expiresInHours?: number;
+      expectedVersion: number;
+      confirmation: Confirmation;
+    },
+  ) =>
+    apiRequest<CreatedInvitationView>(`${projectPath(projectId)}/invitations`, {
+      method: 'POST',
+      body: input,
+      idempotencyKey: 'auto',
+    }),
+  list: (projectId: string) =>
+    apiRequest<Array<Omit<InvitationView, 'project'>>>(`${projectPath(projectId)}/invitations`),
+  revoke: (projectId: string, invitationId: string) =>
+    apiRequest<{ id: string; revokedAt: string }>(
+      `${projectPath(projectId)}/invitations/${enc(invitationId)}/revoke`,
+      { method: 'POST', body: {}, idempotencyKey: 'auto' },
+    ),
+  accept: (token: string, input: { password: string; name?: string; email?: string }) =>
+    apiRequest<AcceptedInvitationView>(`/invitations/${encodeURIComponent(token)}/accept`, {
+      method: 'POST',
+      body: input,
+    }),
+  join: (token: string) =>
+    apiRequest<{ invitationId: string; projectId: string; roleKeys: string[] }>(
+      `/invitations/${encodeURIComponent(token)}/join`,
+      { method: 'POST', body: {} },
+    ),
+};
+
 export const requirementApi = {
   list: (projectId: string, cursor?: string) => {
     const query = new URLSearchParams({ limit: '50' });

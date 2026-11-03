@@ -8,6 +8,7 @@ import {
   type RoleView,
 } from '../api/resources';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
+import { InviteMemberDialog } from '../components/InviteMemberDialog';
 import { Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
@@ -61,6 +62,7 @@ export function Roles() {
   const [notice, setNotice] = useState('');
   const [grantTarget, setGrantTarget] = useState<RoleGrantTarget | null>(null);
   const [roleMember, setRoleMember] = useState<MemberView | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   const [knowledgeBaseId, setKnowledgeBaseId] = useState('');
   const [access, setAccess] = useState<AccessView | null>(null);
@@ -227,6 +229,15 @@ export function Roles() {
           <h3>
             成员<small>{members.length}</small>
           </h3>
+          <span className="card-head-actions">
+            <button
+              className="ghost"
+              onClick={() => setInviteOpen(true)}
+              disabled={!projectId || !selectedProject}
+            >
+              邀请成员
+            </button>
+          </span>
         </div>
         <div className="table-scroll">
           <table className="data-table">
@@ -326,9 +337,7 @@ export function Roles() {
         <div className="card-head">
           <h3>知识库访问（ACL）</h3>
           <span className="card-head-actions">
-            <span className="acl-kb-label">
-              默认知识库：{selectedProject?.name ?? '未配置'}
-            </span>
+            <span className="acl-kb-label">默认知识库：{selectedProject?.name ?? '未配置'}</span>
             <button className="ghost" onClick={() => void loadAccess()} disabled={!knowledgeBaseId}>
               读取访问集合
             </button>
@@ -436,9 +445,7 @@ export function Roles() {
         open={aclOpen}
         title="替换知识库访问集合（需二次验证）"
         description={
-          access
-            ? `${selectedProject?.name ?? '默认知识库'} · 访问集合 v${access.version}`
-            : ''
+          access ? `${selectedProject?.name ?? '默认知识库'} · 访问集合 v${access.version}` : ''
         }
         binding={
           access && aclBinding
@@ -519,7 +526,10 @@ export function Roles() {
             <div className="field">
               <span>保留 Grant（按当前有效集合整组替换）</span>
               {aclForm.grants.map((grant, index) => (
-                <div className="cell-actions row-actions acl-grant-row" key={`${grant.subjectKind}-${index}`}>
+                <div
+                  className="cell-actions row-actions acl-grant-row"
+                  key={`${grant.subjectKind}-${index}`}
+                >
                   <strong>
                     {grant.subjectKind === 'USER'
                       ? (memberEmailById.get(grant.subjectUserId ?? '') ?? '未知成员')
@@ -574,6 +584,14 @@ export function Roles() {
           </div>
         )}
       </ConfirmationPrompt>
+
+      <InviteMemberDialog
+        open={inviteOpen}
+        projectId={projectId}
+        projectVersion={selectedProject?.version ?? null}
+        roles={roles}
+        onClose={() => setInviteOpen(false)}
+      />
     </section>
   );
 }
