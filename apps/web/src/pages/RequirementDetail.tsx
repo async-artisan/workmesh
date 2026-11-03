@@ -736,9 +736,21 @@ export function RequirementDetail({
                                 <ArrowRight size={14} />
                               </button>
                             ) : task.review ? (
-                              <span className="task-signed">
-                                {labelFor(REVIEW_STATUS_LABELS, task.review.status)}
-                              </span>
+                              <div className="task-signed">
+                                <span>{labelFor(REVIEW_STATUS_LABELS, task.review.status)}</span>
+                                {task.review.decisions?.[0] && (
+                                  <span className="task-row-meta">
+                                    {labelFor(
+                                      DECISION_LABELS,
+                                      task.review.decisions[0].decision,
+                                    )}
+                                    {task.review.decisions[0].actor
+                                      ? ` · ${task.review.decisions[0].actor.email}`
+                                      : ''}
+                                    {` · ${dateTime(task.review.decisions[0].createdAt)}`}
+                                  </span>
+                                )}
+                              </div>
                             ) : null}
                           </div>
                         </div>

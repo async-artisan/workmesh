@@ -343,7 +343,19 @@ export class RequirementsService {
           currentArtifactSetId: task.currentArtifactSetId,
           instanceId: task.instance.id,
           artifactCount: artifacts.filter((artifact) => artifact.taskId === task.id).length,
-          review: review ? { id: review.id, kind: review.kind, status: review.status } : null,
+          review: review
+            ? {
+                id: review.id,
+                kind: review.kind,
+                status: review.status,
+                decisions: review.decisions.map((decision) => ({
+                  id: decision.id,
+                  decision: decision.decision,
+                  createdAt: decision.createdAt,
+                  actor: decision.createdByStamp?.user ?? null,
+                })),
+              }
+            : null,
         };
       }),
       artifacts,

@@ -232,7 +232,17 @@ export interface RequirementTaskDetail {
   currentArtifactSetId: string | null;
   instanceId: string;
   artifactCount: number;
-  review: { id: string; kind: string; status: string } | null;
+  review: {
+    id: string;
+    kind: string;
+    status: string;
+    decisions?: Array<{
+      id: string;
+      decision: string;
+      createdAt: string;
+      actor: { id: string; email: string } | null;
+    }>;
+  } | null;
 }
 
 export interface RequirementArtifactDetail {
