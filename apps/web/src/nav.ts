@@ -37,6 +37,7 @@ export const navItems: NavItem[] = [
 
   { key: '项目', icon: FolderKanban, path: '/projects', desc: '项目创建、归档与文档入口', group: 'delivery' },
   { key: '看板', icon: Kanban, path: '/board', desc: '只读任务与交付状态', group: 'delivery' },
+  { key: '需求流水线', icon: GitBranch, path: '/pipeline', desc: '按阶段查看需求进度与阻塞', group: 'delivery' },
   { key: '知识库', icon: BookOpen, path: '/knowledge', desc: '候选文档、修订与撤销发布', group: 'delivery' },
   { key: 'PRD', icon: FileText, path: '/prd', desc: 'PRD 候选、返修与撤销发布', group: 'delivery' },
 

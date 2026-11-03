@@ -12,6 +12,7 @@ import {
   type RequirementTaskDetail,
 } from '../api/resources';
 import { ConfirmDialog, Modal } from '../components/Modal';
+import { RequirementPipeline, type RequirementPipelinePhase, type RequirementPipelineTask } from '../components/RequirementPipeline';
 import { useProjectContext } from '../hooks/useProjectContext';
 import {
   ARTIFACT_KIND_LABELS,
@@ -321,6 +322,42 @@ export function RequirementDetail({
 
   const gates = useMemo(() => buildGates(detail?.tasks ?? []), [detail]);
 
+  const pipelineTasks = useMemo<RequirementPipelineTask[]>(
+    () => (detail?.tasks ?? []).map((task) => ({
+      id: task.id,
+      stepKey: task.stepKey,
+      title: STEP_LABELS[task.stepKey] ?? task.stepKey,
+      role: task.role.key,
+      roleLabel: task.role.title,
+      executionStatus: task.executionStatus,
+      workStatus: task.workStatus,
+      artifactCount: task.artifactCount,
+      updatedAt: undefined,
+    })),
+    [detail],
+  );
+
+  const pipelinePhases = useMemo<RequirementPipelinePhase[]>(() => {
+    const roleTasks = (roles: string[]) => pipelineTasks.filter((task) => roles.includes(task.role ?? ''));
+    const phase = (id: string, label: string, shortLabel: string, role: string, roles: string[]): RequirementPipelinePhase => ({
+      id,
+      label,
+      shortLabel,
+      role,
+      roleLabel: labelFor({ product: '产品', ui: '设计', engineering: '前端 / 后端', qa: '测试', ops: '运维' }, role),
+      tasks: roleTasks(roles),
+      nextAction: role === 'product' ? '确认需求与验收标准' : role === 'ui' ? '完成设计交付' : role === 'engineering' ? '提交实现工件' : role === 'qa' ? '完成验收测试' : '完成发布验收',
+    });
+    return [
+      phase('discovery', '需求发现', '发现', 'product', ['product']),
+      phase('definition', '方案定义', '定义', 'product', ['product']),
+      phase('design', '体验设计', '设计', 'ui', ['ui']),
+      phase('build', '开发实现', '开发', 'engineering', ['frontend', 'backend']),
+      phase('verify', '测试验证', '验证', 'qa', ['qa']),
+      phase('release', '发布上线', '发布', 'ops', ['ops']),
+    ];
+  }, [pipelineTasks]);
+
   const trace = useMemo(() => {
     if (!detail) return [];
     const items: Array<{
@@ -610,6 +647,18 @@ export function RequirementDetail({
         </div>
       )}
       {notice && <p className="kb-notice">{notice}</p>}
+
+      <RequirementPipeline
+        phases={pipelinePhases}
+        tasks={pipelineTasks}
+        nextAction={next?.title}
+        onPhaseClick={(phase) => {
+          changeTab('tasks');
+          const firstTaskRole = phase.tasks?.[0]?.role;
+          window.setTimeout(() => scrollToRole(firstTaskRole ? [firstTaskRole] : []), 0);
+        }}
+        onTaskClick={() => changeTab('tasks')}
+      />
 
       <div className="gate-bar">
         {gates.map((gate, index) => (

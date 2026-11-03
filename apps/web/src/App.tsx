@@ -16,6 +16,7 @@ import { Login } from './pages/Login';
 import { Invite } from './pages/Invite';
 import { Prds } from './pages/Prds';
 import { Profile } from './pages/Profile';
+import { Pipeline } from './pages/Pipeline';
 import { Projects } from './pages/Projects';
 import { Requirements } from './pages/Requirements';
 import { RequirementDetail } from './pages/RequirementDetail';
@@ -451,6 +452,8 @@ export function App() {
               <Workbench />
             ) : location.pathname === '/projects' ? (
               <Projects />
+            ) : location.pathname === '/pipeline' ? (
+              <Pipeline />
             ) : location.pathname === '/requirements' ? (
               <Requirements />
             ) : requirementMatch ? (
