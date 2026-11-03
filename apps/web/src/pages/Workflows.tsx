@@ -134,6 +134,22 @@ export function Workflows() {
       setPackages(packagePage.items);
       setRoles(roleList);
       setError('');
+      // 首次进入且编辑器为空时，直接把已发布定义载入编辑器，避免页面只剩一个空 JSON 框。
+      const published = definitionPage.items.find(
+        (item) => item.currentPublishedRevisionId,
+      );
+      if (!editorText.trim() && published?.currentPublishedRevisionId) {
+        try {
+          const revision = await workflowApi.revision(published.currentPublishedRevisionId);
+          setEditorText(JSON.stringify(revision.definition, null, 2));
+          setExpectedCurrentRevision(published.currentRevision);
+          setNotice(
+            `已载入 ${published.workflowKey} 已发布修订 v${revision.revision}；可在此基础上编辑下一版。`,
+          );
+        } catch {
+          // 读取修订失败不影响页面，用户仍可手动载入模板。
+        }
+      }
     } catch (caught) {
       setError(formatApiError(caught));
     }

@@ -1305,3 +1305,12 @@ input[type='radio'] {
   color: #0f172a;
   font-size: 12px;
 }
+
+.kb-notice {
+  border: 1px solid rgba(5, 150, 105, 0.24);
+  border-radius: 7px;
+  background: #ecfdf5;
+  color: #047857;
+  padding: 9px 12px;
+  font-size: 12.5px;
+}
