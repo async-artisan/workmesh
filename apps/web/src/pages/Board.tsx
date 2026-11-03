@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatApiError } from '../api/client';
-import { boardApi, type BoardSnapshot } from '../api/resources';
+import { boardApi, type BoardCard, type BoardSnapshot } from '../api/resources';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { STEP_LABELS, labelFor } from '../lib/labels';
@@ -36,6 +36,7 @@ export function Board() {
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [requirementFilter, setRequirementFilter] = useState('');
+  const [viewMode, setViewMode] = useState<'columns' | 'requirements'>('columns');
 
   async function load() {
     if (!projectId) {
@@ -105,6 +106,35 @@ export function Board() {
 
   const visibleTotal = filteredColumns.reduce((sum, column) => sum + column.cards.length, 0);
 
+  const requirementGroups = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        code: string;
+        title: string;
+        cards: Array<{ card: BoardCard; columnKey: string }>;
+      }
+    >();
+    for (const column of filteredColumns) {
+      for (const card of column.cards) {
+        const code = card.requirementCode ?? 'UNBOUND';
+        const group = groups.get(code) ?? {
+          code,
+          title: card.requirementTitle ?? '未关联需求',
+          cards: [],
+        };
+        group.cards.push({ card, columnKey: column.key });
+        groups.set(code, group);
+      }
+    }
+    return [...groups.values()].sort((a, b) => {
+      const weight = (value: typeof a) =>
+        value.cards.filter((item) => item.columnKey === 'BLOCKED').length * 10 +
+        value.cards.filter((item) => item.columnKey === 'ACTIVE').length;
+      return weight(b) - weight(a) || a.code.localeCompare(b.code, 'zh-CN');
+    });
+  }, [filteredColumns]);
+
   return (
     <section>
       <header className="page-head">
@@ -115,6 +145,20 @@ export function Board() {
           </p>
         </div>
         <div className="page-actions">
+          <div className="segmented" aria-label="看板视图">
+            <button
+              className={viewMode === 'columns' ? 'is-active' : ''}
+              onClick={() => setViewMode('columns')}
+            >
+              按列
+            </button>
+            <button
+              className={viewMode === 'requirements' ? 'is-active' : ''}
+              onClick={() => setViewMode('requirements')}
+            >
+              按需求
+            </button>
+          </div>
           <ProjectSelect onChange={() => setSnapshot(null)} />
           <button className="ghost" disabled={!projectId || loading} onClick={() => void load()}>
             {loading ? '加载中…' : '刷新'}
@@ -167,7 +211,7 @@ export function Board() {
         </div>
       )}
 
-      {snapshot && (
+      {snapshot && viewMode === 'columns' && (
         <div className="board-grid">
           {filteredColumns.map((column) => (
             <div className="board-col" key={column.key}>
@@ -223,6 +267,83 @@ export function Board() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {snapshot && viewMode === 'requirements' && (
+        <div className="table-card board-requirement-card">
+          <div className="table-scroll">
+            <table className="data-table board-requirement-table">
+              <thead>
+                <tr>
+                  <th>需求</th>
+                  <th className="cell-num">任务</th>
+                  <th className="cell-num">待认领</th>
+                  <th className="cell-num">进行中</th>
+                  <th className="cell-num">阻塞</th>
+                  <th className="cell-num">暂停</th>
+                  <th className="cell-num">已交付</th>
+                  <th>角色</th>
+                  <th className="col-actions">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {requirementGroups.map((group) => {
+                  const count = (key: string) =>
+                    group.cards.filter((item) => item.columnKey === key).length;
+                  const roles = [
+                    ...new Set(
+                      group.cards
+                        .map((item) => item.card.roleTitle)
+                        .filter((value): value is string => Boolean(value)),
+                    ),
+                  ];
+                  return (
+                    <tr
+                      key={group.code}
+                      className={count('BLOCKED') > 0 ? 'is-blocked-row' : undefined}
+                    >
+                      <td>
+                        <strong>
+                          {group.code === 'UNBOUND' ? '未关联需求' : group.code}
+                          {group.code !== 'UNBOUND' ? ` · ${group.title}` : ''}
+                        </strong>
+                      </td>
+                      <td className="cell-num">{group.cards.length}</td>
+                      <td className="cell-num">{count('BACKLOG')}</td>
+                      <td className="cell-num">{count('ACTIVE')}</td>
+                      <td className="cell-num">
+                        {count('BLOCKED') > 0 ? (
+                          <span className="status-tag is-danger">{count('BLOCKED')}</span>
+                        ) : (
+                          0
+                        )}
+                      </td>
+                      <td className="cell-num">{count('PAUSED')}</td>
+                      <td className="cell-num">{count('DELIVERED')}</td>
+                      <td className="board-meta">{roles.join(' / ') || '—'}</td>
+                      <td className="col-actions">
+                        <button
+                          className="ghost"
+                          disabled={group.code === 'UNBOUND'}
+                          onClick={() =>
+                            navigate(`/requirements/${encodeURIComponent(group.code)}`)
+                          }
+                        >
+                          详情
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {requirementGroups.length === 0 && (
+                  <tr className="table-empty">
+                    <td colSpan={9}>没有匹配的任务。</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

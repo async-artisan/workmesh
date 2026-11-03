@@ -1244,3 +1244,49 @@ input[type='radio'] {
   display: table-cell;
   max-width: none;
 }
+
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.segmented button {
+  padding: 6px 11px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.segmented button.is-active {
+  background: #0891b2;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(8, 145, 178, 0.2);
+}
+
+.board-requirement-card {
+  margin-top: 12px;
+}
+
+.board-requirement-table {
+  min-width: 900px;
+}
+
+.board-requirement-table td strong {
+  color: #0f172a;
+  font-size: 12.5px;
+}
+
+.board-requirement-table tr.is-blocked-row {
+  background: #fffaf2;
+}
+
+.status-tag.is-danger {
+  border-color: rgba(225, 29, 72, 0.24);
+  background: #fff1f2;
+  color: #be123c;
+}
