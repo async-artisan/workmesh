@@ -7,13 +7,21 @@ import {
   type V1DeliverContext,
   type V1RawDeliverItem,
 } from './v1-artifact.service';
+import { mapCodeReviewEvidence } from './v1-artifact.prisma-repository';
 import {
   type V1ArtifactRepository,
   type V1ArtifactSetSnapshot,
+  type V1ArtifactCheck,
+  type V1CodeReviewEvidenceSnapshot,
+  contentPreviewOf,
   type V1DeliverInput,
   type V1DeliverResultRow,
 } from './v1-artifact.repository';
-import { type V1TaskRepository, type V1TaskSnapshot } from './v1-task.repository';
+import {
+  type V1TaskRepository,
+  type V1TaskSnapshot,
+  type V1WorkflowStepContract,
+} from './v1-task.repository';
 import {
   requestDigestOf,
   type V1IdempotencyRepository,
@@ -115,6 +123,7 @@ function deliverContext(key = 'idem-1'): V1DeliverContext {
 
 class InMemoryArtifactRepo implements V1ArtifactRepository {
   sets = new Map<string, V1ArtifactSetSnapshot>();
+  evidence = new Map<string, V1CodeReviewEvidenceSnapshot[]>();
   deliverCalls: V1DeliverInput[] = [];
   async deliver(input: V1DeliverInput): Promise<V1DeliverResultRow> {
     this.deliverCalls.push(input);
@@ -158,12 +167,24 @@ class InMemoryArtifactRepo implements V1ArtifactRepository {
   async findArtifactSet(id: string) {
     return this.sets.get(id) ?? null;
   }
+  async findCodeReviewEvidence(_projectId: string, artifactSetId: string) {
+    return this.evidence.get(artifactSetId) ?? [];
+  }
 }
 
 class InMemoryTaskRepo implements V1TaskRepository {
   task: V1TaskSnapshot | null = taskSnapshot();
+  contract: V1WorkflowStepContract | null = {
+    workflowDefinitionRevisionId: WORKFLOW_REVISION_ID,
+    stepKey: 'step-1',
+    kind: 'DELIVERY',
+    outputKinds: ['IMPL'],
+  };
   async findTask(_id: string) {
     return this.task as V1TaskSnapshot;
+  }
+  async findWorkflowStepContract() {
+    return this.contract;
   }
   async claim(): Promise<V1TaskSnapshot> {
     throw new Error('not used');
@@ -210,7 +231,270 @@ function build(
   return { service, repo, task, authz, idem };
 }
 
+describe('V1ArtifactService.getArtifactSet evidence', () => {
+  it('derives required and acceptable from shared code-evidence policy', async () => {
+    const repo = new InMemoryArtifactRepo();
+    const set: V1ArtifactSetSnapshot = {
+      id: 'set-1',
+      taskId: 'task-1',
+      taskGeneration: 1,
+      snapshotId: SNAPSHOT_ID,
+      manifestDigest: 'a'.repeat(64),
+      workflowDefinitionRevisionId: WORKFLOW_REVISION_ID,
+      localRunId: 'run-1',
+      candidateRevisionIds: [],
+      artifacts: [
+        {
+          id: 'artifact-1',
+          kind: 'IMPL',
+          schemaVersion: '1.0',
+          storage: 'GIT_REF',
+          mediaType: 'text/x-source',
+          byteLength: 0,
+          sha256: EMPTY_SHA,
+          projectRepositoryId: 'repo-1',
+          commitSha: 'b'.repeat(40),
+          repoPath: 'src/index.ts',
+          summary: 'implementation',
+          checks: [],
+        },
+      ],
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    };
+    repo.sets.set(set.id, set);
+    repo.evidence.set(set.id, [
+      {
+        id: 'evidence-1',
+        repositoryId: 'repo-external',
+        repositoryOwner: 'owner',
+        repositoryName: 'repo',
+        adapter: 'github',
+        changeRequestId: 'PR-1',
+        headSha: 'b'.repeat(40),
+        commitSha: 'b'.repeat(40),
+        authorExternalId: 'author',
+        reviewerExternalId: 'reviewer',
+        reviewerKind: 'USER',
+        state: 'APPROVED',
+        submittedAt: '2026-01-01T01:00:00.000Z',
+      },
+    ]);
+    const { service } = build(repo, new InMemoryTaskRepo(), new InMemoryAuthz());
+
+    await expect(service.getArtifactSet(humanPrincipal(), set.id)).resolves.toMatchObject({
+      codeReview: { required: true, acceptable: true, evidence: [{ changeRequestId: 'PR-1' }] },
+    });
+  });
+
+  it('does not require code evidence for hosted-only artifacts', async () => {
+    const repo = new InMemoryArtifactRepo();
+    const set: V1ArtifactSetSnapshot = {
+      id: 'set-hosted',
+      taskId: 'task-1',
+      taskGeneration: 1,
+      snapshotId: SNAPSHOT_ID,
+      manifestDigest: 'a'.repeat(64),
+      workflowDefinitionRevisionId: WORKFLOW_REVISION_ID,
+      localRunId: 'run-1',
+      candidateRevisionIds: [],
+      artifacts: [
+        {
+          id: 'artifact-1',
+          kind: 'CASES',
+          schemaVersion: '1.0',
+          storage: 'HOSTED',
+          mediaType: 'text/plain',
+          byteLength: 3,
+          sha256: EMPTY_SHA,
+          projectRepositoryId: null,
+          commitSha: null,
+          repoPath: null,
+          summary: null,
+          checks: [],
+        },
+      ],
+      createdAt: new Date(),
+    };
+    repo.sets.set(set.id, set);
+    const { service } = build(repo, new InMemoryTaskRepo(), new InMemoryAuthz());
+    await expect(service.getArtifactSet(humanPrincipal(), set.id)).resolves.toMatchObject({
+      codeReview: { required: false, acceptable: true, evidence: [] },
+    });
+  });
+});
+
+describe('mapCodeReviewEvidence', () => {
+  it('joins repository metadata by project external id and preserves unknown repos as null', () => {
+    const result = mapCodeReviewEvidence(
+      [
+        {
+          id: 'e-1',
+          repositoryId: 'repo-1',
+          changeRequestId: 'PR-1',
+          headSha: 'a'.repeat(40),
+          commitSha: 'a'.repeat(40),
+          authorExternalId: 'author',
+          reviewerExternalId: 'reviewer',
+          reviewerKind: 'USER',
+          state: 'APPROVED',
+          submittedAt: new Date('2026-01-01T00:00:00Z'),
+        },
+        {
+          id: 'e-2',
+          repositoryId: 'missing',
+          changeRequestId: 'PR-2',
+          headSha: 'b'.repeat(40),
+          commitSha: null,
+          authorExternalId: 'author',
+          reviewerExternalId: 'bot',
+          reviewerKind: 'BOT',
+          state: 'PENDING',
+          submittedAt: null,
+        },
+      ],
+      [{ externalId: 'repo-1', owner: 'owner', name: 'service', adapter: 'github' }],
+    );
+    expect(result).toMatchObject([
+      { repositoryOwner: 'owner', repositoryName: 'service', adapter: 'github' },
+      { repositoryOwner: null, repositoryName: null, adapter: null, submittedAt: null },
+    ]);
+  });
+});
+
+describe('contentPreviewOf', () => {
+  it('limits hosted text previews and leaves git refs unavailable', () => {
+    const preview = contentPreviewOf('HOSTED', 'text/plain', Buffer.from('hello'));
+    expect(preview).toEqual({ text: 'hello', truncated: false });
+    expect(contentPreviewOf('GIT_REF', 'text/x-source', Buffer.from('ignored'))).toBeNull();
+    const large = contentPreviewOf('HOSTED', 'text/plain', Buffer.alloc(5000, 65));
+    expect(large?.text).toHaveLength(4096);
+    expect(large?.truncated).toBe(true);
+  });
+});
+
 describe('V1ArtifactService.deliver', () => {
+  it('normalizes legacy checks as Agent-reported and keeps external references explicitly unverified', async () => {
+    const task = new InMemoryTaskRepo();
+    task.task = taskSnapshot({ currentClaim: activeClaim() });
+    const repo = new InMemoryArtifactRepo();
+    const { service } = build(repo, task, new InMemoryAuthz());
+    const checks: V1ArtifactCheck[] = [
+      { code: 'self-check', passed: true },
+      {
+        code: 'ci-tests',
+        passed: true,
+        evidence: {
+          kind: 'CI_RUN',
+          provider: 'GitHub Actions',
+          url: 'https://github.com/acme/app/actions/runs/42',
+          runId: '42',
+          commitSha: 'a'.repeat(40),
+        },
+      },
+    ];
+    const result = await service.deliver(
+      humanPrincipal(),
+      'task-1',
+      deliverBody({ items: [hostedItem({ checks })] }),
+      deliverContext(),
+    );
+
+    expect(repo.deliverCalls[0]?.items[0]?.checks).toEqual([
+      { code: 'self-check', passed: true, source: 'AGENT_REPORTED' },
+      {
+        code: 'ci-tests',
+        passed: true,
+        source: 'EXTERNAL_REFERENCE',
+        evidence: {
+          kind: 'CI_RUN',
+          provider: 'GitHub Actions',
+          url: 'https://github.com/acme/app/actions/runs/42',
+          runId: '42',
+          commitSha: 'a'.repeat(40),
+        },
+      },
+    ]);
+    expect(result.artifactSet.artifacts[0]?.checks[0]?.source).toBe('AGENT_REPORTED');
+    expect(result.artifactSet.artifacts[0]?.checks[1]?.source).toBe('EXTERNAL_REFERENCE');
+    expect(result.artifactSet.artifacts[0]?.checks[1]?.evidence).toMatchObject({ runId: '42' });
+  });
+
+  it.each([
+    {
+      name: 'Agent cannot label a check verified',
+      check: { code: 'tests', passed: true, verified: true },
+    },
+    {
+      name: 'Agent cannot mark an evidence reference verified',
+      check: {
+        code: 'tests',
+        passed: true,
+        evidence: {
+          kind: 'CI_RUN',
+          provider: 'CI',
+          url: 'https://ci.example.com/runs/1',
+          verified: true,
+        },
+      },
+    },
+    {
+      name: 'external references require evidence',
+      check: { code: 'tests', passed: true, source: 'EXTERNAL_REFERENCE' },
+    },
+    {
+      name: 'Agent-reported checks cannot carry external evidence',
+      check: {
+        code: 'tests',
+        passed: true,
+        source: 'AGENT_REPORTED',
+        evidence: { kind: 'CI_RUN', provider: 'CI', url: 'https://ci.example.com/runs/1' },
+      },
+    },
+    {
+      name: 'evidence URLs must use HTTPS',
+      check: {
+        code: 'tests',
+        passed: true,
+        evidence: { kind: 'CI_RUN', provider: 'CI', url: 'http://ci.example.com/runs/1' },
+      },
+    },
+    {
+      name: 'CI evidence must refer to the delivered commit when one is declared',
+      check: {
+        code: 'tests',
+        passed: true,
+        evidence: {
+          kind: 'CI_RUN',
+          provider: 'CI',
+          url: 'https://ci.example.com/runs/1',
+          commitSha: 'b'.repeat(40),
+        },
+      },
+      item: {
+        storage: 'GIT_REF',
+        bodyBase64: null,
+        projectRepositoryId: '11111111-1111-4111-8111-111111111111',
+        commitSha: 'a'.repeat(40),
+        repoPath: 'src/main.ts',
+      },
+    },
+  ] as Array<{ name: string; check: Record<string, unknown>; item?: Partial<V1RawDeliverItem> }>)
+    ('rejects invalid check provenance: $name', async ({ check, item }) => {
+    const task = new InMemoryTaskRepo();
+    task.task = taskSnapshot({ currentClaim: activeClaim() });
+    const { service } = build(new InMemoryArtifactRepo(), task, new InMemoryAuthz());
+    await expect(
+      service.deliver(
+        humanPrincipal(),
+        'task-1',
+        deliverBody({
+          items: [hostedItem({ ...item, checks: [check as any] })],
+        }),
+        deliverContext(),
+      ),
+    ).rejects.toMatchObject({ status: 422, code: V1_ERROR_CODES.ARTIFACT_INVALID });
+    });
+
   it('rejects when task missing (404, no existence leak)', async () => {
     const task = new InMemoryTaskRepo();
     task.task = null;
@@ -291,6 +575,43 @@ describe('V1ArtifactService.deliver', () => {
     expect(res.artifactSet.artifacts).toHaveLength(1);
     expect(repo.deliverCalls[0].items[0].sha256).toBe(EMPTY_SHA);
     expect(repo.deliverCalls[0].subjectDigest).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('rejects an artifact kind that is outside the current workflow step contract', async () => {
+    const task = new InMemoryTaskRepo();
+    task.task = taskSnapshot({ currentClaim: activeClaim() });
+    task.contract = {
+      workflowDefinitionRevisionId: WORKFLOW_REVISION_ID,
+      stepKey: 'implement',
+      kind: 'DELIVERY',
+      outputKinds: ['IMPL'],
+    };
+    task.findWorkflowStepContract = async () => task.contract;
+    const { service } = build(new InMemoryArtifactRepo(), task, new InMemoryAuthz());
+    await expect(
+      service.deliver(
+        humanPrincipal(),
+        'task-1',
+        deliverBody({ items: [hostedItem({ kind: 'RELEASE' })] }),
+        deliverContext(),
+      ),
+    ).rejects.toMatchObject({ status: 422, code: V1_ERROR_CODES.ARTIFACT_INVALID });
+  });
+
+  it('rejects delivery against a stale workflow revision contract', async () => {
+    const task = new InMemoryTaskRepo();
+    task.task = taskSnapshot({ currentClaim: activeClaim() });
+    task.contract = {
+      workflowDefinitionRevisionId: '44444444-4444-4444-8444-444444444444',
+      stepKey: 'implement',
+      kind: 'DELIVERY',
+      outputKinds: ['IMPL'],
+    };
+    task.findWorkflowStepContract = async () => task.contract;
+    const { service } = build(new InMemoryArtifactRepo(), task, new InMemoryAuthz());
+    await expect(
+      service.deliver(humanPrincipal(), 'task-1', deliverBody(), deliverContext()),
+    ).rejects.toMatchObject({ status: 409, code: V1_ERROR_CODES.BASELINE_STALE });
   });
 
   it('rejects HOSTED digest mismatch (422)', async () => {

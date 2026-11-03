@@ -202,4 +202,316 @@ describe('ReviewDecision（证据 + 一次确认 + 回执）', () => {
     expect(screen.getByText(/复制审计行/)).toBeInTheDocument();
     expect((await screen.findAllByText('alice@example.com')).length).toBeGreaterThan(0);
   });
+
+  it('让代码交付物具备可审阅的需求、仓库、检查与代码评审证据', async () => {
+    const commit = 'b'.repeat(40);
+    const taskReview = {
+      ...review,
+      id: 'review-code',
+      kind: 'TASK_ACCEPTANCE',
+      documentRevisionId: null,
+      artifactSetId: 'set-code',
+      taskId: 'task-code',
+      subject: null,
+      slots: [],
+    };
+    mockFetch((url) => {
+      const path = pathOf(url);
+      if (path === '/api/v1/review-requests/review-code')
+        return { status: 200, body: envelope(taskReview) };
+      if (path === '/api/v1/artifact-sets/set-code')
+        return {
+          status: 200,
+          body: envelope({
+            id: 'set-code',
+            taskId: 'task-code',
+            taskGeneration: 1,
+            snapshotId: 'snap-1',
+            manifestDigest: 'c'.repeat(64),
+            workflowDefinitionRevisionId: 'wf-1',
+            localRunId: 'run-1',
+            candidateRevisionIds: [],
+            createdAt: '2026-11-02T00:00:00.000Z',
+            artifacts: [
+              {
+                id: 'artifact-code',
+                kind: 'IMPL',
+                schemaVersion: '1.0',
+                storage: 'GIT_REF',
+                mediaType: 'text/x-source',
+                byteLength: 0,
+                sha256: 'd'.repeat(64),
+                projectRepositoryId: 'repo-1',
+                commitSha: commit,
+                repoPath: 'app/service',
+                summary: '客户询价单实现提交',
+                checks: [
+                  {
+                    code: 'commit-has-requirement-code',
+                    passed: true,
+                    message: '包含 YFF-001',
+                    source: 'EXTERNAL_REFERENCE',
+                    evidence: {
+                      kind: 'CI_RUN',
+                      provider: 'GitHub Actions',
+                      url: 'https://github.com/acme/app/actions/runs/42',
+                      runId: '42',
+                      commitSha: commit,
+                    },
+                  },
+                ],
+              },
+            ],
+            codeReview: {
+              required: true,
+              acceptable: true,
+              evidence: [
+                {
+                  id: 'evidence-1',
+                  repositoryId: 'codeup-backend',
+                  changeRequestId: 'PR-YFF-001-impl-be',
+                  headSha: commit,
+                  authorExternalId: 'be',
+                  reviewerExternalId: 'owner',
+                  reviewerKind: 'USER',
+                  state: 'APPROVED',
+                  commitSha: commit,
+                  submittedAt: '2026-11-02T01:00:00.000Z',
+                },
+              ],
+            },
+          }),
+        };
+      if (path === '/api/v1/tasks/task-code')
+        return {
+          status: 200,
+          body: envelope({
+            id: 'task-code',
+            projectId: 'p1',
+            workflowInstanceId: 'instance-1',
+            stepKey: 'impl-be',
+            roleId: 'role-backend',
+            responsibleUserId: 'be@example.com',
+            version: 2,
+            generation: 1,
+            executionStatus: 'REVIEW_PENDING',
+            workStatus: 'ACTIVE',
+            currentClaim: null,
+          }),
+        };
+      if (path === '/api/v1/workflow-instances/instance-1')
+        return { status: 200, body: envelope({ requirementId: 'req-1' }) };
+      if (path === '/api/v1/projects/p1/requirements/req-1')
+        return {
+          status: 200,
+          body: envelope({
+            requirement: {
+              id: 'req-1',
+              projectId: 'p1',
+              seq: 1,
+              code: 'YFF-001',
+              title: '客户询价单',
+              description: '支持客户询价主流程',
+              version: 1,
+              generation: 1,
+              phase: 'DELIVERY',
+              workStatus: 'ACTIVE',
+              createdAt: '',
+              updatedAt: '',
+            },
+            acceptanceKeys: ['a1'],
+            tasks: [{ id: 'task-code', stepKey: 'impl-be' }],
+            artifacts: [],
+            reviews: [],
+            changes: [],
+            counts: { tasks: 1, artifacts: 1, reviews: 1, changes: 0 },
+          }),
+        };
+      if (path === '/api/v1/projects/p1/repositories')
+        return {
+          status: 200,
+          body: envelope([
+            {
+              id: 'repo-1',
+              adapter: 'github',
+              externalId: 'codeup-backend',
+              owner: 'nz_erp',
+              name: 'backend',
+              defaultBranch: 'main',
+              createdAt: '',
+            },
+          ]),
+        };
+      if (path === '/api/v1/projects/p1/documents')
+        return {
+          status: 200,
+          body: envelope({
+            items: [
+              {
+                document: {
+                  id: 'prd-1',
+                  projectId: 'p1',
+                  knowledgeBaseId: 'kb',
+                  requirementId: 'req-1',
+                  kind: 'PRD',
+                  version: 1,
+                  currentPublishedRevisionId: 'prd-rev',
+                  archivedAt: null,
+                },
+                revisions: [],
+                publishedRevision: {
+                  id: 'prd-rev',
+                  documentId: 'prd-1',
+                  seq: 1,
+                  title: 'PRD：客户询价单',
+                  mimeType: 'text/markdown',
+                  byteLength: 20,
+                  digest: 'e'.repeat(64),
+                  state: 'PUBLISHED',
+                  createdBy: 'pm',
+                  basisUnderstandingRevisionId: null,
+                  deliveryScope: null,
+                  acceptance: [{ key: 'a1', text: '询价主流程可走通', verification: 'TEST' }],
+                },
+              },
+            ],
+            nextCursor: null,
+          }),
+        };
+      return undefined;
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/reviews/review-code']}>
+        <Routes>
+          <Route path="/reviews/:reviewId" element={<ReviewDecision />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('后端实现')).toBeInTheDocument();
+    expect(screen.getByText('YFF-001 · 客户询价单')).toBeInTheDocument();
+    expect(screen.getByText('询价主流程可走通')).toBeInTheDocument();
+    expect(screen.getByText('代码引用')).toBeInTheDocument();
+    expect(screen.getByText(/代码引用不保存文件字节/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'nz_erp/backend' })).toHaveAttribute(
+      'href',
+      'https://github.com/nz_erp/backend',
+    );
+    expect(screen.getByRole('link', { name: /commit bbbbbbbb/ })).toHaveAttribute(
+      'href',
+      `https://github.com/nz_erp/backend/commit/${commit}`,
+    );
+    expect(screen.getByText(/commit-has-requirement-code：包含 YFF-001/)).toBeInTheDocument();
+    expect(screen.getByText('GitHub Actions 引用（未核验）')).toHaveAttribute(
+      'href',
+      'https://github.com/acme/app/actions/runs/42',
+    );
+    expect(screen.getByText('PR-YFF-001-impl-be')).toBeInTheDocument();
+    expect(screen.getByText('已满足')).toBeInTheDocument();
+  });
+
+  it('在代码交付缺少有效评审证据时提示服务端拒绝原因', async () => {
+    const missingReview = {
+      ...review,
+      id: 'review-missing',
+      kind: 'TASK_ACCEPTANCE',
+      documentRevisionId: null,
+      artifactSetId: 'set-missing',
+      taskId: 'task-missing',
+      subject: null,
+      slots: [],
+    };
+    mockFetch((url) => {
+      const path = pathOf(url);
+      if (path === '/api/v1/review-requests/review-missing')
+        return { status: 200, body: envelope(missingReview) };
+      if (path === '/api/v1/artifact-sets/set-missing')
+        return {
+          status: 200,
+          body: envelope({
+            id: 'set-missing',
+            taskId: 'task-missing',
+            taskGeneration: 1,
+            snapshotId: 'snap',
+            manifestDigest: 'a'.repeat(64),
+            workflowDefinitionRevisionId: 'wf',
+            localRunId: 'run',
+            candidateRevisionIds: [],
+            createdAt: '',
+            artifacts: [
+              {
+                id: 'a',
+                kind: 'IMPL',
+                schemaVersion: '1.0',
+                storage: 'GIT_REF',
+                mediaType: 'text/x-source',
+                byteLength: 0,
+                sha256: 'a'.repeat(64),
+                projectRepositoryId: null,
+                commitSha: 'b'.repeat(40),
+                repoPath: 'app/service',
+                summary: null,
+                checks: [],
+              },
+            ],
+            codeReview: { required: true, acceptable: false, evidence: [] },
+          }),
+        };
+      if (path === '/api/v1/tasks/task-missing')
+        return {
+          status: 200,
+          body: envelope({
+            id: 'task-missing',
+            projectId: 'p1',
+            workflowInstanceId: 'instance-missing',
+            stepKey: 'impl-be',
+            roleId: 'role-backend',
+            responsibleUserId: 'be@example.com',
+            version: 1,
+            generation: 1,
+            executionStatus: 'REVIEW_PENDING',
+            workStatus: 'ACTIVE',
+            currentClaim: null,
+          }),
+        };
+      if (path === '/api/v1/workflow-instances/instance-missing')
+        return { status: 200, body: envelope({ requirementId: 'req-missing' }) };
+      if (path === '/api/v1/projects/p1/requirements/req-missing')
+        return {
+          status: 200,
+          body: envelope({
+            requirement: {
+              id: 'req-missing',
+              projectId: 'p1',
+              seq: 1,
+              code: 'YFF-002',
+              title: '缺少证据需求',
+              description: null,
+              version: 1,
+              generation: 1,
+              phase: 'DELIVERY',
+              workStatus: 'ACTIVE',
+              createdAt: '',
+              updatedAt: '',
+            },
+            tasks: [],
+            artifacts: [],
+            reviews: [],
+            changes: [],
+            acceptanceKeys: [],
+            counts: { tasks: 1, artifacts: 1, reviews: 1, changes: 0 },
+          }),
+        };
+      return undefined;
+    });
+    render(
+      <MemoryRouter initialEntries={['/reviews/review-missing']}>
+        <Routes>
+          <Route path="/reviews/:reviewId" element={<ReviewDecision />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText(/CODE_REVIEW_EVIDENCE_MISSING/)).toBeInTheDocument();
+  });
 });

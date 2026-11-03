@@ -5,7 +5,67 @@ export const V1_ARTIFACT_REPOSITORY = Symbol('V1_ARTIFACT_REPOSITORY');
 export type V1ArtifactKind = 'PRD' | 'DESIGN' | 'IMPL' | 'CASES' | 'RELEASE';
 export type V1ArtifactStorage = 'HOSTED' | 'GIT_REF';
 
-export type V1ArtifactCheck = { code: string; passed: boolean; message?: string };
+export type V1ArtifactCheckSource = 'AGENT_REPORTED' | 'EXTERNAL_REFERENCE';
+
+export type V1ArtifactCheckEvidence = {
+  kind: 'CI_RUN' | 'TEST_REPORT';
+  provider: string;
+  url: string;
+  runId?: string;
+  commitSha?: string;
+};
+
+export type V1ArtifactCheck = {
+  code: string;
+  passed: boolean;
+  message?: string;
+  source?: V1ArtifactCheckSource;
+  /** An externally reviewable reference; WorkMesh does not verify it. */
+  evidence?: V1ArtifactCheckEvidence;
+};
+
+export type V1ArtifactContentPreview = {
+  text: string;
+  truncated: boolean;
+};
+
+export type V1CodeReviewEvidenceSnapshot = {
+  id: string;
+  repositoryId: string;
+  repositoryOwner: string | null;
+  repositoryName: string | null;
+  adapter: string | null;
+  changeRequestId: string;
+  headSha: string;
+  commitSha: string | null;
+  authorExternalId: string;
+  reviewerExternalId: string;
+  reviewerKind: string;
+  state: string;
+  submittedAt: string | null;
+};
+
+export type V1CodeReviewSummary = {
+  required: boolean;
+  acceptable: boolean;
+  evidence: V1CodeReviewEvidenceSnapshot[];
+};
+
+/** Only expose a small, UTF-8 text preview; GIT_REF has no hosted bytes. */
+export function contentPreviewOf(
+  storage: string,
+  mediaType: string,
+  bodyBytes: Buffer | null | undefined,
+): V1ArtifactContentPreview | null {
+  const maxBytes = 4096;
+  if (storage !== 'HOSTED' || !mediaType.toLowerCase().startsWith('text/') || !bodyBytes)
+    return null;
+  const truncated = bodyBytes.byteLength > maxBytes;
+  const bytes = truncated ? bodyBytes.subarray(0, maxBytes) : bodyBytes;
+  let text = bytes.toString('utf8');
+  if (truncated && text.endsWith('\ufffd')) text = text.slice(0, -1);
+  return { text, truncated };
+}
 
 /** 客户端声明项；HOSTED 的摘要与长度由服务端按原始字节重算，不采用声明值。 */
 export type V1DeliverItem = {
@@ -38,6 +98,7 @@ export type V1ArtifactSnapshot = {
   repoPath: string | null;
   summary: string | null;
   checks: V1ArtifactCheck[];
+  contentPreview?: V1ArtifactContentPreview | null;
 };
 
 export type V1ArtifactSetSnapshot = {
@@ -50,6 +111,8 @@ export type V1ArtifactSetSnapshot = {
   localRunId: string;
   candidateRevisionIds: string[];
   artifacts: V1ArtifactSnapshot[];
+  /** Populated for read-only artifact-set detail; omitted by deliver responses. */
+  codeReview?: V1CodeReviewSummary;
   createdAt: Date;
 };
 
@@ -98,4 +161,9 @@ export type V1DeliverResultRow = {
 export interface V1ArtifactRepository {
   deliver(input: V1DeliverInput): Promise<V1DeliverResultRow>;
   findArtifactSet(id: string): Promise<V1ArtifactSetSnapshot | null>;
+  /** Read-only external code-review evidence for an artifact set. */
+  findCodeReviewEvidence?(
+    projectId: string,
+    artifactSetId: string,
+  ): Promise<V1CodeReviewEvidenceSnapshot[]>;
 }

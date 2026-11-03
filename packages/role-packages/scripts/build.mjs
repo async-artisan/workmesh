@@ -22,6 +22,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { validateResourceRecords, validateSkillFrontmatter } from './validation.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(here, '..');
@@ -92,22 +93,49 @@ const roleDirs = readdirSync(rolesRoot, { withFileTypes: true })
 const packages = roleDirs.map((roleKey) => {
   const roleRoot = join(rolesRoot, roleKey);
   const meta = JSON.parse(readFileSync(join(roleRoot, 'package.meta.json'), 'utf8'));
-  const resources = walk(roleRoot)
+  const resourceFiles = walk(roleRoot)
     .map((file) => {
       const rel = relative(roleRoot, file).split(sep).join('/');
-      const bytes = readFileSync(file);
       const { id, kind } = classify(rel);
       return {
+        file,
+        rel,
         id,
         kind,
         path: `roles/${roleKey}/${rel}`,
-        sha256: createHash('sha256').update(bytes).digest('hex'),
-        byteLength: bytes.byteLength,
-        mediaType: mediaTypeOf(rel),
-        bodyBase64: bytes.toString('base64'),
+        byteLength: statSync(file).size,
       };
     })
     .sort((left, right) => left.path.localeCompare(right.path));
+
+  // Check the inexpensive metadata first, before reading and base64-encoding resources.
+  validateResourceRecords(roleKey, resourceFiles);
+  const resources = resourceFiles.map(({ file, rel, id, kind, path, byteLength }) => {
+    if (rel.startsWith('skills/') && rel.endsWith('/SKILL.md')) {
+      const match = rel.match(/^skills\/([^/]+)\/SKILL\.md$/);
+      if (!match) throw new Error(`${path}: SKILL.md must be directly inside skills/<name>/`);
+      const expectedName = match[1];
+      validateSkillFrontmatter(readFileSync(file, 'utf8'), {
+        sourcePath: path,
+        expectedName,
+      });
+      const declaredSkill = (meta.skills ?? []).find((skill) => skill.key === expectedName);
+      if (!declaredSkill || declaredSkill.path !== rel)
+        throw new Error(`${path}: skill must be declared in package.meta.json with the same key and path`);
+    }
+    const bytes = readFileSync(file);
+    if (bytes.byteLength !== byteLength)
+      throw new Error(`${path}: resource changed while the package was being built; rerun the build`);
+    return {
+      id,
+      kind,
+      path,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      byteLength: bytes.byteLength,
+      mediaType: mediaTypeOf(rel),
+      bodyBase64: bytes.toString('base64'),
+    };
+  });
 
   const manifest = {
     packageSchemaVersion: '1.1',

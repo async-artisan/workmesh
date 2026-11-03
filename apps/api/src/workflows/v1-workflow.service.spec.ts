@@ -8,6 +8,7 @@ import {
   type WorkflowCompiledRules,
   type WorkflowPackageLock,
 } from '@workmesh/shared';
+import type { RolePackageManifest } from '@workmesh/shared';
 import { V1AuthorizationService, type V1AuthorizationRepository } from '../auth/v1-authorization';
 import type { V1Principal } from '../auth/v1-policy';
 import {
@@ -42,6 +43,7 @@ const projectId = 'p-a';
 const workflowKey = 'demo';
 const ticketSecret = 'ticket-secret-value';
 const idempotencyKey = '11111111-1111-4111-8111-111111111111';
+const publishedKnowledgeId = '50000000-0000-4000-8000-000000000001';
 
 const roles: V1WorkflowRole[] = [
   { id: 'r-product', key: 'product', title: 'Product', isActive: true, version: 1 },
@@ -61,6 +63,43 @@ const roleIdsByKey: Record<string, string> = {
   ops: 'r-ops',
 };
 
+function testManifest(roleKey: string): RolePackageManifest {
+  const inputs: RolePackageManifest['inputs'] = [
+    { key: 'context', source: 'TASK_SNAPSHOT', kind: 'CONTEXT', required: true, contractVersion: '1.0' },
+  ];
+  if (roleKey === 'product')
+    inputs.push({ key: 'business-knowledge', source: 'KNOWLEDGE', kind: 'KNOWLEDGE', required: true, contractVersion: '1.0' });
+  if (roleKey === 'engineering')
+    inputs.push(
+      { key: 'prd', source: 'KNOWLEDGE', kind: 'PRD', required: true, contractVersion: '1.0' },
+      { key: 'unit-card', source: 'KNOWLEDGE', kind: 'UNIT_CARD', required: true, contractVersion: '1.0' },
+    );
+  if (roleKey === 'ops')
+    inputs.push(
+      { key: 'prd', source: 'KNOWLEDGE', kind: 'PRD', required: true, contractVersion: '1.0' },
+      { key: 'unit-card', source: 'KNOWLEDGE', kind: 'UNIT_CARD', required: false, contractVersion: '1.0' },
+    );
+  return {
+    packageSchemaVersion: '1.1',
+    id: roleKey === 'engineering' ? 'pkg-eng' : `pkg-${roleKey}`,
+    version: '1.0.0',
+    protocolVersion: '1.0',
+    title: roleKey,
+    roleKey,
+    compatibility: { minCliVersion: '1.0.0', maxCliVersionExclusive: '2.0.0', contractVersion: '1.0' },
+    inputs,
+    outputs: [
+      { key: 'prd', channel: 'CANDIDATE', kind: 'PRD', contractVersion: '1.0' },
+      { key: 'impl', channel: 'CANDIDATE', kind: 'IMPL', contractVersion: '1.0' },
+      { key: 'release', channel: 'CANDIDATE', kind: 'RELEASE', contractVersion: '1.0' },
+    ],
+    resources: [
+      { id: 'guide', kind: 'prompt', path: 'guide.md', sha256: 'a'.repeat(64), byteLength: 1, mediaType: 'text/markdown' },
+    ],
+    agentEntries: [{ host: 'codex', type: 'AGENTS_MD_POINTER', resourceId: 'guide', adapterVersion: '1.0.0' }],
+  };
+}
+
 function demoDefinition(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     schemaVersion: '1.0',
@@ -70,6 +109,10 @@ function demoDefinition(overrides: Record<string, unknown> = {}): Record<string,
     baseRevisionId: null,
     roleExclusions: [],
     stepRemovals: [],
+    verificationExemption: {
+      reason: 'Test workflow omits verification to isolate publish and release controls.',
+      auditRef: 'test:qa-exemption',
+    },
     roleSlots: [{ key: 'release-approval', roleKey: 'ops', kind: 'RELEASE_ACCEPTANCE' }],
     steps: [
       {
@@ -79,6 +122,9 @@ function demoDefinition(overrides: Record<string, unknown> = {}): Record<string,
         deps: [],
         outputKinds: ['PRD'],
         baselinePolicy: 'NONE',
+        inputBindings: [
+          { inputKey: 'business-knowledge', source: 'EXTERNAL_INPUT', externalKey: 'business-context', reason: '测试需求的来源说明' },
+        ],
       },
       {
         key: 'implement',
@@ -86,6 +132,10 @@ function demoDefinition(overrides: Record<string, unknown> = {}): Record<string,
         kind: 'DELIVERY',
         deps: ['define'],
         outputKinds: ['IMPL'],
+        inputBindings: [
+          { inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'define' },
+          { inputKey: 'unit-card', source: 'PUBLISHED_KNOWLEDGE', knowledgeKey: publishedKnowledgeId },
+        ],
       },
       {
         key: 'release',
@@ -93,6 +143,7 @@ function demoDefinition(overrides: Record<string, unknown> = {}): Record<string,
         kind: 'RELEASE',
         deps: ['implement'],
         outputKinds: [],
+        inputBindings: [{ inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'define' }],
         gates: [{ mode: 'ALL', reviewerSlots: ['release-approval'] }],
       },
     ],
@@ -102,7 +153,7 @@ function demoDefinition(overrides: Record<string, unknown> = {}): Record<string,
 
 /** 带 verify 步骤的基线，用于“删除步骤必须给出理由”的回归。 */
 function definitionWithVerify(baseRevisionId: string | null): Record<string, unknown> {
-  return demoDefinition({
+  const definition = demoDefinition({
     baseRevisionId,
     steps: [
       {
@@ -112,6 +163,9 @@ function definitionWithVerify(baseRevisionId: string | null): Record<string, unk
         deps: [],
         outputKinds: ['PRD'],
         baselinePolicy: 'NONE',
+        inputBindings: [
+          { inputKey: 'business-knowledge', source: 'EXTERNAL_INPUT', externalKey: 'business-context', reason: '测试需求的来源说明' },
+        ],
       },
       {
         key: 'implement',
@@ -119,18 +173,34 @@ function definitionWithVerify(baseRevisionId: string | null): Record<string, unk
         kind: 'DELIVERY',
         deps: ['define'],
         outputKinds: ['IMPL'],
+        inputBindings: [
+          { inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'define' },
+          { inputKey: 'unit-card', source: 'PUBLISHED_KNOWLEDGE', knowledgeKey: publishedKnowledgeId },
+        ],
       },
-      { key: 'verify', roleKey: 'product', kind: 'VERIFY', deps: ['implement'], outputKinds: [] },
+      {
+        key: 'verify',
+        roleKey: 'product',
+        kind: 'VERIFY',
+        deps: ['implement'],
+        outputKinds: [],
+        inputBindings: [
+          { inputKey: 'business-knowledge', source: 'EXTERNAL_INPUT', externalKey: 'business-context', reason: '测试需求的来源说明' },
+        ],
+      },
       {
         key: 'release',
         roleKey: 'ops',
         kind: 'RELEASE',
         deps: ['verify'],
         outputKinds: [],
+        inputBindings: [{ inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'define' }],
         gates: [{ mode: 'ALL', reviewerSlots: ['release-approval'] }],
       },
     ],
   });
+  delete definition.verificationExemption;
+  return definition;
 }
 
 type StoredOperation = V1OperationRecord & { resultRefs: Record<string, unknown> };
@@ -155,7 +225,7 @@ type State = {
   operations: StoredOperation[];
   tickets: V1TicketRecord[];
   /** 已登记的包版本；默认与 locks 一致，可用于构造“未登记包”。 */
-  packages: Array<{ packageId: string; version: string; roleKey: string; manifestDigest: string }>;
+  packages: Array<{ packageId: string; version: string; roleKey: string; manifestDigest: string; manifest: RolePackageManifest }>;
 };
 
 function store(): State {
@@ -184,6 +254,7 @@ function store(): State {
       version: lock.version,
       roleKey: lock.roleKey,
       manifestDigest: lock.packageDigest,
+      manifest: testManifest(lock.roleKey),
     })),
   };
 }
@@ -209,6 +280,13 @@ function workflowRepository(state: State): V1WorkflowRepository {
         (item) => item.packageId === packageId && item.version === version,
       );
       return found ? { ...found, projectId: null } : null;
+    },
+    async isPublishedKnowledgeAvailable(project, roleId, documentId) {
+      return (
+        project === projectId &&
+        roleId === 'r-eng' &&
+        documentId === publishedKnowledgeId
+      );
     },
     async findRequirement(requirementId) {
       const found =
@@ -433,7 +511,11 @@ async function publishBinding(
   definition: Record<string, unknown>,
   packageLocks: WorkflowPackageLock[] = locks,
 ): Promise<ActionBinding> {
-  const compiled = await compileWorkflowDefinition(definition, { roleIdsByKey, packageLocks });
+  const compiled = await compileWorkflowDefinition(definition, {
+    roleIdsByKey,
+    packageLocks,
+    packageContracts: packageLocks.map((lock) => testManifest(lock.roleKey)),
+  });
   return {
     action: WORKFLOW_CONFIG_PUBLISH,
     projectId,
@@ -569,6 +651,7 @@ describe('V1WorkflowService', () => {
     const compiled = await compileWorkflowDefinition(definition, {
       roleIdsByKey,
       packageLocks: locks,
+      packageContracts: locks.map((lock) => testManifest(lock.roleKey)),
     });
     if (!compiled.valid)
       throw new Error(`fixture definition invalid: ${JSON.stringify(compiled.issues)}`);
@@ -642,6 +725,28 @@ describe('V1WorkflowService', () => {
       expect(state.operations).toHaveLength(0);
     });
 
+    it('rejects a published-knowledge reference that is not currently available to the step role', async () => {
+      const definition = demoDefinition();
+      const implement = (definition.steps as Array<Record<string, unknown>>).find(
+        (step) => step.key === 'implement',
+      )!;
+      implement.inputBindings = [
+        { inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'define' },
+        { inputKey: 'unit-card', source: 'PUBLISHED_KNOWLEDGE', knowledgeKey: 'unit-card' },
+      ];
+
+      const result = await service.validate(alice, projectId, {
+        definition,
+        packageLocks: locks,
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({ code: 'WORKFLOW_INPUT_SOURCE_UNAVAILABLE' }),
+      );
+      expect(state.revisions).toHaveLength(0);
+    });
+
     it('rejects an agent without workflow:propose', async () => {
       await expect(
         service.validate(agentAlice, projectId, {
@@ -658,6 +763,38 @@ describe('V1WorkflowService', () => {
       const result = await service.validate(alice, projectId, { definition, packageLocks: locks });
       expect(result.valid).toBe(false);
       expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_SCOPE_MISMATCH');
+    });
+
+    it('rejects a step output not declared by its registered role package', async () => {
+      const product = state.packages.find((item) => item.roleKey === 'product')!;
+      product.manifest = {
+        ...product.manifest,
+        outputs: product.manifest.outputs.filter((output) => output.kind !== 'PRD'),
+      };
+      const result = await service.validate(alice, projectId, {
+        definition: demoDefinition(),
+        packageLocks: locks,
+      });
+      expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_OUTPUT_CONTRACT_MISMATCH');
+    });
+
+    it('rejects required package inputs without a declared source', async () => {
+      const definition = demoDefinition();
+      const steps = definition.steps as Array<Record<string, unknown>>;
+      const define = { ...steps[0] };
+      delete define.inputBindings;
+      const result = await service.validate(alice, projectId, {
+        definition: { ...definition, steps: [define, ...steps.slice(1)] },
+        packageLocks: locks,
+      });
+      expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_INPUT_UNSATISFIED');
+    });
+
+    it('requires a reason and audit reference when VERIFY is skipped', async () => {
+      const definition = demoDefinition();
+      delete definition.verificationExemption;
+      const result = await service.validate(alice, projectId, { definition, packageLocks: locks });
+      expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_VERIFY_GATE_REQUIRED');
     });
 
     it('rejects a package lock that is not registered for the project', async () => {

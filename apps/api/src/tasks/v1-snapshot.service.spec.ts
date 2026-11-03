@@ -107,6 +107,14 @@ class InMemorySnapshotRepo implements V1SnapshotRepository {
   bodies = new Map<string, V1SnapshotResourceBody>();
   roleResourceProjectId: string | null = null;
   createCalls: V1CreateSnapshotInput[] = [];
+  prerequisiteArtifacts: Array<{
+    artifactId: string;
+    sha256: string;
+    byteLength: number;
+    mediaType: string;
+    sourceStepKey?: string;
+    kind?: string;
+  }> = [];
 
   async findTaskState() {
     return this.missing ? null : this.task;
@@ -121,7 +129,7 @@ class InMemorySnapshotRepo implements V1SnapshotRepository {
     return this.bindings;
   }
   async listAcceptedPrerequisiteArtifacts() {
-    return [];
+    return this.prerequisiteArtifacts;
   }
   async listRolePackageResources() {
     return this.roleResources;
@@ -282,8 +290,172 @@ describe('V1SnapshotService.create', () => {
         documentId: 'doc-knowledge',
         knowledgeBaseId: 'kb-1',
         roleId: 'role-1',
+        required: false,
+        currentPublishedRevisionId: null,
+      },
+      {
+        bindingId: 'binding-2',
+        documentId: 'doc-knowledge',
+        knowledgeBaseId: 'kb-1',
+        roleId: null,
         required: true,
         currentPublishedRevisionId: null,
+      },
+    ];
+    const { service } = build(repo);
+    await expect(
+      service.create(
+        humanPrincipal(),
+        'task-1',
+        { expectedVersion: 2, claimId: 'claim-1' },
+        snapshotContext(),
+      ),
+    ).rejects.toMatchObject({ status: 422, code: V1_ERROR_CODES.INPUT_UNAVAILABLE });
+  });
+
+  it('rejects a compiled published-knowledge input whose document is not role-bound', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.task.knowledgeInputs = [
+      { inputKey: 'contract', documentId: 'doc-required', required: true },
+    ];
+    const { service } = build(repo);
+    await expect(
+      service.create(
+        humanPrincipal(),
+        'task-1',
+        { expectedVersion: 2, claimId: 'claim-1' },
+        snapshotContext(),
+      ),
+    ).rejects.toMatchObject({ status: 422, code: V1_ERROR_CODES.INPUT_UNAVAILABLE });
+  });
+
+  it('keeps all role-bound knowledge while adding the exact compiled input', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.task.knowledgeInputs = [
+      { inputKey: 'contract', documentId: 'doc-contract', required: true },
+    ];
+    repo.bindings = [
+      {
+        bindingId: 'binding-contract',
+        documentId: 'doc-contract',
+        knowledgeBaseId: 'kb-1',
+        roleId: 'role-1',
+        required: false,
+        currentPublishedRevisionId: 'rev-contract',
+      },
+      {
+        bindingId: 'binding-policy',
+        documentId: 'doc-policy',
+        knowledgeBaseId: 'kb-1',
+        roleId: null,
+        required: true,
+        currentPublishedRevisionId: 'rev-policy',
+      },
+    ];
+    repo.revisions.set('rev-contract', revision('rev-contract', 'KNOWLEDGE', null));
+    repo.revisions.set('rev-policy', revision('rev-policy', 'DECISION', null));
+    const { service } = build(repo);
+
+    const result = await service.create(
+      humanPrincipal(),
+      'task-1',
+      { expectedVersion: 2, claimId: 'claim-1' },
+      snapshotContext(),
+    );
+
+    expect(result.snapshot.manifest.resources.map((resource) => resource.refId)).toEqual(
+      expect.arrayContaining(['knowledge:doc-contract', 'knowledge:doc-policy']),
+    );
+  });
+
+  it('rejects a required upstream artifact input when no accepted matching artifact is available', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.task.upstreamInputs = [
+      { inputKey: 'prd', fromStepKey: 'prd', kind: 'PRD', required: true },
+    ];
+    const { service } = build(repo);
+    await expect(
+      service.create(
+        humanPrincipal(),
+        'task-1',
+        { expectedVersion: 2, claimId: 'claim-1' },
+        snapshotContext(),
+      ),
+    ).rejects.toMatchObject({ status: 422, code: V1_ERROR_CODES.INPUT_UNAVAILABLE });
+  });
+
+  it('adds a matching accepted upstream artifact to the snapshot', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.task.upstreamInputs = [
+      { inputKey: 'prd', fromStepKey: 'prd', kind: 'PRD', required: true },
+    ];
+    repo.prerequisiteArtifacts = [
+      {
+        artifactId: 'artifact-prd',
+        sha256: SHA,
+        byteLength: 4,
+        mediaType: 'text/markdown',
+        sourceStepKey: 'prd',
+        kind: 'PRD',
+      },
+    ];
+    const { service } = build(repo);
+    const result = await service.create(
+      humanPrincipal(),
+      'task-1',
+      { expectedVersion: 2, claimId: 'claim-1' },
+      snapshotContext(),
+    );
+    expect(result.snapshot.manifest.resources).toContainEqual(
+      expect.objectContaining({ refId: 'artifact:artifact-prd', kind: 'ARTIFACT' }),
+    );
+  });
+
+  it('accepts a matching artifact from a non-direct ancestor declared by inputSources', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.task.upstreamInputs = [
+      { inputKey: 'prd', fromStepKey: 'define', kind: 'PRD', required: true },
+    ];
+    repo.prerequisiteArtifacts = [
+      {
+        artifactId: 'artifact-define',
+        sha256: SHA,
+        byteLength: 4,
+        mediaType: 'text/markdown',
+        sourceStepKey: 'define',
+        kind: 'PRD',
+      },
+    ];
+    const { service } = build(repo);
+    await expect(
+      service.create(
+        humanPrincipal(),
+        'task-1',
+        { expectedVersion: 2, claimId: 'claim-1' },
+        snapshotContext(),
+      ),
+    ).resolves.toMatchObject({ snapshot: { manifest: { resources: expect.any(Array) } } });
+  });
+
+  it('rejects an upstream artifact whose kind does not match the declared input', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.task.upstreamInputs = [
+      { inputKey: 'prd', fromStepKey: 'prd', kind: 'PRD', required: true },
+    ];
+    repo.prerequisiteArtifacts = [
+      {
+        artifactId: 'artifact-design',
+        sha256: SHA,
+        byteLength: 4,
+        mediaType: 'text/markdown',
+        sourceStepKey: 'prd',
+        kind: 'DESIGN',
       },
     ];
     const { service } = build(repo);

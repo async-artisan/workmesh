@@ -750,7 +750,39 @@ export interface ArtifactView {
   commitSha: string | null;
   repoPath: string | null;
   summary: string | null;
-  checks: Array<{ code: string; passed: boolean; message?: string }>;
+  contentPreview?: { text: string; truncated: boolean } | null;
+  checks: Array<{
+    code: string;
+    passed: boolean;
+    message?: string;
+    source?: 'AGENT_REPORTED' | 'EXTERNAL_REFERENCE';
+    evidence?: {
+      kind: 'CI_RUN' | 'TEST_REPORT';
+      provider: string;
+      url: string;
+      runId?: string;
+      commitSha?: string;
+    };
+  }>;
+}
+
+export interface CodeReviewEvidenceView {
+  id: string;
+  repositoryId: string;
+  changeRequestId: string;
+  headSha: string;
+  authorExternalId: string;
+  reviewerExternalId: string;
+  reviewerKind: string;
+  state: string;
+  commitSha: string | null;
+  submittedAt: string | null;
+}
+
+export interface ArtifactSetCodeReviewView {
+  required: boolean;
+  acceptable: boolean;
+  evidence: CodeReviewEvidenceView[];
 }
 
 export interface ArtifactSetView {
@@ -763,6 +795,7 @@ export interface ArtifactSetView {
   localRunId: string;
   candidateRevisionIds: string[];
   artifacts: ArtifactView[];
+  codeReview?: ArtifactSetCodeReviewView;
   createdAt: string;
 }
 

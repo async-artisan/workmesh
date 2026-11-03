@@ -57,6 +57,14 @@ export function buildStandardWorkflowTemplate(
         deps: [],
         outputKinds: ['UNDERSTANDING'],
         baselinePolicy: 'NONE',
+        inputBindings: [
+          {
+            inputKey: 'business-knowledge',
+            source: 'EXTERNAL_INPUT',
+            externalKey: 'business-knowledge',
+            reason: '由需求方提供的业务知识与约束',
+          },
+        ],
         gates: [{ mode: 'ALL', reviewerSlots: ['understanding-owner'] }],
       },
       {
@@ -66,6 +74,14 @@ export function buildStandardWorkflowTemplate(
         deps: ['understanding'],
         outputKinds: ['PRD'],
         baselinePolicy: 'NONE',
+        inputBindings: [
+          {
+            inputKey: 'business-knowledge',
+            source: 'EXTERNAL_INPUT',
+            externalKey: 'business-knowledge',
+            reason: '由需求方提供的业务知识与约束',
+          },
+        ],
         gates: [{ mode: 'ALL', reviewerSlots: ['prd-owner'] }],
       },
       {
@@ -75,6 +91,15 @@ export function buildStandardWorkflowTemplate(
         deps: ['prd'],
         outputKinds: ['IMPL'],
         baselinePolicy: 'PUBLISHED_PRD',
+        inputBindings: [
+          { inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'prd' },
+          {
+            inputKey: 'contract',
+            source: 'EXTERNAL_INPUT',
+            externalKey: 'api-contract',
+            reason: '由项目已有接口规范提供',
+          },
+        ],
         gates: [{ mode: 'ALL', reviewerSlots: ['task-acceptance'] }],
       },
       {
@@ -84,6 +109,7 @@ export function buildStandardWorkflowTemplate(
         deps: ['impl'],
         outputKinds: ['CASES'],
         baselinePolicy: 'PUBLISHED_PRD',
+        inputBindings: [{ inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'prd' }],
         gates: [{ mode: 'ALL', reviewerSlots: ['task-acceptance'] }],
       },
       {
@@ -92,6 +118,7 @@ export function buildStandardWorkflowTemplate(
         kind: 'RELEASE',
         deps: ['cases'],
         outputKinds: ['RELEASE'],
+        inputBindings: [{ inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'prd' }],
         gates: [{ mode: 'ALL', reviewerSlots: ['task-acceptance', 'release-acceptance'] }],
       },
     ],
@@ -147,6 +174,14 @@ export function buildSoftwareDeliveryWorkflowTemplate(
         deps: [],
         outputKinds: ['PRD'],
         baselinePolicy: 'NONE',
+        inputBindings: [
+          {
+            inputKey: 'business-knowledge',
+            source: 'EXTERNAL_INPUT',
+            externalKey: 'business-knowledge',
+            reason: '由需求方提供的业务知识与约束',
+          },
+        ],
         gates: [{ mode: 'ALL', reviewerSlots: ['prd-owner'] }],
       },
       ...(excludeUi
@@ -159,6 +194,7 @@ export function buildSoftwareDeliveryWorkflowTemplate(
               deps: ['prd'],
               outputKinds: ['DESIGN'],
               baselinePolicy: 'NONE',
+              inputBindings: [{ inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'prd' }],
               gates: implGates,
             },
           ]),
@@ -169,6 +205,7 @@ export function buildSoftwareDeliveryWorkflowTemplate(
         deps: ['prd'],
         outputKinds: ['CASES'],
         baselinePolicy: 'PUBLISHED_PRD',
+        inputBindings: [{ inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'prd' }],
         gates: implGates,
       },
       {
@@ -178,6 +215,10 @@ export function buildSoftwareDeliveryWorkflowTemplate(
         deps: ['prd'],
         outputKinds: ['IMPL'],
         baselinePolicy: 'PUBLISHED_PRD',
+        inputBindings: [
+          { inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'prd' },
+          { inputKey: 'unit-card', source: 'PUBLISHED_KNOWLEDGE', knowledgeKey: 'unit-card' },
+        ],
         gates: implGates,
       },
       {
@@ -187,6 +228,13 @@ export function buildSoftwareDeliveryWorkflowTemplate(
         deps: excludeUi ? ['prd'] : ['prd', 'design'],
         outputKinds: ['IMPL'],
         baselinePolicy: 'PUBLISHED_PRD',
+        inputBindings: [
+          { inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'prd' },
+          { inputKey: 'contract', source: 'PUBLISHED_KNOWLEDGE', knowledgeKey: 'api-contract' },
+          ...(!excludeUi
+            ? [{ inputKey: 'design', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'design' }]
+            : []),
+        ],
         gates: implGates,
       },
       {
@@ -196,6 +244,7 @@ export function buildSoftwareDeliveryWorkflowTemplate(
         deps: ['backend', 'frontend', 'cases'],
         outputKinds: [],
         baselinePolicy: 'PUBLISHED_PRD',
+        inputBindings: [{ inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'prd' }],
         gates: implGates,
       },
       {
@@ -204,6 +253,7 @@ export function buildSoftwareDeliveryWorkflowTemplate(
         kind: 'RELEASE',
         deps: ['accept'],
         outputKinds: ['RELEASE'],
+        inputBindings: [{ inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'prd' }],
         gates: [{ mode: 'ALL', reviewerSlots: ['task-acceptance', 'release-acceptance'] }],
       },
     ],

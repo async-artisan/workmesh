@@ -23,6 +23,7 @@ import {
   type V1CreateSnapshotInput,
   type V1CreateSnapshotResult,
   type V1SnapshotRepository,
+  type V1SnapshotBindingRecord,
   type V1SnapshotResourceBody,
   type V1SnapshotTaskState,
   type V1SnapshotView,
@@ -226,10 +227,38 @@ export class V1SnapshotService {
       }
     }
 
-    for (const binding of await this.repository.listRoleKnowledgeBindings(
+    const knowledgeBindings = await this.repository.listRoleKnowledgeBindings(
       task.projectId,
       task.roleId,
-    )) {
+    );
+    const knowledgeInputs = task.knowledgeInputs ?? [];
+    // Preserve every project/role-bound document. Workflow input bindings add
+    // exact availability requirements; they do not replace the role policy.
+    const bindingByDocumentId = new Map<string, V1SnapshotBindingRecord>();
+    for (const binding of knowledgeBindings) {
+      const existing = bindingByDocumentId.get(binding.documentId);
+      bindingByDocumentId.set(
+        binding.documentId,
+        existing ? { ...existing, required: existing.required || binding.required } : binding,
+      );
+    }
+    for (const input of knowledgeInputs) {
+      const binding = bindingByDocumentId.get(input.documentId);
+      if (!binding) {
+        if (input.required !== false)
+          throw new WorkmeshError(
+            V1_ERROR_CODES.INPUT_UNAVAILABLE,
+            'SNAPSHOT_KNOWLEDGE_UNAVAILABLE',
+            { inputKey: input.inputKey, documentId: input.documentId },
+            422,
+          );
+        continue;
+      }
+      if (input.required !== false && !binding.required)
+        bindingByDocumentId.set(input.documentId, { ...binding, required: true });
+    }
+
+    for (const binding of bindingByDocumentId.values()) {
       if (!binding.currentPublishedRevisionId) {
         if (binding.required)
           throw new WorkmeshError(
@@ -257,7 +286,29 @@ export class V1SnapshotService {
         );
     }
 
-    for (const artifact of await this.repository.listAcceptedPrerequisiteArtifacts(task.id)) {
+    const prerequisiteArtifacts = await this.repository.listAcceptedPrerequisiteArtifacts(task.id);
+    const requiredUpstreamInputs = (task.upstreamInputs ?? []).filter(
+      (input) => input.required !== false,
+    );
+    for (const input of requiredUpstreamInputs) {
+      const available = prerequisiteArtifacts.some(
+        (artifact) =>
+          artifact.sourceStepKey === input.fromStepKey && artifact.kind === input.kind,
+      );
+      if (!available)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.INPUT_UNAVAILABLE,
+          'SNAPSHOT_INPUT_UNAVAILABLE',
+          {
+            inputKey: input.inputKey,
+            fromStepKey: input.fromStepKey,
+            kind: input.kind,
+          },
+          422,
+        );
+    }
+
+    for (const artifact of prerequisiteArtifacts) {
       const resource: V1SnapshotManifestResource = {
         refId: `artifact:${artifact.artifactId}`,
         kind: 'ARTIFACT',

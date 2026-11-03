@@ -119,6 +119,31 @@ describe('V1SnapshotPrismaRepository 步骤语义来源', () => {
     ]);
   });
 
+  it('返回上游步骤与工件类型，支持输入绑定按来源精确匹配', async () => {
+    const { repository } = build({
+      stepKey: 'cases',
+      dependencyTasks: [{ id: 'task-prd', stepKey: 'prd', currentArtifactSetId: 'set-prd' }],
+      artifacts: [
+        {
+          id: 'art-prd',
+          artifactSetId: 'set-prd',
+          kind: 'PRD',
+          sha256: 'a'.repeat(64),
+          byteLength: 12,
+          mediaType: 'text/markdown',
+        },
+      ],
+    });
+
+    await expect(repository.listAcceptedPrerequisiteArtifacts(TASK_ID)).resolves.toEqual([
+      expect.objectContaining({
+        artifactId: 'art-prd',
+        sourceStepKey: 'prd',
+        kind: 'PRD',
+      }),
+    ]);
+  });
+
   it('没有依赖的步骤不产生任何上游查询', async () => {
     const { repository, prisma } = build({ stepKey: 'understanding' });
     await expect(repository.listAcceptedPrerequisiteArtifacts(TASK_ID)).resolves.toEqual([]);

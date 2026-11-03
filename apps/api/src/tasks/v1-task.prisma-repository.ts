@@ -59,6 +59,39 @@ export class V1TaskPrismaRepository implements V1TaskRepository {
     return this.toSnapshot(task, currentClaim);
   }
 
+  async findWorkflowStepContract(taskId: string) {
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      select: { stepKey: true, workflowInstanceId: true },
+    });
+    if (!task) return null;
+    const instance = await this.prisma.workflowInstance.findUnique({
+      where: { id: task.workflowInstanceId },
+      select: { definitionRevisionId: true },
+    });
+    const revisionId = instance?.definitionRevisionId;
+    if (!task || !revisionId) return null;
+    const revision = await this.prisma.workflowRevision.findUnique({
+      where: { id: revisionId },
+      select: { definition: true },
+    });
+    const steps = (revision?.definition as { steps?: unknown } | null)?.steps;
+    if (!Array.isArray(steps)) return null;
+    const step = steps.find(
+      (entry): entry is Record<string, unknown> =>
+        Boolean(entry && typeof entry === 'object' && (entry as Record<string, unknown>).key === task.stepKey),
+    );
+    if (!step) return null;
+    return {
+      workflowDefinitionRevisionId: revisionId,
+      stepKey: task.stepKey,
+      kind: typeof step.kind === 'string' ? step.kind : null,
+      outputKinds: Array.isArray(step.outputKinds)
+        ? step.outputKinds.filter((kind): kind is string => typeof kind === 'string')
+        : [],
+    };
+  }
+
   async claim(input: V1ClaimInput): Promise<V1TaskSnapshot> {
     let attempt = 0;
     for (;;) {

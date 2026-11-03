@@ -17,6 +17,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  IsUrl,
   Matches,
   MaxLength,
   Min,
@@ -44,12 +45,32 @@ class WorkStatusDto {
   @IsIn(['ACTIVE', 'BLOCKED', 'PAUSED', 'CANCELLED']) workStatus!: string;
 }
 
+class DeliverCheckEvidenceDto {
+  @IsIn(['CI_RUN', 'TEST_REPORT']) kind!: 'CI_RUN' | 'TEST_REPORT';
+
+  @IsString() @MaxLength(100) provider!: string;
+
+  @IsUrl({ protocols: ['https'], require_protocol: true }) @MaxLength(2048) url!: string;
+
+  @IsOptional() @IsString() @MaxLength(200) runId?: string;
+
+  @IsOptional() @Matches(/^[0-9a-f]{40}$/) commitSha?: string;
+}
+
 class DeliverCheckDto {
   @IsString() @MaxLength(100) code!: string;
 
   @IsBoolean() passed!: boolean;
 
   @IsOptional() @IsString() @MaxLength(500) message?: string;
+
+  @IsOptional() @IsIn(['AGENT_REPORTED', 'EXTERNAL_REFERENCE'])
+  source?: 'AGENT_REPORTED' | 'EXTERNAL_REFERENCE';
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DeliverCheckEvidenceDto)
+  evidence?: DeliverCheckEvidenceDto;
 }
 
 class DeliverArtifactDto {

@@ -29,6 +29,13 @@ export type V1TaskSnapshot = {
   currentClaim: V1ClaimSnapshot | null;
 };
 
+export type V1WorkflowStepContract = {
+  workflowDefinitionRevisionId: string;
+  stepKey: string;
+  kind: string | null;
+  outputKinds: string[];
+};
+
 export type V1TaskOperationInput = {
   id: string;
   projectScopeKey: string;
@@ -71,6 +78,8 @@ export type V1SetWorkStatusInput = {
 
 export interface V1TaskRepository {
   findTask(taskId: string): Promise<V1TaskSnapshot | null>;
+  /** Immutable workflow contract used to validate delivery before the write transaction. */
+  findWorkflowStepContract?(taskId: string): Promise<V1WorkflowStepContract | null>;
   claim(input: V1ClaimInput): Promise<V1TaskSnapshot>;
   release(input: V1ReleaseInput): Promise<V1TaskSnapshot>;
   setWorkStatus(input: V1SetWorkStatusInput): Promise<V1TaskSnapshot>;

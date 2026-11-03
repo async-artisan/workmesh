@@ -39,6 +39,10 @@ export type V1SnapshotTaskState = {
   retiredAt: Date | null;
   currentClaim: V1SnapshotClaim | null;
   currentSnapshotId: string | null;
+  /** 当前步骤声明的上游产物输入；旧修订缺省为空。 */
+  upstreamInputs?: Array<{ inputKey: string; fromStepKey: string; kind: string; required?: boolean }>;
+  /** 当前步骤声明的已发布知识输入；旧修订缺省为空。 */
+  knowledgeInputs?: Array<{ inputKey: string; documentId: string; required?: boolean }>;
 };
 
 export type V1SnapshotDocumentRef = {
@@ -67,6 +71,9 @@ export type V1SnapshotPrerequisiteArtifact = {
   sha256: string;
   byteLength: number;
   mediaType: string;
+  /** 编译输入绑定对应的上游步骤与工件类型；旧仓库实现可省略。 */
+  sourceStepKey?: string;
+  kind?: string;
 };
 
 export type V1SnapshotRoleResource = {

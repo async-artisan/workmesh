@@ -446,28 +446,63 @@ export class V1WorkflowService {
     const roles = await this.repository.projectRoles(projectId);
     const roleIdsByKey: Record<string, string> = {};
     for (const role of roles) if (role.isActive) roleIdsByKey[role.key] = role.id;
-    const compiled = await compileWorkflowDefinition(definition, { roleIdsByKey, packageLocks });
-    if (compiled.compiledRules) {
-      for (const lock of packageLocks) {
-        const registered = await this.repository.findPackageVersion(
-          projectId,
-          lock.packageId,
-          lock.version,
-        );
-        if (
-          !registered ||
-          registered.roleKey !== lock.roleKey ||
-          registered.manifestDigest !== lock.packageDigest
-        )
-          compiled.issues.push({
-            path: `/packageLocks/${lock.roleKey}`,
-            code: 'WORKFLOW_PACKAGE_INCOMPATIBLE',
-            message: 'package lock does not match a registered package version',
-          });
+    const packageContracts: Array<import('@workmesh/shared').RolePackageManifest> = [];
+    const packageIssues = [] as Array<{ path: string; code: string; message: string }>;
+    for (const lock of packageLocks) {
+      const registered = await this.repository.findPackageVersion(
+        projectId,
+        lock.packageId,
+        lock.version,
+      );
+      if (
+        !registered ||
+        registered.roleKey !== lock.roleKey ||
+        registered.manifestDigest !== lock.packageDigest ||
+        registered.manifest.roleKey !== lock.roleKey ||
+        registered.manifest.id !== lock.packageId ||
+        registered.manifest.version !== lock.version
+      ) {
+        packageIssues.push({
+          path: `/packageLocks/${lock.roleKey}`,
+          code: 'WORKFLOW_PACKAGE_INCOMPATIBLE',
+          message: 'package lock does not match a registered package version',
+        });
+        continue;
       }
-      if (compiled.issues.length > 0)
-        return { valid: false, issues: compiled.issues, digest: null, compiledRules: null };
+      packageContracts.push(registered.manifest);
     }
+    if (packageIssues.length > 0)
+      return { valid: false, issues: packageIssues, digest: null, compiledRules: null };
+    const compiled = await compileWorkflowDefinition(definition, {
+      roleIdsByKey,
+      packageLocks,
+      packageContracts,
+    });
+    if (!compiled.valid || !compiled.compiledRules) return compiled;
+
+    const sourceIssues: Array<{ path: string; code: string; message: string }> = [];
+    for (const source of compiled.compiledRules.inputSources) {
+      if (source.source !== 'PUBLISHED_KNOWLEDGE' || !source.required) continue;
+      const roleId = compiled.compiledRules.resolvedRoles.find(
+        (resolved) => resolved.stepKey === source.stepKey,
+      )?.roleId;
+      if (
+        !roleId ||
+        !(await this.repository.isPublishedKnowledgeAvailable(
+          projectId,
+          roleId,
+          source.reference,
+        ))
+      ) {
+        sourceIssues.push({
+          path: `/steps/${source.stepKey}/inputBindings/${source.inputKey}`,
+          code: 'WORKFLOW_INPUT_SOURCE_UNAVAILABLE',
+          message: `published knowledge for ${source.inputKey} must reference an active, published project document bound to this role or all project roles`,
+        });
+      }
+    }
+    if (sourceIssues.length > 0)
+      return { valid: false, issues: sourceIssues, digest: null, compiledRules: null };
     return compiled;
   }
 

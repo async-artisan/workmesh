@@ -4,6 +4,7 @@ import {
   validateWorkflowDefinition,
   type WorkflowPackageLock,
 } from './workflow';
+import type { RolePackageManifest } from './schemas';
 
 describe('workflow semantic validation', () => {
   const base = {
@@ -14,8 +15,12 @@ describe('workflow semantic validation', () => {
     baseRevisionId: null,
     roleExclusions: [],
     stepRemovals: [],
+    verificationExemption: {
+      reason: 'Unit-test workflow intentionally checks the release gate only.',
+      auditRef: 'test:workflow-exemption',
+    },
     roleSlots: [],
-    steps: [{ key: 'release', roleKey: 'ops', kind: 'RELEASE', deps: [] }],
+    steps: [{ key: 'release', roleKey: 'ops', kind: 'RELEASE', deps: [], outputKinds: [] }],
   };
   it('accepts a release DAG and returns a deterministic digest', () => {
     const result = validateWorkflowDefinition(base);
@@ -26,9 +31,9 @@ describe('workflow semantic validation', () => {
     const result = validateWorkflowDefinition({
       ...base,
       steps: [
-        { key: 'a', deps: ['missing'] },
-        { key: 'b', deps: ['a'] },
-        { key: 'release', kind: 'RELEASE', deps: ['b'] },
+        { key: 'a', deps: ['missing'], outputKinds: [] },
+        { key: 'b', deps: ['a'], outputKinds: [] },
+        { key: 'release', kind: 'RELEASE', deps: ['b'], outputKinds: [] },
       ],
     });
     expect(result.valid).toBe(false);
@@ -36,12 +41,19 @@ describe('workflow semantic validation', () => {
     const cycle = validateWorkflowDefinition({
       ...base,
       steps: [
-        { key: 'a', deps: ['b'] },
-        { key: 'b', deps: ['a'] },
-        { key: 'release', kind: 'RELEASE', deps: ['a'] },
+        { key: 'a', deps: ['b'], outputKinds: [] },
+        { key: 'b', deps: ['a'], outputKinds: [] },
+        { key: 'release', kind: 'RELEASE', deps: ['a'], outputKinds: [] },
       ],
     });
     expect(cycle.issues.map((issue) => issue.code)).toContain('WORKFLOW_CYCLE');
+  });
+  it('requires outputKinds to be explicit, including empty output sets', () => {
+    const result = validateWorkflowDefinition({
+      ...base,
+      steps: [{ key: 'release', roleKey: 'ops', kind: 'RELEASE', deps: [] }],
+    });
+    expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_OUTPUT_KINDS_INVALID');
   });
 });
 
@@ -71,6 +83,10 @@ describe('workflow compilation', () => {
     baseRevisionId: null,
     roleExclusions: [],
     stepRemovals: [],
+    verificationExemption: {
+      reason: 'The test definition intentionally focuses on contract compilation.',
+      auditRef: 'test:workflow-exemption',
+    },
     roleSlots: [
       { key: 'release-owner', roleKey: 'ops', kind: 'RELEASE_ACCEPTANCE' },
       { key: 'impl-owner', roleKey: 'backend', kind: 'TASK_ACCEPTANCE' },
@@ -112,6 +128,20 @@ describe('workflow compilation', () => {
       },
     ],
   };
+
+  const contract = (roleKey: string, inputs: RolePackageManifest['inputs'], outputs: string[]): RolePackageManifest => ({
+    packageSchemaVersion: '1.1',
+    id: `${roleKey}-package`,
+    version: '1.0.0',
+    protocolVersion: '1.0',
+    title: roleKey,
+    roleKey,
+    compatibility: { minCliVersion: '1.0.0', maxCliVersionExclusive: '2.0.0', contractVersion: '1.0' },
+    inputs,
+    outputs: outputs.map((kind) => ({ key: kind.toLowerCase(), channel: 'CANDIDATE', kind, contractVersion: '1.0' })),
+    resources: [{ id: 'guide', kind: 'prompt', path: 'guide.md', sha256: 'a'.repeat(64), byteLength: 1, mediaType: 'text/markdown' }],
+    agentEntries: [{ host: 'codex', type: 'AGENTS_MD_POINTER', resourceId: 'guide', adapterVersion: '1.0.0' }],
+  });
 
   it('compiles a valid DAG with code evidence gates and a stable digest', async () => {
     const first = await compileWorkflowDefinition(valid, { roleIdsByKey, packageLocks: locks });
@@ -204,5 +234,78 @@ describe('workflow compilation', () => {
       { roleIdsByKey, packageLocks: locks },
     );
     expect(excluded.issues.map((issue) => issue.code)).toContain('WORKFLOW_SCOPE_MISMATCH');
+  });
+
+  it('checks step outputs against the locked role package contract', async () => {
+    const result = await compileWorkflowDefinition(valid, {
+      roleIdsByKey,
+      packageLocks: locks,
+      packageContracts: [
+        contract('backend', [], ['KNOWLEDGE']),
+        contract('ops', [], ['RELEASE']),
+      ],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_OUTPUT_CONTRACT_MISMATCH');
+  });
+
+  it('requires every required package input to have a declared source', async () => {
+    const result = await compileWorkflowDefinition(valid, {
+      roleIdsByKey,
+      packageLocks: locks,
+      packageContracts: [
+        contract('backend', [{ key: 'unit-card', source: 'KNOWLEDGE', kind: 'UNIT_CARD', required: true, contractVersion: '1.0' }], ['IMPL']),
+        contract('ops', [], ['RELEASE']),
+      ],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_INPUT_UNSATISFIED');
+
+    const declared = await compileWorkflowDefinition(
+      {
+        ...valid,
+        steps: [
+          {
+            ...valid.steps[0],
+            roleKey: 'backend',
+            inputBindings: [
+              { inputKey: 'unit-card', source: 'EXTERNAL_INPUT', externalKey: 'service-catalog', reason: 'service catalog' },
+            ],
+          },
+          valid.steps[1],
+        ],
+      },
+      {
+        roleIdsByKey,
+        packageLocks: locks,
+        packageContracts: [
+          contract('backend', [{ key: 'unit-card', source: 'KNOWLEDGE', kind: 'UNIT_CARD', required: true, contractVersion: '1.0' }], ['PRD', 'IMPL']),
+          contract('ops', [], ['RELEASE']),
+        ],
+      },
+    );
+    expect(declared.valid).toBe(true);
+    expect(declared.compiledRules?.inputSources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stepKey: 'implement',
+          inputKey: 'unit-card',
+          required: true,
+          source: 'EXTERNAL_INPUT',
+          reference: 'service-catalog',
+        }),
+      ]),
+    );
+  });
+
+  it('requires an auditable exemption when a compiled workflow omits VERIFY', async () => {
+    const noExemption = { ...valid };
+    delete (noExemption as Record<string, unknown>).verificationExemption;
+    const result = await compileWorkflowDefinition(noExemption, {
+      roleIdsByKey,
+      packageLocks: locks,
+      packageContracts: [contract('backend', [], ['IMPL']), contract('ops', [], ['RELEASE'])],
+    });
+    expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_VERIFY_GATE_REQUIRED');
   });
 });

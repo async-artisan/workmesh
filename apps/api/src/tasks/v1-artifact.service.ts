@@ -8,6 +8,7 @@ import {
   type Principal,
 } from '@workmesh/shared';
 import { V1AuthorizationService } from '../auth/v1-authorization';
+import { isCodeEvidenceAcceptable, needsCodeEvidence } from '../reviews/v1-review-policy';
 import { assertClaimForAction, type Claim } from './v1-collaboration-policy';
 import {
   assertReplayable,
@@ -19,6 +20,7 @@ import {
   V1_TASK_REPOSITORY,
   type V1TaskRepository,
   type V1TaskSnapshot,
+  type V1WorkflowStepContract,
 } from './v1-task.repository';
 import {
   V1_ARTIFACT_REPOSITORY,
@@ -110,7 +112,16 @@ export class V1ArtifactService {
         404,
       );
     await this.authorization.resolveProjectContext(principal, task.projectId);
-    return set;
+    const evidence = (await this.artifacts.findCodeReviewEvidence?.(task.projectId, set.id)) ?? [];
+    const required = needsCodeEvidence(set.artifacts);
+    return {
+      ...set,
+      codeReview: {
+        required,
+        acceptable: !required || isCodeEvidenceAcceptable(evidence),
+        evidence,
+      },
+    };
   }
 
   async deliver(
@@ -189,7 +200,24 @@ export class V1ArtifactService {
       );
 
     const candidateRevisionIds = this.normalizeCandidates(body.candidateRevisionIds);
-    const items = await this.normalizeItems(taskId, body.items);
+    const stepContract = this.tasks.findWorkflowStepContract
+      ? await this.tasks.findWorkflowStepContract(taskId)
+      : null;
+    if (this.tasks.findWorkflowStepContract && !stepContract)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.BASELINE_STALE,
+        'WORKFLOW_STEP_CONTRACT_MISSING',
+        { taskId },
+        409,
+      );
+    if (stepContract && stepContract.workflowDefinitionRevisionId !== body.workflowDefinitionRevisionId)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.BASELINE_STALE,
+        'WORKFLOW_REVISION_STALE',
+        { taskId, workflowDefinitionRevisionId: body.workflowDefinitionRevisionId },
+        409,
+      );
+    const items = await this.normalizeItems(taskId, body.items, stepContract);
     if (items.length === 0 && candidateRevisionIds.length === 0)
       throw new WorkmeshError(
         V1_ERROR_CODES.ARTIFACT_INVALID,
@@ -260,7 +288,11 @@ export class V1ArtifactService {
     return ids;
   }
 
-  private async normalizeItems(taskId: string, raw: unknown): Promise<V1DeliverItem[]> {
+  private async normalizeItems(
+    taskId: string,
+    raw: unknown,
+    stepContract?: V1WorkflowStepContract | null,
+  ): Promise<V1DeliverItem[]> {
     if (raw === undefined) return [];
     if (!Array.isArray(raw))
       throw new WorkmeshError(
@@ -270,7 +302,22 @@ export class V1ArtifactService {
         422,
       );
     const items: V1DeliverItem[] = [];
-    for (const entry of raw) items.push(await this.normalizeItem(taskId, entry));
+    for (const entry of raw) {
+      const item = await this.normalizeItem(taskId, entry);
+      if (stepContract && !stepContract.outputKinds.includes(item.kind))
+        throw new WorkmeshError(
+          V1_ERROR_CODES.ARTIFACT_INVALID,
+          'ARTIFACT_KIND_NOT_ALLOWED_FOR_STEP',
+          {
+            taskId,
+            stepKey: stepContract.stepKey,
+            kind: item.kind,
+            allowedKinds: stepContract.outputKinds,
+          },
+          422,
+        );
+      items.push(item);
+    }
 
     const seen = new Set<string>();
     for (const item of items) {
@@ -437,6 +484,17 @@ export class V1ArtifactService {
         422,
       );
     if (
+      checks.some(
+        (check) => check.evidence?.commitSha && check.evidence.commitSha !== item.commitSha,
+      )
+    )
+      throw new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_CHECK_EVIDENCE_COMMIT_MISMATCH',
+        { taskId },
+        422,
+      );
+    if (
       typeof item.repoPath !== 'string' ||
       item.repoPath.length === 0 ||
       item.repoPath.length > 500 ||
@@ -508,12 +566,92 @@ export class V1ArtifactService {
           { taskId, index },
           422,
         );
+      if (check.verified !== undefined)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.ARTIFACT_INVALID,
+          'ARTIFACT_CHECKS_INVALID',
+          { taskId, index, field: 'verified' },
+          422,
+        );
+
+      const evidence = this.normalizeCheckEvidence(taskId, index, check.evidence);
+      const source = check.source ?? (evidence ? 'EXTERNAL_REFERENCE' : 'AGENT_REPORTED');
+      if (
+        source !== 'AGENT_REPORTED' &&
+        source !== 'EXTERNAL_REFERENCE'
+      )
+        throw new WorkmeshError(
+          V1_ERROR_CODES.ARTIFACT_INVALID,
+          'ARTIFACT_CHECKS_INVALID',
+          { taskId, index, field: 'source' },
+          422,
+        );
+      if ((source === 'EXTERNAL_REFERENCE') !== Boolean(evidence))
+        throw new WorkmeshError(
+          V1_ERROR_CODES.ARTIFACT_INVALID,
+          'ARTIFACT_CHECKS_INVALID',
+          { taskId, index, field: 'evidence' },
+          422,
+        );
       return {
         code: check.code,
         passed: check.passed,
         ...(typeof check.message === 'string' ? { message: check.message } : {}),
+        source,
+        ...(evidence ? { evidence } : {}),
       };
     });
+  }
+
+  private normalizeCheckEvidence(
+    taskId: string,
+    index: number,
+    value: unknown,
+  ): V1ArtifactCheck['evidence'] {
+    if (value === undefined) return undefined;
+    const invalid = () =>
+      new WorkmeshError(
+        V1_ERROR_CODES.ARTIFACT_INVALID,
+        'ARTIFACT_CHECKS_INVALID',
+        { taskId, index, field: 'evidence' },
+        422,
+      );
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid();
+    const evidence = value as Record<string, unknown>;
+    if (
+      evidence.verified !== undefined ||
+      (evidence.kind !== 'CI_RUN' && evidence.kind !== 'TEST_REPORT') ||
+      typeof evidence.provider !== 'string' ||
+      evidence.provider.trim().length === 0 ||
+      evidence.provider.length > 100 ||
+      typeof evidence.url !== 'string' ||
+      evidence.url.length > 2048
+    )
+      throw invalid();
+    let url: URL;
+    try {
+      url = new URL(evidence.url);
+    } catch {
+      throw invalid();
+    }
+    if (url.protocol !== 'https:' || url.username || url.password) throw invalid();
+    if (
+      evidence.runId !== undefined &&
+      (typeof evidence.runId !== 'string' || evidence.runId.length === 0 || evidence.runId.length > 200)
+    )
+      throw invalid();
+    if (
+      evidence.commitSha !== undefined &&
+      (typeof evidence.commitSha !== 'string' || !COMMIT_SHA.test(evidence.commitSha))
+    )
+      throw invalid();
+    return {
+      kind: evidence.kind,
+      provider: evidence.provider,
+      url: url.toString(),
+      ...(typeof evidence.runId === 'string' ? { runId: evidence.runId } : {}),
+      ...(typeof evidence.commitSha === 'string' ? { commitSha: evidence.commitSha } : {}),
+    };
   }
 
   /** 交付内容摘要：快照、工作流修订、候选与工件定位按稳定顺序规范化。 */

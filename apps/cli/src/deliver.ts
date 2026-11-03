@@ -19,7 +19,19 @@ export type DeliverItemPayload = {
   commitSha?: string;
   repoPath?: string;
   summary?: string;
-  checks: Array<{ code: string; passed: boolean; message?: string }>;
+  checks: Array<{
+    code: string;
+    passed: boolean;
+    message?: string;
+    source?: 'AGENT_REPORTED' | 'EXTERNAL_REFERENCE';
+    evidence?: {
+      kind: 'CI_RUN' | 'TEST_REPORT';
+      provider: string;
+      url: string;
+      runId?: string;
+      commitSha?: string;
+    };
+  }>;
 };
 
 export type DeliverPayload = {
@@ -51,19 +63,71 @@ function readString(record: Record<string, unknown>, key: string, max: number): 
   return value;
 }
 
-function readChecks(value: unknown): Array<{ code: string; passed: boolean; message?: string }> {
+function readChecks(value: unknown): DeliverItemPayload['checks'] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw new CliError('LOCAL_INPUT_INVALID', 'items.checks 必须是数组');
   return value.map((item) => {
     const record = asRecord(item, 'items.checks 项结构非法');
+    if (record.verified !== undefined)
+      throw new CliError('LOCAL_INPUT_INVALID', '检出项不能声明 verified；外部引用仍需人工核验');
     if (typeof record.code !== 'string' || !record.code)
       throw new CliError('LOCAL_INPUT_INVALID', '检出项 code 必须是非空字符串');
     if (typeof record.passed !== 'boolean')
       throw new CliError('LOCAL_INPUT_INVALID', '检出项 passed 必须是布尔值');
+    const source = record.source;
+    if (source !== undefined && source !== 'AGENT_REPORTED' && source !== 'EXTERNAL_REFERENCE')
+      throw new CliError('LOCAL_INPUT_INVALID', '检出项 source 非法');
+    const evidence = record.evidence;
+    if (evidence !== undefined) {
+      const e = asRecord(evidence, '检出项 evidence 结构非法');
+      if (e.verified !== undefined)
+        throw new CliError('LOCAL_INPUT_INVALID', '检出项不能声明 verified；外部引用仍需人工核验');
+      if (
+        (e.kind !== 'CI_RUN' && e.kind !== 'TEST_REPORT') ||
+        typeof e.provider !== 'string' ||
+        e.provider.trim().length === 0 ||
+        e.provider.length > 100 ||
+        typeof e.url !== 'string' ||
+        e.url.length > 2048
+      )
+        throw new CliError('LOCAL_INPUT_INVALID', '检出项 evidence 非法');
+      let evidenceUrl: URL;
+      try {
+        evidenceUrl = new URL(e.url);
+      } catch {
+        throw new CliError('LOCAL_INPUT_INVALID', '检出项 evidence.url 非法');
+      }
+      if (evidenceUrl.protocol !== 'https:' || evidenceUrl.username || evidenceUrl.password)
+        throw new CliError('LOCAL_INPUT_INVALID', '检出项 evidence.url 必须是无凭据的 HTTPS 链接');
+      if (e.runId !== undefined && typeof e.runId !== 'string')
+        throw new CliError('LOCAL_INPUT_INVALID', '检出项 evidence.runId 非法');
+      if (e.commitSha !== undefined && (typeof e.commitSha !== 'string' || !COMMIT.test(e.commitSha)))
+        throw new CliError('LOCAL_INPUT_INVALID', '检出项 evidence.commitSha 非法');
+      if (source === 'AGENT_REPORTED')
+        throw new CliError('LOCAL_INPUT_INVALID', '带 evidence 的检出项必须声明 EXTERNAL_REFERENCE');
+    }
+    if (source === 'EXTERNAL_REFERENCE' && evidence === undefined)
+      throw new CliError('LOCAL_INPUT_INVALID', 'EXTERNAL_REFERENCE 必须带 evidence');
     return {
       code: record.code.slice(0, 100),
       passed: record.passed,
       ...(typeof record.message === 'string' ? { message: record.message.slice(0, 500) } : {}),
+      source: source ?? (evidence ? 'EXTERNAL_REFERENCE' : 'AGENT_REPORTED'),
+      ...(evidence
+        ? {
+            evidence: {
+              kind: (evidence as Record<string, unknown>).kind as 'CI_RUN' | 'TEST_REPORT',
+              provider: String((evidence as Record<string, unknown>).provider).slice(0, 100),
+              url: new URL(String((evidence as Record<string, unknown>).url)).toString(),
+              ...((evidence as Record<string, unknown>).runId !== undefined
+                ? { runId: String((evidence as Record<string, unknown>).runId).slice(0, 200) }
+                : {}),
+              ...((evidence as Record<string, unknown>).commitSha !== undefined
+                ? { commitSha: String((evidence as Record<string, unknown>).commitSha) }
+                : {}),
+            },
+          }
+        : {}),
     };
   });
 }

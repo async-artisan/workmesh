@@ -90,9 +90,11 @@ PRD 的生产入口在本地 Product Agent。Web 负责读取候选、查看正�
 ## 流程与角色包
 
 - `GET/POST /api/v1/projects/:projectId/workflow-definitions`、`POST /api/v1/projects/:projectId/workflow-definitions/validate`、`POST /api/v1/projects/:projectId/workflow-definitions/:workflowKey/publish`、`GET /api/v1/workflow-definition-revisions/:revisionId` — 受限 DAG 定义校验与发布。
-- `GET /api/v1/projects/:projectId/workflow-templates` — 内置流程模板（`standard`、`software-delivery`、`software-delivery-no-ui`）；返回可直接提交 validate 的定义，仍需人工确认票据后发布。
+- `GET /api/v1/projects/:projectId/workflow-templates` — 内置流程模板（`standard`、`software-delivery`、`software-delivery-no-ui`）；返回可编辑草稿，仍需通过服务端 validate 和人工确认票据后发布。软件交付模板中的 `PUBLISHED_KNOWLEDGE` `knowledgeKey` 是待配置项，发布前必须替换为当前项目中已发布、未归档且绑定到步骤角色或全项目的知识文档 UUID。
 - `POST /api/v1/requirements/:requirementId/workflow-instances`、`GET /api/v1/workflow-instances/:instanceId` — 为需求创建流程实例并读取步骤/任务状态。
 - `GET/POST /api/v1/projects/:projectId/role-packages`、`GET /api/v1/projects/:projectId/role-packages/:packageId/versions/:version`、`GET /api/v1/projects/:projectId/role-packages/:packageId/versions/:version/resources/:resourceId` — 角色包清单与锁定版本资源。
+
+服务端编译会检查每个步骤的 `outputKinds` 是否属于锁定角色包的候选输出，并为必需输入保留来源规则：`UPSTREAM_ARTIFACT` 必须指向祖先步骤声明的匹配工件类型，`PUBLISHED_KNOWLEDGE` 必须是当前可用且对该角色可见的项目知识文档，`EXTERNAL_INPUT` 必须提供 `externalKey` 和理由。任务快照创建时还会校验所需上游工件已通过验收。流程没有 `VERIFY` 步骤时，定义必须包含 `verificationExemption.reason` 和 `verificationExemption.auditRef`，并写入发布审计事件。
 
 ## 邀请链接
 
@@ -122,6 +124,9 @@ PRD 的生产入口在本地 Product Agent。Web 负责读取候选、查看正�
 - `GET /api/v1/tasks/:taskId`、`POST /api/v1/tasks/:taskId/claims`、`POST /api/v1/tasks/:taskId/release`、`POST /api/v1/tasks/:taskId/work-status` — 认领/释放与工作状态；认领按任务当前代次串行，客户端不声明版本。
 - `GET /api/v1/projects/:projectId/tasks/ready?roleId&limit&cursor` — 就绪任务分页：`OPEN`、无活动认领、`ACTIVE`，且同实例同步骤的前序依赖全部 `DONE`。Agent 只能看本凭据角色，HUMAN 按责任人与活动角色范围过滤。
 - `POST /api/v1/tasks/:taskId/artifact-sets`、`GET /api/v1/artifact-sets/:id` — 交付并读取工件集（只接受真实字节或完整代码引用，交付时复核基线）。
+
+工件 `checks[]` 的旧格式仍兼容；未提供 `source` 的检查会按 `AGENT_REPORTED` 保存。若引用外部 CI 或测试报告，可提交 `source: "EXTERNAL_REFERENCE"` 与 `evidence: { kind: "CI_RUN" | "TEST_REPORT", provider, url, runId?, commitSha? }`。外部链接必须是 HTTPS，若声明 `commitSha` 则须与所交代码引用一致。该字段仅提供给评审人复核的链接，WorkMesh 当前不抓取或验证 CI 结果；Agent 不能提交 `verified` 标记。代码评审状态仍由独立代码托管证据决定。
+
 - `POST /api/v1/tasks/:taskId/context-snapshots`、`GET /api/v1/context-snapshots/:snapshotId`、`GET /api/v1/context-snapshots/:snapshotId/resources/:refId` — 确定性上下文快照与受限资源读取。
 - `GET /api/v1/projects/:projectId/board` — 项目看板聚合。
 - `GET /api/v1/projects/:projectId/metrics/flow?days=30` — 流程度量：两端时长（首次认领、首次交付、批准）、端到端 lead time、WIP 与变更确认率；只从既有时间戳派生，口径见 [docs/metrics.md](metrics.md)。

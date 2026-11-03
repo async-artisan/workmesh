@@ -31,9 +31,10 @@ roles/product/
 ```bash
 pnpm build:role-packages                                    # 根脚本
 pnpm --filter @workmesh/role-packages build                 # 包内构建（生成 + tsup）
+pnpm --filter @workmesh/role-packages test                  # 构建器校验测试
 ```
 
-脚本会校验 SKILL.md frontmatter（`name`、`description`）、路径安全、单文件 ≤ 4MB、资源 id 唯一，然后计算摘要并写回 `manifest.json` 与 `src/generated.ts`。
+构建会解析 `SKILL.md` 的 YAML frontmatter，要求 `name`、`description` 为非空字符串，`name` 符合小写 slug 格式并与技能目录名一致；对应技能还必须在 `package.meta.json` 中声明相同 key 和路径。构建器同时校验资源路径位于当前角色包目录、单文件不超过 4 MiB、资源 id 不重复，然后计算摘要并写回 `manifest.json` 与 `src/generated.ts`。`test` 覆盖有效和无效 frontmatter、目录名不匹配，以及资源路径、大小和 id 校验。
 
 ## 安装与登记
 

@@ -17,6 +17,8 @@ import {
   type V1ArtifactRepository,
   type V1ArtifactSetSnapshot,
   type V1ArtifactCheck,
+  type V1CodeReviewEvidenceSnapshot,
+  contentPreviewOf,
   type V1DeliverInput,
   type V1DeliverResultRow,
 } from './v1-artifact.repository';
@@ -38,6 +40,51 @@ function isRetryable(error: unknown): boolean {
 
 function claimScopeKeyOf(userId: string, credentialId: string | null): string {
   return credentialId ? `agent:${credentialId}` : `user:${userId}`;
+}
+
+type CodeReviewEvidenceRow = {
+  id: string;
+  repositoryId: string;
+  changeRequestId: string;
+  headSha: string;
+  commitSha: string | null;
+  authorExternalId: string;
+  reviewerExternalId: string;
+  reviewerKind: string;
+  state: string;
+  submittedAt: Date | null;
+};
+
+type ProjectRepositoryRow = {
+  externalId: string;
+  owner: string;
+  name: string;
+  adapter: string;
+};
+
+export function mapCodeReviewEvidence(
+  evidence: readonly CodeReviewEvidenceRow[],
+  repositories: readonly ProjectRepositoryRow[],
+): V1CodeReviewEvidenceSnapshot[] {
+  const repositoryByExternalId = new Map(repositories.map((item) => [item.externalId, item]));
+  return evidence.map((item) => {
+    const repository = repositoryByExternalId.get(item.repositoryId);
+    return {
+      id: item.id,
+      repositoryId: item.repositoryId,
+      repositoryOwner: repository?.owner ?? null,
+      repositoryName: repository?.name ?? null,
+      adapter: repository?.adapter ?? null,
+      changeRequestId: item.changeRequestId,
+      headSha: item.headSha,
+      commitSha: item.commitSha,
+      authorExternalId: item.authorExternalId,
+      reviewerExternalId: item.reviewerExternalId,
+      reviewerKind: item.reviewerKind,
+      state: item.state,
+      submittedAt: item.submittedAt?.toISOString() ?? null,
+    };
+  });
 }
 
 type DefinitionStep = {
@@ -63,6 +110,34 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
     });
     if (!set) return null;
     return this.toSetSnapshot(set);
+  }
+
+  async findCodeReviewEvidence(
+    projectId: string,
+    artifactSetId: string,
+  ): Promise<V1CodeReviewEvidenceSnapshot[]> {
+    const evidence = await this.prisma.codeReviewEvidence.findMany({
+      where: { projectId, artifactSetId },
+      select: {
+        id: true,
+        repositoryId: true,
+        changeRequestId: true,
+        headSha: true,
+        commitSha: true,
+        authorExternalId: true,
+        reviewerExternalId: true,
+        reviewerKind: true,
+        state: true,
+        submittedAt: true,
+      },
+      orderBy: [{ submittedAt: 'asc' }, { id: 'asc' }],
+    });
+    const repositoryIds = [...new Set(evidence.map((item) => item.repositoryId))];
+    const repositories = await this.prisma.projectRepository.findMany({
+      where: { projectId, externalId: { in: repositoryIds } },
+      select: { externalId: true, owner: true, name: true, adapter: true },
+    });
+    return mapCodeReviewEvidence(evidence, repositories);
   }
 
   async deliver(input: V1DeliverInput): Promise<V1DeliverResultRow> {
@@ -493,6 +568,7 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
       repoPath: string | null;
       summary: string | null;
       checks: unknown;
+      bodyBytes?: Buffer | null;
     }>;
     items?: Array<{ artifactId: string | null; candidateRevisionId: string | null }>;
   }): V1ArtifactSetSnapshot {
@@ -521,6 +597,7 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
         repoPath: artifact.repoPath,
         summary: artifact.summary,
         checks: this.checksOf(artifact.checks),
+        contentPreview: contentPreviewOf(artifact.storage, artifact.mediaType, artifact.bodyBytes),
       })),
       createdAt: set.createdAt,
     };
@@ -537,6 +614,13 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
         code: String(entry.code ?? ''),
         passed: entry.passed === true,
         ...(typeof entry.message === 'string' ? { message: entry.message } : {}),
+        source:
+          entry.source === 'EXTERNAL_REFERENCE' && entry.evidence && typeof entry.evidence === 'object'
+            ? ('EXTERNAL_REFERENCE' as const)
+            : ('AGENT_REPORTED' as const),
+        ...(entry.evidence && typeof entry.evidence === 'object'
+          ? { evidence: entry.evidence as V1ArtifactCheck['evidence'] }
+          : {}),
       }));
   }
 

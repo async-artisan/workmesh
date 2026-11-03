@@ -148,7 +148,36 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
       roleKey: row.roleKey,
       manifestDigest: row.manifestDigest,
       projectId: row.projectId,
+      manifest: row.manifest as unknown as import('@workmesh/shared').RolePackageManifest,
     };
+  }
+
+  async isPublishedKnowledgeAvailable(
+    projectId: string,
+    roleId: string,
+    documentId: string,
+  ): Promise<boolean> {
+    // KnowledgeDocument IDs are UUIDs. Reject template labels and malformed
+    // references before Prisma builds a UUID-backed query.
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(documentId))
+      return false;
+    const document = await this.prisma.knowledgeDocument.findFirst({
+      where: {
+        id: documentId,
+        projectId,
+        archivedAt: null,
+        currentPublishedRevisionId: { not: null },
+        kind: { in: ['KNOWLEDGE', 'DECISION'] },
+        knowledgeBindings: {
+          some: {
+            projectId,
+            OR: [{ roleId: null }, { roleId }],
+          },
+        },
+      },
+      select: { id: true },
+    });
+    return Boolean(document);
   }
 
   async findRequirement(requirementId: string): Promise<V1RequirementWorkflowView | null> {
@@ -361,7 +390,16 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
             targetId: definition.id,
             targetVersion: nextRevision,
             outcome: 'SUCCESS',
-            details: { workflowKey: input.workflowKey, digest: input.definitionDigest },
+            details: {
+              workflowKey: input.workflowKey,
+              digest: input.definitionDigest,
+              ...((input.definition as { verificationExemption?: unknown })?.verificationExemption
+                ? {
+                    verificationExemption: (input.definition as { verificationExemption: unknown })
+                      .verificationExemption,
+                  }
+                : {}),
+            } as Prisma.InputJsonValue,
           },
         });
 

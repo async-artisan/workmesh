@@ -56,6 +56,60 @@ function packageLockOf(
 export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  private upstreamInputsOf(
+    compiledRules: unknown,
+    stepKey: string,
+  ): Array<{ inputKey: string; fromStepKey: string; kind: string; required?: boolean }> {
+    const sources = (compiledRules as { inputSources?: unknown } | null)?.inputSources;
+    if (!Array.isArray(sources)) return [];
+    return sources.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+      const value = entry as Record<string, unknown>;
+      if (
+        value.stepKey !== stepKey ||
+        value.source !== 'UPSTREAM_ARTIFACT' ||
+        typeof value.inputKey !== 'string' ||
+        typeof value.fromStepKey !== 'string' ||
+        typeof value.reference !== 'string'
+      )
+        return [];
+      return [
+        {
+          inputKey: value.inputKey,
+          fromStepKey: value.fromStepKey,
+          kind: value.reference,
+          required: value.required !== false,
+        },
+      ];
+    });
+  }
+
+  private knowledgeInputsOf(
+    compiledRules: unknown,
+    stepKey: string,
+  ): Array<{ inputKey: string; documentId: string; required?: boolean }> {
+    const sources = (compiledRules as { inputSources?: unknown } | null)?.inputSources;
+    if (!Array.isArray(sources)) return [];
+    return sources.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+      const value = entry as Record<string, unknown>;
+      if (
+        value.stepKey !== stepKey ||
+        value.source !== 'PUBLISHED_KNOWLEDGE' ||
+        typeof value.inputKey !== 'string' ||
+        typeof value.reference !== 'string'
+      )
+        return [];
+      return [
+        {
+          inputKey: value.inputKey,
+          documentId: value.reference,
+          required: value.required !== false,
+        },
+      ];
+    });
+  }
+
   async findTaskState(taskId: string): Promise<V1SnapshotTaskState | null> {
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
@@ -110,6 +164,8 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
           }
         : null,
       currentSnapshotId: task.currentSnapshotId,
+      upstreamInputs: this.upstreamInputsOf(revision.compiledRules, task.stepKey),
+      knowledgeInputs: this.knowledgeInputsOf(revision.compiledRules, task.stepKey),
     };
   }
 
@@ -225,17 +281,24 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
     if (!instance?.definitionRevisionId) return [];
     const revision = await this.prisma.workflowRevision.findUnique({
       where: { id: instance.definitionRevisionId },
-      select: { definition: true },
+      select: { definition: true, compiledRules: true },
     });
     if (!revision) return [];
-    const deps = snapshotDependenciesOf(revision.definition, task.stepKey);
+    const upstreamInputs = this.upstreamInputsOf(revision.compiledRules, task.stepKey);
+    const deps = [
+      ...new Set([
+        ...snapshotDependenciesOf(revision.definition, task.stepKey),
+        ...upstreamInputs.map((input) => input.fromStepKey),
+      ]),
+    ];
     if (deps.length === 0) return [];
 
     const dependencyTasks = await this.prisma.task.findMany({
       where: { workflowInstanceId: task.workflowInstanceId, stepKey: { in: deps } },
-      select: { id: true, currentArtifactSetId: true },
+      select: { id: true, stepKey: true, currentArtifactSetId: true },
     });
     const acceptedSetIds: string[] = [];
+    const acceptedSetSources = new Map<string, string>();
     for (const dependency of dependencyTasks) {
       if (!dependency.currentArtifactSetId) continue;
       const approved = await this.prisma.reviewRequest.findFirst({
@@ -246,7 +309,10 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
         },
         select: { id: true },
       });
-      if (approved) acceptedSetIds.push(dependency.currentArtifactSetId);
+      if (approved) {
+        acceptedSetIds.push(dependency.currentArtifactSetId);
+        acceptedSetSources.set(dependency.currentArtifactSetId, dependency.stepKey);
+      }
     }
     if (acceptedSetIds.length === 0) return [];
 
@@ -256,13 +322,17 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
         storage: 'HOSTED',
         byteLength: { gt: 0 },
       },
-      select: { id: true, sha256: true, byteLength: true, mediaType: true },
+      select: { id: true, artifactSetId: true, kind: true, sha256: true, byteLength: true, mediaType: true },
     });
     return artifacts.map((artifact) => ({
       artifactId: artifact.id,
       sha256: artifact.sha256,
       byteLength: artifact.byteLength,
       mediaType: artifact.mediaType,
+      ...(artifact.kind ? { kind: String(artifact.kind) } : {}),
+      ...(acceptedSetSources.get(artifact.artifactSetId)
+        ? { sourceStepKey: acceptedSetSources.get(artifact.artifactSetId) }
+        : {}),
     }));
   }
 

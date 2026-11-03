@@ -1,4 +1,8 @@
-import type { WorkflowCompiledRules, WorkflowPackageLock } from '@workmesh/shared';
+import type {
+  RolePackageManifest,
+  WorkflowCompiledRules,
+  WorkflowPackageLock,
+} from '@workmesh/shared';
 import type { V1OperationRecord } from '../common/v1-idempotency';
 
 export type V1WorkflowRole = {
@@ -69,6 +73,7 @@ export type V1PackageVersionRecord = {
   roleKey: string;
   manifestDigest: string;
   projectId: string | null;
+  manifest: RolePackageManifest;
 };
 
 export type V1PublishDefinitionInput = {
@@ -162,6 +167,11 @@ export interface V1WorkflowRepository {
     packageId: string,
     version: string,
   ): Promise<V1PackageVersionRecord | null>;
+  isPublishedKnowledgeAvailable(
+    projectId: string,
+    roleId: string,
+    documentId: string,
+  ): Promise<boolean>;
   findRequirement(requirementId: string): Promise<V1RequirementWorkflowView | null>;
   isActiveMember(projectId: string, userId: string): Promise<boolean>;
   isProjectRepository(projectId: string, repositoryId: string): Promise<boolean>;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compileWorkflowDefinition, type WorkflowPackageLock } from './workflow';
+import type { RolePackageManifest } from './schemas';
 import {
   buildSoftwareDeliveryWorkflowTemplate,
   buildStandardWorkflowTemplate,
@@ -28,12 +29,73 @@ function locksFor(roleKeys: readonly string[]): WorkflowPackageLock[] {
   }));
 }
 
+function contractsFor(roleKeys: readonly string[]): RolePackageManifest[] {
+  const inputsByRole: Record<string, RolePackageManifest['inputs']> = {
+    product: [
+      { key: 'context', source: 'TASK_SNAPSHOT', kind: 'CONTEXT', required: true, contractVersion: '1.0' },
+      { key: 'business-knowledge', source: 'KNOWLEDGE', kind: 'KNOWLEDGE', required: true, contractVersion: '1.0' },
+    ],
+    ui: [
+      { key: 'context', source: 'TASK_SNAPSHOT', kind: 'CONTEXT', required: true, contractVersion: '1.0' },
+      { key: 'prd', source: 'KNOWLEDGE', kind: 'PRD', required: true, contractVersion: '1.0' },
+    ],
+    frontend: [
+      { key: 'context', source: 'TASK_SNAPSHOT', kind: 'CONTEXT', required: true, contractVersion: '1.0' },
+      { key: 'prd', source: 'KNOWLEDGE', kind: 'PRD', required: true, contractVersion: '1.0' },
+      { key: 'contract', source: 'KNOWLEDGE', kind: 'KNOWLEDGE', required: true, contractVersion: '1.0' },
+      { key: 'design', source: 'KNOWLEDGE', kind: 'DESIGN', required: false, contractVersion: '1.0' },
+    ],
+    backend: [
+      { key: 'context', source: 'TASK_SNAPSHOT', kind: 'CONTEXT', required: true, contractVersion: '1.0' },
+      { key: 'prd', source: 'KNOWLEDGE', kind: 'PRD', required: true, contractVersion: '1.0' },
+      { key: 'unit-card', source: 'KNOWLEDGE', kind: 'UNIT_CARD', required: true, contractVersion: '1.0' },
+    ],
+    qa: [
+      { key: 'context', source: 'TASK_SNAPSHOT', kind: 'CONTEXT', required: true, contractVersion: '1.0' },
+      { key: 'prd', source: 'KNOWLEDGE', kind: 'PRD', required: true, contractVersion: '1.0' },
+      { key: 'contract', source: 'KNOWLEDGE', kind: 'KNOWLEDGE', required: false, contractVersion: '1.0' },
+    ],
+    ops: [
+      { key: 'context', source: 'TASK_SNAPSHOT', kind: 'CONTEXT', required: true, contractVersion: '1.0' },
+      { key: 'prd', source: 'KNOWLEDGE', kind: 'PRD', required: true, contractVersion: '1.0' },
+      { key: 'unit-card', source: 'KNOWLEDGE', kind: 'UNIT_CARD', required: false, contractVersion: '1.0' },
+    ],
+  };
+  const outputsByRole: Record<string, string[]> = {
+    product: ['UNDERSTANDING', 'PRD'],
+    ui: ['DESIGN', 'KNOWLEDGE'],
+    frontend: ['IMPL'],
+    backend: ['KNOWLEDGE', 'IMPL'],
+    qa: ['CASES'],
+    ops: ['RELEASE'],
+  };
+  return roleKeys.map((roleKey) => ({
+    packageSchemaVersion: '1.1',
+    id: `${roleKey}-pack`,
+    version: '1.0.0',
+    protocolVersion: '1.0',
+    title: roleKey,
+    roleKey,
+    compatibility: { minCliVersion: '1.0.0', maxCliVersionExclusive: '2.0.0', contractVersion: '1.0' },
+    inputs: inputsByRole[roleKey] ?? [],
+    outputs: (outputsByRole[roleKey] ?? []).map((kind) => ({
+      key: kind.toLowerCase(),
+      channel: 'CANDIDATE',
+      kind,
+      contractVersion: '1.0',
+    })),
+    resources: [{ id: 'guide', kind: 'prompt', path: 'guide.md', sha256: 'a'.repeat(64), byteLength: 1, mediaType: 'text/markdown' }],
+    agentEntries: [{ host: 'codex', type: 'AGENTS_MD_POINTER', resourceId: 'guide', adapterVersion: '1.0.0' }],
+  }));
+}
+
 describe('standard workflow template', () => {
   it('compiles end to end with the default project roles and their package locks', async () => {
     const template = buildStandardWorkflowTemplate();
     const result = await compileWorkflowDefinition(template, {
       roleIdsByKey,
       packageLocks: locksFor(STANDARD_TEMPLATE_ROLE_KEYS),
+      packageContracts: contractsFor(STANDARD_TEMPLATE_ROLE_KEYS),
     });
     expect(result.issues).toEqual([]);
     expect(result.valid).toBe(true);
@@ -41,6 +103,9 @@ describe('standard workflow template', () => {
     expect(result.compiledRules?.systemGates).toEqual([
       { stepKey: 'impl', kind: 'CODE_REVIEW_EVIDENCE', required: true },
     ]);
+    expect(result.compiledRules?.inputSources.map((source) => source.source)).toEqual(
+      expect.arrayContaining(['TASK_SNAPSHOT', 'UPSTREAM_ARTIFACT', 'EXTERNAL_INPUT']),
+    );
     expect(usedWorkflowRoleKeys(template)).toEqual([...STANDARD_TEMPLATE_ROLE_KEYS].sort());
   });
 
@@ -57,6 +122,7 @@ describe('standard workflow template', () => {
     const result = await compileWorkflowDefinition(buildStandardWorkflowTemplate(), {
       roleIdsByKey,
       packageLocks: locksFor(['product', 'frontend', 'ops']),
+      packageContracts: contractsFor(['product', 'frontend', 'ops']),
     });
     expect(result.valid).toBe(false);
     expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_PACKAGE_INCOMPATIBLE');
@@ -66,6 +132,7 @@ describe('standard workflow template', () => {
     const result = await compileWorkflowDefinition(buildStandardWorkflowTemplate(), {
       roleIdsByKey: { product: 'r-product', frontend: 'r-frontend', qa: 'r-qa' },
       packageLocks: locksFor(STANDARD_TEMPLATE_ROLE_KEYS),
+      packageContracts: contractsFor(STANDARD_TEMPLATE_ROLE_KEYS),
     });
     expect(result.valid).toBe(false);
     expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_ROLE_UNKNOWN');
@@ -76,7 +143,27 @@ describe('standard workflow template', () => {
     // 创建流程实例时 roleSlotBinding 解析为 null，被误判成「角色与槽位声明不一致」。
     const base = buildStandardWorkflowTemplate();
     const steps = (base.steps as Array<Record<string, unknown>>).map((step) =>
-      step.roleKey === 'qa' ? { ...step, roleKey: 'frontend' } : step,
+      step.roleKey === 'qa'
+        ? {
+            ...step,
+            roleKey: 'frontend',
+            inputBindings: [
+              { inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'prd' },
+              { inputKey: 'contract', source: 'PUBLISHED_KNOWLEDGE', knowledgeKey: 'api-contract' },
+            ],
+          }
+        : step,
+    );
+    const packageContracts = contractsFor(STANDARD_TEMPLATE_ROLE_KEYS).map((manifest) =>
+      manifest.roleKey === 'frontend'
+        ? {
+            ...manifest,
+            outputs: [
+              ...manifest.outputs,
+              { key: 'cases', channel: 'CANDIDATE', kind: 'CASES', contractVersion: '1.0' as const },
+            ],
+          }
+        : manifest,
     );
     const definition = {
       ...base,
@@ -90,6 +177,7 @@ describe('standard workflow template', () => {
     const result = await compileWorkflowDefinition(definition, {
       roleIdsByKey,
       packageLocks: locksFor(STANDARD_TEMPLATE_ROLE_KEYS),
+      packageContracts,
     });
 
     expect(result.issues).toEqual([]);
@@ -121,12 +209,16 @@ describe('software delivery template', () => {
     const result = await compileWorkflowDefinition(template, {
       roleIdsByKey,
       packageLocks: locksFor(SOFTWARE_DELIVERY_ROLE_KEYS),
+      packageContracts: contractsFor(SOFTWARE_DELIVERY_ROLE_KEYS),
     });
     expect(result.issues).toEqual([]);
     expect(result.compiledRules?.systemGates.map((gate) => gate.stepKey)).toEqual([
       'backend',
       'frontend',
     ]);
+    expect(result.compiledRules?.inputSources.map((source) => source.source)).toEqual(
+      expect.arrayContaining(['TASK_SNAPSHOT', 'UPSTREAM_ARTIFACT', 'PUBLISHED_KNOWLEDGE']),
+    );
     expect(usedWorkflowRoleKeys(template)).toEqual([...SOFTWARE_DELIVERY_ROLE_KEYS].sort());
   });
 
@@ -137,6 +229,7 @@ describe('software delivery template', () => {
     const result = await compileWorkflowDefinition(template, {
       roleIdsByKey,
       packageLocks: locksFor(['product', 'frontend', 'backend', 'qa', 'ops']),
+      packageContracts: contractsFor(['product', 'frontend', 'backend', 'qa', 'ops']),
     });
     expect(result.issues).toEqual([]);
     expect(usedWorkflowRoleKeys(template)).toEqual(['backend', 'frontend', 'ops', 'product', 'qa']);

@@ -7,6 +7,7 @@ import {
   base64ToUtf8,
   documentApi,
   requirementApi,
+  repositoryApi,
   reviewApi,
   taskApi,
   workflowApi,
@@ -22,9 +23,13 @@ import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { useAuthStore } from '../store/auth';
 import {
   ARTIFACT_KIND_LABELS,
+  ARTIFACT_STORAGE_LABELS,
   DECISION_LABELS,
+  EXECUTION_STATUS_LABELS,
+  PHASE_LABELS,
   REVIEW_KIND_LABELS,
   REVIEW_STATUS_LABELS,
+  STEP_LABELS,
   labelFor,
 } from '../lib/labels';
 import { countDiff, diffLines } from '../lib/diff';
@@ -70,6 +75,12 @@ function shortDate(value: string): string {
   return new Date(value).toLocaleString('zh-CN');
 }
 
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
 /**
  * 决定页：左侧证据（正文 / 差异 / 验收 / 工件 / 上次决定），右侧决定。
  * 所有写操作仍由 ConfirmPrompt 签发一次性票据；页面不自行推断权限。
@@ -98,6 +109,10 @@ export function ReviewDecision({
   const [requirement, setRequirement] = useState<RequirementView | null>(null);
   const [task, setTask] = useState<TaskView | null>(null);
   const [taskStepKey, setTaskStepKey] = useState('');
+  const [repositories, setRepositories] = useState<Awaited<ReturnType<typeof repositoryApi.list>>>(
+    [],
+  );
+  const [acceptance, setAcceptance] = useState<NonNullable<RevisionView['acceptance']>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeSlot, setActiveSlot] = useState<ReviewSlot | null>(null);
@@ -124,6 +139,8 @@ export function ReviewDecision({
     setRequirement(null);
     setTask(null);
     setTaskStepKey('');
+    setRepositories([]);
+    setAcceptance([]);
     setActiveSlot(null);
     setReceipt(null);
 
@@ -156,12 +173,14 @@ export function ReviewDecision({
         const set = await artifactApi.get(value.artifactSetId);
         if (!alive) return;
         setArtifactSet(set);
+        // 仓库与 PRD 都是补充证据；读取失败不应阻塞现有交付物。
+        const [repoResult] = await Promise.allSettled([repositoryApi.list(value.projectId)]);
+        if (repoResult.status === 'fulfilled' && alive) setRepositories(repoResult.value);
         if (value.taskId) {
           const taskValue = await taskApi.get(value.taskId);
           if (!alive) return;
           setTask(taskValue);
           setTaskStepKey(taskValue.stepKey);
-          // 需求上下文是补充信息；读取失败不能拖垮工件证据。
           try {
             const instance = await workflowApi.instance(taskValue.workflowInstanceId);
             const requirementDetail = await requirementApi.detail(
@@ -174,8 +193,17 @@ export function ReviewDecision({
               requirementDetail.tasks.find((item) => item.id === value.taskId)?.stepKey ??
                 taskValue.stepKey,
             );
+            try {
+              const prds = await documentApi.list(value.projectId, 'PRD');
+              const prd = prds.items.find(
+                (item) => item.document.requirementId === requirementDetail.requirement.id,
+              );
+              if (alive) setAcceptance(prd?.publishedRevision?.acceptance ?? []);
+            } catch {
+              // PRD is optional evidence; preserve task and artifact data.
+            }
           } catch {
-            // 保留 artifactSet / task 证据，仅缺少需求标题。
+            // 保留 artifactSet / task 证据，仅缺少需求上下文。
           }
         }
       }
@@ -207,9 +235,13 @@ export function ReviewDecision({
 
   const subjectLabel =
     revision?.title ||
-    taskStepKey ||
+    (taskStepKey ? (STEP_LABELS[taskStepKey] ?? taskStepKey) : '') ||
     (review?.kind ? labelFor(REVIEW_KIND_LABELS, review.kind) : '评审对象');
   const requirementLabel = requirement ? `${requirement.code} · ${requirement.title}` : '';
+
+  function repositoryOf(artifact: ArtifactSetView['artifacts'][number]) {
+    return repositories.find((repo) => repo.id === artifact.projectRepositoryId) ?? null;
+  }
 
   async function submitDecision(confirmation: { ticketId: string; ticketSecret: string }) {
     if (!review || !pending) throw new Error('缺少评审目标');
@@ -373,6 +405,46 @@ export function ReviewDecision({
             </div>
           )}
 
+          {requirement && (
+            <div className="detail-card review-context-card">
+              <div className="detail-card-head">
+                <h3>需求上下文</h3>
+                <button
+                  className="ghost"
+                  onClick={() => navigate(`/requirements/${requirement.code}`)}
+                >
+                  打开需求
+                </button>
+              </div>
+              <div className="review-context-title">
+                <strong>
+                  {requirement.code} · {requirement.title}
+                </strong>
+                <span className="status-tag">{labelFor(PHASE_LABELS, requirement.phase)}</span>
+              </div>
+              {requirement.description && (
+                <p className="review-context-description">{requirement.description}</p>
+              )}
+            </div>
+          )}
+
+          {acceptance.length > 0 && (
+            <div className="detail-card">
+              <div className="detail-card-head">
+                <h3>
+                  验收标准<small>已发布 PRD</small>
+                </h3>
+              </div>
+              <ul className="detail-list">
+                {acceptance.map((item) => (
+                  <li key={item.key}>
+                    {item.text} <span className="task-row-meta">（{item.verification}）</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {artifactSet && (
             <div className="detail-card">
               <div className="detail-card-head">
@@ -384,36 +456,151 @@ export function ReviewDecision({
                 </span>
               </div>
               <div className="artifact-group">
-                {artifactSet.artifacts.map((artifact) => (
-                  <div className="task-row" key={artifact.id}>
-                    <div className="task-row-main">
-                      <div className="task-row-top">
-                        <strong>{labelFor(ARTIFACT_KIND_LABELS, artifact.kind)}</strong>
-                        <span className="status-tag">{artifact.mediaType}</span>
-                        <span className="task-row-meta">{artifact.byteLength} B</span>
-                      </div>
-                      <div className="task-row-meta cell-mono" title={artifact.sha256}>
-                        sha256 {shortDigest(artifact.sha256)}
-                        {artifact.commitSha ? ` · commit ${artifact.commitSha.slice(0, 8)}` : ''}
-                        {artifact.repoPath ? ` · ${artifact.repoPath}` : ''}
-                      </div>
-                      {artifact.summary && <div className="task-row-meta">{artifact.summary}</div>}
-                      <div className="task-row-meta">
-                        {artifact.checks.length === 0
-                          ? '无校验项'
-                          : artifact.checks.map((check) => (
+                {artifactSet.artifacts.map((artifact) => {
+                  const repository = repositoryOf(artifact);
+                  const passedChecks = artifact.checks.filter((check) => check.passed).length;
+                  const repoUrl =
+                    repository?.adapter === 'github' && repository.owner && repository.name
+                      ? `https://github.com/${repository.owner}/${repository.name}`
+                      : null;
+                  const commitUrl =
+                    repoUrl && artifact.commitSha
+                      ? `${repoUrl}/commit/${artifact.commitSha}`
+                      : null;
+                  return (
+                    <div className="task-row review-artifact-row" key={artifact.id}>
+                      <div className="task-row-main">
+                        <div className="task-row-top">
+                          <strong>{labelFor(ARTIFACT_KIND_LABELS, artifact.kind)}</strong>
+                          <span className="status-tag">
+                            {labelFor(ARTIFACT_STORAGE_LABELS, artifact.storage)}
+                          </span>
+                          <span className="status-tag">{artifact.mediaType}</span>
+                          <span className="task-row-meta">{formatBytes(artifact.byteLength)}</span>
+                        </div>
+                        {artifact.summary && (
+                          <div className="review-artifact-summary">{artifact.summary}</div>
+                        )}
+                        {artifact.storage === 'GIT_REF' && artifact.byteLength === 0 && (
+                          <div className="task-row-meta">
+                            代码引用不保存文件字节，需按提交与路径核对变更。
+                          </div>
+                        )}
+                        {repository && (
+                          <div className="task-row-meta">
+                            仓库{' '}
+                            {repoUrl ? (
+                              <a href={repoUrl} target="_blank" rel="noreferrer">
+                                {repository.owner}/{repository.name}
+                              </a>
+                            ) : (
+                              `${repository.owner}/${repository.name}`
+                            )}
+                          </div>
+                        )}
+                        <div className="task-row-meta cell-mono" title={artifact.sha256}>
+                          sha256 {shortDigest(artifact.sha256)}
+                          {artifact.commitSha && (
+                            <>
+                              {' '}
+                              ·{' '}
+                              {commitUrl ? (
+                                <a href={commitUrl} target="_blank" rel="noreferrer">
+                                  commit {artifact.commitSha.slice(0, 8)}
+                                </a>
+                              ) : (
+                                `commit ${artifact.commitSha.slice(0, 8)}`
+                              )}
+                            </>
+                          )}
+                          {artifact.repoPath && ` · ${artifact.repoPath}`}
+                        </div>
+                        {artifact.contentPreview && (
+                          <pre className="paper-content artifact-preview">
+                            {artifact.contentPreview.text}
+                          </pre>
+                        )}
+                        {artifact.contentPreview?.truncated && (
+                          <div className="task-row-meta">正文预览已截断。</div>
+                        )}
+                        <div className="review-checks">
+                          <strong>
+                            校验 {passedChecks}/{artifact.checks.length}
+                          </strong>
+                          {artifact.checks.length === 0 ? (
+                            <span className="task-row-meta">无校验项</span>
+                          ) : (
+                            artifact.checks.map((check) => (
                               <span
                                 key={check.code}
                                 className={check.passed ? 'task-signed' : 'cell-danger'}
                               >
-                                {check.passed ? '✓' : '✗'} {check.code}{' '}
+                                {check.passed ? '✓' : '✗'} {check.code}
+                                {check.message ? `：${check.message}` : ''}
+                                {check.source === 'EXTERNAL_REFERENCE' && check.evidence ? (
+                                  <>
+                                    {' · '}
+                                    <a
+                                      href={check.evidence.url.startsWith('https://') ? check.evidence.url : undefined}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      {check.evidence.provider} 引用（未核验）
+                                    </a>
+                                  </>
+                                ) : (
+                                  ' · Agent 自述'
+                                )}
                               </span>
-                            ))}
+                            ))
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
+            </div>
+          )}
+
+          {artifactSet?.codeReview?.required && (
+            <div
+              className={`detail-card review-code-evidence${artifactSet.codeReview.acceptable ? '' : ' is-warning'}`}
+            >
+              <div className="detail-card-head">
+                <h3>代码评审证据</h3>
+                <span className={artifactSet.codeReview.acceptable ? 'task-signed' : 'cell-danger'}>
+                  {artifactSet.codeReview.acceptable ? '已满足' : '缺少有效证据'}
+                </span>
+              </div>
+              {artifactSet.codeReview.acceptable ? (
+                <div className="evidence-list">
+                  {artifactSet.codeReview.evidence.map((item) => (
+                    <div className="evidence-card" key={item.id}>
+                      <div className="evidence-head">
+                        <strong>{item.changeRequestId}</strong>
+                        <span className="status-tag">{item.state}</span>
+                      </div>
+                      <div className="evidence-meta">
+                        评审人 {item.reviewerExternalId} · {item.reviewerKind} · 提交人{' '}
+                        {item.authorExternalId}
+                      </div>
+                      <div className="evidence-meta cell-mono">
+                        head {shortDigest(item.headSha)} · commit{' '}
+                        {item.commitSha ? shortDigest(item.commitSha) : '—'}
+                      </div>
+                      {item.submittedAt && (
+                        <div className="evidence-meta">{shortDate(item.submittedAt)}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="review-warning">
+                  该代码交付尚未获得有效的人类代码评审；批准会被服务端以
+                  CODE_REVIEW_EVIDENCE_MISSING 拒绝。
+                </p>
+              )}
             </div>
           )}
 
@@ -582,13 +769,21 @@ export function ReviewDecision({
 
           {!open && <div className="detail-card detail-empty">该评审已结束，只读。</div>}
 
-          {!requirement && task && (
+          {task && (
             <div className="detail-card">
               <h3>任务上下文</h3>
               <ul className="detail-list">
-                <li>步骤：{taskStepKey || task.stepKey}</li>
-                <li>状态：{task.executionStatus}</li>
-                <li>版本：v{task.version}</li>
+                <li>步骤：{labelFor(STEP_LABELS, taskStepKey || task.stepKey)}</li>
+                {review?.role && (
+                  <li>
+                    角色：{review.role.title}（{review.role.key}）
+                  </li>
+                )}
+                <li>责任人：{task.responsibleUserId}</li>
+                <li>状态：{labelFor(EXECUTION_STATUS_LABELS, task.executionStatus)}</li>
+                <li>
+                  版本：v{task.version} · 代次 {task.generation}
+                </li>
               </ul>
             </div>
           )}
