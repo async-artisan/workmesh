@@ -28,7 +28,7 @@ jobs:
       WORKMESH_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/workmesh_test_ci?schema=workmesh_v1
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
         with:
           version: 10.28.2
       - uses: actions/setup-node@v4
