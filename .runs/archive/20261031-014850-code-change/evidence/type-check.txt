@@ -1,3 +1,0 @@
-pnpm type-check: passed
-pnpm lint: passed
-pnpm format:check: passed

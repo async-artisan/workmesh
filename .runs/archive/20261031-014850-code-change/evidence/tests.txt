@@ -1,4 +1,0 @@
-pnpm test: passed
-pnpm build: passed
-Prisma validate: passed
-GET /api/health: passed

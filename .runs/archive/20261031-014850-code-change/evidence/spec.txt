@@ -1,2 +1,0 @@
-Phase 0 through Phase 6 documents were reviewed and implemented within req-flow.
-Environment-dependent PostgreSQL, provider API and external Git delivery remain explicitly unverified.

@@ -14,3 +14,6 @@ apps/api/prisma/dev.db
 backup/
 # Product Agent 本地可恢复状态与草稿（候选提交后才进入平台）
 .workmesh/product/
+# 本地任务运行状态与助手工作记忆
+.runs/
+.workbuddy/
