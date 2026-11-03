@@ -3,7 +3,8 @@
  * 定义来自不可变的 WorkflowRevision，但仍按不可信输入处理：非数组或非字符串依赖一律忽略，
  * visited 截断环，排序保证同一输入得到确定性结果。
  */
-export function collectDownstreamStepKeys(definition: unknown, rootStepKey: string): string[] {  if (!definition || typeof definition !== 'object') return [];
+export function collectDownstreamStepKeys(definition: unknown, rootStepKey: string): string[] {
+  if (!definition || typeof definition !== 'object') return [];
   const steps = (definition as { steps?: unknown }).steps;
   if (!Array.isArray(steps)) return [];
 

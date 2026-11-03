@@ -322,7 +322,14 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
         storage: 'HOSTED',
         byteLength: { gt: 0 },
       },
-      select: { id: true, artifactSetId: true, kind: true, sha256: true, byteLength: true, mediaType: true },
+      select: {
+        id: true,
+        artifactSetId: true,
+        kind: true,
+        sha256: true,
+        byteLength: true,
+        mediaType: true,
+      },
     });
     return artifacts.map((artifact) => ({
       artifactId: artifact.id,

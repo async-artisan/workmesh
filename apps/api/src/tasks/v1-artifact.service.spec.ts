@@ -478,22 +478,24 @@ describe('V1ArtifactService.deliver', () => {
         repoPath: 'src/main.ts',
       },
     },
-  ] as Array<{ name: string; check: Record<string, unknown>; item?: Partial<V1RawDeliverItem> }>)
-    ('rejects invalid check provenance: $name', async ({ check, item }) => {
-    const task = new InMemoryTaskRepo();
-    task.task = taskSnapshot({ currentClaim: activeClaim() });
-    const { service } = build(new InMemoryArtifactRepo(), task, new InMemoryAuthz());
-    await expect(
-      service.deliver(
-        humanPrincipal(),
-        'task-1',
-        deliverBody({
-          items: [hostedItem({ ...item, checks: [check as any] })],
-        }),
-        deliverContext(),
-      ),
-    ).rejects.toMatchObject({ status: 422, code: V1_ERROR_CODES.ARTIFACT_INVALID });
-    });
+  ] as Array<{ name: string; check: Record<string, unknown>; item?: Partial<V1RawDeliverItem> }>)(
+    'rejects invalid check provenance: $name',
+    async ({ check, item }) => {
+      const task = new InMemoryTaskRepo();
+      task.task = taskSnapshot({ currentClaim: activeClaim() });
+      const { service } = build(new InMemoryArtifactRepo(), task, new InMemoryAuthz());
+      await expect(
+        service.deliver(
+          humanPrincipal(),
+          'task-1',
+          deliverBody({
+            items: [hostedItem({ ...item, checks: [check as any] })],
+          }),
+          deliverContext(),
+        ),
+      ).rejects.toMatchObject({ status: 422, code: V1_ERROR_CODES.ARTIFACT_INVALID });
+    },
+  );
 
   it('rejects when task missing (404, no existence leak)', async () => {
     const task = new InMemoryTaskRepo();

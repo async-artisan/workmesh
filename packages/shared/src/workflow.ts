@@ -296,7 +296,9 @@ export async function compileWorkflowDefinition(
     const manifest = typeof roleKey === 'string' ? packageContracts.get(roleKey) : undefined;
     if (manifest) {
       const declaredOutputs = new Set(
-        manifest.outputs.filter((output) => output.channel === 'CANDIDATE').map((output) => output.kind),
+        manifest.outputs
+          .filter((output) => output.channel === 'CANDIDATE')
+          .map((output) => output.kind),
       );
       for (const [outputIndex, outputKind] of outputKinds.entries()) {
         if (typeof outputKind !== 'string' || !declaredOutputs.has(outputKind))
@@ -328,9 +330,8 @@ export async function compileWorkflowDefinition(
           message: 'inputBindings must be an array',
         });
       const bindings = Array.isArray(rawBindings)
-        ? rawBindings.filter(
-            (entry): entry is Record<string, unknown> =>
-              Boolean(entry && typeof entry === 'object' && !Array.isArray(entry)),
+        ? rawBindings.filter((entry): entry is Record<string, unknown> =>
+            Boolean(entry && typeof entry === 'object' && !Array.isArray(entry)),
           )
         : [];
       if (Array.isArray(rawBindings) && bindings.length !== rawBindings.length)
@@ -342,7 +343,10 @@ export async function compileWorkflowDefinition(
       const bindingByKey = new Map<string, Record<string, unknown>>();
       for (const [bindingIndex, binding] of bindings.entries()) {
         const inputKey = binding.inputKey;
-        if (typeof inputKey !== 'string' || !manifest.inputs.some((entry) => entry.key === inputKey))
+        if (
+          typeof inputKey !== 'string' ||
+          !manifest.inputs.some((entry) => entry.key === inputKey)
+        )
           issues.push({
             path: `/steps/${index}/inputBindings/${bindingIndex}/inputKey`,
             code: 'WORKFLOW_INPUT_UNKNOWN',
@@ -385,7 +389,9 @@ export async function compileWorkflowDefinition(
           continue;
         }
         const source = binding.source;
-        if (!['UPSTREAM_ARTIFACT', 'PUBLISHED_KNOWLEDGE', 'EXTERNAL_INPUT'].includes(String(source))) {
+        if (
+          !['UPSTREAM_ARTIFACT', 'PUBLISHED_KNOWLEDGE', 'EXTERNAL_INPUT'].includes(String(source))
+        ) {
           issues.push({
             path: `/steps/${index}/inputBindings`,
             code: 'WORKFLOW_INPUT_BINDING_INVALID',
@@ -429,7 +435,11 @@ export async function compileWorkflowDefinition(
           });
         } else if (source === 'PUBLISHED_KNOWLEDGE') {
           const knowledgeKey = binding.knowledgeKey;
-          if (typeof knowledgeKey !== 'string' || knowledgeKey.trim().length === 0 || knowledgeKey.length > 120) {
+          if (
+            typeof knowledgeKey !== 'string' ||
+            knowledgeKey.trim().length === 0 ||
+            knowledgeKey.length > 120
+          ) {
             issues.push({
               path: `/steps/${index}/inputBindings`,
               code: 'WORKFLOW_INPUT_BINDING_INVALID',
@@ -554,7 +564,11 @@ export async function compileWorkflowDefinition(
         code: 'WORKFLOW_VERIFY_GATE_REQUIRED',
         message: 'skipping VERIFY requires a reason and auditRef',
       });
-  } else if (packageContracts.size > 0 && hasVerifyStep && workflow.verificationExemption !== undefined) {
+  } else if (
+    packageContracts.size > 0 &&
+    hasVerifyStep &&
+    workflow.verificationExemption !== undefined
+  ) {
     issues.push({
       path: '/verificationExemption',
       code: 'WORKFLOW_VERIFY_EXEMPTION_UNNEEDED',

@@ -12,7 +12,11 @@ import {
   type RequirementTaskDetail,
 } from '../api/resources';
 import { ConfirmDialog, Modal } from '../components/Modal';
-import { RequirementPipeline, type RequirementPipelinePhase, type RequirementPipelineTask } from '../components/RequirementPipeline';
+import {
+  RequirementPipeline,
+  type RequirementPipelinePhase,
+  type RequirementPipelineTask,
+} from '../components/RequirementPipeline';
 import { useProjectContext } from '../hooks/useProjectContext';
 import {
   ARTIFACT_KIND_LABELS,
@@ -341,30 +345,50 @@ export function RequirementDetail({
   const gates = useMemo(() => buildGates(detail?.tasks ?? []), [detail]);
 
   const pipelineTasks = useMemo<RequirementPipelineTask[]>(
-    () => (detail?.tasks ?? []).map((task) => ({
-      id: task.id,
-      stepKey: task.stepKey,
-      title: STEP_LABELS[task.stepKey] ?? task.stepKey,
-      role: task.role.key,
-      roleLabel: task.role.title,
-      executionStatus: task.executionStatus,
-      workStatus: task.workStatus,
-      artifactCount: task.artifactCount,
-      updatedAt: undefined,
-    })),
+    () =>
+      (detail?.tasks ?? []).map((task) => ({
+        id: task.id,
+        stepKey: task.stepKey,
+        title: STEP_LABELS[task.stepKey] ?? task.stepKey,
+        role: task.role.key,
+        roleLabel: task.role.title,
+        executionStatus: task.executionStatus,
+        workStatus: task.workStatus,
+        artifactCount: task.artifactCount,
+        updatedAt: undefined,
+      })),
     [detail],
   );
 
   const pipelinePhases = useMemo<RequirementPipelinePhase[]>(() => {
-    const roleTasks = (roles: string[]) => pipelineTasks.filter((task) => roles.includes(task.role ?? ''));
-    const phase = (id: string, label: string, shortLabel: string, role: string, roles: string[]): RequirementPipelinePhase => ({
+    const roleTasks = (roles: string[]) =>
+      pipelineTasks.filter((task) => roles.includes(task.role ?? ''));
+    const phase = (
+      id: string,
+      label: string,
+      shortLabel: string,
+      role: string,
+      roles: string[],
+    ): RequirementPipelinePhase => ({
       id,
       label,
       shortLabel,
       role,
-      roleLabel: labelFor({ product: '产品', ui: '设计', engineering: '前端 / 后端', qa: '测试', ops: '运维' }, role),
+      roleLabel: labelFor(
+        { product: '产品', ui: '设计', engineering: '前端 / 后端', qa: '测试', ops: '运维' },
+        role,
+      ),
       tasks: roleTasks(roles),
-      nextAction: role === 'product' ? '确认需求与验收标准' : role === 'ui' ? '完成设计交付' : role === 'engineering' ? '提交实现工件' : role === 'qa' ? '完成验收测试' : '完成发布验收',
+      nextAction:
+        role === 'product'
+          ? '确认需求与验收标准'
+          : role === 'ui'
+            ? '完成设计交付'
+            : role === 'engineering'
+              ? '提交实现工件'
+              : role === 'qa'
+                ? '完成验收测试'
+                : '完成发布验收',
     });
     return [
       phase('discovery', '需求发现', '发现', 'product', ['product']),
@@ -606,8 +630,8 @@ export function RequirementDetail({
             {readOnly && <span className="status-tag">已取消</span>}
           </div>
           <div className="req-head-meta">
-            {projectName ? `${projectName} · ` : ''}创建于 {dateTime(requirement.createdAt)} · 更新于{' '}
-            {dateTime(requirement.updatedAt)}
+            {projectName ? `${projectName} · ` : ''}创建于 {dateTime(requirement.createdAt)} ·
+            更新于 {dateTime(requirement.updatedAt)}
           </div>
         </div>
         <div className="page-actions">
@@ -717,9 +741,7 @@ export function RequirementDetail({
                       <div className="task-row-main">
                         <div className="task-row-top">
                           <span className="status-tag">{change.sourceKind}</span>
-                          <strong>
-                            {change.changedFields.join(' / ') || '未标注字段'}
-                          </strong>
+                          <strong>{change.changedFields.join(' / ') || '未标注字段'}</strong>
                         </div>
                         <div className="task-row-meta">{dateTime(change.createdAt)}</div>
                       </div>
@@ -790,10 +812,7 @@ export function RequirementDetail({
                                 <span>{labelFor(REVIEW_STATUS_LABELS, task.review.status)}</span>
                                 {task.review.decisions?.[0] && (
                                   <span className="task-row-meta">
-                                    {labelFor(
-                                      DECISION_LABELS,
-                                      task.review.decisions[0].decision,
-                                    )}
+                                    {labelFor(DECISION_LABELS, task.review.decisions[0].decision)}
                                     {task.review.decisions[0].actor
                                       ? ` · ${task.review.decisions[0].actor.email}`
                                       : ''}
@@ -833,65 +852,84 @@ export function RequirementDetail({
                         const checks = artifactChecks(artifact.checks);
                         const failed = checks.filter((check) => !check.passed);
                         return (
-                        <div className="task-row" key={artifact.id}>
-                          <div className="task-row-main">
-                            <div className="task-row-top">
-                              <strong className="cell-mono">{artifact.repoPath ?? artifact.mediaType}</strong>
-                              <span className="status-tag">{artifact.mediaType}</span>
-                              <span className="task-row-meta">{artifact.byteLength} B</span>
-                            </div>
-                            <div className="task-row-meta cell-mono" title={artifact.sha256}>
-                              sha256 {shortDigest(artifact.sha256)}
-                              {artifact.commitSha
-                                ? ` · commit ${artifact.commitSha.slice(0, 8)}`
-                                : ''}
-                            </div>
-                            {artifact.summary && (
-                              <div className="task-row-meta">{artifact.summary}</div>
-                            )}
-                            {checks.length > 0 && (
-                              <div className="artifact-checks">
-                                <span>
-                                  校验 {checks.length - failed.length}/{checks.length}
-                                </span>
-                                <span>
-                                  Agent 自述 {checks.filter((check) => check.source === 'AGENT_REPORTED').length}
-                                </span>
-                                <span>
-                                  外部引用 {checks.filter((check) => check.source === 'EXTERNAL_REFERENCE').length}（未核验）
-                                </span>
-                                {failed.map((check) => (
-                                  <span className="status-tag is-danger" key={check.code}>
-                                    {check.code} 失败
+                          <div className="task-row" key={artifact.id}>
+                            <div className="task-row-main">
+                              <div className="task-row-top">
+                                <strong className="cell-mono">
+                                  {artifact.repoPath ?? artifact.mediaType}
+                                </strong>
+                                <span className="status-tag">{artifact.mediaType}</span>
+                                <span className="task-row-meta">{artifact.byteLength} B</span>
+                              </div>
+                              <div className="task-row-meta cell-mono" title={artifact.sha256}>
+                                sha256 {shortDigest(artifact.sha256)}
+                                {artifact.commitSha
+                                  ? ` · commit ${artifact.commitSha.slice(0, 8)}`
+                                  : ''}
+                              </div>
+                              {artifact.summary && (
+                                <div className="task-row-meta">{artifact.summary}</div>
+                              )}
+                              {checks.length > 0 && (
+                                <div className="artifact-checks">
+                                  <span>
+                                    校验 {checks.length - failed.length}/{checks.length}
                                   </span>
-                                ))}
-                                {checks
-                                  .filter((check) => check.source === 'EXTERNAL_REFERENCE' && check.evidence)
-                                  .map((check) => (
-                                    <a
-                                      className="status-tag"
-                                      href={check.evidence!.url.startsWith('https://') ? check.evidence!.url : undefined}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      key={`${check.code}:evidence`}
-                                    >
-                                      查看 {check.evidence!.provider} 引用
-                                    </a>
+                                  <span>
+                                    Agent 自述{' '}
+                                    {
+                                      checks.filter((check) => check.source === 'AGENT_REPORTED')
+                                        .length
+                                    }
+                                  </span>
+                                  <span>
+                                    外部引用{' '}
+                                    {
+                                      checks.filter(
+                                        (check) => check.source === 'EXTERNAL_REFERENCE',
+                                      ).length
+                                    }
+                                    （未核验）
+                                  </span>
+                                  {failed.map((check) => (
+                                    <span className="status-tag is-danger" key={check.code}>
+                                      {check.code} 失败
+                                    </span>
                                   ))}
+                                  {checks
+                                    .filter(
+                                      (check) =>
+                                        check.source === 'EXTERNAL_REFERENCE' && check.evidence,
+                                    )
+                                    .map((check) => (
+                                      <a
+                                        className="status-tag"
+                                        href={
+                                          check.evidence!.url.startsWith('https://')
+                                            ? check.evidence!.url
+                                            : undefined
+                                        }
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        key={`${check.code}:evidence`}
+                                      >
+                                        查看 {check.evidence!.provider} 引用
+                                      </a>
+                                    ))}
+                                </div>
+                              )}
+                            </div>
+                            {artifact.repoPath && (
+                              <div className="task-row-actions">
+                                <button
+                                  className="ghost"
+                                  onClick={() => void copyText(artifact.repoPath!, '交付物路径')}
+                                >
+                                  复制路径
+                                </button>
                               </div>
                             )}
                           </div>
-                          {artifact.repoPath && (
-                            <div className="task-row-actions">
-                              <button
-                                className="ghost"
-                                onClick={() => void copyText(artifact.repoPath!, '交付物路径')}
-                              >
-                                复制路径
-                              </button>
-                            </div>
-                          )}
-                        </div>
                         );
                       })}
                     </div>

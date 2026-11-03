@@ -60,9 +60,7 @@
       "kind": "KNOWLEDGE",
       "contractVersion": "1.0",
       "templateResourceId": "template-contract",
-      "evidence": [
-        "INSPECTION"
-      ]
+      "evidence": ["INSPECTION"]
     },
     {
       "key": "impl",
@@ -70,10 +68,7 @@
       "kind": "IMPL",
       "contractVersion": "1.0",
       "templateResourceId": "template-impl",
-      "evidence": [
-        "TEST",
-        "INSPECTION"
-      ]
+      "evidence": ["TEST", "INSPECTION"]
     }
   ],
   "agentEntries": [

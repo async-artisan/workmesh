@@ -65,19 +65,43 @@ const roleIdsByKey: Record<string, string> = {
 
 function testManifest(roleKey: string): RolePackageManifest {
   const inputs: RolePackageManifest['inputs'] = [
-    { key: 'context', source: 'TASK_SNAPSHOT', kind: 'CONTEXT', required: true, contractVersion: '1.0' },
+    {
+      key: 'context',
+      source: 'TASK_SNAPSHOT',
+      kind: 'CONTEXT',
+      required: true,
+      contractVersion: '1.0',
+    },
   ];
   if (roleKey === 'product')
-    inputs.push({ key: 'business-knowledge', source: 'KNOWLEDGE', kind: 'KNOWLEDGE', required: true, contractVersion: '1.0' });
+    inputs.push({
+      key: 'business-knowledge',
+      source: 'KNOWLEDGE',
+      kind: 'KNOWLEDGE',
+      required: true,
+      contractVersion: '1.0',
+    });
   if (roleKey === 'engineering')
     inputs.push(
       { key: 'prd', source: 'KNOWLEDGE', kind: 'PRD', required: true, contractVersion: '1.0' },
-      { key: 'unit-card', source: 'KNOWLEDGE', kind: 'UNIT_CARD', required: true, contractVersion: '1.0' },
+      {
+        key: 'unit-card',
+        source: 'KNOWLEDGE',
+        kind: 'UNIT_CARD',
+        required: true,
+        contractVersion: '1.0',
+      },
     );
   if (roleKey === 'ops')
     inputs.push(
       { key: 'prd', source: 'KNOWLEDGE', kind: 'PRD', required: true, contractVersion: '1.0' },
-      { key: 'unit-card', source: 'KNOWLEDGE', kind: 'UNIT_CARD', required: false, contractVersion: '1.0' },
+      {
+        key: 'unit-card',
+        source: 'KNOWLEDGE',
+        kind: 'UNIT_CARD',
+        required: false,
+        contractVersion: '1.0',
+      },
     );
   return {
     packageSchemaVersion: '1.1',
@@ -86,7 +110,11 @@ function testManifest(roleKey: string): RolePackageManifest {
     protocolVersion: '1.0',
     title: roleKey,
     roleKey,
-    compatibility: { minCliVersion: '1.0.0', maxCliVersionExclusive: '2.0.0', contractVersion: '1.0' },
+    compatibility: {
+      minCliVersion: '1.0.0',
+      maxCliVersionExclusive: '2.0.0',
+      contractVersion: '1.0',
+    },
     inputs,
     outputs: [
       { key: 'prd', channel: 'CANDIDATE', kind: 'PRD', contractVersion: '1.0' },
@@ -94,9 +122,18 @@ function testManifest(roleKey: string): RolePackageManifest {
       { key: 'release', channel: 'CANDIDATE', kind: 'RELEASE', contractVersion: '1.0' },
     ],
     resources: [
-      { id: 'guide', kind: 'prompt', path: 'guide.md', sha256: 'a'.repeat(64), byteLength: 1, mediaType: 'text/markdown' },
+      {
+        id: 'guide',
+        kind: 'prompt',
+        path: 'guide.md',
+        sha256: 'a'.repeat(64),
+        byteLength: 1,
+        mediaType: 'text/markdown',
+      },
     ],
-    agentEntries: [{ host: 'codex', type: 'AGENTS_MD_POINTER', resourceId: 'guide', adapterVersion: '1.0.0' }],
+    agentEntries: [
+      { host: 'codex', type: 'AGENTS_MD_POINTER', resourceId: 'guide', adapterVersion: '1.0.0' },
+    ],
   };
 }
 
@@ -123,7 +160,12 @@ function demoDefinition(overrides: Record<string, unknown> = {}): Record<string,
         outputKinds: ['PRD'],
         baselinePolicy: 'NONE',
         inputBindings: [
-          { inputKey: 'business-knowledge', source: 'EXTERNAL_INPUT', externalKey: 'business-context', reason: '测试需求的来源说明' },
+          {
+            inputKey: 'business-knowledge',
+            source: 'EXTERNAL_INPUT',
+            externalKey: 'business-context',
+            reason: '测试需求的来源说明',
+          },
         ],
       },
       {
@@ -134,7 +176,11 @@ function demoDefinition(overrides: Record<string, unknown> = {}): Record<string,
         outputKinds: ['IMPL'],
         inputBindings: [
           { inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'define' },
-          { inputKey: 'unit-card', source: 'PUBLISHED_KNOWLEDGE', knowledgeKey: publishedKnowledgeId },
+          {
+            inputKey: 'unit-card',
+            source: 'PUBLISHED_KNOWLEDGE',
+            knowledgeKey: publishedKnowledgeId,
+          },
         ],
       },
       {
@@ -164,7 +210,12 @@ function definitionWithVerify(baseRevisionId: string | null): Record<string, unk
         outputKinds: ['PRD'],
         baselinePolicy: 'NONE',
         inputBindings: [
-          { inputKey: 'business-knowledge', source: 'EXTERNAL_INPUT', externalKey: 'business-context', reason: '测试需求的来源说明' },
+          {
+            inputKey: 'business-knowledge',
+            source: 'EXTERNAL_INPUT',
+            externalKey: 'business-context',
+            reason: '测试需求的来源说明',
+          },
         ],
       },
       {
@@ -175,7 +226,11 @@ function definitionWithVerify(baseRevisionId: string | null): Record<string, unk
         outputKinds: ['IMPL'],
         inputBindings: [
           { inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'define' },
-          { inputKey: 'unit-card', source: 'PUBLISHED_KNOWLEDGE', knowledgeKey: publishedKnowledgeId },
+          {
+            inputKey: 'unit-card',
+            source: 'PUBLISHED_KNOWLEDGE',
+            knowledgeKey: publishedKnowledgeId,
+          },
         ],
       },
       {
@@ -185,7 +240,12 @@ function definitionWithVerify(baseRevisionId: string | null): Record<string, unk
         deps: ['implement'],
         outputKinds: [],
         inputBindings: [
-          { inputKey: 'business-knowledge', source: 'EXTERNAL_INPUT', externalKey: 'business-context', reason: '测试需求的来源说明' },
+          {
+            inputKey: 'business-knowledge',
+            source: 'EXTERNAL_INPUT',
+            externalKey: 'business-context',
+            reason: '测试需求的来源说明',
+          },
         ],
       },
       {
@@ -225,7 +285,13 @@ type State = {
   operations: StoredOperation[];
   tickets: V1TicketRecord[];
   /** 已登记的包版本；默认与 locks 一致，可用于构造“未登记包”。 */
-  packages: Array<{ packageId: string; version: string; roleKey: string; manifestDigest: string; manifest: RolePackageManifest }>;
+  packages: Array<{
+    packageId: string;
+    version: string;
+    roleKey: string;
+    manifestDigest: string;
+    manifest: RolePackageManifest;
+  }>;
 };
 
 function store(): State {
@@ -282,11 +348,7 @@ function workflowRepository(state: State): V1WorkflowRepository {
       return found ? { ...found, projectId: null } : null;
     },
     async isPublishedKnowledgeAvailable(project, roleId, documentId) {
-      return (
-        project === projectId &&
-        roleId === 'r-eng' &&
-        documentId === publishedKnowledgeId
-      );
+      return project === projectId && roleId === 'r-eng' && documentId === publishedKnowledgeId;
     },
     async findRequirement(requirementId) {
       const found =
@@ -775,7 +837,9 @@ describe('V1WorkflowService', () => {
         definition: demoDefinition(),
         packageLocks: locks,
       });
-      expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_OUTPUT_CONTRACT_MISMATCH');
+      expect(result.issues.map((issue) => issue.code)).toContain(
+        'WORKFLOW_OUTPUT_CONTRACT_MISMATCH',
+      );
     });
 
     it('rejects required package inputs without a declared source', async () => {

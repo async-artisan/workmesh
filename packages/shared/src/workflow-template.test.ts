@@ -32,33 +32,105 @@ function locksFor(roleKeys: readonly string[]): WorkflowPackageLock[] {
 function contractsFor(roleKeys: readonly string[]): RolePackageManifest[] {
   const inputsByRole: Record<string, RolePackageManifest['inputs']> = {
     product: [
-      { key: 'context', source: 'TASK_SNAPSHOT', kind: 'CONTEXT', required: true, contractVersion: '1.0' },
-      { key: 'business-knowledge', source: 'KNOWLEDGE', kind: 'KNOWLEDGE', required: true, contractVersion: '1.0' },
+      {
+        key: 'context',
+        source: 'TASK_SNAPSHOT',
+        kind: 'CONTEXT',
+        required: true,
+        contractVersion: '1.0',
+      },
+      {
+        key: 'business-knowledge',
+        source: 'KNOWLEDGE',
+        kind: 'KNOWLEDGE',
+        required: true,
+        contractVersion: '1.0',
+      },
     ],
     ui: [
-      { key: 'context', source: 'TASK_SNAPSHOT', kind: 'CONTEXT', required: true, contractVersion: '1.0' },
+      {
+        key: 'context',
+        source: 'TASK_SNAPSHOT',
+        kind: 'CONTEXT',
+        required: true,
+        contractVersion: '1.0',
+      },
       { key: 'prd', source: 'KNOWLEDGE', kind: 'PRD', required: true, contractVersion: '1.0' },
     ],
     frontend: [
-      { key: 'context', source: 'TASK_SNAPSHOT', kind: 'CONTEXT', required: true, contractVersion: '1.0' },
+      {
+        key: 'context',
+        source: 'TASK_SNAPSHOT',
+        kind: 'CONTEXT',
+        required: true,
+        contractVersion: '1.0',
+      },
       { key: 'prd', source: 'KNOWLEDGE', kind: 'PRD', required: true, contractVersion: '1.0' },
-      { key: 'contract', source: 'KNOWLEDGE', kind: 'KNOWLEDGE', required: true, contractVersion: '1.0' },
-      { key: 'design', source: 'KNOWLEDGE', kind: 'DESIGN', required: false, contractVersion: '1.0' },
+      {
+        key: 'contract',
+        source: 'KNOWLEDGE',
+        kind: 'KNOWLEDGE',
+        required: true,
+        contractVersion: '1.0',
+      },
+      {
+        key: 'design',
+        source: 'KNOWLEDGE',
+        kind: 'DESIGN',
+        required: false,
+        contractVersion: '1.0',
+      },
     ],
     backend: [
-      { key: 'context', source: 'TASK_SNAPSHOT', kind: 'CONTEXT', required: true, contractVersion: '1.0' },
+      {
+        key: 'context',
+        source: 'TASK_SNAPSHOT',
+        kind: 'CONTEXT',
+        required: true,
+        contractVersion: '1.0',
+      },
       { key: 'prd', source: 'KNOWLEDGE', kind: 'PRD', required: true, contractVersion: '1.0' },
-      { key: 'unit-card', source: 'KNOWLEDGE', kind: 'UNIT_CARD', required: true, contractVersion: '1.0' },
+      {
+        key: 'unit-card',
+        source: 'KNOWLEDGE',
+        kind: 'UNIT_CARD',
+        required: true,
+        contractVersion: '1.0',
+      },
     ],
     qa: [
-      { key: 'context', source: 'TASK_SNAPSHOT', kind: 'CONTEXT', required: true, contractVersion: '1.0' },
+      {
+        key: 'context',
+        source: 'TASK_SNAPSHOT',
+        kind: 'CONTEXT',
+        required: true,
+        contractVersion: '1.0',
+      },
       { key: 'prd', source: 'KNOWLEDGE', kind: 'PRD', required: true, contractVersion: '1.0' },
-      { key: 'contract', source: 'KNOWLEDGE', kind: 'KNOWLEDGE', required: false, contractVersion: '1.0' },
+      {
+        key: 'contract',
+        source: 'KNOWLEDGE',
+        kind: 'KNOWLEDGE',
+        required: false,
+        contractVersion: '1.0',
+      },
     ],
     ops: [
-      { key: 'context', source: 'TASK_SNAPSHOT', kind: 'CONTEXT', required: true, contractVersion: '1.0' },
+      {
+        key: 'context',
+        source: 'TASK_SNAPSHOT',
+        kind: 'CONTEXT',
+        required: true,
+        contractVersion: '1.0',
+      },
       { key: 'prd', source: 'KNOWLEDGE', kind: 'PRD', required: true, contractVersion: '1.0' },
-      { key: 'unit-card', source: 'KNOWLEDGE', kind: 'UNIT_CARD', required: false, contractVersion: '1.0' },
+      {
+        key: 'unit-card',
+        source: 'KNOWLEDGE',
+        kind: 'UNIT_CARD',
+        required: false,
+        contractVersion: '1.0',
+      },
     ],
   };
   const outputsByRole: Record<string, string[]> = {
@@ -76,7 +148,11 @@ function contractsFor(roleKeys: readonly string[]): RolePackageManifest[] {
     protocolVersion: '1.0',
     title: roleKey,
     roleKey,
-    compatibility: { minCliVersion: '1.0.0', maxCliVersionExclusive: '2.0.0', contractVersion: '1.0' },
+    compatibility: {
+      minCliVersion: '1.0.0',
+      maxCliVersionExclusive: '2.0.0',
+      contractVersion: '1.0',
+    },
     inputs: inputsByRole[roleKey] ?? [],
     outputs: (outputsByRole[roleKey] ?? []).map((kind) => ({
       key: kind.toLowerCase(),
@@ -84,8 +160,19 @@ function contractsFor(roleKeys: readonly string[]): RolePackageManifest[] {
       kind,
       contractVersion: '1.0',
     })),
-    resources: [{ id: 'guide', kind: 'prompt', path: 'guide.md', sha256: 'a'.repeat(64), byteLength: 1, mediaType: 'text/markdown' }],
-    agentEntries: [{ host: 'codex', type: 'AGENTS_MD_POINTER', resourceId: 'guide', adapterVersion: '1.0.0' }],
+    resources: [
+      {
+        id: 'guide',
+        kind: 'prompt',
+        path: 'guide.md',
+        sha256: 'a'.repeat(64),
+        byteLength: 1,
+        mediaType: 'text/markdown',
+      },
+    ],
+    agentEntries: [
+      { host: 'codex', type: 'AGENTS_MD_POINTER', resourceId: 'guide', adapterVersion: '1.0.0' },
+    ],
   }));
 }
 
@@ -160,7 +247,12 @@ describe('standard workflow template', () => {
             ...manifest,
             outputs: [
               ...manifest.outputs,
-              { key: 'cases', channel: 'CANDIDATE', kind: 'CASES', contractVersion: '1.0' as const },
+              {
+                key: 'cases',
+                channel: 'CANDIDATE',
+                kind: 'CASES',
+                contractVersion: '1.0' as const,
+              },
             ],
           }
         : manifest,

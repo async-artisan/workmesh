@@ -199,4 +199,3 @@ export function hostSupported(): boolean {
 }
 
 export { ensurePrivateDir } from './private-fs';
-

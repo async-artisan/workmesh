@@ -60,9 +60,7 @@
       "kind": "PRD",
       "contractVersion": "1.0",
       "templateResourceId": "template-prd",
-      "evidence": [
-        "INSPECTION"
-      ]
+      "evidence": ["INSPECTION"]
     }
   ],
   "agentEntries": [

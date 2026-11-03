@@ -135,9 +135,7 @@ export function Workflows() {
       setRoles(roleList);
       setError('');
       // 首次进入且编辑器为空时，直接把已发布定义载入编辑器，避免页面只剩一个空 JSON 框。
-      const published = definitionPage.items.find(
-        (item) => item.currentPublishedRevisionId,
-      );
+      const published = definitionPage.items.find((item) => item.currentPublishedRevisionId);
       if (!editorText.trim() && published?.currentPublishedRevisionId) {
         try {
           const revision = await workflowApi.revision(published.currentPublishedRevisionId);
@@ -311,7 +309,8 @@ export function Workflows() {
         <p className="page-sub">
           模板只在本地预填，不会被直接信任：服务端会用项目当前的活动角色与角色包重新编译。
           被引用的角色必须有已登记的角色包版本，否则编译期就会失败。软件交付模板中的
-          <code> PUBLISHED_KNOWLEDGE </code> 来源也需替换为本项目已发布并绑定到对应角色的知识文档 UUID。
+          <code> PUBLISHED_KNOWLEDGE </code> 来源也需替换为本项目已发布并绑定到对应角色的知识文档
+          UUID。
         </p>
         <div className="toolbar">
           <button className="ghost" disabled={!projectId || busy} onClick={loadTemplate}>

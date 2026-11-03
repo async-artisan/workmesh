@@ -64,7 +64,8 @@ class DeliverCheckDto {
 
   @IsOptional() @IsString() @MaxLength(500) message?: string;
 
-  @IsOptional() @IsIn(['AGENT_REPORTED', 'EXTERNAL_REFERENCE'])
+  @IsOptional()
+  @IsIn(['AGENT_REPORTED', 'EXTERNAL_REFERENCE'])
   source?: 'AGENT_REPORTED' | 'EXTERNAL_REFERENCE';
 
   @IsOptional()

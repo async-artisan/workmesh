@@ -1,12 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { formatApiError } from '../api/client';
-import {
-  reviewApi,
-  type ReviewDecision,
-  type ReviewSlot,
-  type ReviewView,
-} from '../api/resources';
+import { reviewApi, type ReviewDecision, type ReviewSlot, type ReviewView } from '../api/resources';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';

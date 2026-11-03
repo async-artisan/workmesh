@@ -488,11 +488,7 @@ export class V1WorkflowService {
       )?.roleId;
       if (
         !roleId ||
-        !(await this.repository.isPublishedKnowledgeAvailable(
-          projectId,
-          roleId,
-          source.reference,
-        ))
+        !(await this.repository.isPublishedKnowledgeAvailable(projectId, roleId, source.reference))
       ) {
         sourceIssues.push({
           path: `/steps/${source.stepKey}/inputBindings/${source.inputKey}`,

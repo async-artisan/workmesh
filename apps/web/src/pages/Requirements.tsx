@@ -52,28 +52,19 @@ export function Requirements() {
   const currentMember = members.find((member) => member.id === user?.id);
   const isAdmin = currentMember?.role === 'OWNER' || currentMember?.role === 'ADMIN';
 
-  const phaseOptions = useMemo(
-    () => [...new Set(items.map((item) => item.phase))].sort(),
-    [items],
-  );
+  const phaseOptions = useMemo(() => [...new Set(items.map((item) => item.phase))].sort(), [items]);
 
   const filteredRequirements = useMemo(() => {
     const text = query.trim().toLowerCase();
     return items.filter((item) => {
       if (phaseFilter && item.phase !== phaseFilter) return false;
       if (!text) return true;
-      return [item.code, item.title, item.description ?? '']
-        .join(' ')
-        .toLowerCase()
-        .includes(text);
+      return [item.code, item.title, item.description ?? ''].join(' ').toLowerCase().includes(text);
     });
   }, [items, phaseFilter, query]);
 
   const pageCount = Math.max(1, Math.ceil(filteredRequirements.length / PAGE_SIZE));
-  const visibleRequirements = filteredRequirements.slice(
-    (page - 1) * PAGE_SIZE,
-    page * PAGE_SIZE,
-  );
+  const visibleRequirements = filteredRequirements.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   useEffect(() => {
     setPage(1);
@@ -194,7 +185,10 @@ export function Requirements() {
       <div className="table-card">
         <div className="card-head">
           <h3>
-            需求列表<small>{filteredRequirements.length} / {items.length}</small>
+            需求列表
+            <small>
+              {filteredRequirements.length} / {items.length}
+            </small>
           </h3>
           <div className="card-head-actions req-list-tools">
             <input

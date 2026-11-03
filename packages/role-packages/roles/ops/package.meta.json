@@ -60,9 +60,7 @@
       "kind": "RELEASE",
       "contractVersion": "1.0",
       "templateResourceId": "template-release",
-      "evidence": [
-        "INSPECTION"
-      ]
+      "evidence": ["INSPECTION"]
     },
     {
       "key": "rollback",
@@ -70,9 +68,7 @@
       "kind": "RELEASE",
       "contractVersion": "1.0",
       "templateResourceId": "template-rollback",
-      "evidence": [
-        "TEST"
-      ]
+      "evidence": ["TEST"]
     },
     {
       "key": "smoke",
@@ -80,10 +76,7 @@
       "kind": "RELEASE",
       "contractVersion": "1.0",
       "templateResourceId": "template-smoke",
-      "evidence": [
-        "TEST",
-        "INSPECTION"
-      ]
+      "evidence": ["TEST", "INSPECTION"]
     }
   ],
   "agentEntries": [

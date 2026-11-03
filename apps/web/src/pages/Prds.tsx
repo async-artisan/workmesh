@@ -55,9 +55,7 @@ export function Prds() {
   const navigate = useNavigate();
   const { projectId } = useProjectContext();
   const [docs, setDocs] = useState<DocumentDetail[]>([]);
-  const [requirementsById, setRequirementsById] = useState<Map<string, RequirementView>>(
-    new Map(),
-  );
+  const [requirementsById, setRequirementsById] = useState<Map<string, RequirementView>>(new Map());
   const [selectedId, setSelectedId] = useState('');
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'candidate' | 'published'>('all');
@@ -81,8 +79,10 @@ export function Prds() {
   const filteredDocs = useMemo(() => {
     const text = query.trim().toLowerCase();
     return docs.filter((item) => {
-      if (statusFilter === 'candidate' &&
-        !item.revisions.some((revision) => revision.state === 'CANDIDATE'))
+      if (
+        statusFilter === 'candidate' &&
+        !item.revisions.some((revision) => revision.state === 'CANDIDATE')
+      )
         return false;
       if (statusFilter === 'published' && !item.publishedRevision) return false;
       if (!text) return true;
@@ -114,9 +114,7 @@ export function Prds() {
         requirementApi.list(projectId).catch(() => null),
       ]);
       setDocs(page.items);
-      setRequirementsById(
-        new Map((requirementPage?.items ?? []).map((item) => [item.id, item])),
-      );
+      setRequirementsById(new Map((requirementPage?.items ?? []).map((item) => [item.id, item])));
       setError('');
       setSelectedId((current) =>
         page.items.some((item) => item.document.id === current)
@@ -208,7 +206,10 @@ export function Prds() {
       <div className="table-card">
         <div className="card-head">
           <h3>
-            PRD<small>{filteredDocs.length} / {docs.length}</small>
+            PRD
+            <small>
+              {filteredDocs.length} / {docs.length}
+            </small>
           </h3>
           <div className="card-head-actions req-list-tools">
             <input
@@ -245,37 +246,37 @@ export function Prds() {
               {filteredDocs.map((item) => {
                 const latest = item.publishedRevision ?? item.revisions[0] ?? null;
                 return (
-                <tr
-                  key={item.document.id}
-                  className={selectedId === item.document.id ? 'is-selected' : undefined}
-                >
-                  <td>
-                    <strong>{latest?.title ?? '未命名 PRD'}</strong>
-                    <div className="task-row-meta">
-                      {item.publishedRevision
-                        ? `已发布 v${item.publishedRevision.seq}`
-                        : latest
-                          ? `最新候选 v${latest.seq}`
-                          : '还没有修订'}
-                    </div>
-                  </td>
-                  <td>{requirementLabel(item.document.requirementId)}</td>
-                  <td className="cell-num">v{item.document.version}</td>
-                  <td className="cell-num">
-                    {item.revisions.filter((revision) => revision.state === 'CANDIDATE').length}
-                  </td>
-                  <td className="col-actions">
-                    <button
-                      className="ghost"
-                      onClick={() => {
-                        setSelectedId(item.document.id);
-                        setContent(null);
-                      }}
-                    >
-                      {selectedId === item.document.id ? '当前' : '查看版本'}
-                    </button>
-                  </td>
-                </tr>
+                  <tr
+                    key={item.document.id}
+                    className={selectedId === item.document.id ? 'is-selected' : undefined}
+                  >
+                    <td>
+                      <strong>{latest?.title ?? '未命名 PRD'}</strong>
+                      <div className="task-row-meta">
+                        {item.publishedRevision
+                          ? `已发布 v${item.publishedRevision.seq}`
+                          : latest
+                            ? `最新候选 v${latest.seq}`
+                            : '还没有修订'}
+                      </div>
+                    </td>
+                    <td>{requirementLabel(item.document.requirementId)}</td>
+                    <td className="cell-num">v{item.document.version}</td>
+                    <td className="cell-num">
+                      {item.revisions.filter((revision) => revision.state === 'CANDIDATE').length}
+                    </td>
+                    <td className="col-actions">
+                      <button
+                        className="ghost"
+                        onClick={() => {
+                          setSelectedId(item.document.id);
+                          setContent(null);
+                        }}
+                      >
+                        {selectedId === item.document.id ? '当前' : '查看版本'}
+                      </button>
+                    </td>
+                  </tr>
                 );
               })}
               {filteredDocs.length === 0 && (
@@ -332,9 +333,7 @@ export function Prds() {
                         <span className="status-tag">{revision.state}</span>
                       </td>
                       <td>
-                        <span>
-                          {revisionLabel(revision.basisUnderstandingRevisionId)}
-                        </span>
+                        <span>{revisionLabel(revision.basisUnderstandingRevisionId)}</span>
                       </td>
                       <td className="cell-num">{revision.acceptance?.length ?? 0}</td>
                       <td className="col-actions">

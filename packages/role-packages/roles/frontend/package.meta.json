@@ -61,10 +61,7 @@
       "kind": "IMPL",
       "contractVersion": "1.0",
       "templateResourceId": "template-impl",
-      "evidence": [
-        "TEST",
-        "INSPECTION"
-      ]
+      "evidence": ["TEST", "INSPECTION"]
     }
   ],
   "agentEntries": [

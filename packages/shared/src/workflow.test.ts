@@ -129,18 +129,42 @@ describe('workflow compilation', () => {
     ],
   };
 
-  const contract = (roleKey: string, inputs: RolePackageManifest['inputs'], outputs: string[]): RolePackageManifest => ({
+  const contract = (
+    roleKey: string,
+    inputs: RolePackageManifest['inputs'],
+    outputs: string[],
+  ): RolePackageManifest => ({
     packageSchemaVersion: '1.1',
     id: `${roleKey}-package`,
     version: '1.0.0',
     protocolVersion: '1.0',
     title: roleKey,
     roleKey,
-    compatibility: { minCliVersion: '1.0.0', maxCliVersionExclusive: '2.0.0', contractVersion: '1.0' },
+    compatibility: {
+      minCliVersion: '1.0.0',
+      maxCliVersionExclusive: '2.0.0',
+      contractVersion: '1.0',
+    },
     inputs,
-    outputs: outputs.map((kind) => ({ key: kind.toLowerCase(), channel: 'CANDIDATE', kind, contractVersion: '1.0' })),
-    resources: [{ id: 'guide', kind: 'prompt', path: 'guide.md', sha256: 'a'.repeat(64), byteLength: 1, mediaType: 'text/markdown' }],
-    agentEntries: [{ host: 'codex', type: 'AGENTS_MD_POINTER', resourceId: 'guide', adapterVersion: '1.0.0' }],
+    outputs: outputs.map((kind) => ({
+      key: kind.toLowerCase(),
+      channel: 'CANDIDATE',
+      kind,
+      contractVersion: '1.0',
+    })),
+    resources: [
+      {
+        id: 'guide',
+        kind: 'prompt',
+        path: 'guide.md',
+        sha256: 'a'.repeat(64),
+        byteLength: 1,
+        mediaType: 'text/markdown',
+      },
+    ],
+    agentEntries: [
+      { host: 'codex', type: 'AGENTS_MD_POINTER', resourceId: 'guide', adapterVersion: '1.0.0' },
+    ],
   });
 
   it('compiles a valid DAG with code evidence gates and a stable digest', async () => {
@@ -240,10 +264,7 @@ describe('workflow compilation', () => {
     const result = await compileWorkflowDefinition(valid, {
       roleIdsByKey,
       packageLocks: locks,
-      packageContracts: [
-        contract('backend', [], ['KNOWLEDGE']),
-        contract('ops', [], ['RELEASE']),
-      ],
+      packageContracts: [contract('backend', [], ['KNOWLEDGE']), contract('ops', [], ['RELEASE'])],
     });
     expect(result.valid).toBe(false);
     expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_OUTPUT_CONTRACT_MISMATCH');
@@ -254,7 +275,19 @@ describe('workflow compilation', () => {
       roleIdsByKey,
       packageLocks: locks,
       packageContracts: [
-        contract('backend', [{ key: 'unit-card', source: 'KNOWLEDGE', kind: 'UNIT_CARD', required: true, contractVersion: '1.0' }], ['IMPL']),
+        contract(
+          'backend',
+          [
+            {
+              key: 'unit-card',
+              source: 'KNOWLEDGE',
+              kind: 'UNIT_CARD',
+              required: true,
+              contractVersion: '1.0',
+            },
+          ],
+          ['IMPL'],
+        ),
         contract('ops', [], ['RELEASE']),
       ],
     });
@@ -269,7 +302,12 @@ describe('workflow compilation', () => {
             ...valid.steps[0],
             roleKey: 'backend',
             inputBindings: [
-              { inputKey: 'unit-card', source: 'EXTERNAL_INPUT', externalKey: 'service-catalog', reason: 'service catalog' },
+              {
+                inputKey: 'unit-card',
+                source: 'EXTERNAL_INPUT',
+                externalKey: 'service-catalog',
+                reason: 'service catalog',
+              },
             ],
           },
           valid.steps[1],
@@ -279,7 +317,19 @@ describe('workflow compilation', () => {
         roleIdsByKey,
         packageLocks: locks,
         packageContracts: [
-          contract('backend', [{ key: 'unit-card', source: 'KNOWLEDGE', kind: 'UNIT_CARD', required: true, contractVersion: '1.0' }], ['PRD', 'IMPL']),
+          contract(
+            'backend',
+            [
+              {
+                key: 'unit-card',
+                source: 'KNOWLEDGE',
+                kind: 'UNIT_CARD',
+                required: true,
+                contractVersion: '1.0',
+              },
+            ],
+            ['PRD', 'IMPL'],
+          ),
           contract('ops', [], ['RELEASE']),
         ],
       },

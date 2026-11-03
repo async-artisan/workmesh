@@ -90,7 +90,9 @@ describe('buildDeliver check provenance', () => {
         verified: true,
       },
     });
-    await expect(buildDeliver(nestedVerified)).rejects.toMatchObject({ code: 'LOCAL_INPUT_INVALID' });
+    await expect(buildDeliver(nestedVerified)).rejects.toMatchObject({
+      code: 'LOCAL_INPUT_INVALID',
+    });
 
     const mismatch = await manifestWithCheck({
       code: 'ci-tests',

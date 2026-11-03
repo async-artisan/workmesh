@@ -53,7 +53,9 @@ describe('operation receipts', () => {
     if (IS_WINDOWS) {
       // Windows 没有 mode 位，等价保证是“只授予当前用户”的 NTFS DACL。
       await expect(verifyWindowsPath(path)).resolves.toBeUndefined();
-      await expect(verifyWindowsPath(join(dir, '.workmesh', 'local', 'receipts'))).resolves.toBeUndefined();
+      await expect(
+        verifyWindowsPath(join(dir, '.workmesh', 'local', 'receipts')),
+      ).resolves.toBeUndefined();
     } else {
       expect(info.mode & 0o777).toBe(0o600);
       const parent = await stat(join(dir, '.workmesh', 'local', 'receipts'));

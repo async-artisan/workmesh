@@ -61,9 +61,7 @@ export function Knowledge() {
   const navigate = useNavigate();
   const { projectId } = useProjectContext();
   const [docs, setDocs] = useState<DocumentDetail[]>([]);
-  const [requirementsById, setRequirementsById] = useState<Map<string, RequirementView>>(
-    new Map(),
-  );
+  const [requirementsById, setRequirementsById] = useState<Map<string, RequirementView>>(new Map());
   const [selectedId, setSelectedId] = useState('');
   const [query, setQuery] = useState('');
   const [kindFilter, setKindFilter] = useState('');
@@ -134,9 +132,7 @@ export function Knowledge() {
         requirementApi.list(projectId).catch(() => null),
       ]);
       setDocs(page.items);
-      setRequirementsById(
-        new Map((requirementPage?.items ?? []).map((item) => [item.id, item])),
-      );
+      setRequirementsById(new Map((requirementPage?.items ?? []).map((item) => [item.id, item])));
       setError('');
       setSelectedId((current) =>
         page.items.some((item) => item.document.id === current)
@@ -229,7 +225,10 @@ export function Knowledge() {
       <div className="table-card">
         <div className="card-head">
           <h3>
-            文档<small>{filteredDocs.length} / {docs.length}</small>
+            文档
+            <small>
+              {filteredDocs.length} / {docs.length}
+            </small>
           </h3>
           <div className="card-head-actions req-list-tools">
             <input
@@ -268,40 +267,40 @@ export function Knowledge() {
               {visibleDocs.map((item) => {
                 const latest = item.publishedRevision ?? item.revisions[0] ?? null;
                 return (
-                <tr
-                  key={item.document.id}
-                  className={selectedId === item.document.id ? 'is-selected' : undefined}
-                >
-                  <td>
-                    <span className="status-tag">{KIND_LABELS[item.document.kind]}</span>
-                  </td>
-                  <td>
-                    <strong>{latest?.title ?? '未命名文档'}</strong>
-                    <div className="task-row-meta">
-                      {item.publishedRevision
-                        ? `已发布 v${item.publishedRevision.seq}`
-                        : latest
-                          ? `最新候选 v${latest.seq}`
-                          : '还没有修订'}
-                    </div>
-                  </td>
-                  <td>{requirementLabel(item.document.requirementId)}</td>
-                  <td className="cell-num">v{item.document.version}</td>
-                  <td className="cell-num">
-                    {item.revisions.filter((revision) => revision.state === 'CANDIDATE').length}
-                  </td>
-                  <td className="col-actions">
-                    <button
-                      className="ghost"
-                      onClick={() => {
-                        setSelectedId(item.document.id);
-                        setContent(null);
-                      }}
-                    >
-                      {selectedId === item.document.id ? '当前' : '查看版本'}
-                    </button>
-                  </td>
-                </tr>
+                  <tr
+                    key={item.document.id}
+                    className={selectedId === item.document.id ? 'is-selected' : undefined}
+                  >
+                    <td>
+                      <span className="status-tag">{KIND_LABELS[item.document.kind]}</span>
+                    </td>
+                    <td>
+                      <strong>{latest?.title ?? '未命名文档'}</strong>
+                      <div className="task-row-meta">
+                        {item.publishedRevision
+                          ? `已发布 v${item.publishedRevision.seq}`
+                          : latest
+                            ? `最新候选 v${latest.seq}`
+                            : '还没有修订'}
+                      </div>
+                    </td>
+                    <td>{requirementLabel(item.document.requirementId)}</td>
+                    <td className="cell-num">v{item.document.version}</td>
+                    <td className="cell-num">
+                      {item.revisions.filter((revision) => revision.state === 'CANDIDATE').length}
+                    </td>
+                    <td className="col-actions">
+                      <button
+                        className="ghost"
+                        onClick={() => {
+                          setSelectedId(item.document.id);
+                          setContent(null);
+                        }}
+                      >
+                        {selectedId === item.document.id ? '当前' : '查看版本'}
+                      </button>
+                    </td>
+                  </tr>
                 );
               })}
               {visibleDocs.length === 0 && (

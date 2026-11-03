@@ -541,7 +541,11 @@ export function ReviewDecision({
                                   <>
                                     {' · '}
                                     <a
-                                      href={check.evidence.url.startsWith('https://') ? check.evidence.url : undefined}
+                                      href={
+                                        check.evidence.url.startsWith('https://')
+                                          ? check.evidence.url
+                                          : undefined
+                                      }
                                       target="_blank"
                                       rel="noreferrer"
                                     >

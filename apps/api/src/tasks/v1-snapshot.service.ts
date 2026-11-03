@@ -292,8 +292,7 @@ export class V1SnapshotService {
     );
     for (const input of requiredUpstreamInputs) {
       const available = prerequisiteArtifacts.some(
-        (artifact) =>
-          artifact.sourceStepKey === input.fromStepKey && artifact.kind === input.kind,
+        (artifact) => artifact.sourceStepKey === input.fromStepKey && artifact.kind === input.kind,
       );
       if (!available)
         throw new WorkmeshError(

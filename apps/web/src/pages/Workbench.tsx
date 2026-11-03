@@ -332,8 +332,8 @@ export function Workbench() {
             <span className="wb-row-context">{requirementLabel(review)}</span>
           </div>
           <div className="wb-row-detail">
-            {labelFor(STEP_LABELS, review.subjectLabel)} · {review.role?.title ?? '未指定角色'} · 等待{' '}
-            {ageLabel(review.ageSeconds)}
+            {labelFor(STEP_LABELS, review.subjectLabel)} · {review.role?.title ?? '未指定角色'} ·
+            等待 {ageLabel(review.ageSeconds)}
           </div>
           <div className="wb-row-context">
             证据 {review.evidence.artifactCount} 件{kinds.length ? `（${kinds.join(' / ')}）` : ''}

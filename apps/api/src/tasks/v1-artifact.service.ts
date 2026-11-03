@@ -210,7 +210,10 @@ export class V1ArtifactService {
         { taskId },
         409,
       );
-    if (stepContract && stepContract.workflowDefinitionRevisionId !== body.workflowDefinitionRevisionId)
+    if (
+      stepContract &&
+      stepContract.workflowDefinitionRevisionId !== body.workflowDefinitionRevisionId
+    )
       throw new WorkmeshError(
         V1_ERROR_CODES.BASELINE_STALE,
         'WORKFLOW_REVISION_STALE',
@@ -576,10 +579,7 @@ export class V1ArtifactService {
 
       const evidence = this.normalizeCheckEvidence(taskId, index, check.evidence);
       const source = check.source ?? (evidence ? 'EXTERNAL_REFERENCE' : 'AGENT_REPORTED');
-      if (
-        source !== 'AGENT_REPORTED' &&
-        source !== 'EXTERNAL_REFERENCE'
-      )
+      if (source !== 'AGENT_REPORTED' && source !== 'EXTERNAL_REFERENCE')
         throw new WorkmeshError(
           V1_ERROR_CODES.ARTIFACT_INVALID,
           'ARTIFACT_CHECKS_INVALID',
@@ -637,7 +637,9 @@ export class V1ArtifactService {
     if (url.protocol !== 'https:' || url.username || url.password) throw invalid();
     if (
       evidence.runId !== undefined &&
-      (typeof evidence.runId !== 'string' || evidence.runId.length === 0 || evidence.runId.length > 200)
+      (typeof evidence.runId !== 'string' ||
+        evidence.runId.length === 0 ||
+        evidence.runId.length > 200)
     )
       throw invalid();
     if (

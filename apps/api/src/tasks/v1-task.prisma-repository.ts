@@ -77,9 +77,12 @@ export class V1TaskPrismaRepository implements V1TaskRepository {
     });
     const steps = (revision?.definition as { steps?: unknown } | null)?.steps;
     if (!Array.isArray(steps)) return null;
-    const step = steps.find(
-      (entry): entry is Record<string, unknown> =>
-        Boolean(entry && typeof entry === 'object' && (entry as Record<string, unknown>).key === task.stepKey),
+    const step = steps.find((entry): entry is Record<string, unknown> =>
+      Boolean(
+        entry &&
+        typeof entry === 'object' &&
+        (entry as Record<string, unknown>).key === task.stepKey,
+      ),
     );
     if (!step) return null;
     return {

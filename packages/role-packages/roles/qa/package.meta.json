@@ -60,10 +60,7 @@
       "kind": "CASES",
       "contractVersion": "1.0",
       "templateResourceId": "template-cases",
-      "evidence": [
-        "TEST",
-        "INSPECTION"
-      ]
+      "evidence": ["TEST", "INSPECTION"]
     },
     {
       "key": "evals",
@@ -71,9 +68,7 @@
       "kind": "CASES",
       "contractVersion": "1.0",
       "templateResourceId": "template-evals",
-      "evidence": [
-        "TEST"
-      ]
+      "evidence": ["TEST"]
     },
     {
       "key": "defects",
@@ -81,9 +76,7 @@
       "kind": "CASES",
       "contractVersion": "1.0",
       "templateResourceId": "template-defect",
-      "evidence": [
-        "INSPECTION"
-      ]
+      "evidence": ["INSPECTION"]
     }
   ],
   "agentEntries": [

@@ -47,9 +47,7 @@
       "kind": "DESIGN",
       "contractVersion": "1.0",
       "templateResourceId": "template-design-spec",
-      "evidence": [
-        "INSPECTION"
-      ]
+      "evidence": ["INSPECTION"]
     },
     {
       "key": "reuse",
@@ -57,9 +55,7 @@
       "kind": "KNOWLEDGE",
       "contractVersion": "1.0",
       "templateResourceId": "template-reuse-declaration",
-      "evidence": [
-        "INSPECTION"
-      ]
+      "evidence": ["INSPECTION"]
     }
   ],
   "agentEntries": [

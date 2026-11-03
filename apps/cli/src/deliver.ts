@@ -101,10 +101,16 @@ function readChecks(value: unknown): DeliverItemPayload['checks'] {
         throw new CliError('LOCAL_INPUT_INVALID', '检出项 evidence.url 必须是无凭据的 HTTPS 链接');
       if (e.runId !== undefined && typeof e.runId !== 'string')
         throw new CliError('LOCAL_INPUT_INVALID', '检出项 evidence.runId 非法');
-      if (e.commitSha !== undefined && (typeof e.commitSha !== 'string' || !COMMIT.test(e.commitSha)))
+      if (
+        e.commitSha !== undefined &&
+        (typeof e.commitSha !== 'string' || !COMMIT.test(e.commitSha))
+      )
         throw new CliError('LOCAL_INPUT_INVALID', '检出项 evidence.commitSha 非法');
       if (source === 'AGENT_REPORTED')
-        throw new CliError('LOCAL_INPUT_INVALID', '带 evidence 的检出项必须声明 EXTERNAL_REFERENCE');
+        throw new CliError(
+          'LOCAL_INPUT_INVALID',
+          '带 evidence 的检出项必须声明 EXTERNAL_REFERENCE',
+        );
     }
     if (source === 'EXTERNAL_REFERENCE' && evidence === undefined)
       throw new CliError('LOCAL_INPUT_INVALID', 'EXTERNAL_REFERENCE 必须带 evidence');

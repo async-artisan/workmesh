@@ -40,7 +40,12 @@ export type V1SnapshotTaskState = {
   currentClaim: V1SnapshotClaim | null;
   currentSnapshotId: string | null;
   /** 当前步骤声明的上游产物输入；旧修订缺省为空。 */
-  upstreamInputs?: Array<{ inputKey: string; fromStepKey: string; kind: string; required?: boolean }>;
+  upstreamInputs?: Array<{
+    inputKey: string;
+    fromStepKey: string;
+    kind: string;
+    required?: boolean;
+  }>;
   /** 当前步骤声明的已发布知识输入；旧修订缺省为空。 */
   knowledgeInputs?: Array<{ inputKey: string; documentId: string; required?: boolean }>;
 };

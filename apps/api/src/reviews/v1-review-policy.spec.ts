@@ -137,9 +137,9 @@ describe('代码评审证据是否可接受', () => {
   it('机器人评审、待定、被驳回、混合状态一律不通过', () => {
     expect(isCodeEvidenceAcceptable([{ state: 'APPROVED', reviewerKind: 'BOT' }])).toBe(false);
     expect(isCodeEvidenceAcceptable([{ state: 'PENDING', reviewerKind: 'USER' }])).toBe(false);
-    expect(
-      isCodeEvidenceAcceptable([{ state: 'CHANGES_REQUESTED', reviewerKind: 'USER' }]),
-    ).toBe(false);
+    expect(isCodeEvidenceAcceptable([{ state: 'CHANGES_REQUESTED', reviewerKind: 'USER' }])).toBe(
+      false,
+    );
     expect(
       isCodeEvidenceAcceptable([
         { state: 'APPROVED', reviewerKind: 'USER' },

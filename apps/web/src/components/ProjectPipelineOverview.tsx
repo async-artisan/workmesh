@@ -21,12 +21,7 @@ export interface PipelineRequirement {
 }
 
 export type PipelineStageKey =
-  | 'DISCOVERY'
-  | 'DEFINITION'
-  | 'DELIVERY'
-  | 'ACCEPTANCE'
-  | 'RELEASED'
-  | 'ARCHIVED';
+  'DISCOVERY' | 'DEFINITION' | 'DELIVERY' | 'ACCEPTANCE' | 'RELEASED' | 'ARCHIVED';
 
 export interface PipelineStageDefinition {
   key: PipelineStageKey;
@@ -147,16 +142,30 @@ export function ProjectPipelineOverview({
     [requirements],
   );
   const blockedCount = requirements.filter((item) => item.workStatus === 'BLOCKED').length;
-  const activeCount = requirements.filter((item) => !['RELEASED', 'ARCHIVED'].includes(item.phase)).length;
+  const activeCount = requirements.filter(
+    (item) => !['RELEASED', 'ARCHIVED'].includes(item.phase),
+  ).length;
 
   return (
     <section className={`pipeline-overview ${className}`.trim()} aria-label="项目需求流水线">
       <style>{css}</style>
       <div className="pipeline-overview__stats" aria-label="项目流水线统计">
-        <div className="pipeline-overview__stat"><strong>{requirements.length}</strong><span>全部需求</span></div>
-        <div className="pipeline-overview__stat"><strong>{activeCount}</strong><span>进行中</span></div>
-        <div className="pipeline-overview__stat"><strong>{blockedCount}</strong><span>阻塞</span></div>
-        <div className="pipeline-overview__stat"><strong>{filtered.length}</strong><span>当前显示</span></div>
+        <div className="pipeline-overview__stat">
+          <strong>{requirements.length}</strong>
+          <span>全部需求</span>
+        </div>
+        <div className="pipeline-overview__stat">
+          <strong>{activeCount}</strong>
+          <span>进行中</span>
+        </div>
+        <div className="pipeline-overview__stat">
+          <strong>{blockedCount}</strong>
+          <span>阻塞</span>
+        </div>
+        <div className="pipeline-overview__stat">
+          <strong>{filtered.length}</strong>
+          <span>当前显示</span>
+        </div>
       </div>
 
       <div className="pipeline-overview__toolbar">
@@ -174,7 +183,11 @@ export function ProjectPipelineOverview({
           onChange={(event) => setPhase(event.target.value as PipelineStageKey | 'ALL')}
         >
           <option value="ALL">全部阶段</option>
-          {PIPELINE_STAGES.map((stage) => <option key={stage.key} value={stage.key}>{stage.label}</option>)}
+          {PIPELINE_STAGES.map((stage) => (
+            <option key={stage.key} value={stage.key}>
+              {stage.label}
+            </option>
+          ))}
         </select>
       </div>
 
@@ -191,7 +204,9 @@ export function ProjectPipelineOverview({
               <span className="pipeline-overview__stage-label">{stage.shortLabel}</span>
               <span className="pipeline-overview__stage-count">{stage.label}</span>
             </button>
-            {index < PIPELINE_STAGES.length - 1 && <span className="pipeline-overview__connector" data-complete={stage.count > 0} />}
+            {index < PIPELINE_STAGES.length - 1 && (
+              <span className="pipeline-overview__connector" data-complete={stage.count > 0} />
+            )}
           </div>
         ))}
       </div>
@@ -199,32 +214,56 @@ export function ProjectPipelineOverview({
       <div className="pipeline-overview__list">
         {filtered.length === 0 ? (
           <div className="pipeline-overview__empty">没有符合筛选条件的需求。</div>
-        ) : filtered.map((requirement) => {
-          const current = normalizePhase(requirement.phase);
-          const status = requirement.workStatus === 'BLOCKED' ? 'blocked' : requirement.workStatus === 'PAUSED' ? 'paused' : current;
-          return (
-            <button
-              className="pipeline-overview__row"
-              key={requirement.id}
-              onClick={() => onSelectRequirement?.(requirement)}
-              type="button"
-            >
-              <span className="pipeline-overview__row-head">
-                <span className="pipeline-overview__title"><span className="pipeline-overview__code">{requirement.code}</span> {requirement.title}</span>
-                <span className="pipeline-overview__badge" data-status={status}>{requirement.workStatus === 'BLOCKED' ? '阻塞' : requirement.workStatus === 'PAUSED' ? '暂停' : PIPELINE_STAGES.find((item) => item.key === current)?.label}</span>
-              </span>
-              <span className="pipeline-overview__meta">
-                <span>任务 {countOf(requirement, 'tasks')}</span>
-                <span>产物 {countOf(requirement, 'artifacts')}</span>
-                <span>评审 {countOf(requirement, 'reviews')}</span>
-                <span>更新于 {formatUpdated(requirement.updatedAt)}</span>
-              </span>
-              <span className="pipeline-overview__progress" aria-label={`${requirement.title} 阶段进度`}>
-                {PIPELINE_STAGES.map((stage) => <i key={stage.key} data-state={stageStatus(requirement, stage.key as PipelineStageKey)} />)}
-              </span>
-            </button>
-          );
-        })}
+        ) : (
+          filtered.map((requirement) => {
+            const current = normalizePhase(requirement.phase);
+            const status =
+              requirement.workStatus === 'BLOCKED'
+                ? 'blocked'
+                : requirement.workStatus === 'PAUSED'
+                  ? 'paused'
+                  : current;
+            return (
+              <button
+                className="pipeline-overview__row"
+                key={requirement.id}
+                onClick={() => onSelectRequirement?.(requirement)}
+                type="button"
+              >
+                <span className="pipeline-overview__row-head">
+                  <span className="pipeline-overview__title">
+                    <span className="pipeline-overview__code">{requirement.code}</span>{' '}
+                    {requirement.title}
+                  </span>
+                  <span className="pipeline-overview__badge" data-status={status}>
+                    {requirement.workStatus === 'BLOCKED'
+                      ? '阻塞'
+                      : requirement.workStatus === 'PAUSED'
+                        ? '暂停'
+                        : PIPELINE_STAGES.find((item) => item.key === current)?.label}
+                  </span>
+                </span>
+                <span className="pipeline-overview__meta">
+                  <span>任务 {countOf(requirement, 'tasks')}</span>
+                  <span>产物 {countOf(requirement, 'artifacts')}</span>
+                  <span>评审 {countOf(requirement, 'reviews')}</span>
+                  <span>更新于 {formatUpdated(requirement.updatedAt)}</span>
+                </span>
+                <span
+                  className="pipeline-overview__progress"
+                  aria-label={`${requirement.title} 阶段进度`}
+                >
+                  {PIPELINE_STAGES.map((stage) => (
+                    <i
+                      key={stage.key}
+                      data-state={stageStatus(requirement, stage.key as PipelineStageKey)}
+                    />
+                  ))}
+                </span>
+              </button>
+            );
+          })
+        )}
       </div>
     </section>
   );

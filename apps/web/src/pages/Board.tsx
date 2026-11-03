@@ -21,8 +21,6 @@ const WORK_STATUS_LABELS: Record<string, string> = {
   CANCELLED: '已取消',
 };
 
-
-
 /**
  * 看板只读：按服务端派生列展示任务与工作态。
  * 认领与交付属于执行动作，由本地 Agent 通过 CLI 完成；Web 不提供认领入口。
@@ -68,8 +66,11 @@ export function Board() {
 
   const roleOptions = useMemo(
     () =>
-      [...new Set(allCards.map((card) => card.roleTitle).filter((value): value is string => Boolean(value)))]
-        .sort((a, b) => a.localeCompare(b, 'zh-CN')),
+      [
+        ...new Set(
+          allCards.map((card) => card.roleTitle).filter((value): value is string => Boolean(value)),
+        ),
+      ].sort((a, b) => a.localeCompare(b, 'zh-CN')),
     [allCards],
   );
 
@@ -245,9 +246,7 @@ export function Board() {
                       }}
                     >
                       <div className="board-card-top">
-                        <span className="board-code">
-                          {labelFor(STEP_LABELS, card.stepKey)}
-                        </span>
+                        <span className="board-code">{labelFor(STEP_LABELS, card.stepKey)}</span>
                         {card.claimedUserId && (
                           <span className="status-tag">
                             {WORK_STATUS_LABELS[card.workStatus ?? ''] ?? card.workStatus}

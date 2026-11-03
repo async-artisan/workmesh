@@ -2,7 +2,10 @@
   "name": "@workmesh/api",
   "version": "1.0.0",
   "private": true,
-  "files": ["dist", "prisma"],
+  "files": [
+    "dist",
+    "prisma"
+  ],
   "scripts": {
     "predev": "prisma generate --schema prisma/schema.prisma",
     "dev": "nest start --watch",

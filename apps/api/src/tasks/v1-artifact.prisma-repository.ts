@@ -615,7 +615,9 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
         passed: entry.passed === true,
         ...(typeof entry.message === 'string' ? { message: entry.message } : {}),
         source:
-          entry.source === 'EXTERNAL_REFERENCE' && entry.evidence && typeof entry.evidence === 'object'
+          entry.source === 'EXTERNAL_REFERENCE' &&
+          entry.evidence &&
+          typeof entry.evidence === 'object'
             ? ('EXTERNAL_REFERENCE' as const)
             : ('AGENT_REPORTED' as const),
         ...(entry.evidence && typeof entry.evidence === 'object'
