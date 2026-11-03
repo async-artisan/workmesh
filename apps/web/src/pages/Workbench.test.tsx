@@ -142,6 +142,7 @@ describe('Workbench（跨项目待办聚合）', () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem');
     try {
       const select = await screen.findByLabelText('角色筛选');
+      await screen.findByRole('option', { name: '后端' });
       fireEvent.change(select, { target: { value: 'backend' } });
 
       expect(setItem).toHaveBeenCalledWith('workmesh.workbench.role', 'backend');
