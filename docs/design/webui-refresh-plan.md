@@ -77,7 +77,7 @@ UI 既不让改，也不提示。如果服务端没有额外约束，这就是�
 ### 2.4 视觉现状
 
 - 当前是亮色后台风格：白底、白卡片、蓝色强调，信息密度低，和“审计 / 证据 / 签字”的品牌气质不匹配。
-- [docs/CYBER_UI_COMPLETE.md](../CYBER_UI_COMPLETE.md#L26) 仍在描述 `Dashboard.tsx`、右侧面板、⌘K，这些代码已经不存在。
+- 历史 UI 总结曾描述已移除的 `Dashboard.tsx`、右侧面板和 ⌘K；当前行为以 `apps/web/src` 实现为准。
 - [index.css](../../apps/web/src/index.css#L7) 通过 Google Fonts `@import` 加载字体，自部署 / 内网 / 数据不出域场景会首屏阻塞并产生外部请求。
 - [index.css](../../apps/web/src/index.css#L3730) 起已有约 50 个 `wb-*` / `gate-*` / `evidence-*` / `signoff-*` 样式没有任何组件使用——工作台改版做过一半，缺的是页面，不是设计。
 
@@ -547,7 +547,7 @@ E2E 用例（M2 开始写，M3 跑通）
 | 字体许可证 / 体积              | 中   | 选 OFL / 可免费商用字体；子集化；落地前复核                   |
 | 范围蔓延到执行平台             | 高   | 以“决定页”为界；非目标写进评审 checklist                      |
 | 旧工作树冲突                   | 中   | additive 文件为主；M0 前提交 / stash                          |
-| 文档继续漂移                   | 中   | M3 更新 `CYBER_UI_COMPLETE.md` 与 README 的 Web 描述          |
+| 文档继续漂移                   | 中   | M3 按当前实现更新 README 的 Web 描述                          |
 
 **回滚**：新路由 + 新组件，旧页面保留；`/` 可切回旧工作台；API 均为只读增量，回滚不影响写入链路。
 
@@ -628,7 +628,6 @@ E2E 用例（M2 开始写，M3 跑通）
 - `apps/web/src/index.css`（token + 主题 + 组件样式）
 - `apps/api/src/reviews/v1-review.prisma-repository.ts`（增量 include / 字段）
 - `apps/api/src/reviews/v1-review.repository.ts`（类型）
-- `docs/CYBER_UI_COMPLETE.md`（M3 更新，删除失效描述）
 
 ### 15.2 路由地图
 
