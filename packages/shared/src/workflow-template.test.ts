@@ -71,6 +71,39 @@ describe('standard workflow template', () => {
     expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_ROLE_UNKNOWN');
   });
 
+  it('resolves a role that only appears in an approval slot', async () => {
+    // 回归：仅被 roleSlots 引用的角色此前不进 resolvedRoles，
+    // 创建流程实例时 roleSlotBinding 解析为 null，被误判成「角色与槽位声明不一致」。
+    const base = buildStandardWorkflowTemplate();
+    const steps = (base.steps as Array<Record<string, unknown>>).map((step) =>
+      step.roleKey === 'qa' ? { ...step, roleKey: 'frontend' } : step,
+    );
+    const definition = {
+      ...base,
+      steps,
+      roleSlots: [
+        ...(base.roleSlots as unknown[]),
+        { key: 'legal-signoff', roleKey: 'qa', kind: 'TASK_ACCEPTANCE' },
+      ],
+    };
+
+    const result = await compileWorkflowDefinition(definition, {
+      roleIdsByKey,
+      packageLocks: locksFor(STANDARD_TEMPLATE_ROLE_KEYS),
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(result.valid).toBe(true);
+    // qa 不再被任何步骤使用，只出现在槽位里，仍必须被解析出来。
+    expect(result.compiledRules?.resolvedRoles).toContainEqual({
+      stepKey: '',
+      roleKey: 'qa',
+      roleId: 'r-qa',
+    });
+    // 槽位角色同样计入 usedRoleKeys，因此也需要包锁（这里已提供）。
+    expect(usedWorkflowRoleKeys(definition)).toContain('qa');
+  });
+
   it('lets callers override the workflow key and title for a second definition', () => {
     const template = buildStandardWorkflowTemplate({
       workflowKey: 'fast-track',

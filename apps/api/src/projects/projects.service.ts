@@ -109,49 +109,61 @@ export class ProjectsService {
    * 创建者只有在被显式授予时才持有业务角色，不因 OWNER 自动获得。
    */
   async create(userId: string, dto: CreateProjectDto) {
-    return this.prisma.$transaction(async (tx) => {
-      const project = await tx.project.create({
-        data: {
-          name: dto.name,
-          key: dto.key,
-          description: dto.description ?? null,
-          createdById: userId,
-        },
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const project = await tx.project.create({
+          data: {
+            name: dto.name,
+            key: dto.key,
+            description: dto.description ?? null,
+            createdById: userId,
+          },
+        });
+        const roles = await Promise.all(
+          DEFAULT_PROJECT_ROLES.map((role) =>
+            tx.projectRole.create({
+              data: { projectId: project.id, key: role.key, title: role.title },
+            }),
+          ),
+        );
+        await tx.projectMember.create({
+          data: { projectId: project.id, userId, role: 'OWNER' },
+        });
+        await tx.projectRoleAssignment.createMany({
+          data: roles.map((role) => ({ projectId: project.id, userId, roleId: role.id })),
+        });
+        const knowledgeBase = await tx.knowledgeBase.create({
+          data: {
+            projectId: project.id,
+            key: DEFAULT_KNOWLEDGE_BASE_KEY,
+            name: '产品知识库',
+            kind: 'BUSINESS',
+            visibility: 'PROJECT',
+            publicationApproverUserId: userId,
+          },
+        });
+        await tx.knowledgeBaseGrant.create({
+          data: {
+            projectId: project.id,
+            knowledgeBaseId: knowledgeBase.id,
+            subjectKind: 'USER',
+            subjectUserId: userId,
+            permissions: ['READ', 'PROPOSE', 'PUBLISH', 'REVOKE'],
+          },
+        });
+        return { ...project, defaultKnowledgeBaseId: knowledgeBase.id };
       });
-      const roles = await Promise.all(
-        DEFAULT_PROJECT_ROLES.map((role) =>
-          tx.projectRole.create({
-            data: { projectId: project.id, key: role.key, title: role.title },
-          }),
-        ),
-      );
-      await tx.projectMember.create({
-        data: { projectId: project.id, userId, role: 'OWNER' },
-      });
-      await tx.projectRoleAssignment.createMany({
-        data: roles.map((role) => ({ projectId: project.id, userId, roleId: role.id })),
-      });
-      const knowledgeBase = await tx.knowledgeBase.create({
-        data: {
-          projectId: project.id,
-          key: DEFAULT_KNOWLEDGE_BASE_KEY,
-          name: '产品知识库',
-          kind: 'BUSINESS',
-          visibility: 'PROJECT',
-          publicationApproverUserId: userId,
-        },
-      });
-      await tx.knowledgeBaseGrant.create({
-        data: {
-          projectId: project.id,
-          knowledgeBaseId: knowledgeBase.id,
-          subjectKind: 'USER',
-          subjectUserId: userId,
-          permissions: ['READ', 'PROPOSE', 'PUBLISH', 'REVOKE'],
-        },
-      });
-      return { ...project, defaultKnowledgeBaseId: knowledgeBase.id };
-    });
+    } catch (error) {
+      // 项目 key 全局唯一：重复创建是客户端可纠正的冲突，必须给 409 而不是 Prisma 原生 500。
+      if ((error as { code?: string })?.code === 'P2002')
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_CONFLICT,
+          'PROJECT_KEY_CONFLICT',
+          { key: dto.key },
+          409,
+        );
+      throw error;
+    }
   }
 
   async members(userId: string, projectId: string) {

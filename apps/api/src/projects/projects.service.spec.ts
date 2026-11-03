@@ -1010,3 +1010,49 @@ describe('ProjectsService addMemberByEmail', () => {
     );
   });
 });
+
+describe('ProjectsService create conflict', () => {
+  it('maps a duplicate project key to 409 instead of a raw 500', async () => {
+    // 项目 key 是全局唯一索引：重复创建属于客户端可纠正的冲突。
+    // 未映射时 Prisma 的 P2002 会一路冒成 500，用户只看到「服务器内部错误」。
+    const prisma = {
+      $transaction: async () => {
+        throw Object.assign(new Error('Unique constraint failed on the fields: (`key`)'), {
+          code: 'P2002',
+        });
+      },
+    };
+    const service = new ProjectsService(
+      prisma as unknown as PrismaService,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(service.create('user-1', { name: '重复项目', key: 'DUP' })).rejects.toMatchObject({
+      // 协议码是 RESOURCE_CONFLICT，具体原因在 message 里（与既有 keyConflict 一致）。
+      code: V1_ERROR_CODES.RESOURCE_CONFLICT,
+      message: 'PROJECT_KEY_CONFLICT',
+      status: 409,
+      details: { key: 'DUP' },
+    });
+  });
+
+  it('does not swallow unrelated transaction failures', async () => {
+    const prisma = {
+      $transaction: async () => {
+        throw new Error('connection reset');
+      },
+    };
+    const service = new ProjectsService(
+      prisma as unknown as PrismaService,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(service.create('user-1', { name: '项目', key: 'OK' })).rejects.toThrow(
+      'connection reset',
+    );
+  });
+});
