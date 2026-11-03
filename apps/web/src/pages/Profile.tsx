@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatApiError } from '../api/client';
 import { authApi } from '../api/auth';
+import { projectApi, type ProjectView, type RoleView } from '../api/resources';
 import { ConfirmDialog } from '../components/Modal';
 import { useAuthStore } from '../store/auth';
 
@@ -21,6 +22,8 @@ interface CredentialView {
 export function Profile() {
   const user = useAuthStore((state) => state.user);
   const [credentials, setCredentials] = useState<CredentialView[]>([]);
+  const [projects, setProjects] = useState<ProjectView[]>([]);
+  const [roles, setRoles] = useState<RoleView[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [revokeTarget, setRevokeTarget] = useState<CredentialView | null>(null);
@@ -28,7 +31,17 @@ export function Profile() {
 
   async function load() {
     try {
-      setCredentials(await authApi.credentials());
+      const [credentialRows, projectRows] = await Promise.all([
+        authApi.credentials(),
+        projectApi.list().catch(() => []),
+      ]);
+      setCredentials(credentialRows);
+      setProjects(projectRows);
+      const projectIds = [...new Set(credentialRows.map((item) => item.projectId))];
+      const rolePages = await Promise.all(
+        projectIds.map((id) => projectApi.roles(id).catch(() => [])),
+      );
+      setRoles(rolePages.flat());
       setError('');
     } catch (caught) {
       setError(formatApiError(caught));
@@ -54,8 +67,11 @@ export function Profile() {
     }
   }
 
+  const projectNameById = new Map(projects.map((project) => [project.id, project.name]));
+  const roleTitleById = new Map(roles.map((role) => [role.id, role.title]));
+
   return (
-    <section>
+    <section className="profile-page">
       <header className="page-head">
         <div>
           <h2>用户中心</h2>
@@ -107,9 +123,25 @@ export function Profile() {
                   <td>
                     <strong>{credential.name}</strong>
                   </td>
-                  <td className="cell-mono cell-truncate">{credential.projectId}</td>
-                  <td className="cell-mono cell-truncate">{credential.roleId}</td>
-                  <td className="cell-truncate">{credential.scopes.join('、')}</td>
+                  <td>
+                    <span className="cell-mono cell-truncate">
+                      {projectNameById.get(credential.projectId) ?? '未知项目'}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="cell-mono cell-truncate">
+                      {roleTitleById.get(credential.roleId) ?? '未命名角色'}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="scope-list">
+                      {credential.scopes.map((scope) => (
+                        <span className="status-tag" key={scope}>
+                          {scope}
+                        </span>
+                      ))}
+                    </span>
+                  </td>
                   <td>{new Date(credential.expiresAt).toLocaleString('zh-CN')}</td>
                   <td className="col-actions">
                     <div className="cell-actions row-actions">
@@ -139,7 +171,7 @@ export function Profile() {
         title="撤销 Agent 凭据"
         description={
           revokeTarget
-            ? `凭据「${revokeTarget.name}」将立即失效。项目 ${revokeTarget.projectId} · 角色 ${revokeTarget.roleId} · Scopes ${revokeTarget.scopes.join('、')} · 到期 ${new Date(revokeTarget.expiresAt).toLocaleString('zh-CN')}`
+            ? `凭据「${revokeTarget.name}」将立即失效。项目 ${projectNameById.get(revokeTarget.projectId) ?? '未知项目'} · 角色 ${roleTitleById.get(revokeTarget.roleId) ?? '未命名角色'} · Scopes ${revokeTarget.scopes.join('、')} · 到期 ${new Date(revokeTarget.expiresAt).toLocaleString('zh-CN')}`
             : ''
         }
         confirmLabel="确认撤销凭据"

@@ -1227,3 +1227,20 @@ input[type='radio'] {
   color: #64748b;
   font-size: 11.5px;
 }
+
+.scope-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 360px;
+}
+
+.scope-list .status-tag {
+  font-size: 9.5px;
+  text-transform: none;
+}
+
+.data-table td.cell-truncate {
+  display: table-cell;
+  max-width: none;
+}
