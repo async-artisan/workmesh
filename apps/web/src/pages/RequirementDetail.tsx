@@ -89,6 +89,18 @@ function shortDigest(value: string): string {
   return value.length > 12 ? `${value.slice(0, 12)}…` : value;
 }
 
+function artifactChecks(value: unknown): Array<{ code: string; passed: boolean }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const record = item as Record<string, unknown>;
+      if (typeof record.code !== 'string' || typeof record.passed !== 'boolean') return null;
+      return { code: record.code, passed: record.passed };
+    })
+    .filter((item): item is { code: string; passed: boolean } => Boolean(item));
+}
+
 function scrollToRole(roleKeys: string[]): void {
   const first = roleKeys[0];
   if (!first) return;
@@ -779,7 +791,10 @@ export function RequirementDetail({
                         <strong>{labelFor(ARTIFACT_KIND_LABELS, group.kind)}</strong>
                         <span className="task-row-meta">{group.items.length} 件</span>
                       </div>
-                      {group.items.map((artifact) => (
+                      {group.items.map((artifact) => {
+                        const checks = artifactChecks(artifact.checks);
+                        const failed = checks.filter((check) => !check.passed);
+                        return (
                         <div className="task-row" key={artifact.id}>
                           <div className="task-row-main">
                             <div className="task-row-top">
@@ -796,6 +811,18 @@ export function RequirementDetail({
                             {artifact.summary && (
                               <div className="task-row-meta">{artifact.summary}</div>
                             )}
+                            {checks.length > 0 && (
+                              <div className="artifact-checks">
+                                <span>
+                                  校验 {checks.length - failed.length}/{checks.length}
+                                </span>
+                                {failed.map((check) => (
+                                  <span className="status-tag is-danger" key={check.code}>
+                                    {check.code} 失败
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                           {artifact.repoPath && (
                             <div className="task-row-actions">
@@ -808,7 +835,8 @@ export function RequirementDetail({
                             </div>
                           )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ))}
                   {missingArtifactKinds.map((kind) => (

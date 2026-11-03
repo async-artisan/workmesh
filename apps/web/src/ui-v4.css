@@ -1327,3 +1327,17 @@ input[type='radio'] {
   font-size: 10px;
   text-align: right;
 }
+
+.artifact-checks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 10.5px;
+}
+
+.artifact-checks .status-tag {
+  font-size: 9.5px;
+}
