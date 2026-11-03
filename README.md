@@ -24,31 +24,38 @@ pnpm 10.28.2 + Turborepo 的 monorepo：
 - **评审与变更**：工作台待办与证据卡、逐条/批量决定、变更请求分级与传播、发布候选冻结。
 - **知识与度量**：三类知识库（BUSINESS / SYSTEM / PRACTICE）字段、流程度量接口 `GET /projects/:id/metrics/flow`。
 - **项目治理**：代码仓库登记、自定义角色、成员与角色指派。
-- **文档**：[开发计划](docs/dev-plan.md) · [API 清单](docs/api.md) · [流程度量](docs/metrics.md) · [审批工位](docs/design/approval-workstation.md) · [迁移路线](docs/migration-plan.md) · [阻塞项](BLOCKED.md)。
+- **文档**：[本地运行](docs/local-dev.md) · [开发计划](docs/dev-plan.md) · [API 清单](docs/api.md) · [流程度量](docs/metrics.md) · [审批工位](docs/design/approval-workstation.md) · [迁移路线](docs/migration-plan.md) · [阻塞项](BLOCKED.md)。
 
 ## 快速开始
 
-使用 `corepack pnpm` 以保证 pnpm 版本与 `packageManager` 一致。
+本机开发（Windows，一条命令起 PostgreSQL + API + Web）的完整说明见 [docs/local-dev.md](docs/local-dev.md)：
 
-```bash
-corepack pnpm install
-corepack pnpm --filter @workmesh/shared build
-corepack pnpm --filter @workmesh/api exec prisma generate --schema prisma/schema.prisma
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev-local.ps1
 ```
 
-配置 `WORKMESH_V1_DATABASE_URL` 指向显式选择的 PostgreSQL，确认目标与回滚方式后按顺序应用迁移（当前 0001–0008）：
+下面是手工步骤。`pnpm` 版本已由 `packageManager` 固定，可直接用 `pnpm`；若本机 `corepack` 因签名校验失败（`Cannot find matching keyid`），不要绕它，改用已安装的 pnpm 10.28.2。
 
 ```bash
-corepack pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/schema.prisma
+pnpm install
+pnpm --filter @workmesh/shared build
+pnpm --filter @workmesh/api exec prisma generate --schema prisma/schema.prisma
 ```
 
-启动开发环境：
+配置 `WORKMESH_V1_DATABASE_URL` 指向显式选择的 PostgreSQL（本地开发的其余配置项见 `apps/api/.env.example`，需要 `WORKMESH_COOKIE_MODE=LOCAL_INSECURE` 才能用 loopback HTTP）。确认目标与回滚方式后按顺序应用迁移（当前 0001–0011）：
 
 ```bash
-corepack pnpm dev
+pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/schema.prisma
 ```
 
-API 默认 `http://localhost:3000`（Swagger `/api/docs`），Web 默认 `http://127.0.0.1:5173`。完整配置项与部署步骤见 [docs/deployment.md](docs/deployment.md)，接口清单见 [docs/api.md](docs/api.md)。
+启动开发环境。API 与 Web 分开起，不要用根目录 `pnpm dev`（`turbo run dev` 会连 CLI 的 watch 一起拉起）：
+
+```bash
+pnpm --filter @workmesh/api dev
+pnpm --filter @workmesh/web dev
+```
+
+API 默认 `http://localhost:3000`（Swagger `/api/docs`），Web 默认 `http://127.0.0.1:5173`，用 `127.0.0.1` 打开（Origin 精确匹配）。完整配置项与部署步骤见 [docs/deployment.md](docs/deployment.md)，接口清单见 [docs/api.md](docs/api.md)。
 
 ## 认证模型
 
@@ -107,12 +114,12 @@ workmesh changes
 ## 验证
 
 ```bash
-corepack pnpm --filter @workmesh/api exec tsc --noEmit --incremental false
-corepack pnpm --filter @workmesh/shared test
-corepack pnpm --filter @workmesh/cli test
-corepack pnpm --filter @workmesh/web test
-corepack pnpm test:contracts
-corepack pnpm build
+pnpm --filter @workmesh/api exec tsc --noEmit --incremental false
+pnpm --filter @workmesh/shared test
+pnpm --filter @workmesh/cli test
+pnpm --filter @workmesh/web test
+pnpm test:contracts
+pnpm build
 git diff --check
 ```
 

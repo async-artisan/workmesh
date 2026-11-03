@@ -37,7 +37,12 @@ const publishedDefinition = {
   currentPublishedRevisionId: 'rev-1',
 };
 
-function handler(input: { definitions?: unknown[]; definition?: Record<string, unknown> }) {
+function handler(input: {
+  definitions?: unknown[];
+  definition?: Record<string, unknown>;
+  repositories?: unknown[];
+  acceptanceKeys?: string[];
+}) {
   return (url: string, init: RequestInit) => {
     const path = pathOf(url);
     const method = methodOf(init);
@@ -49,6 +54,21 @@ function handler(input: { definitions?: unknown[]; definition?: Record<string, u
       return { status: 200, body: envelope(members) };
     if (path === '/api/v1/projects/p1/roles' && method === 'GET')
       return { status: 200, body: envelope(roles) };
+    if (path === '/api/v1/projects/p1/repositories' && method === 'GET')
+      return { status: 200, body: envelope(input.repositories ?? []) };
+    if (path === '/api/v1/projects/p1/requirements/req-1' && method === 'GET')
+      return {
+        status: 200,
+        body: envelope({
+          requirement,
+          acceptanceKeys: input.acceptanceKeys ?? [],
+          tasks: [],
+          artifacts: [],
+          reviews: [],
+          changes: [],
+          counts: { tasks: 0, artifacts: 0, reviews: 0, changes: 0 },
+        }),
+      };
     if (path === '/api/v1/projects/p1/workflow-definitions' && method === 'GET')
       return { status: 200, body: envelope({ items: input.definitions ?? [], nextCursor: null }) };
     if (path === '/api/v1/workflow-definition-revisions/rev-1' && method === 'GET')
@@ -134,7 +154,13 @@ describe('Requirements（流程实例只由管理员显式绑定）', () => {
     expect(body.definitionRevisionId).toBe('rev-1');
     expect(body.expectedRequirementVersion).toBe(2);
     expect(body.stepBindings).toEqual([
-      { stepKey: 'impl', roleId: 'r-frontend', responsibleUserId: 'u-2', repositoryIds: [] },
+      {
+        stepKey: 'impl',
+        roleId: 'r-frontend',
+        responsibleUserId: 'u-2',
+        repositoryIds: [],
+        acceptanceKeys: [],
+      },
     ]);
     expect(body.roleSlotBindings).toEqual([
       { slotKey: 'release-acceptance', roleId: 'r-product', userId: 'u-1' },
@@ -164,5 +190,83 @@ describe('Requirements（流程实例只由管理员显式绑定）', () => {
 
     expect(await screen.findByText(/不能自审/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '确认创建' })).toBeDisabled();
+  });
+
+  it('IMPL 步骤没有代码仓库时阻断提交，并提示先登记仓库', async () => {
+    mockFetch(
+      handler({
+        definitions: [publishedDefinition],
+        definition: {
+          steps: [{ key: 'impl', roleKey: 'frontend', outputKinds: ['IMPL'] }],
+          roleSlots: [{ key: 'release-acceptance', roleKey: 'product' }],
+        },
+      }),
+    );
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '初始化流程' }));
+    fireEvent.change(await screen.findByLabelText('步骤 impl 责任人'), {
+      target: { value: 'u-2' },
+    });
+    fireEvent.change(await screen.findByLabelText('审批槽 release-acceptance 审批人'), {
+      target: { value: 'u-1' },
+    });
+
+    expect(await screen.findByText(/还没有登记代码仓库/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '确认创建' })).toBeDisabled();
+  });
+
+  it('单仓库项目自动带上仓库，验收条目默认归到验证步骤', async () => {
+    const mock = mockFetch(
+      handler({
+        definitions: [publishedDefinition],
+        definition: {
+          steps: [{ key: 'impl', roleKey: 'frontend', outputKinds: ['IMPL'] }],
+          roleSlots: [{ key: 'release-acceptance', roleKey: 'product' }],
+        },
+        repositories: [
+          {
+            id: 'repo-1',
+            adapter: 'github',
+            externalId: 'yesgoo/yifanfan',
+            owner: 'yesgoo',
+            name: 'yifanfan',
+            defaultBranch: 'main',
+            createdAt: '2026-11-01T00:00:00.000Z',
+          },
+        ],
+        acceptanceKeys: ['A1'],
+      }),
+    );
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '初始化流程' }));
+    fireEvent.change(await screen.findByLabelText('步骤 impl 责任人'), {
+      target: { value: 'u-2' },
+    });
+    fireEvent.change(await screen.findByLabelText('审批槽 release-acceptance 审批人'), {
+      target: { value: 'u-1' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '确认创建' }));
+
+    expect(await screen.findByText(/流程实例已创建/)).toBeInTheDocument();
+
+    const call = mock.mock.calls.find(
+      ([url, init]) =>
+        pathOf(String(url)) === '/api/v1/requirements/req-1/workflow-instances' &&
+        methodOf(init ?? {}) === 'POST',
+    );
+    const body = bodyOf(call?.[1] ?? {});
+    expect(body.stepBindings).toEqual([
+      {
+        stepKey: 'impl',
+        roleId: 'r-frontend',
+        responsibleUserId: 'u-2',
+        repositoryIds: ['repo-1'],
+        acceptanceKeys: ['A1'],
+      },
+    ]);
   });
 });

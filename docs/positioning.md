@@ -1,37 +1,42 @@
 # WorkMesh 项目定位
 
-> 版本：v1.0（2026-11-02）· 基线：`main` 当前工作树（含未提交改动）
+> 版本：v1.1（2026-11-03 复核）· 基线：`main` 工作树
+> 复核口径：47 个 Prisma 模型、17 个枚举、11 个迁移、23 个控制器、11 个导航入口、10 条 CLI 命令、6 个角色包（55 资源 / 16 skills）、89 个测试文件。
 > 用途：统一对外叙事、目标用户与产品边界。本文不替代技术方案与实施计划，只回答三个问题：**卖什么、卖给谁、凭什么**。
-> 证据以源码与现存文档为准，文末附证据索引。
+> v1.0（2026-11-02）见 Git 历史。本轮改动集中在 §2 触发条件、§3 托管边界、§4 第三代补全、§5.3 护城河、§6 风险与 §7 动作。
 
 ---
 
 ## 0. 一句话定位
 
-- **对外（中文）**：让 AI 干的活，有人签字、有据可查。WorkMesh 是面向「人 + 本地 AI Agent」团队的事实与签核层：Agent 在各自机器上生产，平台管版本、权限、上下文、证据与人工批准。
+- **对外（中文）**：让 AI 干的活，有人签字、有据可查。
 - **对外（英文）**：_The sign-off and evidence layer for teams shipping with local AI agents._
-- **对内（产品）**：把「需求 → 角色 → 上下文 → 工件 → 评审 → 批准 → 变更」串成一条可追溯链路，让多角色、多 Agent 的协作不靠聊天记录和记忆。
-- **对内（工程）**：可自部署的协作治理后端（NestJS + PostgreSQL）加薄桥 CLI；唯一权威事实、确定性输入、不可伪造的批准记录。
+- **品类**：AI 交付的签字与证据层（delivery governance for AI-assisted delivery）。
+- **对内（产品）**：把「需求 → 流程 → 角色 → 上下文 → 工件 → 评审 → 批准 → 变更」串成一条可追溯链路；**上游一变，旧签字自动失效**。
+- **对内（工程）**：可自部署的交付治理后端（NestJS + PostgreSQL）＋薄桥 CLI＋审批工位 Web；唯一权威事实、确定性输入、不可伪造的批准记录。
+
+一句话之外只保留两个记忆点：**签字**、**失效**。其余能力都是这两个词的支持项。
 
 ## 1. 品类：交付治理层，不是执行平台
 
-WorkMesh 占据的是「执行」与「记录」之间的治理位：它不替任何人干活，只决定**什么算数、谁说了算、凭什么算数**。
+WorkMesh 占据「执行」与「记录」之间的治理位：它不替任何人干活，只决定**什么算数、谁说了算、凭什么算数、什么时候不算数**。
 
 | 层次 | 谁负责         | WorkMesh 的角色                        |
 | ---- | -------------- | -------------------------------------- |
-| 执行 | 本地 Agent、人 | 不执行、不编排、不托管运行时           |
+| 执行 | 本地 Agent、人 | 不执行、不编排、不托管运行时、不做对话 |
 | 记录 | 平台           | 只记录正式事实与证据，不是聊天记录仓库 |
 | 裁决 | 平台 + 人      | 门禁由平台校验，批准由人落锤           |
 
 | 是                                                     | 不是                                                |
 | ------------------------------------------------------ | --------------------------------------------------- |
-| 项目事实的权威源（需求编号、发布版文档、审批记录）     | 需求管理 / 看板工具（Jira、Linear）                 |
+| 交付是否成立的权威判定（版本、摘要、签字、失效）       | 需求管理 / 看板工具（Jira、Linear）                 |
 | 执行闸门（claim → snapshot → deliver → review → 决定） | Agent 执行平台 / 多 Agent 编排（LangGraph、CrewAI） |
-| 证据层（真实字节摘要、提交级代码证据、禁止作者自审）   | 代码托管 / CI-CD                                    |
-| 跨工具薄桥（CLI 一等公民，未来 MCP 复用同一契约）      | 统一 AI 客户端 / 聊天界面                           |
-| 可私有部署的开源底座（MIT）                            | 托管 SaaS                                           |
+| 证据层（真实字节摘要、提交级代码证据、禁止作者自审）   | 代码托管 / CI-CD / AI 代码评审机器人                |
+| 签字失效与变更传播（改一条验收，谁知道、谁要重审）     | 文档协作 / 知识库工具（Confluence、Notion）         |
+| 跨工具薄桥（CLI 一等公民，MCP 复用同一契约）           | 统一 AI 客户端 / 聊天界面                           |
+| 可私有部署的开源底座（MIT，单部署多项目，无组织模型）  | 托管 SaaS / 多租户组织平台                          |
 
-边界是主动收窄的，不是能力不足：不做中心化 Agent 执行器、不做工作流市场、不做 GitLab 式万能兼容，Codeup 单列后续阶段，Redis 不承担正确性（见[开源协作计划](superpowers/plans/2026-11-01-workmesh-open-source-collaboration-plan.md#L9)、[技术边界](superpowers/plans/2026-11-01-workmesh-open-source-collaboration-plan.md#L33-L38)）。
+边界是主动收窄的：不做中心化 Agent 执行器、不做工作流市场、不做 GitLab 式万能兼容（Codeup 单列后续阶段）、Redis 不承担正确性。
 
 ## 2. 目标用户与反例
 
@@ -41,9 +46,13 @@ WorkMesh 占据的是「执行」与「记录」之间的治理位：它不替�
 | -------- | ------------------------------------------------------------- |
 | 团队规模 | 3–30 人的产品团队，**至少 3 个协作角色**                      |
 | 工具     | 已在用本地 coding agent（Claude Code / Codex / WorkBuddy 等） |
-| 代码托管 | GitHub（首个适配器），介意多仓与提交级证据                    |
+| 代码托管 | GitHub（唯一已实现适配器），介意多仓与提交级证据              |
 | 数据边界 | 不接受项目知识与代码出域，能接受自部署 Postgres + API + Web   |
 | 组织诉求 | 需要回答「谁批的、批的是哪一版、依据是什么」                  |
+
+**触发条件（v1.1 新增，决定是否值得用）**：需求或验收在批准之后仍会变。需求冻结到交付结束的瀑布项目里，签字不会过期，WorkMesh 退化成一张审批单。第二触发条件是外部举证压力（客户验收、审计、事故复盘），此时「有据可查」才有买家。
+
+**买单人是交付结果的责任人**（项目 owner、技术负责人），不是工具管理员，也不是产品经理。产品经理评估的是需求流转，而这里卖的是「出事时能拿出什么」。
 
 ### 2.2 不适用的场景
 
@@ -51,51 +60,71 @@ WorkMesh 占据的是「执行」与「记录」之间的治理位：它不替�
 - 只用云端 IDE / 云端 Agent：与「本地生产、平台裁决」的前提不符。
 - 只要一个看板：Jira / GitHub Projects 更便宜。
 - 不想运维数据库与服务的团队：这是基础设施，不是插件。
+- 批准之后不再改需求的团队：签字不会过期，价值退化为流程形式。
 
-判断标准很简单：**当「交接是否可信」开始造成返工或扯皮时，WorkMesh 才有价值。** 在这之前，它是成本。
+判断标准：**当「交接是否可信」或「批准是否还成立」开始造成返工或扯皮时，WorkMesh 才有价值。** 在这之前，它是成本。
 
-## 3. 结构：三层，加一个关键不对称
+## 3. 结构：三层，加一个关键不对称，加一条托管边界
 
 1. **本地层**：每个角色在自己机器上用本机 Agent 干活，草稿、记忆、过程留本地。
-2. **桥接层**：CLI 用设备授权取得受限凭据，取上下文、交工件、发评审请求，**不能替人批准**。
-3. **平台层**：只裁决正式事实——版本、权限、门禁、签字。Principal 由服务端派生，客户端自报身份 / 版本 / 审批一律不信（[docs/architecture.md](architecture.md#L3-L9)）。
+2. **桥接层**：CLI 用设备授权取得受限凭据，取上下文、交工件、提交候选、发评审请求，**不能替人批准**。
+3. **平台层**：只裁决正式事实——版本、权限、门禁、签字、失效。Principal 由服务端派生，客户端自报身份 / 版本 / 审批一律不信。
 
-关键不对称：**责任在人，执行在 Agent。** 任务的责任人是人（`Task.responsibleUserId`，[schema.prisma](../apps/api/prisma/schema.prisma#L454)），Agent 只能凭可撤销凭据认领与交付，正式决定只接受 HUMAN Web 会话（[README.md](../README.md#L39-L45)）。这比「给 Agent 派任务」更接近真实组织的问责方式，也是与多数 Agent 工具的分水岭。
+关键不对称：**责任在人，执行在 Agent。** 任务的责任人是人（`Task.responsibleUserId`），Agent 只能凭可撤销凭据认领与交付，正式决定只接受 HUMAN Web 会话。
+
+**托管边界（v1.1 明确）**：平台托管**被裁决的版本**，不托管**工作过程**。
+
+| 托管                                          | 不托管                     |
+| --------------------------------------------- | -------------------------- |
+| 发布版文档与修订正文（含摘要与指针）          | 各角色本地草稿、笔记、记忆 |
+| 工件的真实字节（HOSTED）或提交引用（GIT_REF） | 仓库内容、分支、CI 日志    |
+| 决定、撤销、撤回、发布记录（追加式）          | 聊天记录、Agent 会话过程   |
+| 角色包版本与规范资源（可校验摘要）            | Agent 的运行时与工具链     |
+
+这条边界是对 2026-10-31「只存指针、Web 只是进度视图」的收敛：指针化会让「有据可查」失去自足性，而全文托管会把平台变成文档库。**裁决需要的那一份留平台，生产过程留本地。**
 
 ## 4. 演进与当前基线
 
-定位漂移过三次，对外叙事需要收敛到第三代：
+定位漂移过三次，对外叙事收敛到第三代：
 
-| 代际               | 主张（一句话）                                                       | 现状                           |
-| ------------------ | -------------------------------------------------------------------- | ------------------------------ |
-| 第一代             | 需求管理 + AI 产品发现                                               | 代码已删除，仅存 Git 历史      |
-| 第二代             | 事实联邦层：只存指针，正文留本地，Web 只看进度                       | 文档仍在，但与实现冲突         |
-| **第三代（当前）** | **证据驱动的协作底座**：托管发布版，Web 是审批工位，流程可发布成 DAG | 代码事实（schema 与 CLI 为证） |
+| 代际               | 主张（一句话）                                                             | 现状                           |
+| ------------------ | -------------------------------------------------------------------------- | ------------------------------ |
+| 第一代             | 需求管理 + AI 产品发现                                                     | 代码已删除，仅存 Git 历史      |
+| 第二代             | 事实联邦层：只存指针，正文留本地，Web 只看进度                             | 文档带「历史草案」横幅         |
+| **第三代（当前）** | **证据驱动的交付治理**：托管被裁决的版本，Web 是审批工位，流程可发布成 DAG | 代码事实（schema 与 CLI 为证） |
 
-证据：第一代见 [phase-status](phase-status.md#L1-L4)；第二代见 [collaboration-spec](collaboration-spec-v0.1.md#L10-L18) 与 [redesign](redesign-v0.1.md#L15-L20)；
-第三代见 `WorkflowRevision`、`RolePackageVersion` 与 `Requirement.phase`（[schema.prisma](../apps/api/prisma/schema.prisma#L341)、[#L405](../apps/api/prisma/schema.prisma#L405)、[#L978](../apps/api/prisma/schema.prisma#L978)）。
+### 4.1 第三代补全（2026-11-03）
 
-### 4.1 文档漂移（已修）
+v1.0 写于 11-02 23:55，此后 8 小时内的实现把第三代的「治理环」补齐了。这些能力不是新代际，但改变了「凭什么」：
 
-以下三处不一致已于 2026-11-02 收敛：README 按代码改写，`spec/SPEC.md` 升到 v0.2。保留记录用于防止回退。
+| 方向       | 代码事实                                                                                           | 对定位的影响                                     |
+| ---------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| 知识治理   | `KnowledgeBase.kind`、`scopeKind/scopeId`、`reviewDueAt`、`supersededById`（迁移 0005）            | 上下文从哪来，成为可治理对象                     |
+| 验收映射   | `Task.acceptanceKeys` ＋ 实例化时必须全覆盖，否则 `UNCOVERED_ACCEPTANCE`                           | 签字对象从「任务」细化到「验收条目」             |
+| 变更管理   | `ChangeRequest`（L0–L3）、`ProjectChangePolicy`（freezeMode）、`ChangeEvent/Recipient`、ack 与升级 | **签字可失效、可传播**，这是与记录类工具的分水岭 |
+| 单元与依赖 | `Unit`、`UnitDependency`（DECLARED 优先）                                                          | 变更影响能落到系统边界，而不只是任务列表         |
+| 通用化     | 0011 把文档 kind 与评审 kind 从枚举改为 `VARCHAR(48)`                                              | 模板可注册，不绑定固定类型                       |
+| 规范下发   | 角色包 manifest 1.1：55 资源、16 skills、`agentEntries`（codex / claude-code）                     | 规范能装进 Agent 的工作目录，是获客楔子          |
+| 审批吞吐   | 批量决定（逐条校验、部分成功）、槽位委托、超时升级、证据卡                                         | 从「能签」到「签得完」                           |
+| 默认模板   | `software-delivery` 与 `software-delivery-no-ui`（roleExclusions / stepRemovals）                  | 装完即有流程，空手起步问题基本解除               |
+| 首跑路径   | `scripts/dev-local.ps1`、`scripts/first-run-demo.mjs`、`seed-yff.mjs`                              | TTFV 从「读源码」降到「一条命令 + 一套演示数据」 |
 
-**① 命令面。**
+### 4.2 文档漂移（历史已修，本轮新发现三处）
 
-- 修复前：`workmesh init / ready / sign / sync / ack`（旧 README 与 SPEC）。
-- 现实：正式命令为 `auth login`、`roles install`、`claim`、`context`、`materialize`、`candidate`、`deliver`、`review`、`receipt`、`changes`，测试断言旧命令**不存在**（[index.test.ts](../apps/cli/src/index.test.ts#L66-L96)）。
-- 现状：见 [SPEC 命令表](../spec/SPEC.md#L120-L133) 与 [README CLI 一节](../README.md#L51-L95)。
+已修：命令面（`init/ready/sign/sync/ack` → 现行十条）、内容归属（指针 → 托管发布版）、Web 角色（进度视图 → 审批工位）；v0.1 两份草案已加「历史草案」横幅。
 
-**② 内容归属。**
+本轮新发现：
 
-- 修复前：内容留在本地，平台只同步索引（[collaboration-spec](collaboration-spec-v0.1.md#L34)）。
-- 现实：平台托管**发布版**正文与工件真实字节（[architecture](architecture.md#L9)）。
-- 现状：统一为「发布版托管、草稿与个人知识留在本地」（[SPEC §5](../spec/SPEC.md#L90-L118)）。
+1. [approval-workstation.md](design/approval-workstation.md) 头部仍写「批处理、委托、超时升级为设计稿」，而三者均已实现（`POST /review-requests/batch-decisions`、`/projects/:id/delegations`、`/projects/:id/approvals/escalate`、`/approvals/overdue`）。
+2. 迁移数量存在两种表述：[README.md](../README.md) 写「0001–0011」，[baseline.md](baseline.md) 拆成「0001–0010 已应用 + 0011 追加」。结论一致，读起来不一致。
+3. [dev-plan.md](dev-plan.md) 全绿、[phase-status.md](phase-status.md) 全 unverified、[BLOCKED.md](../BLOCKED.md) B1 已解除。三份文档对同一事实给出三种口径，读者无法判断哪个可信。**权威口径应唯一**：`phase-status.md` 记证据等级，`BLOCKED.md` 只记阻塞，`dev-plan.md` 只记工作包，不重复结论。
 
-**③ Web 角色。**
+### 4.3 仍未证的四件事
 
-- 修复前：Web 退化为进度视图（[redesign](redesign-v0.1.md#L15)）。
-- 现实：Web 是审批工位——待办优先、一门一动作、Agent 不出现签字按钮（[工作台设计](design/workbench-and-requirement-detail.md#L5-L17)）。
-- 现状：SPEC 心智模型已写明「网页是人做决定的地方」（[SPEC §0](../spec/SPEC.md#L5-L13)）。
+- 真实 PostgreSQL：迁移 apply（隔离库已验）、跨项目复合外键、不可变触发器、并发与回滚（生产未验）。
+- 真实浏览器闭环：工作台、需求详情、评审决定（E2E 未跑，B3）。
+- GitHub live：分页、Webhook 验签、提交级证据绑定（B2）。
+- **外部用户**：没有任何一个真实团队用这条链路签过一份交付。这是 v1.1 最重要的未证项（见 R5）。
 
 ## 5. 差异化
 
@@ -104,7 +133,7 @@ WorkMesh 占据的是「执行」与「记录」之间的治理位：它不替�
 ```text
 权威门禁 ↑
          │  GitHub PR review          WorkMesh
-         │  （仅代码、单点）           （全角色 + 证据 + 签字）
+         │  （仅代码、单点）           （全角色 + 证据 + 签字 + 失效）
          │
          │  Jira / Linear             Backstage
          │  （记录、无门禁）           （目录、无交付门禁）
@@ -116,79 +145,80 @@ WorkMesh 占据的是「执行」与「记录」之间的治理位：它不替�
 
 ### 5.2 与相邻品类的关系
 
-| 品类                       | 它解决         | 缺什么                               |
-| -------------------------- | -------------- | ------------------------------------ |
-| Jira / Linear              | 任务流转       | 无 Agent 身份、无输入锁定、无证据    |
-| GitHub PR review           | 代码门禁       | 覆盖不到 PRD / 设计 / 用例 / 发布    |
-| Confluence / Notion        | 文档协作       | 无版本化批准、无门禁                 |
-| Backstage                  | 服务与归属目录 | 无交付门禁与人工签字                 |
-| BMAD / Spec Kit / OpenSpec | 本地角色工作流 | 只有本地门，没有跨人跨角色的权威事实 |
-| Agent 编排框架             | 执行           | 不管问责与证据                       |
+| 品类                       | 它解决         | 缺什么                                    |
+| -------------------------- | -------------- | ----------------------------------------- |
+| Jira / Linear              | 任务流转       | 无 Agent 身份、无输入锁定、无证据、无失效 |
+| GitHub PR review           | 代码门禁       | 覆盖不到 PRD / 设计 / 用例 / 发布         |
+| Confluence / Notion        | 文档协作       | 无版本化批准、无门禁、无失效语义          |
+| Backstage                  | 服务与归属目录 | 无交付门禁与人工签字                      |
+| BMAD / Spec Kit / OpenSpec | 本地角色工作流 | 只有本地门，没有跨人跨角色的权威事实      |
+| Agent 编排框架             | 执行           | 不管问责与证据                            |
+| AI 代码评审机器人          | 代码缺陷       | 不裁决交付是否成立，也不覆盖非代码角色    |
 
-结论：它们要么**只有门禁没有全角色**，要么**只有全角色没有门禁**。WorkMesh 的空位是「跨角色 + 权威门禁 + 可验证证据」。
+结论：它们要么**只有门禁没有全角色**，要么**只有全角色没有门禁**，要么**有记录没有失效**。WorkMesh 的空位是「跨角色 + 权威门禁 + 可验证证据 + 签字失效」。
 
 ### 5.3 护城河（别人不愿意做的脏活）
 
-1. **确定性上下文快照**：发布版 + 真实字节 + SHA-256，Agent 输入不随访问权限漂移。
-2. **服务端 Principal + 一次性确认票据**：防自报身份、防重放、防拿旧票据批新版本。
-3. **厂商中立的代码证据 + 反自审规则**：作者自审、Bot、旧 SHA、已撤销评审一律闭门。
-4. **追加式历史**：撤销是新增记录，不是改写过去。
+1. **确定性输入**：`ContextSnapshot` 绑定需求/任务代次与资源摘要；基线一变，旧快照的交付与验收直接 409（`SNAPSHOT_STALE` / `BASELINE_STALE`），不会拿旧输入产出新结论。
+2. **服务端 Principal + 一次性票据**：高风险动作要密码换票，票据绑定动作、目标、版本与 payload 摘要，只能消费一次；撤销、撤回、重新发布都是追加记录。
+3. **代码证据反自审**：必须他人评审与合并；作者自审、Bot、旧 SHA、已撤销评审一律无效；且只对「真的指向代码」的交付要求，避免误伤文档类交付。
+4. **签字会过期**（v1.1 新增为主卖点）：新交付使旧的 OPEN 验收请求置为 `INVALIDATED`；PRD 发布推进需求代次；需求冻结后普通变更落 `DEFERRED`；变更按 L0–L3 传播给责任人并要求 ack。同一件事在 Jira 里是状态，在 GitHub 里是 SHA，在这里是**一个会被作废的签字**。
+5. **规范可下发**（v1.1 新增）：角色包把 SOP、skills、模板、检查表做成可安装、可版本锁定、可校验摘要的资源，并为 Codex / Claude Code 生成入口文件。这是唯一触达 Agent 实际工作目录的机制——决定「同一套规范」是文件还是口号。
 
-这四条都不产生「酷炫 demo」，但正是审计与追责场景的准入条件。
+前四条不产生「酷炫 demo」，第五条才产生；但没有前四条，第五条只是提示词包。
+
+### 5.4 电梯测试（v1.1 新增）
+
+> GitHub 管代码有没有被评审，Jira 管任务走到哪一步；WorkMesh 管这份交付**成不成立**，以及上游一变它还成不成立。
+
+这句话用于对外材料、开场白和销售页首屏，不再用「协作中枢」「协作底座」「平台」自称。
 
 ## 6. 定位风险
 
-| 编号 | 风险           | 表现                                    | 缓解                                                            |
-| ---- | -------------- | --------------------------------------- | --------------------------------------------------------------- |
-| R1   | 叙事过宽       | 「协作中枢」什么都能装，用户记不住      | 对外只用「签字 + 证据」这一个记忆点                             |
-| R2   | 空手起步       | 无默认角色包、无示例项目，装完是空的    | 见 A2 / A3                                                      |
-| R3   | 合规级摩擦     | 每个高风险动作都要密码二验 + 一次性票据 | 按部署模式分级，不取消门禁                                      |
-| R4   | 范围压过完成度 | 全链路都很重，任何一段不闭环定位就落空  | 对外只承诺已验证范围（[phase-status](phase-status.md#L25-L31)） |
+| 编号 | 风险                   | 表现                                                                                                        | 缓解                                                                 |
+| ---- | ---------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| R1   | 叙事过宽（加剧）       | 47 模型、11 个页面，任何「治理」名词都能装进来，用户记不住                                                  | 对外只留「签字 + 失效」两个记忆点；其余能力按需展开                  |
+| R2   | 空手起步（基本解除）   | 角色包、默认模板、一条命令与演示数据已就位；但演示数据依赖 `.tmp/yff-req` 正文，仓库不自包含                | G2：把演示正文收进脚本或生成器                                       |
+| R3   | 合规级摩擦             | 每个高风险动作都要二次密码 + 票据，现场容易显得繁琐                                                         | 按部署模式分级（低风险单次确认），不取消门禁                         |
+| R4   | 范围压过完成度（加剧） | 全链路都实现过一遍，但没有一条被真实用户走过                                                                | G0：先让一条需求在真实团队走完并被签字，再扩功能                     |
+| R5   | 证据自指（新）         | 卖「可验证证据」的产品，自己的证据全是 unverified（无真实库并发、无浏览器 E2E、无 GitHub live、无外部用户） | 跑通一次带时间戳的真实闭环并把记录留在仓库里，比再加功能更能支撑定位 |
+| R6   | 双心智模型（新）       | 「内容留本地、只存指针、Web 只看进度」与「托管发布版、Web 是审批工位」两种说法都还在文档里活着              | 按 §3 托管边界收敛：托管被裁决的版本，不托管工作过程                 |
+| R7   | 单人可维护性（新）     | 66k 行源码、89 个测试文件、约 300KB 计划文档、文档已互相矛盾                                                | 每个能力只留一份权威文档 + 一张状态表，状态只写一处                  |
 
 ## 7. 收敛动作
 
-| 优先级 | 动作                            | 验收标准                                                                                           |
-| ------ | ------------------------------- | -------------------------------------------------------------------------------------------------- |
-| **P0** | A1 统一「托管 / 本地」口径      | 全仓只剩一种说法；v0.1 文档加「已被 v1 取代」横幅或移入 `docs/archive/`                            |
-| **P0** | A2 发布默认角色包               | `spec/roles/*.md` + `spec/artifacts/*` 打包为可 `roles install` 的 manifest；装完即有 6 个角色 SOP |
-| **P1** | A3 十分钟首跑路径               | 新用户从零到「一条需求被人工签字」≤ 30 分钟，且不需要读源码                                        |
-| **P1** | A4 README / SPEC 重写（已完成） | 已落：README 与 `spec/SPEC.md` v0.2 不再出现代码中不存在的命令                                     |
-| **P2** | A5 定位指标看板                 | 见第 9 节，按周记录                                                                                |
-| **P2** | A6 术语与对外材料统一           | 第 10 节口径字典进入 README 与产品页                                                               |
+### 7.1 v1.0 动作的关闭情况
 
-> A2 是当前最高杠杆的动作：`roles install` 需要用户自备含 `manifest.json` 的包目录（[roles.ts](../apps/cli/src/roles.ts#L245-L252)），而 CLI 发行包只含 `dist`（[package.json](../apps/cli/package.json#L6)），仓库内也没有可安装的默认包。六份 SOP 已经写好，只差装进盒子。
+| 编号 | 动作                    | 状态                                                                       |
+| ---- | ----------------------- | -------------------------------------------------------------------------- |
+| A1   | 统一「托管 / 本地」口径 | ✅ v0.1 两份草案已加横幅，口径收进 [SPEC §5](../spec/SPEC.md)              |
+| A2   | 发布默认角色包          | ✅ 6 个包、manifest 1.1、55 资源、16 skills，含宿主入口                    |
+| A3   | 十分钟首跑路径          | 🟡 `dev-local.ps1` + `first-run-demo.mjs` 已有；缺「陌生人 30 分钟」的实测 |
+| A4   | README / SPEC 重写      | ✅ 现行命令与代码一致                                                      |
+| A5   | 定位指标看板            | ⬜ 未开始（无真实使用数据）                                                |
+| A6   | 术语与对外材料统一      | 🟡 §10 口径字典已有；电梯测试未进 README                                   |
 
-## 8. README 改写（已应用）
+### 7.2 下一批（v1.1 新增）
 
-以下文案已于 2026-11-02 应用到 [README.md](../README.md)，保留作为后续修改基线。
+| 优先级 | 动作                | 验收标准                                                                                                |
+| ------ | ------------------- | ------------------------------------------------------------------------------------------------------- |
+| **P0** | G0 一条真实闭环取证 | 1 个真实团队、1 条需求、1 次人工签字，留下截图 + 时间线 + 三项指标数值                                  |
+| **P0** | G1 文档口径收敛     | approval-workstation 状态、README/baseline 迁移数、dev-plan/phase-status 三层分工，全仓无互相矛盾的结论 |
+| P1     | G2 演示自包含       | 不依赖 `.tmp` 外部正文即可重建演示数据；新机器一条命令看到 25 条需求                                    |
+| P1     | G3 电梯测试外测     | 找 5 个目标用户复述 §5.4，记录他们回问的第一个问题（决定下一版叙事）                                    |
+| P1     | G4 变更失效演练     | 改一条已批准需求的验收 → 看到旧签字失效、责任人收到传播、重新评审                                       |
 
-### 8.1 首段
+> G0 是当前最高杠杆的动作。A2 解决了「装完是空的」，但没有解决「装完没人签过」；证据类产品的第一个证据必须来自真实使用，而不是仓库里的测试。
 
-> **建议改为：**
->
-> WorkMesh 让 AI 干的活有人签字、有据可查。团队每个角色在自己电脑上用本机 Agent 生产，平台负责需求与流程、角色包、上下文快照、工件与代码证据、评审与变更传播。人只在关键节点用浏览器作正式批准，Agent 只持有受限、可撤销的凭据。
->
-> 它不执行 Agent、不做 AI 对话、不替代 GitHub：它只裁决「这份交付是否成立」。
+## 8. 对外文案基线（已应用）
 
-理由：把「协作中枢」换成可验证的一句话；同时用「不做什么」挡住错误预期。
+以下文案已于 2026-11-02 应用到 [README.md](../README.md)，保留作为修改基线：
 
-### 8.2 快速开始
-
-删除 `workmesh init`（命令不存在），改为真实路径：
-
-```bash
-corepack pnpm workmesh auth login          # 浏览器设备授权
-corepack pnpm workmesh roles install --package <角色包目录> --project <uuid> --host codex
-```
-
-并在末尾加一段诚实的当前状态：
-
-> 当前为可自部署的开发版：真实 PostgreSQL 迁移、浏览器 E2E、GitHub live 尚未验证（见 [docs/phase-status.md](phase-status.md)）。
-
-### 8.3 标题与描述
-
-- `package.json` 的英文 description 建议由 `Evidence-driven project collaboration hub for local AI agents` 改为 `Sign-off and evidence layer for teams shipping with local AI agents`。
-- README 一级标题下加一行 tagline：`事实 · 证据 · 签字`。
+- 首段：让 AI 干的活有人签字、有据可查；团队每个角色在自己电脑上用本机 Agent 生产；平台负责需求与流程、角色包、上下文快照、工件与代码证据、评审与变更传播；人只在关键节点用浏览器作正式批准；Agent 只持有受限、可撤销的凭据。
+- 边界句：它不执行 Agent、不做 AI 对话、不替代 GitHub：它只裁决「这份交付是否成立」。
+- Tagline：事实 · 证据 · 签字。
+- `package.json` 英文描述：`Evidence-driven project collaboration hub for local AI agents`（**v1.1 建议改为** `Sign-off and evidence layer for teams shipping with local AI agents`，与 §0 一致）。
+- 当前状态：可自部署的开发版；真实 PostgreSQL 迁移与并发约束、浏览器 E2E、GitHub live 尚未验证。
 
 ## 9. 定位是否成立的验证指标
 
@@ -200,34 +230,48 @@ corepack pnpm workmesh roles install --package <角色包目录> --project <uuid
 | 作者自审拦截次数     | > 0             | 证明代码证据规则真的在拦                |
 | 上下文快照复用率     | 稳步上升        | 反映「确定性输入」是否被 Agent 真正消费 |
 | 变更 ack 时延        | 天级以内        | 反映变更传播是否真的触达                |
+| **证据链完整率**     | 100%            | DONE 的交付都能追到工件字节或 commit    |
+| **失效后重审率**     | > 0 且可解释    | 变更导致失效后，有多少重新走完评审      |
+
+后两项是 v1.1 新增：前者检验「有据可查」是否真的成立，后者检验「签字会过期」是否真的被使用。
 
 ## 10. 口径字典
 
-| 说法                             | 含义                                       | 不要混用为           |
-| -------------------------------- | ------------------------------------------ | -------------------- |
-| 发布版（published）              | 平台托管、可被他人在授权内取得的权威版本   | 草稿、候选           |
-| 草稿 / 候选（draft / candidate） | 本地或平台内未批准版本                     | 发布版               |
-| 批准（approve）                  | 人对某动作、目标、版本、摘要作出的正式决定 | 验收、合并           |
-| 验收（accept）                   | 交付物满足验收条件的判定                   | 批准                 |
-| 评审（review）                   | 提出请求与意见，不等于批准                 | 签字                 |
-| Agent                            | 持有受限凭据的执行主体，无批准权           | 责任人               |
-| 责任人                           | 对任务结果负责的人                         | Agent                |
-| 事实（fact）                     | 平台裁决的正式状态与记录                   | 索引、缓存、检索结果 |
+| 说法                             | 含义                                           | 不要混用为           |
+| -------------------------------- | ---------------------------------------------- | -------------------- |
+| 发布版（published）              | 平台托管、可被他人在授权内取得的权威版本       | 草稿、候选           |
+| 草稿 / 候选（draft / candidate） | 本地或平台内未批准版本                         | 发布版               |
+| 批准（approve）                  | 人对某动作、目标、版本、摘要作出的正式决定     | 验收、合并           |
+| 验收（accept）                   | 交付物满足验收条件的判定                       | 批准                 |
+| 评审（review）                   | 提出请求与意见，不等于批准                     | 签字                 |
+| 代次（generation）               | 需求或任务基线的版本计数；代次前进即旧输入作废 | 业务版本号           |
+| 冻结（frozenAt）                 | 发布候选锁定期，非 L3 变更落 `DEFERRED`        | 归档、关闭           |
+| 失效（INVALIDATED）              | 因新交付或基线变化而作废的签字或请求           | 驳回、撤销           |
+| Agent                            | 持有受限凭据的执行主体，无批准权               | 责任人               |
+| 责任人                           | 对任务结果负责的人                             | Agent                |
+| 事实（fact）                     | 平台裁决的正式状态与记录                       | 索引、缓存、检索结果 |
 
 ## 11. 证据索引
 
-| 结论                        | 证据                                                                                                 |
-| --------------------------- | ---------------------------------------------------------------------------------------------------- |
-| 产品定位原话                | [README.md](../README.md#L3)                                                                         |
-| 责任在人 / Agent 受限       | [README.md](../README.md#L39-L45)、[schema.prisma Task](../apps/api/prisma/schema.prisma#L454)       |
-| 服务端 Principal 与真实字节 | [docs/architecture.md](architecture.md#L3-L9)                                                        |
-| 流程驱动（非固定状态机）    | [schema.prisma Requirement.phase](../apps/api/prisma/schema.prisma#L341)                             |
-| 角色包版本化                | [schema.prisma RolePackageVersion](../apps/api/prisma/schema.prisma#L978)                            |
-| CLI 正式命令面              | [apps/cli/src/index.test.ts](../apps/cli/src/index.test.ts#L66-L96)                                  |
-| 命令面（已对齐）            | [spec/SPEC.md](../spec/SPEC.md#L120-L133)、[README.md](../README.md#L51-L95)                         |
-| 架构与未验证边界            | [docs/phase-status.md](phase-status.md#L25-L31)                                                      |
-| 非目标与边界                | [开源协作计划](superpowers/plans/2026-11-01-workmesh-open-source-collaboration-plan.md#L26-L31)      |
-| 人的工位设计                | [docs/design/workbench-and-requirement-detail.md](design/workbench-and-requirement-detail.md#L5-L17) |
+| 结论                          | 证据                                                                                                                                                                 |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 产品定位原话                  | [README.md](../README.md)                                                                                                                                            |
+| 责任在人 / Agent 受限         | [schema.prisma `Task.responsibleUserId`](../apps/api/prisma/schema.prisma)、[README 认证模型](../README.md)                                                          |
+| 服务端 Principal 与追加式历史 | [docs/architecture.md](architecture.md)                                                                                                                              |
+| 流程驱动（非固定状态机）      | [schema.prisma `Requirement.phase` / `WorkflowRevision`](../apps/api/prisma/schema.prisma)                                                                           |
+| 验收映射                      | [schema.prisma `Task.acceptanceKeys`](../apps/api/prisma/schema.prisma)                                                                                              |
+| 签字绑定版本                  | [v1-collaboration-policy.ts](../apps/api/src/tasks/v1-collaboration-policy.ts)、[v1-task-consistency-policy.ts](../apps/api/src/tasks/v1-task-consistency-policy.ts) |
+| 旧请求失效                    | [v1-artifact.prisma-repository.ts](../apps/api/src/tasks/v1-artifact.prisma-repository.ts)（新交付置旧 `TASK_ACCEPTANCE` 为 `INVALIDATED`）                          |
+| 一次性票据需密码              | [v1-action.service.ts](../apps/api/src/auth/v1-action.service.ts)                                                                                                    |
+| 反自审规则                    | [v1-code-evidence-policy.ts](../apps/api/src/integrations/v1-code-evidence-policy.ts)                                                                                |
+| 变更分级与冻结                | [change-requests.service.ts](../apps/api/src/changes/change-requests.service.ts)                                                                                     |
+| 流程度量                      | [v1-flow-metrics.service.ts](../apps/api/src/tasks/v1-flow-metrics.service.ts)、[metrics.md](metrics.md)                                                             |
+| 角色包与宿主入口              | [packages/role-packages/roles/*/manifest.json](../packages/role-packages/roles)                                                                                      |
+| CLI 正式命令面                | [spec/SPEC.md](../spec/SPEC.md)、[apps/cli/src/index.ts](../apps/cli/src/index.ts)                                                                                   |
+| Web 导航与工位                | [nav.ts](../apps/web/src/nav.ts)、[approval-workstation.md](design/approval-workstation.md)                                                                          |
+| 首跑路径                      | [local-dev.md](local-dev.md)、[dev-local.ps1](../scripts/dev-local.ps1)、[first-run-demo.mjs](../scripts/first-run-demo.mjs)                                         |
+| 架构与未验证边界              | [phase-status.md](phase-status.md)、[BLOCKED.md](../BLOCKED.md)                                                                                                      |
+| 非目标与边界                  | [开源协作计划](superpowers/plans/2026-11-01-workmesh-open-source-collaboration-plan.md)                                                                              |
 
 ## 12. 外部参照
 

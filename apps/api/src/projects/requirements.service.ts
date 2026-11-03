@@ -126,9 +126,7 @@ export class RequirementsService {
         where: { id: requirementId, projectId, version: dto.expectedVersion },
         data: {
           ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
-          ...(dto.description !== undefined
-            ? { description: dto.description.trim() || null }
-            : {}),
+          ...(dto.description !== undefined ? { description: dto.description.trim() || null } : {}),
           version: { increment: 1 },
         },
       });
@@ -326,8 +324,12 @@ export class RequirementsService {
       }),
     ]);
 
+    const acceptanceKeys = await this.acceptanceKeysOf(row.currentPrdRevisionId);
+
     return {
       requirement: this.viewOf(row),
+      /** 当前发布 PRD 的验收 key：流程实例必须把它们分配到具体任务。 */
+      acceptanceKeys,
       tasks: tasks.map((task) => {
         const review = reviews.find((item) => item.taskId === task.id);
         return {
@@ -388,6 +390,24 @@ export class RequirementsService {
         changes: changes.length,
       },
     };
+  }
+
+  /** PRD 修订的 acceptance 是 JSON 数组；只取其中带 key 的条目，非法条目忽略。 */
+  private async acceptanceKeysOf(revisionId: string | null | undefined): Promise<string[]> {
+    if (!revisionId) return [];
+    const revision = await this.prisma.documentRevision.findUnique({
+      where: { id: revisionId },
+      select: { acceptance: true },
+    });
+    const raw = revision?.acceptance;
+    if (!Array.isArray(raw)) return [];
+    const keys: string[] = [];
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') continue;
+      const key = (entry as { key?: unknown }).key;
+      if (typeof key === 'string' && key.length > 0) keys.push(key);
+    }
+    return keys;
   }
 
   private viewOf(row: {

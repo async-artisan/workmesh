@@ -15,6 +15,7 @@ const principal = {
 function createHarness() {
   const prisma = {
     requirement: { findFirst: vi.fn(), updateMany: vi.fn() },
+    documentRevision: { findUnique: vi.fn() },
     task: { findMany: vi.fn() },
     artifact: { findMany: vi.fn() },
     reviewRequest: { findMany: vi.fn() },
@@ -144,6 +145,42 @@ describe('RequirementsService.detail', () => {
       email: 'bob@example.com',
     });
     expect(result.counts).toEqual({ tasks: 1, artifacts: 1, reviews: 1, changes: 0 });
+    expect(result.acceptanceKeys).toEqual([]);
+  });
+
+  it('把当前发布 PRD 的验收 key 一并返回，供流程实例分配', async () => {
+    const { service, prisma, authorization } = createHarness();
+    authorization.resolveProjectContext.mockResolvedValue({ projectId: 'p1' });
+    authorization.requireScope.mockResolvedValue(undefined);
+    prisma.requirement.findFirst.mockResolvedValue({
+      id: 'req-2',
+      projectId: 'p1',
+      seq: 2,
+      code: 'DEMO-002',
+      title: '导出对账单',
+      description: null,
+      version: 1,
+      generation: 2,
+      phase: 'DELIVERY',
+      workStatus: 'ACTIVE',
+      currentPrdRevisionId: 'rev-9',
+      createdAt: new Date('2026-11-02T00:00:00.000Z'),
+      updatedAt: new Date('2026-11-02T00:00:00.000Z'),
+    });
+    prisma.documentRevision.findUnique.mockResolvedValue({
+      acceptance: [{ key: 'A1', text: '可导出' }, { key: 'A2' }, { text: '缺 key 的条目' }],
+    });
+    prisma.task.findMany.mockResolvedValue([]);
+    prisma.reviewRequest.findMany.mockResolvedValue([]);
+    prisma.changeEvent.findMany.mockResolvedValue([]);
+
+    const result = await service.detail(principal, 'p1', 'DEMO-002');
+
+    expect(prisma.documentRevision.findUnique).toHaveBeenCalledWith({
+      where: { id: 'rev-9' },
+      select: { acceptance: true },
+    });
+    expect(result.acceptanceKeys).toEqual(['A1', 'A2']);
   });
 
   it('按 expectedVersion 更新标题并返回新版本', async () => {
