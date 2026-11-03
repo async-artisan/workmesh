@@ -34,8 +34,8 @@ const workflow = {
   stepRemovals: [],
   roleSlots: [],
   steps: [
-    { key: 'prd', kind: 'PRODUCT', deps: [] },
-    { key: 'release', kind: 'RELEASE', deps: ['prd'] },
+    { key: 'prd', kind: 'PRODUCT', deps: [], outputKinds: ['PRD'] },
+    { key: 'release', kind: 'RELEASE', deps: ['prd'], outputKinds: ['RELEASE'] },
   ],
 };
 
