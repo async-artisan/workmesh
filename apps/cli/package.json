@@ -11,7 +11,7 @@
     "workmesh": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "tsup",
     "pack:check": "pnpm build && pnpm pack --pack-destination /tmp/workmesh-cli-pack",
     "dev": "tsx watch src/index.ts",
     "type-check": "tsc --noEmit",
