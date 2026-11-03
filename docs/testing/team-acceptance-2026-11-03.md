@@ -54,7 +54,7 @@ node --test scripts/box/web-server.test.mjs scripts/box/dependency-links.test.mj
 
 通过 `scripts/package-box.ps1` 构建 Windows ZIP；在仓库外、含空格路径解压，恢复包内依赖链接后安装独立数据库。实际执行并通过：初始化新集群、应用 12 项迁移、启动 API 与 Web、经 Web 代理检查 API 健康、重复启动保持同一 API/Web PID、停止所有本实例服务、数据库冷启动后恢复服务，再完整停止。参考 `fresh-install-retry.log`、`fresh-start.log`、`fresh-idempotent-start.log`、`fresh-stop.log`、`fresh-cold-restart.log`、`fresh-final-stop.log`。
 
-修复脚本已写回修正版 ZIP，并逐项比较归档中的 install/start/stop 与已验证源码的 SHA-256。首次新实例启动曾暴露 PowerShell 输出管道等待 PostgreSQL 子进程的问题；修复后另建全新数据目录重新安装，安装命令正常退出并完成迁移。最终交付归档为 `.tmp/team-acceptance-20261103/final-package.zip`，SHA-256 为 `f3a1e388551199bdc4369c54f5dab96e045daeab69555e450785281512c081d9`；归档构建时使用 `-SkipBuild`，Web 产物由 `final-web-build.log` 独立构建。最终 ZIP 的归档条目与打包目录按组件比较后，Web、API、CLI、Box、PostgreSQL runtime 与角色包的文件数量和未压缩字节一致。外层打包目录的下载页包含 Box 与 CLI 两种链接；归档自身的 `downloads/index.html` 为 238 B，只链接归档内实际存在的 CLI 下载文件，避免 Box ZIP 在自身内容中自引用。完整外部解压到 `%TEMP%\workmesh-final-package-final-6f319d67e0e44b28bacc3d364fce0987`（28,197 个文件）后运行 `runtime/node.exe app/cli/dist/index.js --help` 退出码 0；归档 SHA-256 与 sidecar 一致。
+修复脚本已写回修正版 ZIP，并逐项比较归档中的 install/start/stop 与已验证源码的 SHA-256。首次新实例启动曾暴露 PowerShell 输出管道等待 PostgreSQL 子进程的问题；修复后另建全新数据目录重新安装，安装命令正常退出并完成迁移。邀请页回归修复后重新构建 Web，并重新生成最终归档：`.tmp/team-acceptance-20261103/final-package.zip`，SHA-256 为 `876c00ce6424070d09db73d80eff61b4c5c4e74293db6ded3f0b93e1c6a43fbc`；归档构建时使用 `-SkipBuild`，Web 产物由本次 `pnpm --filter @workmesh/web build` 生成。最终 ZIP 的归档条目与打包目录按组件比较后，Web、API、CLI、Box、PostgreSQL runtime 与角色包的文件数量和未压缩字节一致。外层打包目录的下载页包含 Box 与 CLI 两种链接；归档自身的 `downloads/index.html` 只链接归档内实际存在的 CLI 下载文件，避免 Box ZIP 在自身内容中自引用。完整外部解压后运行 `runtime/node.exe app/cli/dist/index.js --help` 退出码 0；归档 SHA-256 与 sidecar 一致。
 
 ## 实际团队业务链
 
@@ -105,6 +105,7 @@ node --test scripts/box/web-server.test.mjs scripts/box/dependency-links.test.mj
 7. 静态 Web 服务器错误 URL 解码可导致退出、路径前缀检查不完整。加入错误处理、相对边界/realpath 校验及安全 index fallback。
 8. 同日验收脚本产物目录冲突。默认按独立运行标识输出，可用 `WORKMESH_ACCEPTANCE_OUTPUT_DIR` 指定。
 9. CLI review subject 修复为恰好一个 subject；缺少、双提供、仅 ArtifactSet、仅 DocumentRevision 四种组合回归通过。CLI 单 worker 全量单测 12 文件/90 tests 通过，build 与 type-check 通过。日志：`.tmp/team-acceptance-20261103/final-cli-unit-tests.log`、`.tmp/team-acceptance-20261103/final-cli-build.log`、`.tmp/team-acceptance-20261103/final-cli-type-check.log`。
+10. 生产挂载的邀请页原先直接渲染 `Invite`，导致 `useParams()` 取不到 token，浏览器请求了 `/api/v1/invitations/`。`App.tsx` 现在把 `matchPath('/invite/:token')` 得到的 token 显式传给 `Invite`，`Invite.tsx` 同时保留 Route 场景兼容；Web 单元测试新增生产挂载回归。重新部署到 `.tmp/team-acceptance-20261103/installed box` 并重启后，真实邀请 URL `http://127.0.0.1:5180/invite/wmi_zOhGdQ-ndAkWxiWuHbUBW9lwp9XuhxxKtaswcpYBxbc` 已显示 TEAMBU 项目与“前端”角色，验证请求不再丢失 token。
 
 ## 验证边界
 
