@@ -93,12 +93,21 @@ Compress-Archive -Path "$cliStage\*" -DestinationPath $cliZip -Force
 $cliHash = (Get-FileHash $cliZip -Algorithm SHA256).Hash.ToLowerInvariant()
 Set-Content -LiteralPath "$cliZip.sha256" -Encoding ASCII -Value ($cliHash + '  workmesh-cli-win-x64.zip')
 Remove-Item -LiteralPath $cliStage -Recurse -Force
-Set-Content -LiteralPath "$downloads\index.html" -Encoding UTF8 -Value '<!doctype html><meta charset="utf-8"><title>WorkMesh Downloads</title><h1>WorkMesh Downloads</h1><a href="/download/workmesh-cli-win-x64.zip">Windows x64 CLI ZIP</a> <a href="/download/workmesh-cli-win-x64.zip.sha256">SHA-256</a>'
+$cliDownloadPage = '<!doctype html><meta charset="utf-8"><title>WorkMesh Downloads</title><h1>WorkMesh Downloads</h1><p><a href="/download/workmesh-cli-win-x64.zip">Windows x64 CLI ZIP</a> <a href="/download/workmesh-cli-win-x64.zip.sha256">SHA-256</a></p>'
+Set-Content -LiteralPath "$downloads\index.html" -Encoding UTF8 -Value $cliDownloadPage
 $manifest = [ordered]@{ schemaVersion='1.0'; product='workmesh-box'; version='1.0.0'; platform='win-x64'; builtAt=(Get-Date).ToUniversalTime().ToString('o'); node=$NodeExe; includes=@('node-runtime','postgresql','api','web','cli','box','role-packages'); apiPort=3000; webPort=5173; pgPort=5432 }
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$releasePath\release-manifest.json" -Encoding UTF8
 $archive = Join-Path (Split-Path $releasePath -Parent) ((Split-Path $releasePath -Leaf) + '.zip')
+$archiveDownload = "$downloads\workmesh-box-win-x64.zip"
 if (Test-Path $archive) { Remove-Item $archive -Force }
+if (Test-Path $archiveDownload) { Remove-Item $archiveDownload -Force }
 Compress-Archive -Path "$releasePath\*" -DestinationPath $archive -Force
-$archiveHash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+Copy-Item -LiteralPath $archive -Destination $archiveDownload -Force
+$archiveHash = (Get-FileHash $archiveDownload -Algorithm SHA256).Hash.ToLowerInvariant()
+$archiveHashLine = $archiveHash + '  workmesh-box-win-x64.zip'
+Set-Content -LiteralPath "$archiveDownload.sha256" -Encoding ASCII -Value $archiveHashLine
 Set-Content -LiteralPath "$archive.sha256" -Encoding ASCII -Value ($archiveHash + '  ' + [System.IO.Path]::GetFileName($archive))
+$releaseDownloadPage = '<!doctype html><meta charset="utf-8"><title>WorkMesh Downloads</title><h1>WorkMesh Downloads</h1><p><a href="/download/workmesh-box-win-x64.zip">Windows x64 Box Package</a> <a href="/download/workmesh-box-win-x64.zip.sha256">SHA-256</a></p><p><a href="/download/workmesh-cli-win-x64.zip">Windows x64 CLI ZIP</a> <a href="/download/workmesh-cli-win-x64.zip.sha256">SHA-256</a></p>'
+Set-Content -LiteralPath "$downloads\index.html" -Encoding UTF8 -Value $releaseDownloadPage
 Write-Host "Windows box package ready: $releasePath" -ForegroundColor Green
+Write-Host "Download archive: $archiveDownload" -ForegroundColor Green
