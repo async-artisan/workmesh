@@ -116,7 +116,7 @@ describe('RequirementDetail（需求详情读模型）', () => {
     expect(await screen.findByText('登录页改版')).toBeInTheDocument();
     expect(screen.getByText('DEMO-001')).toBeInTheDocument();
     expect(screen.getByText('支持记住登录状态。')).toBeInTheDocument();
-    expect(screen.getByText(/有 1 条评审待签字/)).toBeInTheDocument();
+    expect(screen.getAllByText(/有 1 条评审待签字/).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole('tab', { name: /任务/ }));
     expect(screen.getAllByText('后端实现').length).toBeGreaterThan(0);

@@ -30,17 +30,16 @@ import {
 type DetailTab = 'overview' | 'tasks' | 'artifacts' | 'changes' | 'prd' | 'reviews' | 'trace';
 
 /**
- * 需求详情阶段条：编号 + 名称 + 产出物 + 计数。
- * 借鉴 61X 课件 p18 的五步流程条：先看「走到哪一步」，再决定点进哪一段。
+ * 需求详情页签：名称 + 计数，纯导航，不再伪装成步骤条。
  */
-const DETAIL_STAGES: Array<{ key: DetailTab; label: string; sub: string }> = [
-  { key: 'overview', label: '概览', sub: '事实与状态' },
-  { key: 'artifacts', label: '交付物', sub: '工件与证据' },
-  { key: 'tasks', label: '任务', sub: '工序与责任人' },
-  { key: 'changes', label: '变更', sub: '影响与传播' },
-  { key: 'prd', label: 'PRD', sub: '已发布需求' },
-  { key: 'reviews', label: '评审', sub: '签字与决定' },
-  { key: 'trace', label: '追溯', sub: '来源与去向' },
+const DETAIL_STAGES: Array<{ key: DetailTab; label: string }> = [
+  { key: 'overview', label: '概览' },
+  { key: 'artifacts', label: '交付物' },
+  { key: 'tasks', label: '任务' },
+  { key: 'changes', label: '变更' },
+  { key: 'prd', label: 'PRD' },
+  { key: 'reviews', label: '评审' },
+  { key: 'trace', label: '追溯' },
 ];
 
 function stageCountOf(
@@ -90,16 +89,35 @@ function shortDigest(value: string): string {
   return value.length > 12 ? `${value.slice(0, 12)}…` : value;
 }
 
-function artifactChecks(value: unknown): Array<{ code: string; passed: boolean }> {
+function artifactChecks(value: unknown): Array<{
+  code: string;
+  passed: boolean;
+  source: 'AGENT_REPORTED' | 'EXTERNAL_REFERENCE';
+  evidence?: { provider: string; url: string };
+}> {
   if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => {
-      if (!item || typeof item !== 'object') return null;
-      const record = item as Record<string, unknown>;
-      if (typeof record.code !== 'string' || typeof record.passed !== 'boolean') return null;
-      return { code: record.code, passed: record.passed };
-    })
-    .filter((item): item is { code: string; passed: boolean } => Boolean(item));
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const record = item as Record<string, unknown>;
+    if (typeof record.code !== 'string' || typeof record.passed !== 'boolean') return [];
+    const evidence = record.evidence;
+    const externalEvidence =
+      record.source === 'EXTERNAL_REFERENCE' &&
+      evidence &&
+      typeof evidence === 'object' &&
+      typeof (evidence as Record<string, unknown>).provider === 'string' &&
+      typeof (evidence as Record<string, unknown>).url === 'string'
+        ? (evidence as { provider: string; url: string })
+        : undefined;
+    return [
+      {
+        code: record.code,
+        passed: record.passed,
+        source: externalEvidence ? 'EXTERNAL_REFERENCE' : 'AGENT_REPORTED',
+        ...(externalEvidence ? { evidence: externalEvidence } : {}),
+      },
+    ];
+  });
 }
 
 function scrollToRole(roleKeys: string[]): void {
@@ -508,7 +526,6 @@ export function RequirementDetail({
           <div className="skeleton-line" />
           <div className="skeleton-line short" />
         </div>
-        <div className="gate-bar gate-skeleton" />
       </section>
     );
   }
@@ -660,49 +677,21 @@ export function RequirementDetail({
         onTaskClick={() => changeTab('tasks')}
       />
 
-      <div className="gate-bar">
-        {gates.map((gate, index) => (
-          <button
-            type="button"
-            className={`gate-step is-${gate.state}`}
-            key={gate.key}
-            onClick={() => {
-              changeTab('tasks');
-              window.setTimeout(() => scrollToRole(gate.roleKeys), 0);
-            }}
-          >
-            <span className="gate-index">{String(index + 1).padStart(2, '0')}</span>
-            <span className="gate-dot" />
-            <span className="gate-label">{gate.label}</span>
-            <span className="gate-roles">{gate.roleLabel}</span>
-            <span className="gate-state">{gate.stateLabel}</span>
-          </button>
-        ))}
-      </div>
-
-      <ol className="req-stages" role="tablist" aria-label="需求详情">
-        {DETAIL_STAGES.map((item, index) => {
+      <ol className="req-tabs" role="tablist" aria-label="需求详情">
+        {DETAIL_STAGES.map((item) => {
           const count = stageCountOf(item.key, detail, prdDocs.length, trace.length);
           const active = tab === item.key;
-          const done = count !== null && count > 0;
           return (
-            <li
-              key={item.key}
-              className={`req-stage${active ? ' is-active' : ''}${done ? ' is-done' : ''}`}
-            >
+            <li key={item.key}>
               <button
                 type="button"
                 role="tab"
                 aria-selected={active}
-                className="req-stage-btn"
+                className={`req-tab${active ? ' is-active' : ''}`}
                 onClick={() => changeTab(item.key)}
               >
-                <span className="req-stage-index">{String(index + 1).padStart(2, '0')}</span>
-                <span className="req-stage-text">
-                  <span className="req-stage-label">{item.label}</span>
-                  <span className="req-stage-sub">{item.sub}</span>
-                </span>
-                {count !== null && <span className="req-stage-count">{count}</span>}
+                {item.label}
+                {count !== null && <span className="req-tab-count">{count}</span>}
               </button>
             </li>
           );
@@ -865,11 +854,30 @@ export function RequirementDetail({
                                 <span>
                                   校验 {checks.length - failed.length}/{checks.length}
                                 </span>
+                                <span>
+                                  Agent 自述 {checks.filter((check) => check.source === 'AGENT_REPORTED').length}
+                                </span>
+                                <span>
+                                  外部引用 {checks.filter((check) => check.source === 'EXTERNAL_REFERENCE').length}（未核验）
+                                </span>
                                 {failed.map((check) => (
                                   <span className="status-tag is-danger" key={check.code}>
                                     {check.code} 失败
                                   </span>
                                 ))}
+                                {checks
+                                  .filter((check) => check.source === 'EXTERNAL_REFERENCE' && check.evidence)
+                                  .map((check) => (
+                                    <a
+                                      className="status-tag"
+                                      href={check.evidence!.url.startsWith('https://') ? check.evidence!.url : undefined}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      key={`${check.code}:evidence`}
+                                    >
+                                      查看 {check.evidence!.provider} 引用
+                                    </a>
+                                  ))}
                               </div>
                             )}
                           </div>

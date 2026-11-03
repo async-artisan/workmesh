@@ -87,6 +87,23 @@ PRD 的生产入口在本地 Product Agent。Web 负责读取候选、查看正�
 
 创建或追加 revision 的响应会返回 `reviewRequestId`。CLI 会把它放进 JSON 输出和本地 operation receipt，便于本地 Agent 将候选交给 Web 评审；该 ID 不代表已经批准或发布。
 
+## Product Agent 本地协议
+
+Product Agent 在本地与产品人员进行自然语言交互，WorkMesh 只持久化已声明的状态、版本、证据和候选，不代替 Agent 推理或 HUMAN 决策。产品工作分为两个模式：`BRAINSTORM` 负责扩大问题/方案空间，`REQUIREMENT` 负责收敛为可评审事实。第一阶段命令为：
+
+```text
+workmesh product start --title <title> --text <source>
+workmesh product resume --request <requestId>
+workmesh product update --request <requestId> --understanding @understanding.json
+workmesh product answer --request <requestId> --question <questionId> --answer <text> --apply-to <paths>
+workmesh product confirm --request <requestId>
+workmesh product draft --request <requestId>
+```
+
+状态保存在工作区 `.workmesh/product/`，包含 `facts/goals/users/scope/businessRules/acceptance/assumptions/unknowns/questions/currentQuestionId/answerApplications/evidenceRefs`。每轮只回答 `currentQuestionId`；`answer` 会记录用户原话、时间和结构化落点。存在未解决问题或未知项时，`confirm` 和 `draft` 会拒绝。确认后的草稿通过现有 `candidate --kind PRD` 提交，并绑定已发布 Understanding revision；候选发布、批准、撤回仍只允许 HUMAN Web 会话。
+
+当前本地协议不把问题塞进 ReviewRequest。正式跨 Agent 澄清、任务 BLOCKED/恢复、回答历史和引用校验列入 WP12，预计新增 Clarification / ClarificationResponse API。
+
 ## 流程与角色包
 
 - `GET/POST /api/v1/projects/:projectId/workflow-definitions`、`POST /api/v1/projects/:projectId/workflow-definitions/validate`、`POST /api/v1/projects/:projectId/workflow-definitions/:workflowKey/publish`、`GET /api/v1/workflow-definition-revisions/:revisionId` — 受限 DAG 定义校验与发布。

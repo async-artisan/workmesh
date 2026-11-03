@@ -26,6 +26,19 @@ import { CliError, asCliError, errorEnvelopeOf } from './errors';
 import { materializeSnapshot, createSnapshot, fetchSnapshot } from './context';
 import { buildCandidate, parseCandidateJson, type CandidateKind } from './candidate';
 import { buildDeliver } from './deliver';
+import {
+  answerQuestion,
+  confirmUnderstanding,
+  createProductRun,
+  promoteBrainstorm,
+  selectBrainstormOption,
+  updateBrainstorm,
+  loadProductRun,
+  saveProductRun,
+  updateUnderstanding,
+  writePrdDraft,
+  type ProductUnderstanding,
+} from './product';
 import { installRolePackage } from './roles';
 import { runSetup } from './setup';
 import { confirmFileStore } from './consent';
@@ -710,6 +723,313 @@ function buildProgram(): Command {
         for (const file of result.files) console.log(`  ${file}`);
         console.log('本次字节均由服务端重新读取并核对摘要，未使用离线缓存。');
       },
+    );
+  });
+
+  const product = program
+    .command('product')
+    .description('Product Agent 可恢复需求理解与 PRD 工作协议');
+
+  withIO(
+    product
+      .command('start')
+      .description('创建需求并初始化本地 Product Agent 状态')
+      .requiredOption('--title <title>', '需求标题')
+      .requiredOption('--text <text>', '需求原话或背景')
+      .option('--mode <mode>', 'BRAINSTORM（默认）或 REQUIREMENT', 'BRAINSTORM')
+      .option('--request <id>', '本地协议 request ID（默认 UUID）')
+      .option('--operation <uuid>', '复用已有幂等操作'),
+  ).action(async (raw: Options, command: Command) => {
+    const mode = (str(raw, 'mode') ?? 'BRAINSTORM').toUpperCase();
+    const connection = await connect(command);
+    if (mode !== 'BRAINSTORM' && mode !== 'REQUIREMENT')
+      throw new CliError('VALIDATION_FAILED', '--mode 只能是 BRAINSTORM 或 REQUIREMENT');
+    const title = str(raw, 'title')?.trim();
+    const sourceText = str(raw, 'text')?.trim();
+    if (!title || !sourceText)
+      throw new CliError('VALIDATION_FAILED', '--title 和 --text 不能为空');
+    const requestId = str(raw, 'request') ?? randomUUID();
+    if (mode === 'BRAINSTORM') {
+      const run = createProductRun({
+        requestId,
+        projectId: connection.workspace.projectId,
+        title,
+        sourceText,
+        mode: 'BRAINSTORM',
+      });
+      await saveProductRun(connection.workspaceDir, run);
+      emitLocal(
+        command,
+        { requestId, mode: run.mode, status: run.status, revision: run.revision },
+        () => {
+          console.log(`头脑风暴已开始：${requestId}`);
+          console.log(
+            '下一步：product brainstorm update --request <id> --brainstorm @brainstorm.json',
+          );
+        },
+      );
+      return;
+    }
+    const written = await writeWithReceipt(connection, command, {
+      method: 'POST',
+      route: `/projects/${encodeURIComponent(connection.workspace.projectId)}/requirements`,
+      body: { title, description: sourceText },
+      operation: str(raw, 'operation'),
+      resultRefs: (data) => {
+        const record = asRecord(data, '需求响应结构非法');
+        return { requirementId: typeof record.id === 'string' ? record.id : null };
+      },
+    });
+    const record = asRecord(written.data, '需求响应结构非法');
+    const requirementId = typeof record.id === 'string' ? record.id : '';
+    if (!requirementId) throw new CliError('PROTOCOL_INVALID', '需求响应缺少 id');
+    const run = createProductRun({
+      requestId,
+      requirementId,
+      projectId: connection.workspace.projectId,
+      title,
+      sourceText,
+      mode: 'REQUIREMENT',
+    });
+    await saveProductRun(connection.workspaceDir, run);
+    emit(
+      command,
+      {
+        requestId,
+        requirementId,
+        mode: run.mode,
+        status: run.status,
+        revision: run.revision,
+        operationId: written.operationId,
+      },
+      written.requestId,
+      () => {
+        console.log(`Product Agent 需求已创建：${requestId}（${requirementId}）`);
+        console.log('下一步：product update --request <id> --understanding @understanding.json');
+      },
+    );
+  });
+
+  const brainstorm = product.command('brainstorm').description('本地头脑风暴工作区');
+
+  withIO(
+    brainstorm
+      .command('update')
+      .description('更新问题、想法、方案、假设、实验和决策')
+      .requiredOption('--request <id>', '本地协议 request ID')
+      .requiredOption('--brainstorm <json>', '头脑风暴 JSON 或 @path'),
+  ).action(async (raw: Options, command: Command) => {
+    const connection = await connect(command);
+    const run = await loadProductRun(connection.workspaceDir, str(raw, 'request') ?? '');
+    const input = await parseCandidateJson(str(raw, 'brainstorm') ?? '', '--brainstorm');
+    if (!input || typeof input !== 'object' || Array.isArray(input))
+      throw new CliError('VALIDATION_FAILED', '--brainstorm 必须是 JSON 对象');
+    const next = updateBrainstorm(run, input as never);
+    await saveProductRun(connection.workspaceDir, next);
+    emitLocal(
+      command,
+      {
+        requestId: next.requestId,
+        mode: next.mode,
+        status: next.status,
+        revision: next.revision,
+        brainstorm: next.brainstorm,
+      },
+      () => console.log(`头脑风暴已保存：${next.requestId} revision ${next.revision}`),
+    );
+  });
+
+  withIO(
+    brainstorm
+      .command('select')
+      .description('选择要推进的方案')
+      .requiredOption('--request <id>', '本地协议 request ID')
+      .requiredOption('--option <id>', '方案 ID'),
+  ).action(async (raw: Options, command: Command) => {
+    const connection = await connect(command);
+    const run = await loadProductRun(connection.workspaceDir, str(raw, 'request') ?? '');
+    const next = selectBrainstormOption(run, str(raw, 'option') ?? '');
+    await saveProductRun(connection.workspaceDir, next);
+    emitLocal(
+      command,
+      {
+        requestId: next.requestId,
+        selectedOptionId: next.brainstorm.selectedOptionId,
+        revision: next.revision,
+      },
+      () => console.log(`已选择方案：${next.brainstorm.selectedOptionId}`),
+    );
+  });
+
+  withIO(
+    product
+      .command('promote')
+      .description('将已选择的头脑风暴方案提升为正式需求并创建 Requirement')
+      .requiredOption('--request <id>', '本地协议 request ID')
+      .option('--operation <uuid>', '复用已有幂等操作'),
+  ).action(async (raw: Options, command: Command) => {
+    const connection = await connect(command);
+    const run = await loadProductRun(connection.workspaceDir, str(raw, 'request') ?? '');
+    const promoted = promoteBrainstorm(run);
+    const written = await writeWithReceipt(connection, command, {
+      method: 'POST',
+      route: `/projects/${encodeURIComponent(connection.workspace.projectId)}/requirements`,
+      body: { title: run.title, description: run.sourceText },
+      operation: str(raw, 'operation'),
+      resultRefs: (data) => {
+        const record = asRecord(data, '需求响应结构非法');
+        return { requirementId: typeof record.id === 'string' ? record.id : null };
+      },
+    });
+    const record = asRecord(written.data, '需求响应结构非法');
+    const requirementId = typeof record.id === 'string' ? record.id : '';
+    if (!requirementId) throw new CliError('PROTOCOL_INVALID', '需求响应缺少 id');
+    const next = { ...promoted, requirementId };
+    await saveProductRun(connection.workspaceDir, next);
+    emit(
+      command,
+      {
+        requestId: next.requestId,
+        requirementId,
+        mode: next.mode,
+        status: next.status,
+        revision: next.revision,
+        operationId: written.operationId,
+      },
+      written.requestId,
+      () => console.log(`头脑风暴已提升为正式需求：${next.requestId}（${requirementId}）`),
+    );
+  });
+
+  withIO(
+    product
+      .command('resume')
+      .description('恢复并显示 Product Agent 当前状态')
+      .requiredOption('--request <id>', '本地协议 request ID'),
+  ).action(async (raw: Options, command: Command) => {
+    const connection = await connect(command);
+    const run = await loadProductRun(connection.workspaceDir, str(raw, 'request') ?? '');
+    emitLocal(command, run, () => {
+      console.log(`${run.requestId}  ${run.mode}  ${run.status}  revision ${run.revision}`);
+      console.log(`需求：${run.title}（${run.requirementId}）`);
+      console.log(`当前问题：${run.understanding.currentQuestionId ?? '无'}`);
+      if (run.understanding.currentQuestionId) {
+        const question = run.understanding.questions[0];
+        console.log(`请回答：${question?.text ?? ''}`);
+      }
+      if (run.prdDraftPath) console.log(`PRD 草稿：${run.prdDraftPath}`);
+    });
+  });
+
+  withIO(
+    product
+      .command('update')
+      .description('更新结构化理解稿和完整问题队列（本地持久化）')
+      .requiredOption('--request <id>', '本地协议 request ID')
+      .requiredOption('--understanding <json>', '理解稿 JSON 或 @path'),
+  ).action(async (raw: Options, command: Command) => {
+    const connection = await connect(command);
+    const run = await loadProductRun(connection.workspaceDir, str(raw, 'request') ?? '');
+    const input = await parseCandidateJson(str(raw, 'understanding') ?? '', '--understanding');
+    if (!input || typeof input !== 'object' || Array.isArray(input))
+      throw new CliError('VALIDATION_FAILED', '--understanding 必须是 JSON 对象');
+    const next = updateUnderstanding(run, input as Partial<ProductUnderstanding>);
+    await saveProductRun(connection.workspaceDir, next);
+    emitLocal(
+      command,
+      {
+        requestId: next.requestId,
+        status: next.status,
+        revision: next.revision,
+        understanding: next.understanding,
+      },
+      () => {
+        console.log(`理解稿已保存：${next.requestId} revision ${next.revision}`);
+        console.log(`当前问题：${next.understanding.currentQuestionId ?? '无'}`);
+      },
+    );
+  });
+
+  withIO(
+    product
+      .command('answer')
+      .description('回答当前问题并原子记录答案落点')
+      .requiredOption('--request <id>', '本地协议 request ID')
+      .requiredOption('--question <id>', '当前问题 ID')
+      .requiredOption('--answer <text>', '用户实际回答')
+      .requiredOption(
+        '--apply-to <paths>',
+        '落点路径，逗号分隔，例如 businessRules[0],acceptance[0]',
+      ),
+  ).action(async (raw: Options, command: Command) => {
+    const connection = await connect(command);
+    const run = await loadProductRun(connection.workspaceDir, str(raw, 'request') ?? '');
+    const answer = str(raw, 'answer')?.trim();
+    if (!answer) throw new CliError('VALIDATION_FAILED', '--answer 不能为空');
+    const appliedTo = (str(raw, 'apply-to') ?? '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (!appliedTo.length) throw new CliError('VALIDATION_FAILED', '--apply-to 不能为空');
+    const next = answerQuestion(run, str(raw, 'question') ?? '', answer, appliedTo);
+    await saveProductRun(connection.workspaceDir, next);
+    emitLocal(
+      command,
+      {
+        requestId: next.requestId,
+        status: next.status,
+        revision: next.revision,
+        currentQuestionId: next.understanding.currentQuestionId,
+        answerApplications: next.understanding.answerApplications,
+      },
+      () => {
+        console.log(`答复已记录：${next.requestId} revision ${next.revision}`);
+        console.log(`下一问题：${next.understanding.currentQuestionId ?? '无'}`);
+      },
+    );
+  });
+
+  withIO(
+    product
+      .command('confirm')
+      .description('确认理解稿；不生成 PRD，直到显式执行 draft')
+      .requiredOption('--request <id>', '本地协议 request ID'),
+  ).action(async (raw: Options, command: Command) => {
+    const connection = await connect(command);
+    const run = await loadProductRun(connection.workspaceDir, str(raw, 'request') ?? '');
+    const next = confirmUnderstanding(run);
+    await saveProductRun(connection.workspaceDir, next);
+    emitLocal(
+      command,
+      {
+        requestId: next.requestId,
+        status: next.status,
+        revision: next.revision,
+        confirmedAt: next.understanding.confirmedAt,
+      },
+      () => console.log(`理解已确认：${next.requestId}，现在可执行 product draft。`),
+    );
+  });
+
+  withIO(
+    product
+      .command('draft')
+      .description('从已确认理解稿生成 PRD 草稿文件')
+      .requiredOption('--request <id>', '本地协议 request ID')
+      .option('--file <path>', '输出路径'),
+  ).action(async (raw: Options, command: Command) => {
+    const connection = await connect(command);
+    const run = await loadProductRun(connection.workspaceDir, str(raw, 'request') ?? '');
+    const next = await writePrdDraft(connection.workspaceDir, run, str(raw, 'file'));
+    emitLocal(
+      command,
+      {
+        requestId: next.requestId,
+        status: next.status,
+        revision: next.revision,
+        file: next.prdDraftPath,
+      },
+      () => console.log(`PRD 草稿已生成：${next.prdDraftPath}`),
     );
   });
 

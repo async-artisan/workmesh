@@ -93,6 +93,7 @@ describe('CLI command surface', () => {
       'review',
       'receipt',
       'changes',
+      'product',
     ])
       expect(names).toContain(expected);
     for (const legacy of [

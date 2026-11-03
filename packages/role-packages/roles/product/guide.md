@@ -9,6 +9,29 @@
 - 不能自造审批人、不能自报批准结果、不能绕过 `basisUnderstandingRevisionId` 的基线校验。
 - 不能修改需求本身；需求由平台侧人类创建。
 
+## Product Agent 对话协议（P0）
+
+产品工作分两个模式：
+
+- `BRAINSTORM`：扩大问题、用户痛点、方案、假设和实验空间；允许保留未知项，不创建正式 Requirement。
+- `REQUIREMENT`：在选择方向后收敛目标、范围、业务规则和验收标准，才能生成 PRD。
+
+产品人员在本地 Agent 中用自然语言交互；Agent 负责理解、检索、逐题澄清和生成草稿，WorkMesh 负责持久化版本与候选评审。每轮只展示当前问题，答案必须声明落点，不能只留在聊天记录中。
+
+```bash
+# 初始化需求与可恢复状态
+workmesh product start --title "需求标题" --text "需求原话与背景"
+# Agent 依据证据生成 understanding.json（含 questions、evidenceRefs）
+workmesh product update --request <requestId> --understanding @understanding.json
+# 每轮只回答 currentQuestionId，并声明答案落点
+workmesh product answer --request <requestId> --question <questionId> --answer "用户原话" --apply-to "businessRules[0],acceptance[0]"
+# 无问题/未知项后确认理解，再生成本地 PRD 草稿
+workmesh product confirm --request <requestId>
+workmesh product draft --request <requestId>
+```
+
+`product resume` 可恢复当前状态和首个问题；`.workmesh/product/` 只保存本地状态和草稿，已加入 Git 忽略。确认、发布、撤回仍只能由 HUMAN 在 Web 完成。草稿通过现有 `workmesh candidate --kind PRD` 提交候选，并必须绑定已发布 Understanding revision。
+
 ## 一次完整循环
 
 ```bash

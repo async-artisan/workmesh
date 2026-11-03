@@ -12,3 +12,5 @@ apps/api/prisma/dev.db
 .tmp
 # 本地数据库导出（含演示账号，不入库）
 backup/
+# Product Agent 本地可恢复状态与草稿（候选提交后才进入平台）
+.workmesh/product/
