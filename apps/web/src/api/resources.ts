@@ -16,6 +16,7 @@ export interface MemberView {
   name?: string | null;
   role: string;
   version: number;
+  roles?: Array<{ id: string; key: string; title: string }>;
 }
 
 export interface RoleView {

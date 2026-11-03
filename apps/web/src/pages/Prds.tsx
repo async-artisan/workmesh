@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import {
   base64ToUtf8,
   documentApi,
+  requirementApi,
   type DocumentDetail,
+  type RequirementView,
   type RevisionView,
 } from '../api/resources';
 import { formatApiError } from '../api/client';
@@ -53,6 +55,9 @@ export function Prds() {
   const navigate = useNavigate();
   const { projectId } = useProjectContext();
   const [docs, setDocs] = useState<DocumentDetail[]>([]);
+  const [requirementsById, setRequirementsById] = useState<Map<string, RequirementView>>(
+    new Map(),
+  );
   const [selectedId, setSelectedId] = useState('');
   const [content, setContent] = useState<ContentView | null>(null);
   const [error, setError] = useState('');
@@ -61,6 +66,16 @@ export function Prds() {
   const [withdrawReason, setWithdrawReason] = useState('');
 
   const selected = docs.find((item) => item.document.id === selectedId) ?? null;
+  const requirementLabel = (id: string | null | undefined): string => {
+    if (!id) return '未绑定需求';
+    const requirement = requirementsById.get(id);
+    return requirement ? `${requirement.code} · ${requirement.title}` : '未绑定需求';
+  };
+  const revisionLabel = (id: string | null | undefined): string => {
+    if (!id) return '—';
+    const revision = selected?.revisions.find((item) => item.id === id);
+    return revision ? `v${revision.seq}` : '—';
+  };
   const candidateCount =
     selected?.revisions.filter((revision) => revision.state === 'CANDIDATE').length ?? 0;
   const diff = useMemo(
@@ -76,8 +91,14 @@ export function Prds() {
       return;
     }
     try {
-      const page = await documentApi.list(projectId, 'PRD');
+      const [page, requirementPage] = await Promise.all([
+        documentApi.list(projectId, 'PRD'),
+        requirementApi.list(projectId).catch(() => null),
+      ]);
       setDocs(page.items);
+      setRequirementsById(
+        new Map((requirementPage?.items ?? []).map((item) => [item.id, item])),
+      );
       setError('');
       setSelectedId((current) =>
         page.items.some((item) => item.document.id === current)
@@ -184,20 +205,24 @@ export function Prds() {
               </tr>
             </thead>
             <tbody>
-              {docs.map((item) => (
+              {docs.map((item) => {
+                const latest = item.publishedRevision ?? item.revisions[0] ?? null;
+                return (
                 <tr
                   key={item.document.id}
                   className={selectedId === item.document.id ? 'is-selected' : undefined}
                 >
                   <td>
-                    <strong>{item.publishedRevision?.title ?? '尚未发布'}</strong>
-                    <div className="cell-mono cell-truncate">{item.document.id}</div>
+                    <strong>{latest?.title ?? '未命名 PRD'}</strong>
+                    <div className="task-row-meta">
+                      {item.publishedRevision
+                        ? `已发布 v${item.publishedRevision.seq}`
+                        : latest
+                          ? `最新候选 v${latest.seq}`
+                          : '还没有修订'}
+                    </div>
                   </td>
-                  <td>
-                    <span className="cell-mono cell-truncate">
-                      {item.document.requirementId ?? '—'}
-                    </span>
-                  </td>
+                  <td>{requirementLabel(item.document.requirementId)}</td>
                   <td className="cell-num">v{item.document.version}</td>
                   <td className="cell-num">
                     {item.revisions.filter((revision) => revision.state === 'CANDIDATE').length}
@@ -214,7 +239,8 @@ export function Prds() {
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {docs.length === 0 && (
                 <tr className="table-empty">
                   <td colSpan={5}>
@@ -233,7 +259,7 @@ export function Prds() {
         <div className="table-card">
           <div className="card-head">
             <h3>
-              版本与评审<small>{selected.document.id}</small>
+              版本与评审<small>{requirementLabel(selected.document.requirementId)}</small>
             </h3>
             <span className="card-head-actions">
               <small>{candidateCount} 个候选待处理</small>
@@ -259,14 +285,16 @@ export function Prds() {
                       <td className="cell-num">v{revision.seq}</td>
                       <td>
                         <strong>{revision.title}</strong>
-                        <div className="cell-mono cell-truncate">{revision.id}</div>
+                        <div className="cell-mono cell-truncate">
+                          摘要 {revision.digest.slice(0, 12)}
+                        </div>
                       </td>
                       <td>
                         <span className="status-tag">{revision.state}</span>
                       </td>
                       <td>
-                        <span className="cell-mono cell-truncate">
-                          {revision.basisUnderstandingRevisionId ?? '—'}
+                        <span>
+                          {revisionLabel(revision.basisUnderstandingRevisionId)}
                         </span>
                       </td>
                       <td className="cell-num">{revision.acceptance?.length ?? 0}</td>
@@ -313,7 +341,7 @@ export function Prds() {
         <div className="table-card">
           <div className="card-head">
             <h3>
-              文档内容<small>{content.revisionId}</small>
+              文档内容<small>{revisionLabel(content.revisionId)}</small>
             </h3>
             <span className="card-head-actions">
               <small className="cell-mono">sha256 {content.sha256}</small>
@@ -324,7 +352,7 @@ export function Prds() {
             <>
               <div className="card-head">
                 <h3>
-                  与已发布版本的差异<small>{content.baseRevisionId}</small>
+                  与已发布版本的差异<small>{revisionLabel(content.baseRevisionId)}</small>
                 </h3>
               </div>
               <pre className="search-result" data-testid="prd-diff">
