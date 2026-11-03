@@ -126,6 +126,7 @@ updated: 2026-10-31
 | 命令                     | 用途                                             | 使用者     |
 | ------------------------ | ------------------------------------------------ | ---------- |
 | `workmesh auth login`    | 浏览器设备授权，取得受限凭据                     | 人（一次） |
+| `workmesh setup`         | 一条命令完成登录 + 安装角色包 + 自检             | 人（一次） |
 | `workmesh roles install` | 校验并安装角色包，写入 `.workmesh` 锁文件        | 人（一次） |
 | `workmesh claim`         | 认领任务，返回 `claimId` 与任务版本              | Agent      |
 | `workmesh context`       | 创建或读取上下文快照；`--materialize` 校验后落盘 | Agent      |

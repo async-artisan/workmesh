@@ -76,6 +76,14 @@ corepack pnpm workmesh --help
 
 `workmesh auth login` 使用浏览器设备授权，凭据保存在 `~/.workmesh`（可用 `--config-home` 覆盖）。业务项目首次使用先安装角色包并绑定项目：`--api` 指向平台，`--host` 只接受 `codex` 或 `claude-code`。仓库自带六个内置角色包，位于 `packages/role-packages/roles/<role>`。
 
+首次初始化用一条命令即可（登录 + 装角色包 + 自检；登录仍在浏览器批准）：
+
+```bash
+workmesh setup --role backend --host codex --api https://<host>/api/v1 --project <项目UUID>
+```
+
+等价的手工步骤：
+
 ```bash
 workmesh roles install --package packages/role-packages/roles/product --project <项目UUID> --api https://<host>/api/v1 --host codex
 ```

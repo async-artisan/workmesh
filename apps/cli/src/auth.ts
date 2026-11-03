@@ -178,7 +178,7 @@ export async function deviceLogin(options: DeviceLoginOptions): Promise<DeviceLo
   for (;;) {
     if (now() >= deadline) {
       if (lastNetworkError) throw lastNetworkError;
-      throw new CliError('AUTHORIZATION_EXPIRED', '授权已过期，请重新运行 workmesh auth login');
+      throw new CliError('AUTHORIZATION_EXPIRED', '授权已过期，请重新运行 auth login 或 setup');
     }
     let polled: V1Response<Record<string, unknown>>;
     try {
@@ -200,7 +200,7 @@ export async function deviceLogin(options: DeviceLoginOptions): Promise<DeviceLo
           status: 403,
         });
       if (error instanceof CliError && error.code === 'AUTHORIZATION_EXPIRED')
-        throw new CliError('AUTHORIZATION_EXPIRED', '授权已过期，请重新运行 workmesh auth login', {
+        throw new CliError('AUTHORIZATION_EXPIRED', '授权已过期，请重新运行 auth login 或 setup', {
           status: 410,
         });
       if (

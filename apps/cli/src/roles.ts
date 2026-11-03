@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, readFile, rename, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import {
@@ -107,7 +107,7 @@ function validateManifest(value: unknown): RolePackageManifest {
   return manifest;
 }
 
-async function readManifest(packageDir: string): Promise<RolePackageManifest> {
+export async function readManifest(packageDir: string): Promise<RolePackageManifest> {
   let raw: string;
   try {
     raw = await readFile(join(packageDir, 'manifest.json'), 'utf8');

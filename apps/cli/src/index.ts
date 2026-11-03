@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 import { Command, CommanderError } from 'commander';
 import { randomUUID } from 'node:crypto';
-import { createInterface } from 'node:readline/promises';
-import { stdin, stdout } from 'node:process';
 import { resolve } from 'node:path';
 import {
   bearerOf,
@@ -29,6 +27,8 @@ import { materializeSnapshot, createSnapshot, fetchSnapshot } from './context';
 import { buildCandidate, parseCandidateJson, type CandidateKind } from './candidate';
 import { buildDeliver } from './deliver';
 import { installRolePackage } from './roles';
+import { runSetup } from './setup';
+import { confirmFileStore } from './consent';
 import {
   beginOperation,
   finishOperation,
@@ -230,24 +230,6 @@ function pick(record: Record<string, unknown>, keys: string[]): Record<string, u
   const result: Record<string, unknown> = {};
   for (const key of keys) if (record[key] !== undefined) result[key] = record[key];
   return result;
-}
-
-async function confirmFileStore(): Promise<void> {
-  if (!stdin.isTTY)
-    throw new CliError(
-      'APPROVAL_REQUIRED',
-      '非交互环境必须显式传 --credential-store file，明确同意使用仅当前用户可读的本地文件存储',
-    );
-  const prompt = createInterface({ input: stdin, output: stdout });
-  try {
-    const answer = await prompt.question(
-      '凭据将写入当前用户 home 下的 0600 文件（非系统钥匙串），不宣称对同一 OS 用户加密隔离。输入 yes 继续：',
-    );
-    if (answer.trim().toLowerCase() !== 'yes')
-      throw new CliError('APPROVAL_REQUIRED', '未同意本地文件存储，已取消登录');
-  } finally {
-    prompt.close();
-  }
 }
 
 type LoginOptions = {
@@ -488,6 +470,49 @@ function buildProgram(): Command {
         for (const file of result.files) console.log(`  ${file}`);
       },
     );
+  });
+
+  withIO(
+    program
+      .command('setup')
+      .description('一条命令完成设备授权与角色包安装（登录仍在浏览器批准）')
+      .requiredOption('--role <key>', '业务角色 key，例如 backend')
+      .option('--host <host>', 'codex | claude-code')
+      .option('--project <id>', '项目 UUID；缺省用授权返回的项目')
+      .option('--package <dir>', '显式角色包目录（默认从随包 roles/ 解析）')
+      .option('--credential-store <kind>', '显式同意本地文件凭据存储')
+      .option('--timeout <seconds>', '设备授权等待秒数'),
+  ).action(async (raw: Options, command: Command) => {
+    const io = optionsOf(command);
+    const store = str(raw, 'credential-store');
+    if (store !== undefined && store !== 'file')
+      throw new CliError('VALIDATION_FAILED', '仅支持 --credential-store file');
+    const timeoutSeconds = str(raw, 'timeout') ? Number(str(raw, 'timeout')) : undefined;
+    if (timeoutSeconds !== undefined && (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0))
+      throw new CliError('VALIDATION_FAILED', '--timeout 必须是正数秒');
+    const result = await runSetup({
+      workspaceDir: workspaceDirOf(io),
+      configHome: configHome(str(io, 'config-home')),
+      role: str(raw, 'role') ?? '',
+      host: str(raw, 'host'),
+      api: str(io, 'api'),
+      projectId: str(raw, 'project') ? assertUuid(str(raw, 'project'), '--project') : undefined,
+      packageDir: str(raw, 'package'),
+      timeoutMs: timeoutSeconds ? Math.floor(timeoutSeconds * 1000) : undefined,
+      consent: store === 'file' ? async () => undefined : confirmFileStore,
+    });
+    emitLocal(command, result, () => {
+      console.log(`已就绪：${result.roleKey} @ 项目 ${result.projectId}`);
+      console.log(
+        `角色包 ${result.packageId}@${result.version}${result.reused ? '（已存在）' : ''} → ${result.packagePath}`,
+      );
+      console.log(`工作区配置：${result.workspaceConfigPath ?? '(已有，未改写)'}`);
+      if (result.agentEntries.length > 0) {
+        console.log('Agent 入口已写入：');
+        for (const file of result.agentEntries) console.log(`  ${file}`);
+      }
+      console.log('下一步：让 Agent 按 AGENTS.md 领任务（workmesh claim）。');
+    });
   });
 
   withIO(
