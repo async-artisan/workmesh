@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { V1_ERROR_CODES, WorkmeshError, type Principal } from '@workmesh/shared';
 import { V1AuthorizationService } from '../auth/v1-authorization';
+import { affectedRecipients, changedFieldsOf } from '../changes/v1-requirement-change-policy';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateRequirementDto } from './dto';
 
@@ -119,32 +120,86 @@ export class RequirementsService {
         409,
       );
 
-    const updated = await this.prisma.requirement.updateMany({
-      where: { id: requirementId, projectId, version: dto.expectedVersion },
-      data: {
-        ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
-        ...(dto.description !== undefined ? { description: dto.description.trim() || null } : {}),
-        version: { increment: 1 },
-      },
-    });
-    if (updated.count === 0)
-      throw new WorkmeshError(
-        V1_ERROR_CODES.VERSION_CONFLICT,
-        'REQUIREMENT_VERSION_CONFLICT',
-        { requirementId, currentVersion: dto.expectedVersion },
-        409,
-      );
+    const changedFields = changedFieldsOf(dto);
+    const next = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.requirement.updateMany({
+        where: { id: requirementId, projectId, version: dto.expectedVersion },
+        data: {
+          ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
+          ...(dto.description !== undefined
+            ? { description: dto.description.trim() || null }
+            : {}),
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count === 0)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.VERSION_CONFLICT,
+          'REQUIREMENT_VERSION_CONFLICT',
+          { requirementId, currentVersion: dto.expectedVersion },
+          409,
+        );
 
-    const next = await this.prisma.requirement.findFirst({
-      where: { id: requirementId, projectId },
+      const row = await tx.requirement.findFirst({ where: { id: requirementId, projectId } });
+      if (!row)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+          'REQUIREMENT_NOT_FOUND',
+          { requirementId },
+          404,
+        );
+
+      // 变更传播：需求内容变化 → 记录一次变更事件，并通知该需求下所有未取消实例的
+      // 任务责任人（ACK_ONLY，由收件人确认）。与需求更新同事务，不会出现“改了但没传播”。
+      // 口径：只在需求字段真的变化时触发；发起人自己不收件；无人受影响时只留事件不产收件人。
+      if (changedFields.length > 0) {
+        const instances = await tx.workflowInstance.findMany({
+          where: { requirementId, projectId },
+          select: { id: true },
+        });
+        const tasks =
+          instances.length === 0
+            ? []
+            : await tx.task.findMany({
+                where: {
+                  workflowInstanceId: { in: instances.map((item) => item.id) },
+                  workStatus: { not: 'CANCELLED' },
+                },
+                select: { id: true, responsibleUserId: true, roleId: true },
+              });
+        const recipients = affectedRecipients(
+          tasks.map((item) => ({
+            taskId: item.id,
+            userId: item.responsibleUserId,
+            roleId: item.roleId,
+          })),
+          principal.userId,
+        );
+        if (recipients.length > 0) {
+          const event = await tx.changeEvent.create({
+            data: {
+              projectId,
+              requirementId,
+              sourceKind: 'REQUIREMENT_UPDATE',
+              sourceId: requirementId,
+              changedFields,
+              targets: { taskIds: tasks.map((item) => item.id) },
+            },
+            select: { id: true },
+          });
+          await tx.changeRecipient.createMany({
+            data: recipients.map((item) => ({
+              projectId,
+              eventId: event.id,
+              userId: item.userId,
+              roleId: item.roleId,
+            })),
+          });
+        }
+      }
+
+      return row;
     });
-    if (!next)
-      throw new WorkmeshError(
-        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
-        'REQUIREMENT_NOT_FOUND',
-        { requirementId },
-        404,
-      );
     return this.viewOf(next);
   }
 

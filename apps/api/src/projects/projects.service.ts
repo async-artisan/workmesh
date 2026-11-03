@@ -156,17 +156,33 @@ export class ProjectsService {
 
   async members(userId: string, projectId: string) {
     await this.membership(userId, projectId);
-    const rows = await this.prisma.projectMember.findMany({
-      where: { projectId, revokedAt: null },
-      include: { user: { select: { id: true, email: true } } },
-      orderBy: { grantedAt: 'asc' },
-    });
+    const [rows, assignments] = await Promise.all([
+      this.prisma.projectMember.findMany({
+        where: { projectId, revokedAt: null },
+        include: { user: { select: { id: true, email: true } } },
+        orderBy: { grantedAt: 'asc' },
+      }),
+      this.prisma.projectRoleAssignment.findMany({
+        where: { projectId, revokedAt: null },
+        select: {
+          userId: true,
+          role: { select: { id: true, key: true, title: true } },
+        },
+      }),
+    ]);
+    const rolesByUser = new Map<string, Array<{ id: string; key: string; title: string }>>();
+    for (const assignment of assignments) {
+      const list = rolesByUser.get(assignment.userId) ?? [];
+      list.push(assignment.role);
+      rolesByUser.set(assignment.userId, list);
+    }
     return rows.map((row) => ({
       id: row.user.id,
       name: row.user.email,
       email: row.user.email,
       role: row.role,
       version: row.version,
+      roles: rolesByUser.get(row.user.id) ?? [],
     }));
   }
 
@@ -358,11 +374,21 @@ export class ProjectsService {
       );
   }
 
-  /** 非 OWNER/ADMIN 一律按项目不存在处理，不泄露项目或成员存在性。 */
+  /**
+   * 不是项目成员时按项目不存在处理（不泄露存在性）；
+   * 已是成员但没有管理权则返回 403 —— 成员本来就能看到项目，404 只会让
+   * 「权限不足」被误读成「项目不存在」。
+   */
   private async requireManager(projectId: string, userId: string): Promise<void> {
     const member = await this.roleRepository.findManager(projectId, userId);
-    if (!member || member.revokedAt || (member.role !== 'OWNER' && member.role !== 'ADMIN'))
-      throw resourceNotFound('PROJECT_NOT_FOUND', { projectId });
+    if (!member) throw resourceNotFound('PROJECT_NOT_FOUND', { projectId });
+    if (member.revokedAt || (member.role !== 'OWNER' && member.role !== 'ADMIN'))
+      throw new WorkmeshError(
+        V1_ERROR_CODES.FORBIDDEN,
+        'PROJECT_MANAGER_REQUIRED',
+        { projectId },
+        403,
+      );
   }
 
   private async requireTargetMember(

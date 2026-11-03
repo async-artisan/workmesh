@@ -8,6 +8,7 @@ import {
   type RoleView,
 } from '../api/resources';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
+import { Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { toast } from '../store/toast';
@@ -27,21 +28,23 @@ interface RoleGrantTarget {
 }
 
 /**
- * 角色与 ACL 管理页。授予/撤销业务角色与替换知识库访问集合都是票据动作：
- * 客户端只提供输入，权限与角色边界由服务端判定，403/409 原样展示。
- */
-/**
- * 服务端为了不泄露项目是否存在，把「不是 OWNER/ADMIN」也报成 PROJECT_NOT_FOUND。
- * 直接展示给用户是“资源不存在”，实际大概率是权限问题，这里补一句能照做的提示。
+ * 授予/撤销被拒时给出能照做的提示。
+ * 服务端区分两种：不是项目成员 → 404 PROJECT_NOT_FOUND；是成员但没管理权 →
+ * 403 PROJECT_MANAGER_REQUIRED。对使用者都意味着“权限不够”，提示合并处理。
  */
 function explainRoleError(caught: unknown): never {
   const message = caught instanceof Error ? caught.message : String(caught);
-  if (message.includes('PROJECT_NOT_FOUND'))
+  if (message.includes('PROJECT_MANAGER_REQUIRED') || message.includes('PROJECT_NOT_FOUND'))
     throw new Error(
       '操作被拒绝：需要本项目的 OWNER/ADMIN 权限。若权限确认无误，请刷新页面后确认项目仍在列表中。',
     );
   throw caught;
 }
+
+/**
+ * 角色与 ACL 管理页。授予/撤销业务角色与替换知识库访问集合都是票据动作：
+ * 客户端只提供输入，权限与角色边界由服务端判定，403/409 原样展示。
+ */
 
 export function Roles() {
   const { projectId, projects } = useProjectContext();
@@ -50,6 +53,7 @@ export function Roles() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [grantTarget, setGrantTarget] = useState<RoleGrantTarget | null>(null);
+  const [roleMember, setRoleMember] = useState<MemberView | null>(null);
 
   const [knowledgeBaseId, setKnowledgeBaseId] = useState('');
   const [access, setAccess] = useState<AccessView | null>(null);
@@ -95,6 +99,16 @@ export function Roles() {
     void load();
   }, [projectId]);
 
+  const selectedProject = projects.find((project) => project.id === projectId);
+
+  useEffect(() => {
+    if (selectedProject?.defaultKnowledgeBaseId)
+      setKnowledgeBaseId(selectedProject.defaultKnowledgeBaseId);
+  }, [projectId, selectedProject?.defaultKnowledgeBaseId]);
+
+  const memberEmailById = new Map(members.map((member) => [member.id, member.email]));
+  const roleTitleById = new Map(roles.map((role) => [role.id, role.title]));
+
   async function submitGrant(confirmation: { ticketId: string; ticketSecret: string }) {
     if (!projectId || !grantTarget) throw new Error('缺少角色授予目标');
     if (!grantTarget.reason.trim()) throw new Error('原因不能为空');
@@ -131,7 +145,7 @@ export function Roles() {
   async function loadAccess() {
     const id = knowledgeBaseId.trim();
     if (!id) {
-      setAccessError('请填写知识库 ID。');
+      setAccessError('当前项目没有默认知识库，无法读取 ACL。');
       return;
     }
     try {
@@ -229,27 +243,21 @@ export function Roles() {
                   </td>
                   <td className="cell-num">v{member.version}</td>
                   <td className="col-actions">
-                    <div className="cell-actions row-actions">
-                      {roles.map((role) => (
-                        <button
-                          key={role.id}
-                          className="ghost"
-                          onClick={() =>
-                            setGrantTarget({ member, role, revoke: false, reason: '' })
-                          }
-                        >
-                          授予 {role.title}
-                        </button>
-                      ))}
-                      {roles.map((role) => (
-                        <button
-                          key={`${role.id}-revoke`}
-                          className="danger"
-                          onClick={() => setGrantTarget({ member, role, revoke: true, reason: '' })}
-                        >
-                          撤销 {role.title}
-                        </button>
-                      ))}
+                    <div className="role-summary">
+                      <div className="role-tags">
+                        {(member.roles ?? []).length === 0 ? (
+                          <span className="muted">未授予业务角色</span>
+                        ) : (
+                          member.roles?.map((role) => (
+                            <span className="status-tag" key={role.id}>
+                              {role.title}
+                            </span>
+                          ))
+                        )}
+                      </div>
+                      <button className="ghost" onClick={() => setRoleMember(member)}>
+                        管理角色
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -264,17 +272,55 @@ export function Roles() {
         </div>
       </div>
 
+      <Modal
+        open={Boolean(roleMember)}
+        title="管理业务角色"
+        description={roleMember ? `${roleMember.email} · 成员 v${roleMember.version}` : ''}
+        variant="drawer"
+        size="md"
+        onClose={() => setRoleMember(null)}
+      >
+        <div className="role-manage-list">
+          {roles.map((role) => {
+            const granted = Boolean(
+              roleMember?.roles?.some((assignment) => assignment.id === role.id),
+            );
+            return (
+              <div className="role-manage-row" key={role.id}>
+                <div>
+                  <strong>{role.title}</strong>
+                  <small>{role.key}</small>
+                </div>
+                <button
+                  className={granted ? 'danger' : 'ghost'}
+                  onClick={() => {
+                    if (!roleMember) return;
+                    setGrantTarget({
+                      member: roleMember,
+                      role,
+                      revoke: granted,
+                      reason: '',
+                    });
+                    setRoleMember(null);
+                  }}
+                >
+                  {granted ? '撤销' : '授予'}
+                </button>
+              </div>
+            );
+          })}
+          {roles.length === 0 && <p className="detail-empty">项目还没有业务角色。</p>}
+        </div>
+      </Modal>
+
       <div className="table-card">
         <div className="card-head">
           <h3>知识库访问（ACL）</h3>
           <span className="card-head-actions">
-            <input
-              value={knowledgeBaseId}
-              onChange={(event) => setKnowledgeBaseId(event.target.value)}
-              aria-label="知识库 ID"
-              placeholder="知识库 ID"
-            />
-            <button className="ghost" onClick={() => void loadAccess()}>
+            <span className="acl-kb-label">
+              默认知识库：{selectedProject?.name ?? '未配置'}
+            </span>
+            <button className="ghost" onClick={() => void loadAccess()} disabled={!knowledgeBaseId}>
               读取访问集合
             </button>
             {access && (
@@ -306,10 +352,12 @@ export function Roles() {
                   <td>{access.visibility}</td>
                   <td className="cell-num">v{access.version}</td>
                   <td className="cell-num">v{access.authzVersion}</td>
-                  <td className="cell-mono">
-                    {access.publicationApproverUserId ?? '—'}
+                  <td>
+                    {access.publicationApproverUserId
+                      ? (memberEmailById.get(access.publicationApproverUserId) ?? '—')
+                      : '—'}
                     {access.publicationApproverRoleId
-                      ? ` / ${access.publicationApproverRoleId}`
+                      ? ` / ${roleTitleById.get(access.publicationApproverRoleId) ?? '角色'}`
                       : ''}
                   </td>
                   <td>{access.grants.length} 条</td>
@@ -317,7 +365,9 @@ export function Roles() {
                 {access.grants.map((grant) => (
                   <tr key={grant.id}>
                     <td>
-                      {grant.subjectKind === 'USER' ? grant.subjectUserId : grant.subjectRoleId}
+                      {grant.subjectKind === 'USER'
+                        ? (memberEmailById.get(grant.subjectUserId ?? '') ?? '—')
+                        : (roleTitleById.get(grant.subjectRoleId ?? '') ?? '—')}
                     </td>
                     <td>{grant.permissions.join('、')}</td>
                     <td className="cell-num">v{grant.version}</td>
@@ -376,7 +426,11 @@ export function Roles() {
       <ConfirmationPrompt
         open={aclOpen}
         title="替换知识库访问集合（需二次验证）"
-        description={access ? `${access.knowledgeBaseId} v${access.version}` : ''}
+        description={
+          access
+            ? `${selectedProject?.name ?? '默认知识库'} · 访问集合 v${access.version}`
+            : ''
+        }
         binding={
           access && aclBinding
             ? {

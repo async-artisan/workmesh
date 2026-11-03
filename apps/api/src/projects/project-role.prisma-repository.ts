@@ -133,20 +133,37 @@ export class ProjectRolePrismaRepository implements ProjectRoleRepository {
   ): Promise<ProjectRoleMutationView> {
     return this.prisma.$transaction(
       async (tx) => {
-        await tx.$queryRaw(
+        const locked = await tx.$queryRaw<Array<{ id: string }>>(
           Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.projectId}::uuid FOR UPDATE`,
         );
-
-        const manager = await tx.projectMember.findUnique({
-          where: { projectId_userId: { projectId: input.projectId, userId: input.actorUserId } },
-          select: { role: true, revokedAt: true },
-        });
-        if (!manager || manager.revokedAt || (manager.role !== 'OWNER' && manager.role !== 'ADMIN'))
+        if (locked.length === 0)
           throw new WorkmeshError(
             V1_ERROR_CODES.RESOURCE_NOT_FOUND,
             'PROJECT_NOT_FOUND',
             { projectId: input.projectId },
             404,
+          );
+
+        const manager = await tx.projectMember.findUnique({
+          where: { projectId_userId: { projectId: input.projectId, userId: input.actorUserId } },
+          select: { role: true, revokedAt: true },
+        });
+        // 项目存在，但操作者不是成员：仍然按项目不存在处理，不泄露存在性。
+        if (!manager)
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'PROJECT_NOT_FOUND',
+            { projectId: input.projectId },
+            404,
+          );
+        // 是成员但没有管理权：403。早先与 PROJECT_NOT_FOUND 合并成 404，
+        // 会让有成员身份的人看到“项目不存在”，排查时被带偏。
+        if (manager.revokedAt || (manager.role !== 'OWNER' && manager.role !== 'ADMIN'))
+          throw new WorkmeshError(
+            V1_ERROR_CODES.FORBIDDEN,
+            'PROJECT_MANAGER_REQUIRED',
+            { projectId: input.projectId },
+            403,
           );
 
         const target = await tx.projectMember.findUnique({

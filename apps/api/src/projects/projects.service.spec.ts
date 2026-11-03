@@ -606,7 +606,7 @@ describe('ProjectsService role grants', () => {
     env = bootstrap();
   });
 
-  it('returns 404 PROJECT_NOT_FOUND for a non-manager member', async () => {
+  it('returns 403 PROJECT_MANAGER_REQUIRED for a non-manager member', async () => {
     const principal: V1Principal = {
       kind: 'HUMAN',
       userId: MEMBER_ID,
@@ -623,9 +623,9 @@ describe('ProjectsService role grants', () => {
         assignRequest(1),
         context(),
       ),
-      V1_ERROR_CODES.RESOURCE_NOT_FOUND,
-      'PROJECT_NOT_FOUND',
-      404,
+      V1_ERROR_CODES.FORBIDDEN,
+      'PROJECT_MANAGER_REQUIRED',
+      403,
     );
   });
 

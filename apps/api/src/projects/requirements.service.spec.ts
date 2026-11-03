@@ -18,8 +18,15 @@ function createHarness() {
     task: { findMany: vi.fn() },
     artifact: { findMany: vi.fn() },
     reviewRequest: { findMany: vi.fn() },
-    changeEvent: { findMany: vi.fn() },
+    changeEvent: { findMany: vi.fn(), create: vi.fn() },
+    changeRecipient: { createMany: vi.fn() },
+    workflowInstance: { findMany: vi.fn() },
+    $transaction: vi.fn(),
   };
+  // 事务直接复用同一个假客户端：这些用例断言的是“调用了什么”，不是隔离性。
+  prisma.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) =>
+    callback(prisma),
+  );
   const authorization = { resolveProjectContext: vi.fn(), requireScope: vi.fn() };
   const service = new RequirementsService(
     prisma as unknown as PrismaService,
@@ -173,6 +180,7 @@ describe('RequirementsService.detail', () => {
         updatedAt: new Date('2026-11-02T00:00:00.000Z'),
       });
     prisma.requirement.updateMany.mockResolvedValue({ count: 1 });
+    prisma.workflowInstance.findMany.mockResolvedValue([]);
 
     const result = await service.update(principal, 'p1', 'req-1', {
       expectedVersion: 2,
@@ -185,6 +193,43 @@ describe('RequirementsService.detail', () => {
       data: { title: '新标题', description: '补充描述', version: { increment: 1 } },
     });
     expect(result).toMatchObject({ title: '新标题', version: 3 });
+    // 该需求还没有流程实例时：只记录事件，不产生收件人。
+    expect(prisma.changeEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('需求内容变化时生成变更事件并通知受影响责任人（发起人除外）', async () => {
+    const { service, prisma, authorization } = createHarness();
+    authorization.resolveProjectContext.mockResolvedValue({ project: { archivedAt: null } });
+    authorization.requireScope.mockResolvedValue(undefined);
+    prisma.requirement.findFirst
+      .mockResolvedValueOnce({ id: 'req-1', projectId: 'p1', version: 2, title: '旧标题' })
+      .mockResolvedValueOnce({ id: 'req-1', projectId: 'p1', version: 3, title: '新标题' });
+    prisma.requirement.updateMany.mockResolvedValue({ count: 1 });
+    prisma.workflowInstance.findMany.mockResolvedValue([{ id: 'inst-1' }]);
+    prisma.task.findMany.mockResolvedValue([
+      { id: 'task-1', responsibleUserId: 'u-2', roleId: 'role-frontend' },
+      { id: 'task-2', responsibleUserId: 'u-1', roleId: 'role-frontend' },
+      { id: 'task-3', responsibleUserId: 'u-2', roleId: 'role-frontend' },
+    ]);
+    prisma.changeEvent.create.mockResolvedValue({ id: 'event-1' });
+
+    await service.update(principal, 'p1', 'req-1', { expectedVersion: 2, title: '新标题' });
+
+    expect(prisma.changeEvent.create).toHaveBeenCalledWith({
+      data: {
+        projectId: 'p1',
+        requirementId: 'req-1',
+        sourceKind: 'REQUIREMENT_UPDATE',
+        sourceId: 'req-1',
+        changedFields: ['title'],
+        targets: { taskIds: ['task-1', 'task-2', 'task-3'] },
+      },
+      select: { id: true },
+    });
+    // 同一人同角色只通知一次，发起人 u-1 不收件。
+    expect(prisma.changeRecipient.createMany).toHaveBeenCalledWith({
+      data: [{ projectId: 'p1', eventId: 'event-1', userId: 'u-2', roleId: 'role-frontend' }],
+    });
   });
 
   it('版本不匹配时返回 409，不写入', async () => {
