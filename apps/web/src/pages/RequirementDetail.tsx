@@ -28,18 +28,46 @@ import {
 
 type DetailTab = 'overview' | 'tasks' | 'artifacts' | 'changes' | 'prd' | 'reviews' | 'trace';
 
-const DETAIL_TABS: Array<{ key: DetailTab; label: string }> = [
-  { key: 'overview', label: '概览' },
-  { key: 'artifacts', label: '交付物' },
-  { key: 'tasks', label: '任务' },
-  { key: 'changes', label: '变更' },
-  { key: 'prd', label: 'PRD' },
-  { key: 'reviews', label: '评审' },
-  { key: 'trace', label: '追溯' },
+/**
+ * 需求详情阶段条：编号 + 名称 + 产出物 + 计数。
+ * 借鉴 61X 课件 p18 的五步流程条：先看「走到哪一步」，再决定点进哪一段。
+ */
+const DETAIL_STAGES: Array<{ key: DetailTab; label: string; sub: string }> = [
+  { key: 'overview', label: '概览', sub: '事实与状态' },
+  { key: 'artifacts', label: '交付物', sub: '工件与证据' },
+  { key: 'tasks', label: '任务', sub: '工序与责任人' },
+  { key: 'changes', label: '变更', sub: '影响与传播' },
+  { key: 'prd', label: 'PRD', sub: '已发布需求' },
+  { key: 'reviews', label: '评审', sub: '签字与决定' },
+  { key: 'trace', label: '追溯', sub: '来源与去向' },
 ];
 
+function stageCountOf(
+  key: DetailTab,
+  detail: { counts: { tasks: number; artifacts: number; changes: number; reviews: number } },
+  prdCount: number,
+  traceCount: number,
+): number | null {
+  switch (key) {
+    case 'overview':
+      return null;
+    case 'tasks':
+      return detail.counts.tasks;
+    case 'artifacts':
+      return detail.counts.artifacts;
+    case 'changes':
+      return detail.counts.changes;
+    case 'prd':
+      return prdCount;
+    case 'reviews':
+      return detail.counts.reviews;
+    case 'trace':
+      return traceCount;
+  }
+}
+
 function isDetailTab(value: string | null): value is DetailTab {
-  return value !== null && DETAIL_TABS.some((item) => item.key === value);
+  return value !== null && DETAIL_STAGES.some((item) => item.key === value);
 }
 
 type GateState = 'done' | 'current' | 'todo' | 'na';
@@ -591,34 +619,34 @@ export function RequirementDetail({
         ))}
       </div>
 
-      <div className="req-tabs" role="tablist" aria-label="需求详情">
-        {DETAIL_TABS.map((item) => (
-          <button
-            key={item.key}
-            role="tab"
-            aria-selected={tab === item.key}
-            className={`req-tab${tab === item.key ? ' is-active' : ''}`}
-            onClick={() => changeTab(item.key)}
-          >
-            {item.label}
-            {item.key !== 'overview' && (
-              <span>
-                {item.key === 'tasks'
-                  ? detail.counts.tasks
-                  : item.key === 'artifacts'
-                    ? detail.counts.artifacts
-                    : item.key === 'changes'
-                      ? detail.counts.changes
-                      : item.key === 'prd'
-                        ? prdDocs.length
-                        : item.key === 'reviews'
-                          ? detail.counts.reviews
-                          : trace.length}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+      <ol className="req-stages" role="tablist" aria-label="需求详情">
+        {DETAIL_STAGES.map((item, index) => {
+          const count = stageCountOf(item.key, detail, prdDocs.length, trace.length);
+          const active = tab === item.key;
+          const done = count !== null && count > 0;
+          return (
+            <li
+              key={item.key}
+              className={`req-stage${active ? ' is-active' : ''}${done ? ' is-done' : ''}`}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className="req-stage-btn"
+                onClick={() => changeTab(item.key)}
+              >
+                <span className="req-stage-index">{String(index + 1).padStart(2, '0')}</span>
+                <span className="req-stage-text">
+                  <span className="req-stage-label">{item.label}</span>
+                  <span className="req-stage-sub">{item.sub}</span>
+                </span>
+                {count !== null && <span className="req-stage-count">{count}</span>}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
 
       <div className="req-layout">
         <div className="req-main">

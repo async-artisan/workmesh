@@ -782,6 +782,125 @@ input[type='radio'] {
   color: #0891b2;
 }
 
+/* 需求详情阶段条：编号 + 名称 + 产出物 + 计数（参考 61X 课件的步骤条） */
+.req-stages {
+  display: flex;
+  gap: 0;
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 4px 0 10px;
+  border-bottom: 1px solid #e2e8f0;
+  overflow-x: auto;
+}
+
+.req-stage {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 128px;
+  padding-right: 10px;
+}
+
+.req-stage:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 13px;
+  right: 0;
+  width: 10px;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.req-stage-btn {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 6px 2px 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: #64748b;
+}
+
+.req-stage-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  color: #94a3b8;
+  font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.06em;
+}
+
+.req-stage-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 1px;
+}
+
+.req-stage-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.req-stage-sub {
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.req-stage-count {
+  font-size: 11px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+  padding-top: 2px;
+}
+
+.req-stage:hover .req-stage-label {
+  color: #0e7490;
+}
+
+.req-stage.is-done .req-stage-index {
+  border-color: #67e8f9;
+  color: #0e7490;
+  background: #ecfeff;
+}
+
+.req-stage.is-done .req-stage-count {
+  color: #0891b2;
+}
+
+.req-stage.is-active .req-stage-index {
+  border-color: #0891b2;
+  background: #0891b2;
+  color: #fff;
+}
+
+.req-stage.is-active .req-stage-label {
+  color: #0e7490;
+}
+
+.req-stage.is-active .req-stage-sub {
+  color: #0891b2;
+}
+
+@media (max-width: 720px) {
+  .req-stage {
+    min-width: 150px;
+    flex: 0 0 auto;
+  }
+}
+
 .detail-card {
   color: #475569;
 }
