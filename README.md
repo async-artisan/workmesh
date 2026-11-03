@@ -24,7 +24,8 @@ pnpm 10.28.2 + Turborepo 的 monorepo：
 - **评审与变更**：工作台待办与证据卡、逐条/批量决定、变更请求分级与传播、发布候选冻结。
 - **知识与度量**：三类知识库（BUSINESS / SYSTEM / PRACTICE）字段、流程度量接口 `GET /projects/:id/metrics/flow`。
 - **项目治理**：代码仓库登记、自定义角色、成员与角色指派。
-- **文档**：[本地运行](docs/local-dev.md) · [开发计划](docs/dev-plan.md) · [API 清单](docs/api.md) · [流程度量](docs/metrics.md) · [审批工位](docs/design/approval-workstation.md) · [迁移路线](docs/migration-plan.md) · [阻塞项](BLOCKED.md)。
+- **一个盒子**：`workmesh-box status` / `dev` / `backup` / `restore`，三平台共用一份实现（Windows 已实测，Linux/macOS 适配器已实现待验收），见 [docs/box.md](docs/box.md)。
+- **文档**：[本地运行](docs/local-dev.md) · [一个盒子](docs/box.md) · [开发计划](docs/dev-plan.md) · [API 清单](docs/api.md) · [流程度量](docs/metrics.md) · [审批工位](docs/design/approval-workstation.md) · [迁移路线](docs/migration-plan.md) · [阻塞项](BLOCKED.md)。
 
 ## 快速开始
 
@@ -32,6 +33,15 @@ pnpm 10.28.2 + Turborepo 的 monorepo：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev-local.ps1
+```
+
+也可以直接用 `workmesh-box`（三平台通用，先 `pnpm --filter @workmesh/box build`）：
+
+```powershell
+pnpm box status     # 版本/平台/数据库/端口/备份与检查项
+pnpm box doctor     # 只体检，关键项失败退出码 1
+pnpm box dev        # 起缺失的 PG/API/Web，已在监听则跳过
+pnpm box backup     # 备份到 <data-dir>/backups/<时间>/
 ```
 
 下面是手工步骤。`pnpm` 版本已由 `packageManager` 固定，可直接用 `pnpm`；若本机 `corepack` 因签名校验失败（`Cannot find matching keyid`），不要绕它，改用已安装的 pnpm 10.28.2。

@@ -11,6 +11,7 @@
   },
   "scripts": {
     "workmesh": "node apps/cli/dist/index.js",
+    "box": "node packages/box/dist/index.js",
     "build:role-packages": "pnpm --filter @workmesh/role-packages build",
     "dev": "turbo run dev",
     "dev:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-local.ps1",
