@@ -452,7 +452,7 @@ export class V1KnowledgeBasePrismaRepository implements V1KnowledgeBaseRepositor
 
           const consumed = await tx.$executeRaw(
             Prisma.sql`UPDATE "workmesh_v1"."ConfirmationTicket"
-              SET "consumedAt" = ${input.now}, "consumedRequestId" = gen_random_uuid()
+              SET "consumedAt" = ${input.now}, "consumedRequestId" = gen_random_uuid(), "consumedOperationId" = ${input.operation.id}::uuid
               WHERE "id" = ${input.ticket.id}::uuid
                 AND "secretHash" = ${input.ticket.secretHash}
                 AND "webSessionId" = ${input.ticket.webSessionId}::uuid

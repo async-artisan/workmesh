@@ -514,4 +514,194 @@ describe('ReviewDecision（证据 + 一次确认 + 回执）', () => {
     );
     expect(await screen.findByText(/CODE_REVIEW_EVIDENCE_MISSING/)).toBeInTheDocument();
   });
+
+  it.each([
+    ['刷新任务与需求上下文', false],
+    ['刷新上下文失败时仍保留成功回执', true],
+  ])('审批成功后%s', async (_scenario, failTaskRefresh) => {
+    const taskReview = {
+      ...review,
+      id: 'review-refresh',
+      kind: 'TASK_ACCEPTANCE',
+      documentRevisionId: null,
+      artifactSetId: 'set-refresh',
+      taskId: 'task-refresh',
+      subject: null,
+      slots: [],
+    };
+    let taskReads = 0;
+    let requirementReads = 0;
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = init?.method ?? 'GET';
+      if (path === '/api/v1/review-requests/review-refresh' && method === 'GET') {
+        return {
+          status: 200,
+          body: envelope({ ...taskReview, slots: [{ ...review.slots[0] }] }),
+        };
+      }
+      if (path === '/api/v1/artifact-sets/set-refresh' && method === 'GET') {
+        return {
+          status: 200,
+          body: envelope({
+            id: 'set-refresh',
+            taskId: 'task-refresh',
+            taskGeneration: 1,
+            snapshotId: 'snap-refresh',
+            manifestDigest: 'a'.repeat(64),
+            workflowDefinitionRevisionId: 'wf-refresh',
+            localRunId: 'run-refresh',
+            candidateRevisionIds: [],
+            createdAt: '',
+            artifacts: [],
+            codeReview: { required: false, acceptable: true, evidence: [] },
+          }),
+        };
+      }
+      if (path === '/api/v1/tasks/task-refresh' && method === 'GET') {
+        taskReads += 1;
+        if (failTaskRefresh && taskReads > 1) {
+          return {
+            status: 503,
+            body: { error: { code: 'TEMPORARY_UNAVAILABLE', message: '暂时无法刷新任务' } },
+          };
+        }
+        return {
+          status: 200,
+          body: envelope({
+            id: 'task-refresh',
+            projectId: 'p1',
+            workflowInstanceId: 'instance-refresh',
+            stepKey: 'release',
+            roleId: 'role-product',
+            responsibleUserId: 'alice@example.com',
+            version: taskReads > 1 ? 3 : 2,
+            generation: 1,
+            executionStatus: taskReads > 1 ? 'DONE' : 'REVIEW_PENDING',
+            workStatus: 'ACTIVE',
+            currentClaim: null,
+          }),
+        };
+      }
+      if (path === '/api/v1/workflow-instances/instance-refresh' && method === 'GET') {
+        return { status: 200, body: envelope({ requirementId: 'req-refresh' }) };
+      }
+      if (path === '/api/v1/projects/p1/requirements/req-refresh' && method === 'GET') {
+        requirementReads += 1;
+        return {
+          status: 200,
+          body: envelope({
+            requirement: {
+              id: 'req-refresh',
+              projectId: 'p1',
+              seq: 1,
+              code: 'YFF-REFRESH',
+              title: '审批后刷新需求',
+              description: null,
+              version: requirementReads > 1 ? 2 : 1,
+              generation: 1,
+              phase: requirementReads > 1 ? 'RELEASED' : 'DELIVERY',
+              workStatus: 'ACTIVE',
+              createdAt: '',
+              updatedAt: '',
+            },
+            tasks: [{ id: 'task-refresh', stepKey: 'release' }],
+            artifacts: [],
+            reviews: [],
+            changes: [],
+            acceptanceKeys: [],
+            counts: { tasks: 1, artifacts: 0, reviews: 1, changes: 0 },
+          }),
+        };
+      }
+      if (path === '/api/v1/auth/action-previews' && method === 'POST') {
+        return {
+          status: 201,
+          body: envelope({
+            binding: {},
+            actionDigest: 'digest-refresh',
+            display: {
+              action: 'REVIEW_DECIDE',
+              targetType: 'REVIEW_REQUEST',
+              targetId: 'review-refresh',
+              expectedVersion: 3,
+              projectId: 'p1',
+              roleSlot: { roleId: 'role-product', approvalSlotId: 'slot-1' },
+            },
+          }),
+        };
+      }
+      if (path === '/api/v1/auth/confirmation-tickets' && method === 'POST') {
+        return {
+          status: 201,
+          body: envelope({
+            ticketId: 'ticket-refresh',
+            ticketSecret: 'secret-refresh',
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            actionDigest: 'digest-refresh',
+          }),
+        };
+      }
+      if (path === '/api/v1/review-requests/review-refresh/decisions' && method === 'POST') {
+        return {
+          status: 201,
+          body: envelope({
+            review: {
+              ...taskReview,
+              status: 'APPROVED',
+              slots: [{ ...review.slots[0] }],
+              decisions: [
+                {
+                  id: 'decision-refresh',
+                  approvalSlotId: 'slot-1',
+                  decision: 'APPROVE',
+                  subjectDigest: 'd'.repeat(64),
+                  comment: null,
+                  createdById: 'u-1',
+                  createdAt: '2026-11-03T00:00:00.000Z',
+                  actor: { id: 'u-1', email: 'alice@example.com' },
+                },
+              ],
+            },
+            decisionId: 'decision-refresh',
+            published: true,
+            publicationId: 'pub-refresh',
+            documentVersion: null,
+            replayed: false,
+          }),
+        };
+      }
+      return undefined;
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/reviews/review-refresh']}>
+        <Routes>
+          <Route path="/reviews/:reviewId" element={<ReviewDecision />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText(/待签字/)).toBeInTheDocument();
+    expect(screen.getByText('交付')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '作出决定' }));
+    fireEvent.click(screen.getByRole('button', { name: /下一步：预览并验证/ }));
+    fireEvent.change(await screen.findByLabelText('确认密码'), { target: { value: 'secret' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证密码并签发票据' }));
+    fireEvent.click(await screen.findByRole('button', { name: '提交决定' }));
+
+    expect(await screen.findByText(/批准 · product/)).toBeInTheDocument();
+    expect(await screen.findByText('复制审计行')).toBeInTheDocument();
+    expect(taskReads).toBeGreaterThan(1);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    if (failTaskRefresh) {
+      expect(screen.getByText(/状态：待签字/)).toBeInTheDocument();
+      expect(screen.getByText('交付')).toBeInTheDocument();
+      expect(requirementReads).toBe(1);
+    } else {
+      expect(await screen.findByText(/已完成/)).toBeInTheDocument();
+      expect(await screen.findByText('已发布')).toBeInTheDocument();
+      expect(requirementReads).toBeGreaterThan(1);
+    }
+  });
 });

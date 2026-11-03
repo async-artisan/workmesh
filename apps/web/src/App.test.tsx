@@ -113,4 +113,51 @@ describe('App（cookie WebSession 引导）', () => {
     expect(useAuthStore.getState().status).toBe('anonymous');
     expect(Object.keys(localStorage).some((key) => /token|session|csrf/i.test(key))).toBe(false);
   });
+
+  it('生产邀请页把路径中的 token 传给 Invite，不请求空 token', async () => {
+    const mock = mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init);
+      if (path === '/api/health') return { status: 200, body: {} };
+      if (path === '/api/v1/auth/session' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope({
+            authenticated: false,
+            sessionId: 'invite-session',
+            expiresAt: '2026-12-01T00:00:00.000Z',
+            idleExpiresAt: '2026-11-02T00:00:00.000Z',
+            csrfToken: 'csrf-invite',
+          }),
+        };
+      if (path === '/api/v1/invitations/tok-1' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope({
+            id: 'inv-1',
+            status: 'PENDING',
+            project: { id: 'p1', key: 'DEMO', name: 'Demo' },
+            roles: [{ id: 'role-1', key: 'backend', title: '后端' }],
+            email: null,
+            expiresAt: '2026-12-01T00:00:00.000Z',
+            createdAt: '2026-11-03T00:00:00.000Z',
+          }),
+        };
+      return undefined;
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/invite/tok-1']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: '加入「Demo」' })).toBeInTheDocument();
+    expect(
+      mock.mock.calls.some(([url, init]) => pathOf(String(url)) === '/api/v1/invitations/tok-1' && methodOf(init ?? {}) === 'GET'),
+    ).toBe(true);
+    expect(
+      mock.mock.calls.some(([url]) => pathOf(String(url)) === '/api/v1/invitations/' ),
+    ).toBe(false);
+  });
 });

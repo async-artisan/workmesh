@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sha256Bytes } from '@workmesh/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildProgram, main, readOption } from './index';
+import { buildProgram, main, readOption, reviewSubjectOf } from './index';
 
 const PROJECT = '2f6c1c4b-6b0e-4f5d-9c2d-2b1b4b0f9b4a';
 const API = 'https://workmesh.example.com/api/v1';
@@ -20,6 +20,34 @@ describe('多词参数的键名兼容', () => {
   it('多段连字符同样兼容', () => {
     expect(readOption({ localRunId: 'run-1' }, 'local-run-id')).toBe('run-1');
     expect(readOption({ 'local-run-id': 'run-1' }, 'local-run-id')).toBe('run-1');
+  });
+});
+
+describe('review subject 互斥组合', () => {
+  const artifactSet = 'aed2efa2-ff73-45c1-8f8a-247ff33e1408';
+  const documentRevision = '89a90c56-3345-4834-b9de-bcdac7a4b668';
+
+  it('只提供 artifact-set 时接受 TASK_ARTIFACT_SET', () => {
+    expect(reviewSubjectOf(artifactSet, undefined)).toEqual({
+      kind: 'TASK_ARTIFACT_SET',
+      id: artifactSet,
+    });
+  });
+
+  it('只提供 document-revision 时接受 DOCUMENT_REVISION', () => {
+    expect(reviewSubjectOf(undefined, documentRevision)).toEqual({
+      kind: 'DOCUMENT_REVISION',
+      id: documentRevision,
+    });
+  });
+
+  it('两者都缺少或同时提供时拒绝', () => {
+    expect(() => reviewSubjectOf(undefined, undefined)).toThrow(
+      '必须且只能提供 --artifact-set 或 --document-revision',
+    );
+    expect(() => reviewSubjectOf(artifactSet, documentRevision)).toThrow(
+      '必须且只能提供 --artifact-set 或 --document-revision',
+    );
   });
 });
 

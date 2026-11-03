@@ -143,6 +143,15 @@ class MemoryGithubRepo implements V1GithubEvidenceRepository {
     return this.evidenceByReceipt.get(receiptId) ?? [];
   }
 
+  async completeReceipt(
+    receiptId: string,
+    status: string,
+    errorMessage: string | null,
+  ): Promise<void> {
+    await this.persistIdempotency();
+    await this.recordReceiptProcessed(receiptId, status, errorMessage);
+  }
+
   async findEvidenceByFingerprint(fingerprint: string): Promise<V1CodeReviewEvidenceRecord | null> {
     for (const row of this.evidence.values())
       if (row.evidenceFingerprint === fingerprint) return row;

@@ -45,7 +45,7 @@ WorkMesh 是面向本地 AI Agent 的证据驱动协作中枢。人类通过浏�
 
 ## 4. System Context / 系统上下文
 
-系统包含三个直接使用者：浏览器中的人类操作者、本地运行的 AI Agent、负责部署和维护的工程人员。浏览器和 CLI 都通过正式 `/api/v1` 协议访问 API；API 使用 PostgreSQL `workmesh_v1` schema，GitHub 通过 Webhook 与代码证据 API 接入；Redis 只是可选缓存，不承担正确性。
+系统包含三个直接使用者：浏览器中的人类操作者、本地运行的 AI Agent、负责部署和维护的工程人员。浏览器和 CLI 都通过正式 `/api/v1` 协议访问 API；API 使用 PostgreSQL `workmesh_v1` schema，GitHub 通过 Webhook 与代码证据 API 接入；当前实现未使用 Redis。
 
 详见根目录 `ARCHITECTURE_DIAGRAMS.md` 的系统上下文图、容器图和部署图。
 
@@ -163,7 +163,7 @@ apps/web ───────► /api/v1 ◄─────── apps/cli
 apps/api ───► @workmesh/shared
     ├──► NestJS / class-validator / Swagger
     ├──► Prisma Client ───► PostgreSQL(workmesh_v1)
-    └──► GitHub adapter / optional Redis
+    └──► GitHub adapter
 ```
 
 依赖边由 package manifest、imports、Vite proxy、AppModule imports 与 Prisma datasource 直接支持；GitHub live 运行未完成，不能把 live API 可用性当作已验证事实。
@@ -238,7 +238,7 @@ git diff --check
 - Web：Vitest + Testing Library + jsdom，覆盖页面与组件交互。
 - CLI/shared：Vitest，覆盖协议、配置、认证、上下文、收据、角色包和严格 JSON。
 - 隔离数据库：`scripts/test-integration.sh` 默认只读；`--apply-migrations` 是显式数据库写操作。
-- GitHub live：`scripts/test-github-live.mjs` 当前在未开启或 runner 未实现时跳过/阻断，不产生 GitHub 请求。
+- GitHub live：`scripts/test-github-live.mjs` 已实现显式开启后的只读真实 API 校验、reviews 分页与生产归一化；未配置授权仓库/PR 时跳过。该入口不验证真实 webhook 投递。浏览器验证入口为 `pnpm test:browser`。
 
 ## 12. How to Navigate the Codebase
 
@@ -276,7 +276,7 @@ git diff --check
 
 ### 验证说明
 
-本 Wiki 的关系依据来自 package manifests、imports、AppModule、Vite 配置、Prisma schema、公开 API 文档、测试文件和运行脚本。未能由这些证据确认的关系已标注为待核实；没有把可选 Redis 或未实现的 GitHub live runner 画成必经运行路径。
+本 Wiki 的关系依据来自 package manifests、imports、AppModule、Vite 配置、Prisma schema、公开 API 文档、测试文件和运行脚本。未能由这些证据确认的关系已标注为待核实；没有把未使用的 Redis 或可选 GitHub live 验收画成必经运行路径。
 
 ## 15. Suggested Architecture Improvements / 建议的架构改进
 

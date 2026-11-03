@@ -87,7 +87,10 @@ const WIRE_COLORS: Record<PipelineStatus, string> = {
 };
 
 function normalizeStatus(task: RequirementPipelineTask): PipelineStatus {
-  const status = task.workStatus ?? task.executionStatus ?? task.status;
+  // ACTIVE describes availability, not execution progress. It must not hide DONE or OPEN.
+  if (task.workStatus === 'CANCELLED') return 'skipped';
+  if (task.workStatus === 'BLOCKED' || task.workStatus === 'PAUSED') return 'blocked';
+  const status = task.executionStatus ?? task.status ?? task.workStatus;
   if (status === 'BLOCKED') return 'blocked';
   if (status === 'DONE' || status === 'DELIVERED' || status === 'APPROVED') return 'done';
   if (status === 'ACTIVE' || status === 'IN_PROGRESS' || status === 'REVIEW_PENDING')

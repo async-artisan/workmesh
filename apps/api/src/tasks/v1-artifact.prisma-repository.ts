@@ -13,6 +13,7 @@ import {
   assertCurrentRequirementGeneration,
   assertWorkflowInstanceActive,
 } from './v1-task-consistency-policy';
+import { acceptanceReviewKindOf, acceptanceSlotBindings } from '../reviews/v1-review-derivation';
 import {
   type V1ArtifactRepository,
   type V1ArtifactSetSnapshot,
@@ -87,17 +88,10 @@ export function mapCodeReviewEvidence(
   });
 }
 
-type DefinitionStep = {
-  key?: unknown;
-  gates?: Array<{ reviewerSlots?: unknown }>;
-};
-
-type SlotBinding = { slotKey: string; roleId: string; userId: string };
-
 /**
  * 工件交付仓储。交付只引用既有 ContextSnapshot：在同一 Serializable 事务内复核
  * 任务版本、代次、当前认领与当前快照，创建不可变 ArtifactSet/Artifact 与
- * TASK_ACCEPTANCE 评审，不自行把任务置为 DONE。
+ * 按当前步骤派生对应验收评审，不自行把任务置为 DONE。
  */
 @Injectable()
 export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
@@ -173,7 +167,7 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
         // retired workflow 的任务不得继续交付，历史交付仍可读取。
         const instance = await tx.workflowInstance.findFirst({
           where: { id: task.workflowInstanceId, projectId: task.projectId },
-          select: { retiredAt: true },
+          select: { retiredAt: true, bindings: true },
         });
         assertWorkflowInstanceActive(instance?.retiredAt, {
           taskId: task.id,
@@ -371,27 +365,39 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
         }
         if (itemRows.length > 0) await tx.artifactSetItem.createMany({ data: itemRows });
 
-        const slots = await this.acceptanceSlots(
-          tx,
-          task.id,
-          task.workflowInstanceId,
-          snapshot.workflowDefinitionRevisionId,
-          task.stepKey,
-        );
-        if (slots.length === 0)
+        const revision = await tx.workflowRevision.findUnique({
+          where: { id: snapshot.workflowDefinitionRevisionId },
+          select: { definition: true },
+        });
+        const reviewKind = revision
+          ? acceptanceReviewKindOf(revision.definition, task.stepKey)
+          : null;
+        const slots =
+          revision && instance && reviewKind
+            ? acceptanceSlotBindings(
+                revision.definition,
+                instance.bindings,
+                task.stepKey,
+                task.id,
+                reviewKind,
+              )
+            : [];
+        if (!reviewKind || slots.length === 0)
           throw new WorkmeshError(
             V1_ERROR_CODES.REVIEW_PRECONDITION_FAILED,
-            'TASK_ACCEPTANCE_GATE_REQUIRED',
-            { taskId: task.id, stepKey: task.stepKey },
+            reviewKind === 'RELEASE_ACCEPTANCE'
+              ? 'RELEASE_ACCEPTANCE_GATE_REQUIRED'
+              : 'TASK_ACCEPTANCE_GATE_REQUIRED',
+            { taskId: task.id, stepKey: task.stepKey, reviewKind },
             422,
           );
 
-        // 同一任务同一时刻只保留一个 OPEN 的任务验收请求。
+        // A new delivery invalidates any prior acceptance request on this task.
         await tx.reviewRequest.updateMany({
           where: {
             projectId: task.projectId,
             taskId: task.id,
-            kind: 'TASK_ACCEPTANCE',
+            kind: { in: ['TASK_ACCEPTANCE', 'RELEASE_ACCEPTANCE'] },
             status: 'OPEN',
           },
           data: { status: 'INVALIDATED' },
@@ -399,7 +405,7 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
         const review = await tx.reviewRequest.create({
           data: {
             projectId: task.projectId,
-            kind: 'TASK_ACCEPTANCE',
+            kind: reviewKind,
             artifactSetId: set.id,
             taskId: task.id,
             taskGeneration: task.generation,
@@ -413,7 +419,7 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
             projectId: task.projectId,
             reviewRequestId: review.id,
             slotKey: slot.slotKey,
-            kind: 'TASK_ACCEPTANCE',
+            kind: reviewKind,
             requiredUserId: slot.userId,
             requiredRoleId: slot.roleId,
             sourceSlotBindingId: null,
@@ -492,58 +498,6 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
-  }
-
-  /** 从已发布工作流定义与本实例的角色槽绑定派生 TASK_ACCEPTANCE 审批槽。 */
-  private async acceptanceSlots(
-    tx: V1TransactionClient,
-    taskId: string,
-    instanceId: string,
-    revisionId: string,
-    stepKey: string,
-  ): Promise<SlotBinding[]> {
-    const revision = await tx.workflowRevision.findUnique({
-      where: { id: revisionId },
-      select: { definition: true },
-    });
-    const instance = await tx.workflowInstance.findUnique({
-      where: { id: instanceId },
-      select: { bindings: true },
-    });
-    if (!revision || !instance) return [];
-    const definition = revision.definition as {
-      steps?: DefinitionStep[];
-      roleSlots?: Array<{ key?: unknown; kind?: unknown; roleKey?: unknown }>;
-    };
-    const bindings = (instance.bindings ?? {}) as { roleSlotBindings?: SlotBinding[] };
-    const roleSlotBindings = bindings.roleSlotBindings ?? [];
-    const step = (definition.steps ?? []).find((entry) => entry.key === stepKey);
-    if (!step) return [];
-    const slotKinds = new Map<string, string>();
-    for (const slot of definition.roleSlots ?? []) {
-      if (typeof slot.key === 'string' && typeof slot.kind === 'string')
-        slotKinds.set(slot.key, slot.kind);
-    }
-    const reviewerSlots = new Set<string>();
-    for (const gate of step.gates ?? []) {
-      for (const reviewer of Array.isArray(gate.reviewerSlots) ? gate.reviewerSlots : []) {
-        if (typeof reviewer === 'string' && slotKinds.get(reviewer) === 'TASK_ACCEPTANCE')
-          reviewerSlots.add(reviewer);
-      }
-    }
-    const resolved: SlotBinding[] = [];
-    for (const slotKey of [...reviewerSlots].sort()) {
-      const binding = roleSlotBindings.find((entry) => entry.slotKey === slotKey);
-      if (!binding)
-        throw new WorkmeshError(
-          V1_ERROR_CODES.REVIEW_PRECONDITION_FAILED,
-          'TASK_ACCEPTANCE_BINDING_MISSING',
-          { taskId, slotKey },
-          422,
-        );
-      resolved.push({ slotKey, roleId: binding.roleId, userId: binding.userId });
-    }
-    return resolved;
   }
 
   private toSetSnapshot(set: {

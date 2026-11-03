@@ -27,6 +27,24 @@ describe('workflow semantic validation', () => {
     expect(result.valid).toBe(true);
     expect(result.digest).toContain('"workflowKey":"demo"');
   });
+  it('rejects duplicate step keys', () => {
+    const result = validateWorkflowDefinition({
+      ...base,
+      steps: [
+        { key: 'draft', deps: [], outputKinds: [] },
+        { key: 'draft', deps: [], outputKinds: [] },
+        { key: 'release', kind: 'RELEASE', deps: [], outputKinds: [] },
+      ],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.digest).toBeNull();
+    expect(result.issues).toContainEqual({
+      path: '/steps/1/key',
+      code: 'DUPLICATE_KEY',
+      message: 'step key is duplicated',
+    });
+  });
   it('rejects unknown dependency and cycles', () => {
     const result = validateWorkflowDefinition({
       ...base,

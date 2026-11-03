@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { V1_ERROR_CODES, type Principal } from '@workmesh/shared';
 import { V1AuthorizationService, type V1AuthorizationRepository } from '../auth/v1-authorization';
 import { signGithubWebhookBody } from './v1-code-host-adapter';
@@ -76,6 +77,16 @@ class FakeEvidenceRepository implements V1GithubEvidenceRepository {
     return this.evidence.filter((row) => row.receiptId === receiptId).map((row) => row.id);
   }
 
+  async completeReceipt(
+    receiptId: string,
+    status: string,
+    errorMessage: string | null,
+    operation: V1PersistIdempotencyInput,
+  ): Promise<void> {
+    await this.persistIdempotency(operation);
+    await this.recordReceiptProcessed(receiptId, status, errorMessage);
+  }
+
   async findEvidenceByFingerprint(fingerprint: string): Promise<V1CodeReviewEvidenceRecord | null> {
     return this.evidence.find((row) => row.evidenceFingerprint === fingerprint) ?? null;
   }
@@ -117,6 +128,11 @@ class FakeEvidenceRepository implements V1GithubEvidenceRepository {
 
   async createVersionedTicket(
     _input: V1CreateVersionedTicketInput,
+    _operation: (ticket: {
+      ticketId: string;
+      secret: string;
+      expiresAt: Date;
+    }) => V1PersistIdempotencyInput,
   ): Promise<{ ticketId: string; secret: string; expiresAt: Date }> {
     throw new Error('not used');
   }
@@ -125,8 +141,12 @@ class FakeEvidenceRepository implements V1GithubEvidenceRepository {
     return null;
   }
 
-  async consumeVersionedTicket(_ticketId: string, _now: Date): Promise<void> {
-    return;
+  async consumeVersionedTicket(
+    _ticketId: string,
+    _projectId: string,
+    _now: Date,
+  ): Promise<boolean> {
+    return true;
   }
 
   async persistIdempotency(_input: V1PersistIdempotencyInput): Promise<void> {
@@ -217,16 +237,256 @@ function context(idempotencyKey: string, operationId: string): V1WebhookReceiveC
 function serviceWith(
   repository: V1GithubEvidenceRepository,
   secret = SECRET,
+  operations = idempotencyRepository,
+  ticketKey = 'a'.repeat(64),
 ): V1GithubEvidenceService {
   return new V1GithubEvidenceService(
     repository,
     new V1AuthorizationService(authorizationRepository),
-    idempotencyRepository,
+    operations,
     secret,
+    ticketKey,
   );
 }
 
 describe('v1 github evidence delivery idempotency', () => {
+  function prepareFixture() {
+    const repository = new FakeEvidenceRepository();
+    const input = {
+      artifactSetId: 'artifact-1',
+      repositoryId: 'repo-1',
+      changeRequestId: 'change-1',
+      headSha: HEAD_SHA,
+      generation: 1,
+    };
+    vi.spyOn(repository, 'findArtifactSet').mockResolvedValue({
+      id: 'artifact-1',
+      projectId: 'project-1',
+      taskGeneration: 1,
+      manifestDigest: 'd'.repeat(64),
+    });
+    const approved: V1CodeReviewEvidenceRecord = {
+      id: 'approved-1',
+      projectId: 'project-1',
+      repositoryId: 'repo-1',
+      changeRequestId: 'change-1',
+      headSha: HEAD_SHA,
+      authorExternalId: 'author',
+      reviewerExternalId: 'reviewer',
+      reviewerKind: 'USER',
+      state: 'APPROVED',
+      commitSha: HEAD_SHA,
+      submittedAt: NOW,
+      reviewExternalId: 'review-1',
+      artifactSetId: 'artifact-1',
+      evidenceFingerprint: 'f'.repeat(64),
+      receiptId: null,
+      createdAt: NOW,
+    };
+    vi.spyOn(repository, 'findApprovedEvidenceForHead').mockResolvedValue(approved);
+    const create = vi
+      .spyOn(repository, 'createVersionedTicket')
+      .mockImplementation(async (_input, operation) => {
+        const ticket = {
+          ticketId: 'ticket-1',
+          secret: 'ticket-secret',
+          expiresAt: new Date(NOW.getTime() + 60_000),
+        };
+        await repository.persistIdempotency(operation(ticket));
+        return ticket;
+      });
+    const persist = vi.spyOn(repository, 'persistIdempotency');
+    const operations: V1IdempotencyRepository = {
+      findOperation: async () => {
+        const record = persist.mock.calls.at(-1)?.[0];
+        return record ? { ...record, committedAt: NOW } : null;
+      },
+    };
+    const prepareContext = {
+      ...context('prepare-1', 'operation-1'),
+      route: '/prepare',
+      body: input,
+    };
+    return { repository, input, approved, create, persist, operations, prepareContext };
+  }
+
+  it('encrypts persisted ticket secrets and replays the same response without creating another ticket', async () => {
+    const f = prepareFixture();
+    const service = serviceWith(f.repository, SECRET, f.operations);
+    const first = await service.prepareCodeEvidence(
+      principal,
+      'project-1',
+      f.input,
+      f.prepareContext,
+    );
+    const stored = f.persist.mock.calls[0][0].resultRefs;
+    expect(stored).not.toHaveProperty('secret');
+    expect(JSON.stringify(stored)).not.toContain('ticket-secret');
+    expect(stored.encryptedSecret).toEqual(expect.stringMatching(/^v1\./));
+    const replay = await service.prepareCodeEvidence(
+      principal,
+      'project-1',
+      f.input,
+      f.prepareContext,
+    );
+    expect(replay).toEqual({ ...first, replayed: true });
+    expect(f.create).toHaveBeenCalledTimes(1);
+    stored.encryptedSecret = 'tampered';
+    await expect(
+      service.prepareCodeEvidence(principal, 'project-1', f.input, f.prepareContext),
+    ).rejects.toMatchObject({ status: 409, message: 'CODE_EVIDENCE_TICKET_REPREPARE_REQUIRED' });
+    delete stored.encryptedSecret;
+    stored.secret = 'legacy-plaintext';
+    await expect(
+      service.prepareCodeEvidence(principal, 'project-1', f.input, f.prepareContext),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('fails before creating a ticket when the deployment encryption key is missing', async () => {
+    const f = prepareFixture();
+    await expect(
+      serviceWith(f.repository, SECRET, f.operations, '').prepareCodeEvidence(
+        principal,
+        'project-1',
+        f.input,
+        f.prepareContext,
+      ),
+    ).rejects.toMatchObject({ status: 503, message: 'TICKET_ENCRYPTION_KEY_REQUIRED' });
+    expect(f.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses stale artifact generations and evidence belonging to another project', async () => {
+    const f = prepareFixture();
+    const service = serviceWith(f.repository, SECRET, f.operations);
+    await expect(
+      service.prepareCodeEvidence(
+        principal,
+        'project-1',
+        { ...f.input, generation: 2 },
+        f.prepareContext,
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+    vi.mocked(f.repository.findApprovedEvidenceForHead).mockResolvedValue({
+      ...f.approved,
+      projectId: 'project-2',
+    });
+    await expect(
+      service.prepareCodeEvidence(principal, 'project-1', f.input, f.prepareContext),
+    ).rejects.toMatchObject({ status: 422 });
+    expect(f.create).not.toHaveBeenCalled();
+  });
+
+  function versionedTicket(): V1VersionedTicketRecord {
+    return {
+      id: 'ticket-1',
+      projectId: 'project-1',
+      evidenceId: 'evidence-1',
+      repositoryId: 'repo-1',
+      changeRequestId: 'change-1',
+      headSha: HEAD_SHA,
+      artifactSetId: 'artifact-1',
+      generation: 1,
+      preparedSecretHash: createHash('sha256').update('ticket-secret').digest('hex'),
+      preparedExpiresAt: new Date(NOW.getTime() + 60_000),
+    };
+  }
+
+  const useInput = {
+    ticketId: 'ticket-1',
+    secret: 'ticket-secret',
+    artifactSetId: 'artifact-1',
+    headSha: HEAD_SHA,
+    generation: 1,
+  };
+
+  it('does not disclose or consume a ticket owned by another project', async () => {
+    const repository = new FakeEvidenceRepository();
+    vi.spyOn(repository, 'findVersionedTicket').mockResolvedValue(versionedTicket());
+    const consume = vi.spyOn(repository, 'consumeVersionedTicket');
+    await expect(
+      serviceWith(repository).useVersionedTicket(principal, 'project-2', useInput, { now: NOW }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(consume).not.toHaveBeenCalled();
+  });
+
+  it('rejects the losing consumer when a valid ticket was consumed concurrently', async () => {
+    const repository = new FakeEvidenceRepository();
+    vi.spyOn(repository, 'findVersionedTicket').mockResolvedValue(versionedTicket());
+    const consume = vi.spyOn(repository, 'consumeVersionedTicket').mockResolvedValue(false);
+    await expect(
+      serviceWith(repository).useVersionedTicket(principal, 'project-1', useInput, { now: NOW }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(consume).toHaveBeenCalledWith('ticket-1', 'project-1', NOW);
+  });
+
+  it('returns the evidence only after successful conditional consumption', async () => {
+    const repository = new FakeEvidenceRepository();
+    vi.spyOn(repository, 'findVersionedTicket').mockResolvedValue(versionedTicket());
+    await expect(
+      serviceWith(repository).useVersionedTicket(principal, 'project-1', useInput, { now: NOW }),
+    ).resolves.toMatchObject({ evidenceId: 'evidence-1', repositoryId: 'repo-1' });
+  });
+  it('keeps a delivery resumable when completion persistence fails', async () => {
+    const repository = new FakeEvidenceRepository();
+    const service = serviceWith(repository);
+    vi.spyOn(repository, 'persistIdempotency').mockRejectedValueOnce(new Error('commit failed'));
+    await expect(
+      service.receiveWebhook(principal, 'project-1', receiveInput(), context('key-1', 'op-1')),
+    ).rejects.toThrow('commit failed');
+    expect(repository.receipts[0].status).toBe('PENDING');
+    const result = await service.receiveWebhook(
+      principal,
+      'project-1',
+      receiveInput(),
+      context('key-1', 'op-2'),
+    );
+    expect(result.decision).toBe('VALID');
+    expect(repository.receipts).toHaveLength(1);
+    expect(repository.evidence).toHaveLength(1);
+    expect(repository.receipts[0].status).toBe('PROCESSED');
+  });
+
+  it('resumes a pending delivery after an evidence write fails', async () => {
+    const repository = new FakeEvidenceRepository();
+    const service = serviceWith(repository);
+    const evidence = repositoryEvidence();
+    evidence.reviews.push({ ...evidence.reviews[0], reviewId: '502', reviewerId: '2002' });
+    const input = receiveInput({ repositories: [evidence] });
+    const original = repository.recordEvidence.bind(repository);
+    vi.spyOn(repository, 'recordEvidence')
+      .mockImplementationOnce(original)
+      .mockRejectedValueOnce(new Error('temporary storage failure'))
+      .mockImplementation(original);
+
+    await expect(
+      service.receiveWebhook(principal, 'project-1', input, context('key-1', 'op-1')),
+    ).rejects.toThrow('temporary storage failure');
+    expect(repository.receipts[0].status).toBe('PENDING');
+    expect(repository.evidence).toHaveLength(1);
+
+    const result = await service.receiveWebhook(
+      principal,
+      'project-1',
+      input,
+      context('key-1', 'op-2'),
+    );
+    expect(result.decision).toBe('VALID');
+    expect(result.evidenceIds).toHaveLength(2);
+    expect(repository.receipts).toHaveLength(1);
+    expect(repository.evidence).toHaveLength(2);
+    expect(repository.receipts[0].status).toBe('PROCESSED');
+  });
+
+  it('rejects a delivery belonging to another project', async () => {
+    const repository = new FakeEvidenceRepository();
+    const service = serviceWith(repository);
+    await service.receiveWebhook(principal, 'project-1', receiveInput(), context('key-1', 'op-1'));
+    await expect(
+      service.receiveWebhook(principal, 'project-2', receiveInput(), context('key-2', 'op-2')),
+    ).rejects.toMatchObject({ message: 'WEBHOOK_REPLAY_CONFLICT', status: 409 });
+    expect(repository.receipts).toHaveLength(1);
+  });
+
   it('accepts a valid server-side HMAC signature', async () => {
     const repository = new FakeEvidenceRepository();
     const service = serviceWith(repository);

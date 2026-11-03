@@ -3,8 +3,16 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { assertCookieDeployment, resolveCookieMode } from './auth/v1-cookie-policy';
+import { RateLimiter } from './common/rate-limit';
 
 async function bootstrap() {
+  assertCookieDeployment(
+    resolveCookieMode(process.env.WORKMESH_COOKIE_MODE),
+    process.env.WORKMESH_PUBLIC_ORIGIN ?? 'http://127.0.0.1:5173',
+  );
+  const rateLimit = Number(process.env.RATE_LIMIT_MAX ?? 120);
+  const limiter = new RateLimiter(rateLimit, Number(process.env.RATE_LIMIT_BUCKETS ?? 10_000));
   const app = await NestFactory.create(AppModule, { rawBody: true });
   app.setGlobalPrefix('api');
   app.enableCors({ origin: process.env.WEB_ORIGIN ?? 'http://127.0.0.1:5173' });
@@ -16,7 +24,6 @@ async function bootstrap() {
   if (trustedProxies.length > 0) {
     app.getHttpAdapter().getInstance().set('trust proxy', trustedProxies);
   }
-  const buckets = new Map<string, { started: number; count: number }>();
   app.use(
     (
       request: { ip?: string },
@@ -26,19 +33,12 @@ async function bootstrap() {
       },
       next: () => void,
     ) => {
-      const now = Date.now();
       const key = request.ip ?? 'unknown';
-      const current = buckets.get(key);
-      const bucket =
-        !current || now - current.started >= 60_000 ? { started: now, count: 0 } : current;
-      bucket.count += 1;
-      buckets.set(key, bucket);
-      response.setHeader('X-RateLimit-Limit', process.env.RATE_LIMIT_MAX ?? '120');
-      response.setHeader(
-        'X-RateLimit-Remaining',
-        String(Math.max(0, Number(process.env.RATE_LIMIT_MAX ?? 120) - bucket.count)),
-      );
-      if (bucket.count > Number(process.env.RATE_LIMIT_MAX ?? 120)) {
+      const result = limiter.take(key);
+      response.setHeader('X-RateLimit-Limit', String(rateLimit));
+      response.setHeader('X-RateLimit-Remaining', String(result.remaining));
+      if (!result.allowed) {
+        response.setHeader('Retry-After', String(result.retryAfter));
         response.status(429).json({ message: '请求过于频繁' });
         return;
       }

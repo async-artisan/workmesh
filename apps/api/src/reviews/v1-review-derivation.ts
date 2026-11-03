@@ -23,8 +23,11 @@ export type V1AcceptanceSlotBinding = {
   userId: string;
 };
 
+export type V1AcceptanceReviewKind = 'TASK_ACCEPTANCE' | 'RELEASE_ACCEPTANCE';
+
 type DefinitionStep = {
   key?: unknown;
+  kind?: unknown;
   gates?: Array<{ reviewerSlots?: unknown }>;
 };
 
@@ -36,16 +39,31 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/** The release step has its own acceptance kind; every other step uses task acceptance. */
+export function acceptanceReviewKindOf(
+  definition: unknown,
+  stepKey: string,
+): V1AcceptanceReviewKind | null {
+  const definitionRecord = asRecord(definition);
+  if (!definitionRecord) return null;
+  const steps = Array.isArray(definitionRecord.steps)
+    ? (definitionRecord.steps as DefinitionStep[])
+    : [];
+  const step = steps.find((entry) => asRecord(entry)?.key === stepKey);
+  if (!step) return null;
+  return step.kind === 'RELEASE' ? 'RELEASE_ACCEPTANCE' : 'TASK_ACCEPTANCE';
+}
+
 /**
- * 从已发布 workflow revision 与本实例 bindings 派生 TASK_ACCEPTANCE 审批槽。
- * 规则与交付时 acceptanceSlots 一致：只有步骤门禁引用、且定义 kind 为 TASK_ACCEPTANCE 的
- * reviewerSlot 才生效；槽位绑定缺失按 422 拒绝，不静默跳过。
+ * Derive exactly the review slots qualified for this workflow step. A release cannot
+ * borrow ordinary TASK_ACCEPTANCE reviewers, and a missing binding fails closed.
  */
-export function taskAcceptanceSlotBindings(
+export function acceptanceSlotBindings(
   definition: unknown,
   bindings: unknown,
   stepKey: string,
   taskId: string,
+  reviewKind: V1AcceptanceReviewKind,
 ): V1AcceptanceSlotBinding[] {
   const definitionRecord = asRecord(definition);
   if (!definitionRecord) return [];
@@ -69,7 +87,7 @@ export function taskAcceptanceSlotBindings(
   for (const gate of Array.isArray(step.gates) ? step.gates : []) {
     const reviewerEntries = Array.isArray(gate?.reviewerSlots) ? gate.reviewerSlots : [];
     for (const reviewer of reviewerEntries) {
-      if (typeof reviewer === 'string' && slotKinds.get(reviewer) === 'TASK_ACCEPTANCE')
+      if (typeof reviewer === 'string' && slotKinds.get(reviewer) === reviewKind)
         reviewerSlots.add(reviewer);
     }
   }
@@ -88,13 +106,23 @@ export function taskAcceptanceSlotBindings(
     if (typeof roleId !== 'string' || typeof userId !== 'string')
       throw new WorkmeshError(
         V1_ERROR_CODES.REVIEW_PRECONDITION_FAILED,
-        'TASK_ACCEPTANCE_BINDING_MISSING',
+        `${reviewKind}_BINDING_MISSING`,
         { taskId, slotKey },
         422,
       );
     resolved.push({ slotKey, roleId, userId });
   }
   return resolved;
+}
+
+/** Backward-named helper retained for ordinary task-acceptance call sites and tests. */
+export function taskAcceptanceSlotBindings(
+  definition: unknown,
+  bindings: unknown,
+  stepKey: string,
+  taskId: string,
+): V1AcceptanceSlotBinding[] {
+  return acceptanceSlotBindings(definition, bindings, stepKey, taskId, 'TASK_ACCEPTANCE');
 }
 
 export function encodeReviewCursor(value: { createdAt: Date; id: string }): string {

@@ -8,6 +8,8 @@ import {
   documentReviewKindOf,
   encodeReviewCursor,
   reviewListWhere,
+  acceptanceReviewKindOf,
+  acceptanceSlotBindings,
   taskAcceptanceSlotBindings,
 } from './v1-review-derivation';
 import type {
@@ -773,6 +775,53 @@ describe('taskAcceptanceSlotBindings', () => {
         'task-1',
       ),
     ).toThrowError(/TASK_ACCEPTANCE_BINDING_MISSING/);
+  });
+
+  it('keeps RELEASE_ACCEPTANCE separate from the ordinary task acceptance gate', () => {
+    const releaseDefinition = {
+      steps: [
+        {
+          key: 'release',
+          kind: 'RELEASE',
+          gates: [{ reviewerSlots: ['qa', 'release-owner'] }],
+        },
+      ],
+      roleSlots: [
+        { key: 'qa', kind: 'TASK_ACCEPTANCE' },
+        { key: 'release-owner', kind: 'RELEASE_ACCEPTANCE' },
+      ],
+    };
+    const releaseBindings = {
+      roleSlotBindings: [
+        { slotKey: 'qa', roleId: 'role-qa', userId: 'qa-user' },
+        { slotKey: 'release-owner', roleId: 'role-ops', userId: 'release-user' },
+      ],
+    };
+
+    const kind = acceptanceReviewKindOf(releaseDefinition, 'release');
+    expect(kind).toBe('RELEASE_ACCEPTANCE');
+    expect(
+      acceptanceSlotBindings(releaseDefinition, releaseBindings, 'release', 'release-task', kind!),
+    ).toEqual([{ slotKey: 'release-owner', roleId: 'role-ops', userId: 'release-user' }]);
+    expect(
+      taskAcceptanceSlotBindings(releaseDefinition, releaseBindings, 'release', 'release-task'),
+    ).toEqual([{ slotKey: 'qa', roleId: 'role-qa', userId: 'qa-user' }]);
+  });
+
+  it('fails closed when the release reviewer binding is missing', () => {
+    const releaseDefinition = {
+      steps: [{ key: 'release', kind: 'RELEASE', gates: [{ reviewerSlots: ['release-owner'] }] }],
+      roleSlots: [{ key: 'release-owner', kind: 'RELEASE_ACCEPTANCE' }],
+    };
+    expect(() =>
+      acceptanceSlotBindings(
+        releaseDefinition,
+        { roleSlotBindings: [] },
+        'release',
+        'release-task',
+        'RELEASE_ACCEPTANCE',
+      ),
+    ).toThrowError(/RELEASE_ACCEPTANCE_BINDING_MISSING/);
   });
 });
 

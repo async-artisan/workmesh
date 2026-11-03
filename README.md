@@ -6,6 +6,8 @@ WorkMesh 让 AI 干的活有人签字、有据可查。团队每个角色在自�
 
 事实 · 证据 · 签字
 
+参与项目：[贡献指南](CONTRIBUTING.md) · [安全政策](SECURITY.md) · [行为准则](CODE_OF_CONDUCT.md) · [变更记录](CHANGELOG.md)。
+
 ## 技术栈
 
 pnpm 10.28.2 + Turborepo 的 monorepo：
@@ -52,7 +54,7 @@ pnpm --filter @workmesh/shared build
 pnpm --filter @workmesh/api exec prisma generate --schema prisma/schema.prisma
 ```
 
-配置 `WORKMESH_V1_DATABASE_URL` 指向显式选择的 PostgreSQL（本地开发的其余配置项见 `apps/api/.env.example`，需要 `WORKMESH_COOKIE_MODE=LOCAL_INSECURE` 才能用 loopback HTTP）。确认目标与回滚方式后按顺序应用迁移（当前 0001–0011）：
+配置 `WORKMESH_V1_DATABASE_URL` 指向显式选择的 PostgreSQL（本地开发的其余配置项见 `apps/api/.env.example`，需要 `WORKMESH_COOKIE_MODE=LOCAL_INSECURE` 才能用 loopback HTTP）。确认目标与回滚方式后按顺序应用迁移（当前 0001–0012）：
 
 ```bash
 pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/schema.prisma
@@ -145,4 +147,4 @@ git diff --check
 
 ## 当前状态
 
-当前为可自部署的开发版。真实 PostgreSQL 迁移与并发约束、浏览器 E2E、GitHub live 尚未验证，完整边界见 [docs/phase-status.md](docs/phase-status.md)；在完成这些验证之前，不要把它当作已上线的生产系统。
+当前为可自部署的开发版。2026-11-03 已完成 Windows 本机隔离安装、真实 PostgreSQL 迁移与并发集成、三人团队 CLI/Web 交付返修与发布、备份恢复的验收，过程与边界见 [本机部署与团队使用验收报告](docs/testing/team-acceptance-2026-11-03.md)。浏览器操作为本次人工式逐步验收；GitHub live、公网生产配置、远程多机及性能稳定性尚未完成验证，不能据此视为已上线的生产系统。

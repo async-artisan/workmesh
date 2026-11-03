@@ -1,7 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { V1GithubEvidenceController } from './v1-github-evidence.controller';
-import { V1GithubEvidenceService, V1_GITHUB_WEBHOOK_SECRET } from './v1-github-evidence.service';
+import {
+  V1GithubEvidenceService,
+  V1_GITHUB_WEBHOOK_SECRET,
+  V1_TICKET_ENCRYPTION_KEY,
+} from './v1-github-evidence.service';
 import { V1GithubEvidencePrismaRepository } from './v1-github-evidence.prisma-repository';
 import { V1_GITHUB_EVIDENCE_REPOSITORY } from './v1-github-evidence.repository';
 import { V1_IDEMPOTENCY_REPOSITORY } from '../common/v1-idempotency';
@@ -11,6 +15,12 @@ import { V1IdempotencyPrismaRepository } from '../common/v1-idempotency.prisma-r
   controllers: [V1GithubEvidenceController],
   providers: [
     V1GithubEvidenceService,
+    {
+      provide: V1_TICKET_ENCRYPTION_KEY,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        config.get<string>('WORKMESH_TICKET_ENCRYPTION_KEY') ?? '',
+    },
     { provide: V1_GITHUB_EVIDENCE_REPOSITORY, useClass: V1GithubEvidencePrismaRepository },
     { provide: V1_IDEMPOTENCY_REPOSITORY, useClass: V1IdempotencyPrismaRepository },
     {

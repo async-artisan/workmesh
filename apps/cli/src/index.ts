@@ -133,6 +133,19 @@ function positiveVersion(options: Options, key: string): number {
   return value;
 }
 
+export function reviewSubjectOf(
+  artifactSet: string | undefined,
+  revision: string | undefined,
+): { kind: 'TASK_ARTIFACT_SET'; id: string } | { kind: 'DOCUMENT_REVISION'; id: string } {
+  const hasArtifactSet = artifactSet !== undefined;
+  const hasRevision = revision !== undefined;
+  if (hasArtifactSet === hasRevision)
+    throw new CliError('INVALID_REQUEST', '必须且只能提供 --artifact-set 或 --document-revision');
+  return hasArtifactSet
+    ? { kind: 'TASK_ARTIFACT_SET', id: assertUuid(artifactSet ?? '', '--artifact-set') }
+    : { kind: 'DOCUMENT_REVISION', id: assertUuid(revision ?? '', '--document-revision') };
+}
+
 function workspaceDirOf(options: Options): string {
   return resolve(str(options, 'dir') ?? process.cwd());
 }
@@ -1227,20 +1240,17 @@ function buildProgram(): Command {
       .requiredOption('--expected-version <n>', 'subject version expected by this request')
       .option('--operation <uuid>', 'reuse an existing Idempotency-Key for retry'),
   ).action(async (raw: Options, command: Command) => {
-    const connection = await connect(command);
     const artifactSet = str(raw, 'artifact-set');
     const revision = str(raw, 'document-revision');
-    if (!artifactSet !== !revision)
-      throw new CliError('INVALID_REQUEST', '必须且只能提供 --artifact-set 或 --document-revision');
+    const subject = reviewSubjectOf(artifactSet, revision);
     const expectedVersion = positiveVersion(raw, 'expected-version');
     const taskId = str(raw, 'task');
     const body = {
-      subject: artifactSet
-        ? { kind: 'TASK_ARTIFACT_SET', id: assertUuid(artifactSet, '--artifact-set') }
-        : { kind: 'DOCUMENT_REVISION', id: assertUuid(revision, '--document-revision') },
+      subject,
       expectedVersion,
       ...(taskId ? { taskId: assertUuid(taskId, '--task') } : {}),
     };
+    const connection = await connect(command);
     const written = await writeWithReceipt(connection, command, {
       method: 'POST',
       route: '/review-requests',

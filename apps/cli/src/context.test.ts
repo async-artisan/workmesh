@@ -132,50 +132,60 @@ describe('materializeSnapshot', () => {
     { refId: 'knowledge:doc-b', body: '{"a":1}\n', mediaType: 'application/json' },
   ];
 
-  it('全部 bytes 校验后原子落盘，并写 current.json 与安全文件名', async () => {
-    const dir = await workspace();
-    const snapshot = await buildSnapshot(fixtures);
-    const result = await materializeSnapshot({
-      client: makeClient(snapshot, bodyMap(fixtures)),
-      workspaceDir: dir,
-      snapshot,
-      now: () => new Date('2026-01-01T00:00:00.000Z'),
-    });
-    expect(result.reused).toBe(false);
-    expect(result.path).toBe(join(dir, '.workmesh', 'context', SNAPSHOT));
-    const names = await readdir(result.path);
-    expect(names.sort()).toEqual([
-      '001-candidate_revision-a.md',
-      '002-knowledge_doc-b.json',
-      'input-receipt.json',
-      'manifest.json',
-    ]);
-    for (const name of names) {
-      expect(name).not.toContain('/');
-      expect(name).not.toContain('..');
-    }
-    const current = JSON.parse(
-      await readFile(join(dir, '.workmesh', 'context', 'current.json'), 'utf8'),
-    ) as Record<string, unknown>;
-    expect(current.snapshotId).toBe(SNAPSHOT);
-    expect(current.manifestDigest).toBe(snapshot.manifestDigest);
-    const receipt = JSON.parse(await readFile(join(result.path, 'input-receipt.json'), 'utf8')) as {
-      files: Array<{ name: string; refId: string; sha256: string }>;
-    };
-    expect(receipt.files.map((file) => file.refId)).toEqual([
-      'candidate:revision-a',
-      'knowledge:doc-b',
-      'manifest',
-    ]);
-    const info = await stat(join(result.path, 'manifest.json'));
-    if (IS_WINDOWS) {
-      // Windows 没有 mode 位，等价保证是“只授予当前用户”的 NTFS DACL。
-      await expect(verifyWindowsPath(join(result.path, 'manifest.json'))).resolves.toBeUndefined();
-      expect(info.isFile()).toBe(true);
-    } else {
-      expect(info.mode & 0o777).toBe(0o600);
-    }
-  });
+  it(
+    '全部 bytes 校验后原子落盘，并写 current.json 与安全文件名',
+    async () => {
+      const dir = await workspace();
+      const snapshot = await buildSnapshot(fixtures);
+      const result = await materializeSnapshot({
+        client: makeClient(snapshot, bodyMap(fixtures)),
+        workspaceDir: dir,
+        snapshot,
+        now: () => new Date('2026-01-01T00:00:00.000Z'),
+      });
+      expect(result.reused).toBe(false);
+      expect(result.path).toBe(join(dir, '.workmesh', 'context', SNAPSHOT));
+      const names = await readdir(result.path);
+      expect(names.sort()).toEqual([
+        '001-candidate_revision-a.md',
+        '002-knowledge_doc-b.json',
+        'input-receipt.json',
+        'manifest.json',
+      ]);
+      for (const name of names) {
+        expect(name).not.toContain('/');
+        expect(name).not.toContain('..');
+      }
+      const current = JSON.parse(
+        await readFile(join(dir, '.workmesh', 'context', 'current.json'), 'utf8'),
+      ) as Record<string, unknown>;
+      expect(current.snapshotId).toBe(SNAPSHOT);
+      expect(current.manifestDigest).toBe(snapshot.manifestDigest);
+      const receipt = JSON.parse(
+        await readFile(join(result.path, 'input-receipt.json'), 'utf8'),
+      ) as {
+        files: Array<{ name: string; refId: string; sha256: string }>;
+      };
+      expect(receipt.files.map((file) => file.refId)).toEqual([
+        'candidate:revision-a',
+        'knowledge:doc-b',
+        'manifest',
+      ]);
+      const info = await stat(join(result.path, 'manifest.json'));
+      if (IS_WINDOWS) {
+        // Windows 没有 mode 位，等价保证是“只授予当前用户”的 NTFS DACL。
+        await expect(
+          verifyWindowsPath(join(result.path, 'manifest.json')),
+        ).resolves.toBeUndefined();
+        expect(info.isFile()).toBe(true);
+      } else {
+        expect(info.mode & 0o777).toBe(0o600);
+      }
+      // This exercises real icacls processes for several files. Under the full
+      // Windows workspace run, native process startup can exceed Vitest's 5s default.
+    },
+    IS_WINDOWS ? 20_000 : 5_000,
+  );
 
   it('资源摘要与 manifest 不一致时失败，且不切 current.json', async () => {
     const dir = await workspace();

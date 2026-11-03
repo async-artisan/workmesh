@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { RolePackageManifest } from '@workmesh/shared';
-import { runSetup, resolveRolePackageDir } from './setup';
+import { defaultRoleRoots, runSetup, resolveRolePackageDir } from './setup';
 
 const manifest = {
   id: 'workmesh.role.backend',
@@ -70,6 +70,22 @@ describe('resolveRolePackageDir', () => {
     await expect(resolveRolePackageDir('backend', { roots: [root] })).resolves.toBe(
       join(root, 'backend'),
     );
+  });
+
+  it('从发行 ZIP 的 runtime/node.exe 定位同级 roles/ 包', async () => {
+    const distributionRoot = await mkdtemp(join(tmpdir(), 'workmesh-cli-release-'));
+    const roleDir = join(distributionRoot, 'roles', 'backend');
+    await mkdir(roleDir, { recursive: true });
+    await writeFile(join(roleDir, 'manifest.json'), '{}', 'utf8');
+
+    // scripts/package-box.ps1 emits runtime/node.exe, app/cli/index.js and
+    // roles/<role>/ at the same ZIP root.
+    const releaseRoleRoot = join(distributionRoot, 'roles');
+    const roots = defaultRoleRoots(join(distributionRoot, 'runtime', 'node.exe'));
+    expect(roots).toContain(releaseRoleRoot);
+    await expect(
+      resolveRolePackageDir('backend', { roots: roots.filter((root) => root === releaseRoleRoot) }),
+    ).resolves.toBe(roleDir);
   });
 
   it('找不到时列出所有查找过的路径', async () => {

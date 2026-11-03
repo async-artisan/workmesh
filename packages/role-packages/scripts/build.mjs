@@ -121,11 +121,15 @@ const packages = roleDirs.map((roleKey) => {
       });
       const declaredSkill = (meta.skills ?? []).find((skill) => skill.key === expectedName);
       if (!declaredSkill || declaredSkill.path !== rel)
-        throw new Error(`${path}: skill must be declared in package.meta.json with the same key and path`);
+        throw new Error(
+          `${path}: skill must be declared in package.meta.json with the same key and path`,
+        );
     }
     const bytes = readFileSync(file);
     if (bytes.byteLength !== byteLength)
-      throw new Error(`${path}: resource changed while the package was being built; rerun the build`);
+      throw new Error(
+        `${path}: resource changed while the package was being built; rerun the build`,
+      );
     return {
       id,
       kind,
@@ -152,13 +156,14 @@ const packages = roleDirs.map((roleKey) => {
     outputs: meta.outputs.map(({ evidence, ...rest }) => (evidence ? { ...rest, evidence } : rest)),
     // CLI 从 roles/<role> 目录安装，资源路径必须相对该目录；
     // generated.ts 里的路径保留 `roles/<role>/` 前缀，供服务端登记时定位。
-    resources: resources.map(({ bodyBase64: _bodyBase64, ...rest }) => {
-      void _bodyBase64;
-      return {
-        ...rest,
-        path: rest.path.replace(`roles/${roleKey}/`, ''),
-      };
-    }),
+    resources: resources.map(({ id, kind, path, sha256, byteLength, mediaType }) => ({
+      id,
+      kind,
+      path: path.replace(`roles/${roleKey}/`, ''),
+      sha256,
+      byteLength,
+      mediaType,
+    })),
     agentEntries: meta.agentEntries,
   };
 
@@ -170,10 +175,16 @@ const packages = roleDirs.map((roleKey) => {
     version: manifest.version,
     roleKey,
     manifest,
-    resources: resources.map(({ id: resourceId, kind: _kind, ...rest }) => {
-      void _kind;
-      return { resourceId, ...rest };
-    }),
+    resources: resources.map(
+      ({ id: resourceId, path, sha256, byteLength, mediaType, bodyBase64 }) => ({
+        resourceId,
+        path,
+        sha256,
+        byteLength,
+        mediaType,
+        bodyBase64,
+      }),
+    ),
   };
 });
 

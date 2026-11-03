@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import {
   assertReplayable,
@@ -10,6 +10,7 @@ import {
 import { V1_ERROR_CODES, WorkmeshError, type Principal, type Scope } from '@workmesh/shared';
 import { V1AuthorizationService } from '../auth/v1-authorization';
 import { assertGithubWebhookSignature } from './v1-code-host-adapter';
+import { openTicketSecret, sealTicketSecret } from './v1-ticket-secret';
 import { evaluateCodeEvidenceSet, type RepositoryEvidenceInput } from './v1-code-evidence-policy';
 import {
   V1_GITHUB_EVIDENCE_REPOSITORY,
@@ -24,6 +25,7 @@ const SCOPE_PREPARE: Scope = 'integrations:prepare';
 
 /** 配置的 GitHub webhook 密钥；缺失时所有 webhook 一律安全拒绝。 */
 export const V1_GITHUB_WEBHOOK_SECRET = Symbol('V1_GITHUB_WEBHOOK_SECRET');
+export const V1_TICKET_ENCRYPTION_KEY = Symbol('V1_TICKET_ENCRYPTION_KEY');
 
 export type V1WebhookReceiveInput = {
   eventType: string;
@@ -131,6 +133,7 @@ export class V1GithubEvidenceService {
     @Inject(V1AuthorizationService) private readonly authorization: V1AuthorizationService,
     @Inject(V1_IDEMPOTENCY_REPOSITORY) private readonly operations: V1IdempotencyRepository,
     @Inject(V1_GITHUB_WEBHOOK_SECRET) private readonly webhookSecret: string,
+    @Optional() @Inject(V1_TICKET_ENCRYPTION_KEY) private readonly ticketEncryptionKey = '',
   ) {}
 
   async receiveWebhook(
@@ -185,32 +188,46 @@ export class V1GithubEvidenceService {
     // 投递去重：同一 source+deliveryId 重复投递必须幂等，返回原收据与原结果。
     const duplicate = await this.repository.findReceiptByDelivery('GITHUB', input.deliveryId);
     if (duplicate) {
-      if (duplicate.payloadDigest !== payloadDigest)
+      if (duplicate.projectId !== projectId || duplicate.payloadDigest !== payloadDigest)
         throw new WorkmeshError(
           V1_ERROR_CODES.RESOURCE_CONFLICT,
           'WEBHOOK_REPLAY_CONFLICT',
           { receiptId: duplicate.id },
           409,
         );
-      const evidenceIds = await this.repository.findEvidenceIdsByReceipt(duplicate.id);
-      return {
-        receiptId: duplicate.id,
-        decision: decisionFromReceiptStatus(duplicate.status),
-        reasons: reasonsFromReceipt(duplicate),
-        evidenceIds,
-        replayed: true,
-        signatureValid: duplicate.signatureValid,
-      };
+      if (duplicate.status !== 'PENDING') {
+        const evidenceIds = await this.repository.findEvidenceIdsByReceipt(duplicate.id);
+        return {
+          receiptId: duplicate.id,
+          decision: decisionFromReceiptStatus(duplicate.status),
+          reasons: reasonsFromReceipt(duplicate),
+          evidenceIds,
+          replayed: true,
+          signatureValid: duplicate.signatureValid,
+        };
+      }
     }
 
-    const receipt = await this.repository.recordReceipt({
-      projectId,
-      source: 'GITHUB',
-      eventType: input.eventType,
-      deliveryId: input.deliveryId,
-      signatureValid: true,
-      payloadDigest,
-    });
+    // A previous attempt may have stopped after any individual write. Resume the
+    // pending receipt; fingerprint deduplication preserves already recorded evidence.
+    const receipt =
+      duplicate ??
+      (await this.repository.recordReceipt({
+        projectId,
+        source: 'GITHUB',
+        eventType: input.eventType,
+        deliveryId: input.deliveryId,
+        signatureValid: true,
+        payloadDigest,
+      }));
+    // recordReceipt may return the winner of a simultaneous delivery insert.
+    if (receipt.projectId !== projectId || receipt.payloadDigest !== payloadDigest)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_CONFLICT,
+        'WEBHOOK_REPLAY_CONFLICT',
+        { receiptId: receipt.id },
+        409,
+      );
 
     const evaluation = evaluateCodeEvidenceSet(input.repositories);
     const evidenceIds: string[] = [];
@@ -251,12 +268,7 @@ export class V1GithubEvidenceService {
     }
 
     const status = evaluation.decision === 'VALID' ? 'PROCESSED' : 'EVIDENCE_INVALID';
-    await this.repository.recordReceiptProcessed(
-      receipt.id,
-      status,
-      evaluation.reasons.join(';') || null,
-    );
-    await this.persistOperation(context, {
+    const refs = {
       projectScopeKey,
       principalScopeKey,
       requestDigest,
@@ -265,7 +277,23 @@ export class V1GithubEvidenceService {
       reasons: evaluation.reasons,
       evidenceIds,
       signatureValid: true,
-    });
+    };
+    await this.repository.completeReceipt(
+      receipt.id,
+      status,
+      evaluation.reasons.join(';') || null,
+      {
+        id: context.operationId,
+        projectScopeKey,
+        principalScopeKey,
+        key: context.idempotencyKey,
+        method: context.method,
+        route: context.route,
+        requestDigest,
+        resultRefs: refs,
+        now: context.now,
+      },
+    );
 
     return {
       receiptId: receipt.id,
@@ -306,7 +334,21 @@ export class V1GithubEvidenceService {
         digest: requestDigest,
       });
       const ticketId = String(existing.resultRefs.ticketId ?? '');
-      const secret = String(existing.resultRefs.secret ?? '');
+      let secret: string;
+      try {
+        secret = openTicketSecret(
+          String(existing.resultRefs.encryptedSecret ?? ''),
+          this.ticketEncryptionKey,
+          JSON.stringify([projectScopeKey, principalScopeKey, ticketId, requestDigest]),
+        );
+      } catch {
+        throw new WorkmeshError(
+          V1_ERROR_CODES.INVALID_REQUEST,
+          'CODE_EVIDENCE_TICKET_REPREPARE_REQUIRED',
+          undefined,
+          409,
+        );
+      }
       const expiresAt = existing.resultRefs.expiresAt
         ? new Date(existing.resultRefs.expiresAt as string)
         : new Date(0);
@@ -330,13 +372,28 @@ export class V1GithubEvidenceService {
         404,
       );
 
+    if (!/^[0-9a-f]{64}$/i.test(this.ticketEncryptionKey))
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INVALID_REQUEST,
+        'TICKET_ENCRYPTION_KEY_REQUIRED',
+        undefined,
+        503,
+      );
+    if (artifactSet.taskGeneration !== input.generation)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.CODE_EVIDENCE_TICKET_STALE,
+        'CODE_EVIDENCE_TICKET_STALE',
+        undefined,
+        409,
+      );
+
     // 多仓/缺证据拒绝：必须存在针对该 head 的他人 APPROVED 证据。
     const approved = await this.repository.findApprovedEvidenceForHead(
       input.repositoryId,
       input.changeRequestId,
       input.headSha,
     );
-    if (!approved)
+    if (!approved || approved.projectId !== projectId)
       throw new WorkmeshError(
         V1_ERROR_CODES.CODE_EVIDENCE_MISSING,
         'CODE_EVIDENCE_MISSING',
@@ -348,27 +405,59 @@ export class V1GithubEvidenceService {
         422,
       );
 
-    const ticket = await this.repository.createVersionedTicket({
-      projectId,
-      repositoryId: input.repositoryId,
-      changeRequestId: input.changeRequestId,
-      headSha: input.headSha,
-      artifactSetId: input.artifactSetId,
-      generation: input.generation,
-      evidenceId: approved.id,
-      now: context.now,
-      expiresInMs: 15 * 60 * 1000,
-    });
-
-    await this.persistOperation(context, {
-      projectScopeKey,
-      principalScopeKey,
-      requestDigest,
-      ticketId: ticket.ticketId,
-      secret: ticket.secret,
-      expiresAt: ticket.expiresAt.toISOString(),
-      evidenceId: approved.id,
-    });
+    let ticket: { ticketId: string; secret: string; expiresAt: Date };
+    try {
+      ticket = await this.repository.createVersionedTicket(
+        {
+          projectId,
+          repositoryId: input.repositoryId,
+          changeRequestId: input.changeRequestId,
+          headSha: input.headSha,
+          artifactSetId: input.artifactSetId,
+          generation: input.generation,
+          evidenceId: approved.id,
+          now: context.now,
+          expiresInMs: 15 * 60 * 1000,
+        },
+        (prepared) => ({
+          id: context.operationId,
+          projectScopeKey,
+          principalScopeKey,
+          key: context.idempotencyKey,
+          method: context.method,
+          route: context.route,
+          requestDigest,
+          now: context.now,
+          resultRefs: {
+            projectScopeKey,
+            principalScopeKey,
+            requestDigest,
+            ticketId: prepared.ticketId,
+            encryptedSecret: sealTicketSecret(
+              prepared.secret,
+              this.ticketEncryptionKey,
+              JSON.stringify([
+                projectScopeKey,
+                principalScopeKey,
+                prepared.ticketId,
+                requestDigest,
+              ]),
+            ),
+            expiresAt: prepared.expiresAt.toISOString(),
+            evidenceId: approved.id,
+          },
+        }),
+      );
+    } catch (error) {
+      if ((error as { code?: string })?.code === 'P2002')
+        throw new WorkmeshError(
+          V1_ERROR_CODES.IDEMPOTENCY_CONFLICT,
+          'IDEMPOTENCY_CONFLICT',
+          undefined,
+          409,
+        );
+      throw error;
+    }
 
     return {
       ticketId: ticket.ticketId,
@@ -388,7 +477,7 @@ export class V1GithubEvidenceService {
     await this.authorization.resolveProjectContext(principal, projectId);
 
     const ticket = await this.repository.findVersionedTicket(input.ticketId);
-    if (!ticket)
+    if (!ticket || ticket.projectId !== projectId)
       throw new WorkmeshError(
         V1_ERROR_CODES.RESOURCE_NOT_FOUND,
         'CODE_EVIDENCE_TICKET_NOT_FOUND',
@@ -431,32 +520,24 @@ export class V1GithubEvidenceService {
         409,
       );
 
-    await this.repository.consumeVersionedTicket(input.ticketId, context.now);
+    const consumed = await this.repository.consumeVersionedTicket(
+      input.ticketId,
+      projectId,
+      context.now,
+    );
+    if (!consumed)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.CODE_EVIDENCE_TICKET_EXPIRED,
+        'CODE_EVIDENCE_TICKET_EXPIRED',
+        { ticketId: input.ticketId },
+        409,
+      );
     return {
       evidenceId: ticket.evidenceId,
       repositoryId: ticket.repositoryId,
       changeRequestId: ticket.changeRequestId,
       headSha: ticket.headSha,
     };
-  }
-
-  private async persistOperation(
-    context: V1WebhookReceiveContext,
-    refs: Record<string, unknown>,
-  ): Promise<void> {
-    // 幂等写由仓储在同一事务内完成；服务层仅负责构造 resultRefs 语义。
-    // 这里通过仓储暴露的轻量落盘入口持久化操作记录，保证重放一致性。
-    await this.repository.persistIdempotency({
-      id: context.operationId,
-      projectScopeKey: refs.projectScopeKey as string,
-      principalScopeKey: refs.principalScopeKey as string,
-      key: context.idempotencyKey,
-      method: context.method,
-      route: context.route,
-      requestDigest: refs.requestDigest as string,
-      resultRefs: refs,
-      now: context.now,
-    });
   }
 }
 

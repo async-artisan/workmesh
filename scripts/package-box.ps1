@@ -52,6 +52,8 @@ Get-ChildItem -LiteralPath $pgShare -File | Copy-Item -Destination "$pgRuntime\s
 Copy-Tree (Join-Path $root 'apps\web\dist') "$releasePath\app\web\dist"
 Copy-Tree (Join-Path $root 'apps\cli\dist') "$releasePath\app\cli\dist"
 Copy-Tree (Join-Path $root 'packages\box\dist') "$releasePath\app\box\dist"
+Copy-Item -LiteralPath (Join-Path $root 'apps\cli\package.json') -Destination "$releasePath\app\cli\package.json" -Force
+Copy-Item -LiteralPath (Join-Path $root 'packages\box\package.json') -Destination "$releasePath\app\box\package.json" -Force
 Copy-Tree (Join-Path $root 'packages\role-packages\roles') "$releasePath\roles"
 $apiOut = "$releasePath\app\api"
 New-Item -ItemType Directory -Force -Path $apiOut | Out-Null
@@ -75,10 +77,12 @@ foreach ($packageName in @('shared','role-packages')) {
   if ($packageName -eq 'role-packages') { Copy-Tree (Join-Path $packageSource 'roles') (Join-Path $packageTarget 'roles') }
 }
 Copy-Tree (Join-Path $root 'apps\node_modules\.prisma') "$releasePath\app\node_modules\.prisma"
+Run $NodeExe @((Join-Path $scriptRoot 'box\dependency-links.mjs'),'collect',$apiOut)
 Copy-Item -LiteralPath (Join-Path $scriptRoot 'box\install.ps1') -Destination "$releasePath\install.ps1" -Force
 Copy-Item -LiteralPath (Join-Path $scriptRoot 'box\start-workmesh.ps1') -Destination "$releasePath\start-workmesh.ps1" -Force
 Copy-Item -LiteralPath (Join-Path $scriptRoot 'box\stop-workmesh.ps1') -Destination "$releasePath\stop-workmesh.ps1" -Force
 Copy-Item -LiteralPath (Join-Path $scriptRoot 'box\web-server.mjs') -Destination "$releasePath\scripts\web-server.mjs" -Force
+Copy-Item -LiteralPath (Join-Path $scriptRoot 'box\dependency-links.mjs') -Destination "$releasePath\scripts\dependency-links.mjs" -Force
 $downloads = "$releasePath\downloads"
 New-Item -ItemType Directory -Force -Path $downloads | Out-Null
 $cliStage = "$releasePath\.cli-stage"
@@ -86,6 +90,7 @@ New-Item -ItemType Directory -Force -Path "$cliStage\app", "$cliStage\roles", "$
 Copy-Item -LiteralPath (Join-Path $root 'apps\cli\dist') -Destination "$cliStage\app\cli" -Recurse -Force
 Copy-Tree (Join-Path $root 'packages\role-packages\roles') "$cliStage\roles"
 Copy-Item -LiteralPath $NodeExe -Destination "$cliStage\runtime\node.exe" -Force
+Set-Content -LiteralPath "$cliStage\package.json" -Encoding ASCII -Value '{"private":true,"type":"module"}'
 Set-Content -LiteralPath "$cliStage\workmesh.cmd" -Encoding ASCII -Value '@echo off'
 Add-Content -LiteralPath "$cliStage\workmesh.cmd" -Encoding ASCII -Value '"%~dp0runtime\node.exe" "%~dp0app\cli\index.js" %*'
 $cliZip = "$downloads\workmesh-cli-win-x64.zip"

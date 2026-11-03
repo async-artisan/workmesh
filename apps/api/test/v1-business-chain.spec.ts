@@ -2,7 +2,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canonicalJson, sha256Bytes, type ActionBinding } from '@workmesh/shared';
 
 import { HttpExceptionFilter } from '../src/common/http-exception.filter';
@@ -641,6 +641,8 @@ describe('v1 HTTP business chain (real Nest routes + real V1AuthGuard)', () => {
   let confirmationRepo: ChainConfirmationRepo;
 
   beforeAll(async () => {
+    vi.stubEnv('WORKMESH_COOKIE_MODE', 'SECURE');
+    vi.stubEnv('WORKMESH_PUBLIC_ORIGIN', PUBLIC_ORIGIN);
     const authzRepo = new ChainAuthzRepo();
     const workflowRepo = new ChainWorkflowRepo();
     const taskRepo = new ChainTaskRepo();
@@ -740,6 +742,7 @@ describe('v1 HTTP business chain (real Nest routes + real V1AuthGuard)', () => {
 
   afterAll(async () => {
     await appRef?.close();
+    vi.unstubAllEnvs();
   });
 
   beforeEach(() => {

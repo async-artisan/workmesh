@@ -136,7 +136,7 @@ export type V1DeliverInput = {
   localRunId: string;
   candidateRevisionIds: string[];
   items: V1DeliverItem[];
-  /** 交付内容摘要，绑定 ArtifactSet 与 TASK_ACCEPTANCE 评审。 */
+  /** 交付内容摘要，绑定 ArtifactSet 与当前步骤对应的验收评审。 */
   subjectDigest: string;
   actorUserId: string;
   actorStamp: {

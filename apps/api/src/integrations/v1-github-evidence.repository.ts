@@ -87,6 +87,7 @@ export type V1CreateVersionedTicketInput = {
 
 export type V1VersionedTicketRecord = {
   id: string;
+  projectId: string;
   evidenceId: string;
   repositoryId: string;
   changeRequestId: string;
@@ -120,6 +121,12 @@ export interface V1GithubEvidenceRepository {
     status: string,
     errorMessage: string | null,
   ): Promise<void>;
+  completeReceipt(
+    receiptId: string,
+    status: string,
+    errorMessage: string | null,
+    operation: V1PersistIdempotencyInput,
+  ): Promise<void>;
   findEvidenceIdsByReceipt(receiptId: string): Promise<string[]>;
   findEvidenceByFingerprint(fingerprint: string): Promise<V1CodeReviewEvidenceRecord | null>;
   recordEvidence(input: V1RecordEvidenceInput): Promise<V1CodeReviewEvidenceRecord>;
@@ -131,9 +138,14 @@ export interface V1GithubEvidenceRepository {
   ): Promise<V1CodeReviewEvidenceRecord | null>;
   createVersionedTicket(
     input: V1CreateVersionedTicketInput,
+    operation: (ticket: {
+      ticketId: string;
+      secret: string;
+      expiresAt: Date;
+    }) => V1PersistIdempotencyInput,
   ): Promise<{ ticketId: string; secret: string; expiresAt: Date }>;
   findVersionedTicket(ticketId: string): Promise<V1VersionedTicketRecord | null>;
-  consumeVersionedTicket(ticketId: string, now: Date): Promise<void>;
+  consumeVersionedTicket(ticketId: string, projectId: string, now: Date): Promise<boolean>;
   persistIdempotency(input: V1PersistIdempotencyInput): Promise<void>;
 }
 

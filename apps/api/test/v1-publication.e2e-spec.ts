@@ -12,7 +12,7 @@
  * 注意：本文件需要真实数据库，运行须由 `scripts/test-e2e.mjs` 门禁前置；DB 未授权时自动跳过。
  * 运行状态标注见 .agent-local 进度记录（受限环境标 “未验证”）。
  */
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
@@ -48,6 +48,7 @@ import {
 import { V1PublicationPrismaRepository } from '../src/knowledge/v1-publication.prisma-repository';
 import { V1_IDEMPOTENCY_REPOSITORY } from '../src/common/v1-idempotency';
 import { V1IdempotencyPrismaRepository } from '../src/common/v1-idempotency.prisma-repository';
+import { PrismaService } from '../src/prisma/prisma.service';
 
 const gate = evaluateSuiteTestDatabase();
 const suite = gate.ok ? describe : describe.skip;
@@ -172,6 +173,7 @@ suite('v1 knowledge publication over HTTP with a real database', () => {
     const moduleRef = await Test.createTestingModule({
       controllers: [V1ReviewController, V1PublicationController],
       providers: [
+        { provide: PrismaService, useValue: prisma },
         V1AuthService,
         { provide: V1_AUTH_REPOSITORY, useClass: V1AuthPrismaRepository },
         V1AuthorizationService,
@@ -210,9 +212,17 @@ suite('v1 knowledge publication over HTTP with a real database', () => {
   afterAll(async () => {
     await app?.close();
     if (prisma && ids.project) {
-      await prisma.confirmationTicket.deleteMany({ where: { projectId: ids.project } });
-      await prisma.documentPublication.deleteMany({ where: { projectId: ids.project } });
+      // Decisions retain their confirmation-ticket identity for audit; remove
+      // the dependent audit graph before its ticket, session, and project rows.
+      await prisma.auditEvent.deleteMany({ where: { projectId: ids.project } });
+      await prisma.reviewDecisionRevocation.deleteMany({ where: { projectId: ids.project } });
       await prisma.reviewDecision.deleteMany({ where: { projectId: ids.project } });
+      await prisma.principalStamp.deleteMany({ where: { projectId: ids.project } });
+      await prisma.confirmationTicket.deleteMany({ where: { projectId: ids.project } });
+      // IdempotentOperation.projectId uses ON DELETE RESTRICT; remove operation
+      // receipts before deleting the project fixture.
+      await prisma.idempotentOperation.deleteMany({ where: { projectId: ids.project } });
+      await prisma.documentPublication.deleteMany({ where: { projectId: ids.project } });
       await prisma.approvalSlot.deleteMany({ where: { projectId: ids.project } });
       await prisma.reviewRequest.deleteMany({ where: { projectId: ids.project } });
       await prisma.documentRevision.deleteMany({ where: { projectId: ids.project } });
@@ -283,7 +293,7 @@ suite('v1 knowledge publication over HTTP with a real database', () => {
       confirmation: { ticketId: 'pending', ticketSecret },
     });
 
-    const ticketId = randomBytes(16).toString('hex');
+    const ticketId = randomUUID();
     await prisma.confirmationTicket.create({
       data: {
         id: ticketId,
@@ -314,7 +324,7 @@ suite('v1 knowledge publication over HTTP with a real database', () => {
         expectedVersion: review.version,
         confirmation: { ticketId, ticketSecret },
       },
-      'e2e-publish-1',
+      randomUUID(),
     );
     expect(published.status).toBe(201);
     expect(published.body.data.published).toBe(true);

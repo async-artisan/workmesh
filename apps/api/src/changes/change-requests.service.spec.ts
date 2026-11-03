@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ChangeRequestsService } from './change-requests.service';
 
 function fakePrisma() {
@@ -74,6 +74,27 @@ function fakePrisma() {
         Object.assign(row, input.data);
         return row;
       },
+      updateMany: async (input: {
+        where: { id: string; projectId: string; decision: { in: string[] } };
+        data: Record<string, unknown>;
+      }) => {
+        const row = changes.find(
+          (change) =>
+            change.id === input.where.id &&
+            change.projectId === input.where.projectId &&
+            input.where.decision.in.includes(String(change.decision)),
+        );
+        if (!row) return { count: 0 };
+        Object.assign(row, input.data);
+        return { count: 1 };
+      },
+      findFirstOrThrow: async (input: { where: { id: string; projectId: string } }) => {
+        const row = changes.find(
+          (change) => change.id === input.where.id && change.projectId === input.where.projectId,
+        );
+        if (!row) throw new Error('not found');
+        return row;
+      },
     },
     changeEvent: {
       create: async (input: { data: Record<string, unknown> }) => {
@@ -113,7 +134,20 @@ function fakePrisma() {
         return { count: input.data.length };
       },
     },
-    $transaction: async (operations: Array<Promise<unknown>>) => Promise.all(operations),
+    $transaction: async (
+      operations: Array<Promise<unknown>> | ((tx: unknown) => Promise<unknown>),
+    ) => {
+      if (typeof operations !== 'function') return Promise.all(operations);
+      const snapshot = structuredClone({ changes, events, recipients });
+      try {
+        return await operations(prisma);
+      } catch (error) {
+        changes.splice(0, changes.length, ...snapshot.changes);
+        events.splice(0, events.length, ...snapshot.events);
+        recipients.splice(0, recipients.length, ...snapshot.recipients);
+        throw error;
+      }
+    },
   };
 
   return {
@@ -122,10 +156,46 @@ function fakePrisma() {
     events,
     recipients,
     policies,
+    prisma,
   };
 }
 
 describe('ChangeRequestsService', () => {
+  it('rolls back the decision and event when recipient creation fails', async () => {
+    const { service, prisma, changes, events, recipients } = fakePrisma();
+    const change = await service.create('p1', 'owner', {
+      requirementId: 'req-1',
+      affected: ['COPY'],
+      reason: 'copy',
+    });
+    vi.spyOn(prisma.changeRecipient, 'createMany').mockRejectedValueOnce(
+      new Error('storage failure'),
+    );
+    await expect(
+      service.decide('p1', 'owner', change.id, { decision: 'ACCEPTED' }),
+    ).rejects.toThrow('storage failure');
+    expect(changes[0].decision).toBe('PENDING');
+    expect(events).toHaveLength(0);
+    expect(recipients).toHaveLength(0);
+    await service.decide('p1', 'owner', change.id, { decision: 'ACCEPTED' });
+    expect(events).toHaveLength(1);
+    expect(recipients).toHaveLength(2);
+  });
+
+  it('rejects a decision when another writer wins the conditional update', async () => {
+    const { service, prisma, events } = fakePrisma();
+    const change = await service.create('p1', 'owner', {
+      requirementId: 'req-1',
+      affected: ['COPY'],
+      reason: 'copy',
+    });
+    vi.spyOn(prisma.changeRequest, 'updateMany').mockResolvedValueOnce({ count: 0 });
+    await expect(
+      service.decide('p1', 'owner', change.id, { decision: 'ACCEPTED' }),
+    ).rejects.toMatchObject({ message: 'CHANGE_ALREADY_DECIDED', status: 409 });
+    expect(events).toHaveLength(0);
+  });
+
   it('computes the highest level from affected surfaces', () => {
     expect(ChangeRequestsService.levelOf(['COPY'])).toBe('L0');
     expect(ChangeRequestsService.levelOf(['COPY', 'ACCEPTANCE'])).toBe('L1');

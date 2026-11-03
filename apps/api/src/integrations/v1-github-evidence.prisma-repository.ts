@@ -35,17 +35,29 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
   }
 
   async recordReceipt(input: V1RecordReceiptInput): Promise<V1WebhookReceiptRecord> {
-    const row = await this.prisma.webhookReceipt.create({
-      data: {
-        projectId: input.projectId,
-        source: input.source,
-        eventType: input.eventType,
-        deliveryId: input.deliveryId,
-        signatureValid: input.signatureValid,
-        payloadDigest: input.payloadDigest,
-        status: 'PENDING',
-      },
-    });
+    const row = await this.prisma.webhookReceipt
+      .upsert({
+        where: { source_deliveryId: { source: input.source, deliveryId: input.deliveryId } },
+        update: {},
+        create: {
+          projectId: input.projectId,
+          source: input.source,
+          eventType: input.eventType,
+          deliveryId: input.deliveryId,
+          signatureValid: input.signatureValid,
+          payloadDigest: input.payloadDigest,
+          status: 'PENDING',
+        },
+      })
+      .catch(async (error: unknown) => {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002')
+          throw error;
+        // Prisma may emulate an empty-update upsert with a read followed by an
+        // insert. Return the winning immutable receipt when those inserts race.
+        return this.prisma.webhookReceipt.findUniqueOrThrow({
+          where: { source_deliveryId: { source: input.source, deliveryId: input.deliveryId } },
+        });
+      });
     return this.toReceipt(row);
   }
 
@@ -69,6 +81,19 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
     return rows.map((row) => row.id);
   }
 
+  async completeReceipt(
+    receiptId: string,
+    status: string,
+    errorMessage: string | null,
+    operation: V1PersistIdempotencyInput,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const repository = new V1GithubEvidencePrismaRepository(tx as PrismaService);
+      await repository.persistIdempotency(operation);
+      await repository.recordReceiptProcessed(receiptId, status, errorMessage);
+    });
+  }
+
   async findEvidenceByFingerprint(fingerprint: string): Promise<V1CodeReviewEvidenceRecord | null> {
     const row = await this.prisma.codeReviewEvidence.findUnique({
       where: { evidenceFingerprint: fingerprint },
@@ -77,24 +102,34 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
   }
 
   async recordEvidence(input: V1RecordEvidenceInput): Promise<V1CodeReviewEvidenceRecord> {
-    const row = await this.prisma.codeReviewEvidence.create({
-      data: {
-        projectId: input.projectId,
-        repositoryId: input.repositoryId,
-        changeRequestId: input.changeRequestId,
-        headSha: input.headSha,
-        authorExternalId: input.authorExternalId,
-        reviewerExternalId: input.reviewerExternalId,
-        reviewerKind: input.reviewerKind,
-        state: input.state,
-        commitSha: input.commitSha,
-        submittedAt: input.submittedAt,
-        reviewExternalId: input.reviewExternalId,
-        artifactSetId: input.artifactSetId,
-        evidenceFingerprint: input.evidenceFingerprint,
-        receiptId: input.receiptId,
-      },
-    });
+    const row = await this.prisma.codeReviewEvidence
+      .upsert({
+        where: { evidenceFingerprint: input.evidenceFingerprint },
+        update: {},
+        create: {
+          projectId: input.projectId,
+          repositoryId: input.repositoryId,
+          changeRequestId: input.changeRequestId,
+          headSha: input.headSha,
+          authorExternalId: input.authorExternalId,
+          reviewerExternalId: input.reviewerExternalId,
+          reviewerKind: input.reviewerKind,
+          state: input.state,
+          commitSha: input.commitSha,
+          submittedAt: input.submittedAt,
+          reviewExternalId: input.reviewExternalId,
+          artifactSetId: input.artifactSetId,
+          evidenceFingerprint: input.evidenceFingerprint,
+          receiptId: input.receiptId,
+        },
+      })
+      .catch(async (error: unknown) => {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002')
+          throw error;
+        return this.prisma.codeReviewEvidence.findUniqueOrThrow({
+          where: { evidenceFingerprint: input.evidenceFingerprint },
+        });
+      });
     return this.toEvidence(row);
   }
 
@@ -123,39 +158,75 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
 
   async createVersionedTicket(
     input: V1CreateVersionedTicketInput,
+    operation: (ticket: {
+      ticketId: string;
+      secret: string;
+      expiresAt: Date;
+    }) => V1PersistIdempotencyInput,
   ): Promise<{ ticketId: string; secret: string; expiresAt: Date }> {
     const secret = randomBytes(32).toString('hex');
     const secretHash = createHash('sha256').update(Buffer.from(secret, 'utf8')).digest('hex');
     const expiresAt = new Date(input.now.getTime() + input.expiresInMs);
-    const row = await this.prisma.codeReviewEvidence.create({
-      data: {
-        projectId: input.projectId,
-        repositoryId: input.repositoryId,
-        changeRequestId: input.changeRequestId,
-        headSha: input.headSha,
-        authorExternalId: '_ticket',
-        reviewerExternalId: '_ticket',
-        reviewerKind: 'USER',
-        state: 'PENDING',
-        commitSha: input.headSha,
-        submittedAt: input.now,
-        reviewExternalId: `ticket:${randomBytes(8).toString('hex')}`,
-        artifactSetId: input.artifactSetId,
-        evidenceFingerprint: createHash('sha256')
-          .update(
-            Buffer.from(
-              `ticket:${input.artifactSetId}:${input.headSha}:${input.generation}`,
-              'utf8',
-            ),
-          )
-          .digest('hex'),
-        preparedSecretHash: secretHash,
-        preparedExpiresAt: expiresAt,
-        preparedEvidenceId: input.evidenceId,
-        ticketGeneration: input.generation,
-      },
+    const ticketNonce = randomBytes(16).toString('hex');
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.codeReviewEvidence.create({
+        data: {
+          projectId: input.projectId,
+          repositoryId: input.repositoryId,
+          changeRequestId: input.changeRequestId,
+          headSha: input.headSha,
+          authorExternalId: '_ticket',
+          reviewerExternalId: '_ticket',
+          reviewerKind: 'USER',
+          state: 'PENDING',
+          commitSha: input.headSha,
+          submittedAt: input.now,
+          reviewExternalId: `ticket:${ticketNonce}`,
+          artifactSetId: input.artifactSetId,
+          evidenceFingerprint: createHash('sha256')
+            .update(
+              Buffer.from(
+                JSON.stringify([
+                  'ticket',
+                  input.projectId,
+                  input.repositoryId,
+                  input.changeRequestId,
+                  input.artifactSetId,
+                  input.headSha,
+                  input.generation,
+                  ticketNonce,
+                ]),
+                'utf8',
+              ),
+            )
+            .digest('hex'),
+          preparedSecretHash: secretHash,
+          preparedExpiresAt: expiresAt,
+          preparedEvidenceId: input.evidenceId,
+          ticketGeneration: input.generation,
+        },
+      });
+      const ticket = { ticketId: row.id, secret, expiresAt };
+      const op = operation(ticket);
+      // A competing prepare must never replace the winner's replay secret.
+      // A unique-key failure rolls back this ticket as well as the operation.
+      await tx.idempotentOperation.create({
+        data: {
+          id: op.id,
+          projectId: input.projectId,
+          projectScopeKey: op.projectScopeKey,
+          principalScopeKey: op.principalScopeKey,
+          key: op.key,
+          method: op.method,
+          route: op.route,
+          requestDigest: op.requestDigest,
+          resultRefs: op.resultRefs as Prisma.InputJsonValue,
+          responseMetadata: {},
+          committedAt: op.now,
+        },
+      });
+      return ticket;
     });
-    return { ticketId: row.id, secret, expiresAt };
   }
 
   async findVersionedTicket(ticketId: string): Promise<V1VersionedTicketRecord | null> {
@@ -164,6 +235,7 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
     return {
       id: row.id,
       evidenceId: row.preparedEvidenceId ?? '',
+      projectId: row.projectId,
       repositoryId: row.repositoryId,
       changeRequestId: row.changeRequestId,
       headSha: row.headSha,
@@ -174,11 +246,12 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
     };
   }
 
-  async consumeVersionedTicket(ticketId: string, _now: Date): Promise<void> {
-    await this.prisma.codeReviewEvidence.update({
-      where: { id: ticketId },
+  async consumeVersionedTicket(ticketId: string, projectId: string, now: Date): Promise<boolean> {
+    const result = await this.prisma.codeReviewEvidence.updateMany({
+      where: { id: ticketId, projectId, preparedExpiresAt: { gt: now } },
       data: { preparedExpiresAt: null },
     });
+    return result.count === 1;
   }
 
   async persistIdempotency(input: V1PersistIdempotencyInput): Promise<void> {

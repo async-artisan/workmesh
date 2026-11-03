@@ -39,7 +39,9 @@ import {
   documentReviewKindOf,
   encodeReviewCursor,
   reviewListWhere,
-  taskAcceptanceSlotBindings,
+  acceptanceReviewKindOf,
+  acceptanceSlotBindings,
+  type V1AcceptanceReviewKind,
   type V1AcceptanceSlotBinding,
 } from './v1-review-derivation';
 
@@ -728,22 +730,31 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
         422,
       );
 
-    const bindings: V1AcceptanceSlotBinding[] = taskAcceptanceSlotBindings(
+    const kind = acceptanceReviewKindOf(revision.definition, set.task.stepKey);
+    if (!kind)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.REVIEW_PRECONDITION_FAILED,
+        'TASK_ACCEPTANCE_GATE_MISSING',
+        { artifactSetId: set.id, taskId: set.taskId, stepKey: set.task.stepKey },
+        422,
+      );
+    const bindings: V1AcceptanceSlotBinding[] = acceptanceSlotBindings(
       revision.definition,
       instance.bindings,
       set.task.stepKey,
       set.taskId,
+      kind,
     );
     if (bindings.length === 0)
       throw new WorkmeshError(
         V1_ERROR_CODES.REVIEW_PRECONDITION_FAILED,
-        'TASK_ACCEPTANCE_GATE_REQUIRED',
-        { artifactSetId: set.id, taskId: set.taskId, stepKey: set.task.stepKey },
+        `${kind}_GATE_REQUIRED`,
+        { artifactSetId: set.id, taskId: set.taskId, stepKey: set.task.stepKey, kind },
         422,
       );
 
     return {
-      kind: 'TASK_ACCEPTANCE',
+      kind,
       subjectDigest: set.manifestDigest,
       slots: bindings.map((binding) => ({
         slotKey: binding.slotKey,
@@ -1307,6 +1318,7 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
           const accepted = await this.completeAcceptanceTask(tx, {
             projectId: review.projectId,
             reviewId: review.id,
+            reviewKind: review.kind,
             taskId: review.taskId,
             taskGeneration: review.taskGeneration,
             artifactSetId: review.artifactSetId,
@@ -1617,6 +1629,7 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
     input: {
       projectId: string;
       reviewId: string;
+      reviewKind: V1AcceptanceReviewKind;
       taskId: string | null;
       taskGeneration: number | null;
       artifactSetId: string | null;
@@ -1733,7 +1746,12 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
       };
       snapshot: { id: string; requirementId: string };
       set: { id: string };
-      input: { projectId: string; reviewId: string; now: Date };
+      input: {
+        projectId: string;
+        reviewId: string;
+        reviewKind: V1AcceptanceReviewKind;
+        now: Date;
+      };
     },
   ): Promise<{ task: V1TaskState; requirement: V1RequirementState | null }> {
     const instance = await tx.workflowInstance.findFirst({
@@ -1758,6 +1776,19 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
       steps?: Array<{ key?: unknown; kind?: unknown; outputKinds?: unknown }>;
     } | null;
     const step = (definition?.steps ?? []).find((entry) => entry.key === ctx.task.stepKey);
+    const expectedReviewKind = step?.kind === 'RELEASE' ? 'RELEASE_ACCEPTANCE' : 'TASK_ACCEPTANCE';
+    if (ctx.input.reviewKind !== expectedReviewKind)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.REVIEW_PRECONDITION_FAILED,
+        'ACCEPTANCE_REVIEW_KIND_MISMATCH',
+        {
+          taskId: ctx.task.id,
+          stepKey: ctx.task.stepKey,
+          expectedReviewKind,
+          reviewKind: ctx.input.reviewKind,
+        },
+        422,
+      );
     const outputKinds = Array.isArray(step?.outputKinds) ? step!.outputKinds : [];
 
     if (outputKinds.includes('IMPL')) {

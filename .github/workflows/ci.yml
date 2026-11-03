@@ -23,6 +23,9 @@ jobs:
           --health-retries 5
     env:
       WORKMESH_V1_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/workmesh_shadow?schema=workmesh_v1
+      WORKMESH_TEST_ENV: ci
+      WORKMESH_TEST_DATABASE_USERS: postgres
+      WORKMESH_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/workmesh_test_ci?schema=workmesh_v1
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -30,8 +33,7 @@ jobs:
           version: 10.28.2
       - uses: actions/setup-node@v4
         with:
-          # 20.17+ 才有 require(ESM)；api 的 vitest 集成配置经 unplugin-swc 加载，
-          # 低版本会在启动阶段直接失败。
+          # Keep CI's Node baseline consistent with the contribution guide.
           node-version: 20.19
           cache: pnpm
       - run: pnpm install --frozen-lockfile
@@ -42,6 +44,12 @@ jobs:
       # 漂移闸门：先把迁移目录应用到空库，再与 schema 比对；不一致直接失败。
       - run: pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/schema.prisma
       - run: pnpm --filter @workmesh/api exec prisma migrate diff --from-url "$WORKMESH_V1_DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
+      - name: Prepare isolated database tests
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d postgres -c 'CREATE DATABASE workmesh_test_ci'
+          WORKMESH_V1_DATABASE_URL="$WORKMESH_TEST_DATABASE_URL" pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/schema.prisma
       - run: pnpm test
       # 契约脚本与进程内 HTTP 套件此前不在流水线里：
       # `pnpm test` 只匹配 src/**/*.spec.ts，test/** 从不执行。
@@ -49,3 +57,6 @@ jobs:
       - run: node scripts/test-contracts.mjs
       - run: pnpm --filter @workmesh/api test:integration
       - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium --only-shell
+      - run: pnpm test:browser:run
+      - run: pnpm --filter @workmesh/api test:coverage

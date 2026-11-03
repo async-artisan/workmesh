@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Bell, ChevronDown, Menu, User, X } from 'lucide-react';
 import { Navigate, matchPath, useLocation, useNavigate } from 'react-router-dom';
 import { SESSION_EXPIRED_EVENT, formatApiError } from './api/client';
@@ -9,24 +9,39 @@ import { useAuthStore } from './store/auth';
 import { NAV_GROUP_LABELS, findNav, navItems } from './nav';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastHost } from './components/ToastHost';
-import { Authorization } from './pages/Authorization';
-import { Board } from './pages/Board';
-import { Knowledge } from './pages/Knowledge';
 import { Login } from './pages/Login';
-import { Invite } from './pages/Invite';
-import { Prds } from './pages/Prds';
-import { Profile } from './pages/Profile';
-import { Pipeline } from './pages/Pipeline';
-import { Projects } from './pages/Projects';
-import { Requirements } from './pages/Requirements';
-import { RequirementDetail } from './pages/RequirementDetail';
 import { Register } from './pages/Register';
-import { Reviews } from './pages/Reviews';
-import { ReviewDecision } from './pages/ReviewDecision';
-import { Roles } from './pages/Roles';
-import { Workbench } from './pages/Workbench';
-import { Workflows } from './pages/Workflows';
 import { toast } from './store/toast';
+
+const Authorization = lazy(() =>
+  import('./pages/Authorization').then((m) => ({ default: m.Authorization })),
+);
+const Board = lazy(() => import('./pages/Board').then((m) => ({ default: m.Board })));
+const Knowledge = lazy(() => import('./pages/Knowledge').then((m) => ({ default: m.Knowledge })));
+const Invite = lazy(() => import('./pages/Invite').then((m) => ({ default: m.Invite })));
+const Prds = lazy(() => import('./pages/Prds').then((m) => ({ default: m.Prds })));
+const Profile = lazy(() => import('./pages/Profile').then((m) => ({ default: m.Profile })));
+const Pipeline = lazy(() => import('./pages/Pipeline').then((m) => ({ default: m.Pipeline })));
+const Projects = lazy(() => import('./pages/Projects').then((m) => ({ default: m.Projects })));
+const Requirements = lazy(() =>
+  import('./pages/Requirements').then((m) => ({ default: m.Requirements })),
+);
+const RequirementDetail = lazy(() =>
+  import('./pages/RequirementDetail').then((m) => ({ default: m.RequirementDetail })),
+);
+const Reviews = lazy(() => import('./pages/Reviews').then((m) => ({ default: m.Reviews })));
+const ReviewDecision = lazy(() =>
+  import('./pages/ReviewDecision').then((m) => ({ default: m.ReviewDecision })),
+);
+const Roles = lazy(() => import('./pages/Roles').then((m) => ({ default: m.Roles })));
+const Workbench = lazy(() => import('./pages/Workbench').then((m) => ({ default: m.Workbench })));
+const Workflows = lazy(() => import('./pages/Workflows').then((m) => ({ default: m.Workflows })));
+
+const pageLoading = (
+  <section className="page-card muted" role="status">
+    正在加载页面…
+  </section>
+);
 
 export function App() {
   const location = useLocation();
@@ -194,7 +209,11 @@ export function App() {
   if (isPublicPage) {
     return (
       <>
-        {isInvitePage ? <Invite /> : location.pathname === '/login' ? <Login /> : <Register />}
+        <ErrorBoundary key={location.pathname}>
+          <Suspense fallback={pageLoading}>
+            {isInvitePage ? <Invite token={inviteMatch?.params.token ?? ''} /> : location.pathname === '/login' ? <Login /> : <Register />}
+          </Suspense>
+        </ErrorBoundary>
         <ToastHost />
       </>
     );
@@ -448,41 +467,43 @@ export function App() {
 
         <main className="content-area">
           <ErrorBoundary key={location.pathname}>
-            {location.pathname === '/' ? (
-              <Workbench />
-            ) : location.pathname === '/projects' ? (
-              <Projects />
-            ) : location.pathname === '/pipeline' ? (
-              <Pipeline />
-            ) : location.pathname === '/requirements' ? (
-              <Requirements />
-            ) : requirementMatch ? (
-              <RequirementDetail requirementId={requirementMatch.params.requirementId ?? ''} />
-            ) : location.pathname === '/workflows' ? (
-              <Workflows />
-            ) : location.pathname === '/knowledge' ? (
-              <Knowledge />
-            ) : location.pathname === '/prd' ? (
-              <Prds />
-            ) : location.pathname === '/reviews' ? (
-              legacyReviewId ? (
-                <Navigate to={`/reviews/${encodeURIComponent(legacyReviewId)}`} replace />
+            <Suspense fallback={pageLoading}>
+              {location.pathname === '/' ? (
+                <Workbench />
+              ) : location.pathname === '/projects' ? (
+                <Projects />
+              ) : location.pathname === '/pipeline' ? (
+                <Pipeline />
+              ) : location.pathname === '/requirements' ? (
+                <Requirements />
+              ) : requirementMatch ? (
+                <RequirementDetail requirementId={requirementMatch.params.requirementId ?? ''} />
+              ) : location.pathname === '/workflows' ? (
+                <Workflows />
+              ) : location.pathname === '/knowledge' ? (
+                <Knowledge />
+              ) : location.pathname === '/prd' ? (
+                <Prds />
+              ) : location.pathname === '/reviews' ? (
+                legacyReviewId ? (
+                  <Navigate to={`/reviews/${encodeURIComponent(legacyReviewId)}`} replace />
+                ) : (
+                  <Reviews />
+                )
+              ) : reviewMatch ? (
+                <ReviewDecision reviewId={reviewMatch.params.reviewId ?? ''} />
+              ) : location.pathname === '/board' ? (
+                <Board />
+              ) : location.pathname === '/roles' ? (
+                <Roles />
+              ) : location.pathname === '/authorization' ? (
+                <Authorization />
+              ) : location.pathname === '/profile' ? (
+                <Profile />
               ) : (
-                <Reviews />
-              )
-            ) : reviewMatch ? (
-              <ReviewDecision reviewId={reviewMatch.params.reviewId ?? ''} />
-            ) : location.pathname === '/board' ? (
-              <Board />
-            ) : location.pathname === '/roles' ? (
-              <Roles />
-            ) : location.pathname === '/authorization' ? (
-              <Authorization />
-            ) : location.pathname === '/profile' ? (
-              <Profile />
-            ) : (
-              <section className="page-card">页面不存在。</section>
-            )}
+                <section className="page-card">页面不存在。</section>
+              )}
+            </Suspense>
           </ErrorBoundary>
         </main>
       </div>

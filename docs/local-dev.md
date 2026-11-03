@@ -120,7 +120,7 @@ pnpm workmesh --config-home .tmp\wm-home auth login --api http://127.0.0.1:3000/
 ## 6. 数据在哪，怎么重置
 
 - PostgreSQL 数据目录：`%LOCALAPPDATA%\workmesh-pg\data`（`persistent: true`，`-Stop` 或重启机器都不丢）。
-- 库 `workmesh`，schema `workmesh_v1`，48 张表；迁移记录在 `workmesh_v1."_prisma_migrations"`，当前 11 个迁移全部已应用。
+- 库 `workmesh`，schema `workmesh_v1`；当前代码包含 12 项迁移，完整应用后有 49 张表（含迁移表）。迁移记录在 `workmesh_v1."_prisma_migrations"`；已有开发库的实际进度请用 `prisma migrate status` 确认。
 - 本机没有系统 `psql`。仓库自带的客户端：`.tmp\pgclient\pgsql\bin\psql.exe`，口令 `workmesh_local`。
 
 想回到干净库：

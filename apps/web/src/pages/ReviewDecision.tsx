@@ -243,6 +243,28 @@ export function ReviewDecision({
     return repositories.find((repo) => repo.id === artifact.projectRepositoryId) ?? null;
   }
 
+  async function refreshTaskContext(taskId: string, projectId: string) {
+    try {
+      const refreshedTask = await taskApi.get(taskId);
+      setTask(refreshedTask);
+      setTaskStepKey(refreshedTask.stepKey);
+
+      try {
+        const instance = await workflowApi.instance(refreshedTask.workflowInstanceId);
+        const requirementDetail = await requirementApi.detail(projectId, instance.requirementId);
+        setRequirement(requirementDetail.requirement);
+        setTaskStepKey(
+          requirementDetail.tasks.find((item) => item.id === taskId)?.stepKey ??
+            refreshedTask.stepKey,
+        );
+      } catch {
+        // 需求上下文是补充信息；保留已刷新的任务状态。
+      }
+    } catch {
+      // 审批已成功；刷新失败时保留页面已有上下文和审批回执。
+    }
+  }
+
   async function submitDecision(confirmation: { ticketId: string; ticketSecret: string }) {
     if (!review || !pending) throw new Error('缺少评审目标');
     if (
@@ -270,6 +292,7 @@ export function ReviewDecision({
     setActiveSlot(null);
     setComment('');
     setError('');
+    if (review.taskId) await refreshTaskContext(review.taskId, review.projectId);
   }
 
   async function copyReceipt() {

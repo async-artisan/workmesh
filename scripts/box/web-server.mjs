@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { extname, join, resolve } from 'node:path';
-import { createServer } from 'node:http';
-import { request as proxyRequest } from 'node:http';
+import { createReadStream, existsSync, realpathSync, statSync } from 'node:fs';
+import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { createServer, request as proxyRequest } from 'node:http';
 
 const args = process.argv.slice(2);
 function value(name, fallback) {
@@ -11,6 +10,7 @@ function value(name, fallback) {
 }
 const root = resolve(value('--root', '.'));
 const port = Number(value('--port', '5173'));
+const host = value('--host', '127.0.0.1');
 const apiHost = value('--api-host', '127.0.0.1');
 const apiPort = Number(value('--api-port', '3000'));
 const downloadsRoot = resolve(value('--downloads-root', join(root, '..', '..', 'downloads')));
@@ -26,35 +26,43 @@ const mime = {
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
 };
-const indexFile = join(root, 'index.html');
-if (!existsSync(indexFile)) throw new Error(`web dist 不存在 index.html: ${root}`);
+const realRoot = realpathSync(root);
+const realDownloadsRoot = existsSync(downloadsRoot) ? realpathSync(downloadsRoot) : downloadsRoot;
+const indexFile = resolveFile(root, realRoot, '/index.html').file;
+if (!indexFile) throw new Error(`web dist does not contain a safe index.html: ${root}`);
 
-function safeFile(pathname) {
-  const decoded = decodeURIComponent(pathname.split('?')[0] || '/');
-  const candidate = resolve(root, `.${decoded}`);
-  return candidate.startsWith(root) ? candidate : null;
+function isWithin(base, candidate) {
+  const rel = relative(base, candidate);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+function decodePath(pathname) {
+  try {
+    return decodeURIComponent(pathname.split('?')[0] || '/');
+  } catch {
+    return null;
+  }
+}
+
+function resolveFile(base, realBase, decodedPath) {
+  const candidate = resolve(base, `.${decodedPath}`);
+  if (!isWithin(base, candidate) || !existsSync(candidate)) return { invalid: !isWithin(base, candidate), file: null };
+  try {
+    const actual = realpathSync(candidate);
+    if (!isWithin(realBase, actual) || !statSync(actual).isFile()) return { invalid: !isWithin(realBase, actual), file: null };
+    return { invalid: false, file: actual };
+  } catch {
+    return { invalid: false, file: null };
+  }
+}
+
+function badRequest(response) {
+  response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+  response.end('Malformed URL encoding');
 }
 
 createServer((request, response) => {
   const pathname = request.url ?? '/';
-  if (pathname === '/download' || pathname === '/download/') {
-    const file = join(downloadsRoot, 'index.html');
-    if (!existsSync(file)) { response.writeHead(404); response.end('Download page unavailable'); return; }
-    response.setHeader('Content-Type', 'text/html; charset=utf-8');
-    createReadStream(file).pipe(response);
-    return;
-  }
-  if (pathname.startsWith('/download/')) {
-    const relative = decodeURIComponent(pathname.slice('/download/'.length));
-    const file = resolve(downloadsRoot, relative);
-    if (!file.startsWith(downloadsRoot) || !existsSync(file) || !statSync(file).isFile()) {
-      response.writeHead(404); response.end('Not found'); return;
-    }
-    response.setHeader('Content-Type', 'application/octet-stream');
-    response.setHeader('Content-Disposition', `attachment; filename="${file.split(/[\\\\/]/).pop()}"`);
-    createReadStream(file).pipe(response);
-    return;
-  }
   if (pathname === '/api' || pathname.startsWith('/api/')) {
     const proxy = proxyRequest(
       { hostname: apiHost, port: apiPort, path: pathname, method: request.method, headers: request.headers },
@@ -70,11 +78,34 @@ createServer((request, response) => {
     request.pipe(proxy);
     return;
   }
-  const candidate = safeFile(pathname);
-  const file = candidate && existsSync(candidate) && statSync(candidate).isFile() ? candidate : indexFile;
+
+  const decoded = decodePath(pathname);
+  if (decoded === null) {
+    badRequest(response);
+    return;
+  }
+  if (decoded === '/download' || decoded === '/download/') {
+    const page = resolveFile(downloadsRoot, realDownloadsRoot, '/index.html');
+    if (page.file === null) { response.writeHead(404); response.end('Download page unavailable'); return; }
+    response.setHeader('Content-Type', 'text/html; charset=utf-8');
+    createReadStream(page.file).on('error', () => response.end()).pipe(response);
+    return;
+  }
+  if (decoded.startsWith('/download/')) {
+    const result = resolveFile(downloadsRoot, realDownloadsRoot, decoded.slice('/download'.length));
+    if (result.invalid || result.file === null) { response.writeHead(404); response.end('Not found'); return; }
+    response.setHeader('Content-Type', 'application/octet-stream');
+    response.setHeader('Content-Disposition', `attachment; filename="${result.file.split(/[\\/]/).pop()}"`);
+    createReadStream(result.file).on('error', () => response.end()).pipe(response);
+    return;
+  }
+
+  const result = resolveFile(root, realRoot, decoded);
+  if (result.invalid) { response.writeHead(404); response.end('Not found'); return; }
+  const file = result.file ?? indexFile;
   response.setHeader('Cache-Control', file === indexFile ? 'no-cache' : 'public, max-age=31536000, immutable');
   response.setHeader('Content-Type', mime[extname(file).toLowerCase()] ?? 'application/octet-stream');
   createReadStream(file).on('error', () => response.end()).pipe(response);
-}).listen(port, '0.0.0.0', () => {
-  console.log(`WorkMesh Web listening on http://127.0.0.1:${port}`);
+}).listen(port, host, () => {
+  console.log(`WorkMesh Web listening on http://${host}:${port}`);
 });

@@ -46,7 +46,7 @@ export type SetupResult = {
 };
 
 /**
- * 角色包查找顺序：显式目录 → WORKMESH_ROLES_DIR → 可执行文件旁的 roles/（发行包）
+ * 角色包查找顺序：显式目录 → WORKMESH_ROLES_DIR → 发行包根目录的 roles/
  * → 仓库内 packages/role-packages/roles（开发态）→ 当前目录的 roles/。
  * 找不到就把搜过的路径全部列出来，避免“报错但不说去哪找”。
  */
@@ -54,6 +54,9 @@ export function defaultRoleRoots(execPath: string = process.execPath): string[] 
   const roots: string[] = [];
   const fromEnv = process.env.WORKMESH_ROLES_DIR;
   if (fromEnv) roots.push(resolve(fromEnv));
+  // The Windows ZIP keeps node in runtime/ while role packages live at the
+  // distribution root: runtime/node.exe, app/cli/index.js, roles/<role>/.
+  roots.push(resolve(dirname(execPath), '..', 'roles'));
   roots.push(resolve(dirname(execPath), 'roles'));
   roots.push(
     resolve(

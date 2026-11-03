@@ -24,11 +24,21 @@ export function hostSupported(): boolean {
  * Windows 上 icacls 显示的主体名与 whoami 一致（`DOMAIN\user`），用它做比对，
  * 避免解析本地化文本里的权限描述。
  */
-export async function currentPrincipal(): Promise<string> {
-  const { stdout } = await run('whoami', [], { windowsHide: true });
-  const principal = stdout.trim();
-  if (!principal.includes('\\')) throw new Error('whoami 未返回 DOMAIN\\user 形式的主体名');
-  return principal.toUpperCase();
+let principalLookup: Promise<string> | undefined;
+
+export function currentPrincipal(): Promise<string> {
+  // A CLI process keeps one OS identity. Share the lookup across concurrent ACL
+  // operations instead of spawning whoami for every file. Failures remain retryable.
+  principalLookup ??= (async () => {
+    const { stdout } = await run('whoami', [], { windowsHide: true });
+    const principal = stdout.trim();
+    if (!principal.includes('\\')) throw new Error('whoami 未返回 DOMAIN\\user 形式的主体名');
+    return principal.toUpperCase();
+  })().catch((error: unknown) => {
+    principalLookup = undefined;
+    throw error;
+  });
+  return principalLookup;
 }
 
 async function icacls(args: string[]): Promise<string> {

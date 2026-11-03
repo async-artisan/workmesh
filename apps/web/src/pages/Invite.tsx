@@ -10,8 +10,9 @@ import { useAuthStore } from '../store/auth';
  * 未登录且邮箱未被占用：填姓名 + 密码即建号并加入项目；
  * 邮箱已有账号：引导先登录，再回到本页接受（登录后走 join）。
  */
-export function Invite() {
-  const { token = '' } = useParams<{ token: string }>();
+export function Invite({ token: tokenProp }: { token?: string } = {}) {
+  const { token: routeToken = '' } = useParams<{ token: string }>();
+  const token = tokenProp ?? routeToken;
   const navigate = useNavigate();
   const location = useLocation();
   const user = useAuthStore((state) => state.user);

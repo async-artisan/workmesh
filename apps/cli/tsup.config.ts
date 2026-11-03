@@ -8,5 +8,7 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   noExternal: ['@workmesh/shared', 'commander'],
-  banner: { js: '#!/usr/bin/env node' },
+  banner: {
+    js: "import { createRequire as createNodeRequire } from 'node:module'; const require = createNodeRequire(import.meta.url);",
+  },
 });

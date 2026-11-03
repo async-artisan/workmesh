@@ -55,12 +55,13 @@ export function validateWorkflowDefinition(value: unknown): {
         code: 'KEY_INVALID',
         message: 'step key is invalid',
       });
-    else if (!stepKeys.add(key))
+    else if (stepKeys.has(key))
       issues.push({
         path: `/steps/${index}/key`,
         code: 'DUPLICATE_KEY',
         message: 'step key is duplicated',
       });
+    else stepKeys.add(key);
     if (!Array.isArray(step.outputKinds))
       issues.push({
         path: `/steps/${index}/outputKinds`,

@@ -6,27 +6,26 @@
 
 - 目标：`0005`–`0010` 在真实 PostgreSQL 上 apply，并验证约束、漂移与回滚。
 - 现状：已在隔离库 `workmesh_m5` 应用 0001–0010，`migrate status` 为 up to date，`migrate diff` 为 no difference；详见 [docs/baseline.md](docs/baseline.md)。
-- 仍未覆盖：生产库 apply 与备份回滚演练（需运维窗口）；本机无 `pg_dump`，隔离库以 drop 重建回滚。
+- 2026-11-03 补充：专用隔离库已应用全部 12 项迁移，完成 pg_dump 备份、恢复到新库与 49 张表逐表行数核对；详见 [整改进度](docs/remediation-status.md)。历史上的“本机无 pg_dump”已不适用。
+- 仍未覆盖：生产库 apply 与生产备份恢复演练，需要单独运维窗口。
 
 ## B2 GitHub live 代码证据
 
 - 目标：真实仓库分页、Webhook 验签、提交级证据绑定。
-- 阻塞原因：无只读测试仓库与凭据。
+- 只读 live 入口已实现仓库/PR/reviews 分页读取及生产证据归一化，但本轮没有指定获准测试的仓库与 PR，运行结果 SKIPPED；私有仓库还需要只读凭据。
 - 解除条件：提供测试仓库与只读 token，且允许 webhook 回调到本机。
 
-## B3 浏览器 E2E
+## B3 浏览器 E2E（基础环境已解除，完整产品闭环仍待）
 
 - 目标：工作台、需求详情、评审决定的真实浏览器闭环。
-- 阻塞原因：需要隔离 API + 数据库 + 浏览器环境。
-- 解除条件：B1 解除后启动隔离服务，再跑 Playwright。
+- 已完成：隔离 API、数据库与 Chromium，2 项浏览器测试验证账户/会话、创建项目、页面加载及 CSRF 拒绝。入口 `pnpm test:browser`，不复用用户浏览器。
+- 仍待：需求详情、评审决定到发布的完整产品流程、跨浏览器与无障碍验收；不能将基础测试通过写成全部 E2E 完成。
 
-## B4 进程内 HTTP 契约套件无法运行
+## B4 进程内 HTTP 契约套件无法运行（已解除）
 
 - 目标：`apps/api/test/v1-http-contract.spec.ts`。
-- 现象：`vitest.integration.config.ts` 启动时报 `ERR_REQUIRE_ESM`（`unplugin-swc` / `unplugin` 的 CJS require）。
-- 阻塞原因：工具链版本组合问题，与本次业务改动无关。
-- 解除条件：升级或替换 swc 插件配置，或改用独立的 Node 测试运行器。
-- 临时替代：服务层 spec 已覆盖主要分支；HTTP 层仍待补。
+- 历史原因：ESM 插件被 CJS require。
+- 已处置：API 配置显式使用 `.mts`，动态加载 SWC 并发射装饰器元数据；单元、集成和覆盖率入口均可运行。当前合并套件 604 项通过，其中 57 项使用真实 PostgreSQL；生产行覆盖率 80.16%，保留原有 80% 门禁并实际通过。验证细节见 [工程整改验证](docs/testing/remediation-verification-2026-11-03.md)。
 
 ## B5 WP5 破坏性收紧（已解除）
 

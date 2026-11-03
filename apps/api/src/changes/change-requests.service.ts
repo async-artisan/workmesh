@@ -235,56 +235,65 @@ export class ChangeRequestsService {
       );
 
     const now = new Date();
-    const decided = await this.prisma.changeRequest.update({
-      where: { id: changeId },
-      data: {
-        decision: input.decision,
-        decidedById: userId,
-        decidedAt: now,
-        ...(input.decision === 'ACCEPTED' ? { appliedAt: now } : {}),
-      },
-    });
-
-    if (input.decision === 'ACCEPTED') {
-      const acceptanceKeys = Array.isArray(
-        (change.diff as { acceptanceKeys?: string[] }).acceptanceKeys,
-      )
-        ? (change.diff as { acceptanceKeys: string[] }).acceptanceKeys
-        : [];
-      const event = await this.prisma.changeEvent.create({
+    return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.changeRequest.updateMany({
+        where: { id: changeId, projectId, decision: { in: ['PENDING', 'DEFERRED'] } },
         data: {
-          projectId,
-          requirementId: change.requirementId,
-          sourceKind: 'CHANGE_REQUEST',
-          sourceId: changeId,
-          changedFields: [
-            `level:${change.level}`,
-            ...acceptanceKeys.map((key) => `acceptance:${key}`),
-          ],
-          targets: {
-            requirementId: change.requirementId,
-            acceptanceKeys,
-            changeRequestId: changeId,
-          },
+          decision: input.decision,
+          decidedById: userId,
+          decidedAt: now,
+          ...(input.decision === 'ACCEPTED' ? { appliedAt: now } : {}),
         },
       });
-      const members = await this.prisma.projectMember.findMany({
-        where: { projectId, revokedAt: null },
-        select: { userId: true },
-      });
-      const dueAt = new Date(now.getTime() + (SLA_HOURS[change.level] ?? 72) * 3600 * 1000);
-      if (members.length > 0)
-        await this.prisma.changeRecipient.createMany({
-          data: members.map((member) => ({
-            projectId,
-            eventId: event.id,
-            userId: member.userId,
-            action: 'ACK_ONLY',
-            dueAt,
-          })),
-        });
-    }
+      if (claimed.count !== 1)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_CONFLICT,
+          'CHANGE_ALREADY_DECIDED',
+          { changeId },
+          409,
+        );
 
-    return decided;
+      if (input.decision === 'ACCEPTED') {
+        const acceptanceKeys = Array.isArray(
+          (change.diff as { acceptanceKeys?: string[] }).acceptanceKeys,
+        )
+          ? (change.diff as { acceptanceKeys: string[] }).acceptanceKeys
+          : [];
+        const event = await tx.changeEvent.create({
+          data: {
+            projectId,
+            requirementId: change.requirementId,
+            sourceKind: 'CHANGE_REQUEST',
+            sourceId: changeId,
+            changedFields: [
+              `level:${change.level}`,
+              ...acceptanceKeys.map((key) => `acceptance:${key}`),
+            ],
+            targets: {
+              requirementId: change.requirementId,
+              acceptanceKeys,
+              changeRequestId: changeId,
+            },
+          },
+        });
+        const members = await tx.projectMember.findMany({
+          where: { projectId, revokedAt: null },
+          select: { userId: true },
+        });
+        const dueAt = new Date(now.getTime() + (SLA_HOURS[change.level] ?? 72) * 3600 * 1000);
+        if (members.length > 0)
+          await tx.changeRecipient.createMany({
+            data: members.map((member) => ({
+              projectId,
+              eventId: event.id,
+              userId: member.userId,
+              action: 'ACK_ONLY',
+              dueAt,
+            })),
+          });
+      }
+
+      return tx.changeRequest.findFirstOrThrow({ where: { id: changeId, projectId } });
+    });
   }
 }
