@@ -152,10 +152,13 @@ const packages = roleDirs.map((roleKey) => {
     outputs: meta.outputs.map(({ evidence, ...rest }) => (evidence ? { ...rest, evidence } : rest)),
     // CLI 从 roles/<role> 目录安装，资源路径必须相对该目录；
     // generated.ts 里的路径保留 `roles/<role>/` 前缀，供服务端登记时定位。
-    resources: resources.map(({ bodyBase64, ...rest }) => ({
-      ...rest,
-      path: rest.path.replace(`roles/${roleKey}/`, ''),
-    })),
+    resources: resources.map(({ bodyBase64: _bodyBase64, ...rest }) => {
+      void _bodyBase64;
+      return {
+        ...rest,
+        path: rest.path.replace(`roles/${roleKey}/`, ''),
+      };
+    }),
     agentEntries: meta.agentEntries,
   };
 
@@ -167,7 +170,10 @@ const packages = roleDirs.map((roleKey) => {
     version: manifest.version,
     roleKey,
     manifest,
-    resources: resources.map(({ id: resourceId, kind, ...rest }) => ({ resourceId, ...rest })),
+    resources: resources.map(({ id: resourceId, kind: _kind, ...rest }) => {
+      void _kind;
+      return { resourceId, ...rest };
+    }),
   };
 });
 

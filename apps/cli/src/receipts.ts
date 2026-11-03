@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { lstat, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { canonicalJson, sha256Bytes } from '@workmesh/shared';

@@ -1,5 +1,5 @@
-import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { homedir, platform as osPlatform } from 'node:os';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { CliError } from './errors';
 import { parsePlatform, platformFromParts, type Platform } from './platform';
