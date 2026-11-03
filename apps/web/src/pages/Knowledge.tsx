@@ -65,6 +65,10 @@ export function Knowledge() {
     new Map(),
   );
   const [selectedId, setSelectedId] = useState('');
+  const [query, setQuery] = useState('');
+  const [kindFilter, setKindFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
   const [content, setContent] = useState<ContentView | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -82,6 +86,34 @@ export function Knowledge() {
     const revision = selected?.revisions.find((item) => item.id === id);
     return revision ? `v${revision.seq}` : '—';
   };
+  const filteredDocs = useMemo(() => {
+    const text = query.trim().toLowerCase();
+    return docs.filter((item) => {
+      if (kindFilter && item.document.kind !== kindFilter) return false;
+      if (!text) return true;
+      const latest = item.publishedRevision ?? item.revisions[0] ?? null;
+      return [
+        latest?.title ?? '',
+        requirementLabel(item.document.requirementId),
+        KIND_LABELS[item.document.kind],
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(text);
+    });
+  }, [docs, kindFilter, query, requirementsById]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredDocs.length / PAGE_SIZE));
+  const visibleDocs = filteredDocs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(1);
+  }, [projectId, kindFilter, query]);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
   const candidateCount =
     selected?.revisions.filter((revision) => revision.state === 'CANDIDATE').length ?? 0;
   const diff = useMemo(
@@ -197,15 +229,35 @@ export function Knowledge() {
       <div className="table-card">
         <div className="card-head">
           <h3>
-            文档<small>{docs.length}</small>
+            文档<small>{filteredDocs.length} / {docs.length}</small>
           </h3>
+          <div className="card-head-actions req-list-tools">
+            <input
+              aria-label="搜索文档"
+              placeholder="搜索标题 / 需求"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            <select
+              aria-label="文档类型筛选"
+              value={kindFilter}
+              onChange={(event) => setKindFilter(event.target.value)}
+            >
+              <option value="">全部类型</option>
+              {Object.entries(KIND_LABELS).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
                 <th>类型</th>
-                <th>当前发布版本</th>
+                <th>文档 / 最新版本</th>
                 <th>绑定需求</th>
                 <th>文档版本</th>
                 <th>候选</th>
@@ -213,7 +265,7 @@ export function Knowledge() {
               </tr>
             </thead>
             <tbody>
-              {docs.map((item) => {
+              {visibleDocs.map((item) => {
                 const latest = item.publishedRevision ?? item.revisions[0] ?? null;
                 return (
                 <tr
@@ -252,16 +304,43 @@ export function Knowledge() {
                 </tr>
                 );
               })}
-              {docs.length === 0 && (
+              {visibleDocs.length === 0 && (
                 <tr className="table-empty">
                   <td colSpan={6}>
-                    {projectId ? '该项目还没有文档，等待本地 Agent 提交候选。' : '先选择项目。'}
+                    {!projectId
+                      ? '先选择项目。'
+                      : docs.length === 0
+                        ? '该项目还没有文档，等待本地 Agent 提交候选。'
+                        : '没有匹配的文档，清空搜索或类型筛选。'}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        {filteredDocs.length > PAGE_SIZE && (
+          <div className="table-pagination">
+            <span>
+              第 {page} / {pageCount} 页 · 共 {filteredDocs.length} 条
+            </span>
+            <div>
+              <button
+                className="ghost"
+                disabled={page <= 1}
+                onClick={() => setPage((value) => Math.max(1, value - 1))}
+              >
+                上一页
+              </button>
+              <button
+                className="ghost"
+                disabled={page >= pageCount}
+                onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+              >
+                下一页
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {selected && (

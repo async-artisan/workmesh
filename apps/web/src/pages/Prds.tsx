@@ -197,7 +197,7 @@ export function Prds() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>当前发布版本</th>
+                <th>文档 / 最新版本</th>
                 <th>需求</th>
                 <th>文档版本</th>
                 <th>候选</th>

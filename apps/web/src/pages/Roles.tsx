@@ -236,7 +236,9 @@ export function Roles() {
                 <tr key={member.id}>
                   <td>
                     <strong>{member.name || member.email}</strong>
-                    <div className="cell-mono cell-truncate">{member.email}</div>
+                    {member.name && member.name !== member.email && (
+                      <div className="cell-mono cell-truncate">{member.email}</div>
+                    )}
                   </td>
                   <td>
                     <span className="status-tag">{member.role}</span>
