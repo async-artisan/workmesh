@@ -265,10 +265,20 @@ class FakePrisma {
     });
   }
 
-  readonly users = new Map<string, { id: string; email: string }>();
+  readonly users = new Map<
+    string,
+    { id: string; email: string; isActive: boolean; authVersion: number }
+  >();
+  readonly auditEvents: Array<Record<string, unknown>> = [];
+  readonly stamps: Array<Record<string, unknown>> = [];
 
-  addUser(user: { id: string; email: string }): void {
-    this.users.set(user.email.toLowerCase(), user);
+  addUser(user: { id: string; email: string; isActive?: boolean }): void {
+    this.users.set(user.email.toLowerCase(), {
+      id: user.id,
+      email: user.email,
+      isActive: user.isActive ?? true,
+      authVersion: 1,
+    });
   }
 
   async $transaction<T>(run: (tx: FakePrisma) => Promise<T>): Promise<T> {
@@ -276,11 +286,43 @@ class FakePrisma {
   }
 
   readonly user = {
-    findUnique: async (args: { where: { email: string }; select: { id: true; email: true } }) =>
-      this.users.get(args.where.email.toLowerCase()) ?? null,
+    findUnique: async (args: {
+      where: { email?: string; id?: string };
+      select?: Record<string, boolean>;
+    }) => {
+      const row = args.where.email
+        ? this.users.get(args.where.email.toLowerCase())
+        : [...this.users.values()].find((user) => user.id === args.where.id);
+      if (!row) return null;
+      if (!args.select) return row;
+      const selected: Record<string, unknown> = {};
+      for (const key of Object.keys(args.select))
+        selected[key] = (row as unknown as Record<string, unknown>)[key];
+      return selected;
+    },
+  };
+
+  readonly principalStamp = {
+    create: async (args: { data: Record<string, unknown> }) => {
+      const row = { id: randomUUID(), ...args.data };
+      this.stamps.push(row);
+      return row;
+    },
+  };
+
+  readonly auditEvent = {
+    create: async (args: { data: Record<string, unknown> }) => {
+      const row = { id: randomUUID(), ...args.data };
+      this.auditEvents.push(row);
+      return row;
+    },
   };
 
   readonly project = {
+    findUnique: async (args: { where: { id: string }; select?: { archivedAt?: true } }) => {
+      const row = this.projects.get(args.where.id);
+      return row ? { archivedAt: row.archivedAt } : null;
+    },
     findMany: async (args?: {
       where?: {
         archivedAt?: Date | null;
@@ -1008,6 +1050,67 @@ describe('ProjectsService addMemberByEmail', () => {
       'USER_NOT_FOUND',
       404,
     );
+  });
+
+  it('refuses to add a deactivated account', async () => {
+    // 成员资格是几乎所有读权限的门槛：停用账号不能被悄悄加回项目。
+    const env = bootstrap();
+    env.prisma.addUser({ id: NEW_ID, email: 'disabled@example.com', isActive: false });
+    await expectRejection(
+      env.service.addMemberByEmail(OWNER_ID, PROJECT_ID, 'disabled@example.com'),
+      V1_ERROR_CODES.MEMBER_INACTIVE,
+      'MEMBER_INACTIVE',
+      422,
+    );
+    expect(env.prisma.members.some((member) => member.userId === NEW_ID)).toBe(false);
+  });
+
+  it('refuses member changes on an archived project', async () => {
+    const env = bootstrap();
+    env.prisma.addUser({ id: NEW_ID, email: 'new@example.com' });
+    const project = env.prisma.projects.get(PROJECT_ID)!;
+    project.archivedAt = new Date('2026-11-01T00:00:00.000Z');
+    await expectRejection(
+      env.service.addMemberByEmail(OWNER_ID, PROJECT_ID, 'new@example.com'),
+      V1_ERROR_CODES.RESOURCE_CONFLICT,
+      'PROJECT_ARCHIVED',
+      409,
+    );
+  });
+
+  it('records an audit event for who added whom, and marks revivals', async () => {
+    const env = bootstrap();
+    env.prisma.addUser({ id: NEW_ID, email: 'returning@example.com' });
+    env.prisma.members.push({
+      projectId: PROJECT_ID,
+      userId: NEW_ID,
+      role: 'MEMBER',
+      version: 2,
+      revokedAt: new Date('2026-10-01T00:00:00.000Z'),
+      grantedAt: NOW,
+    });
+    await env.service.addMemberByEmail(OWNER_ID, PROJECT_ID, 'returning@example.com');
+    expect(env.prisma.stamps).toHaveLength(1);
+    expect(env.prisma.auditEvents).toHaveLength(1);
+    expect(env.prisma.auditEvents[0]).toMatchObject({
+      projectId: PROJECT_ID,
+      actorStampId: env.prisma.stamps[0].id,
+      action: 'PROJECT_MEMBER_ADD',
+      targetType: 'PROJECT_MEMBER',
+      targetId: NEW_ID,
+      outcome: 'APPLIED',
+      details: { role: 'MEMBER', revived: true },
+    });
+  });
+
+  it('does not write an audit event when the member is already active', async () => {
+    const env = bootstrap();
+    env.prisma.addUser({ id: NEW_ID, email: 'new@example.com' });
+    await env.service.addMemberByEmail(OWNER_ID, PROJECT_ID, 'new@example.com');
+    const replay = await env.service.addMemberByEmail(OWNER_ID, PROJECT_ID, 'new@example.com');
+    expect(replay.role).toBe('MEMBER');
+    // 幂等重放不产生第二条审计，避免同一事实被记两遍。
+    expect(env.prisma.auditEvents).toHaveLength(1);
   });
 });
 

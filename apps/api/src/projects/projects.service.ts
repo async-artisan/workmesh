@@ -21,6 +21,7 @@ import {
   type V1OperationRecord,
 } from '../common/v1-idempotency';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertProjectWritable } from './project-archive';
 import type { CreateProjectDto, CreateProjectRepositoryDto, UpdateProjectDto } from './dto';
 import {
   PROJECT_ROLE_REPOSITORY,
@@ -201,18 +202,33 @@ export class ProjectsService {
   /**
    * OWNER/ADMIN 按邮箱把已注册用户加入项目。不发送邀请；邮箱必须对应现有账号。
    * 已经是活动成员时幂等返回现有成员；曾被撤销的成员重新激活为 MEMBER。
+   *
+   * 这是「直接加人」的旁路，正式路径是邀请链接（带票据、项目版本 CAS 与审计）。
+   * 它曾经连归档项目、被停用账号、审计记录都不管：ADMIN 一次普通请求就能把任意已注册
+   * 账号（含被停用的、曾被移除的）悄悄加回项目，事后无处可查。这里补齐这三项；
+   * 票据与版本 CAS 仍只有邀请路径具备，文档也不再把本接口当作入口。
    */
   async addMemberByEmail(userId: string, projectId: string, email: string) {
     const member = await this.membership(userId, projectId, true);
     if (member.role !== 'OWNER' && member.role !== 'ADMIN')
       throw new NotFoundException('项目不存在');
+    // 归档项目不再接受成员变更。
+    await assertProjectWritable(this.prisma, projectId);
 
     const normalized = email.trim().toLowerCase();
     const target = await this.prisma.user.findUnique({
       where: { email: normalized },
-      select: { id: true, email: true },
+      select: { id: true, email: true, isActive: true, authVersion: true },
     });
     if (!target) throw resourceNotFound('USER_NOT_FOUND', { email: normalized });
+    // 停用账号不能被加回项目：成员资格是几乎所有读权限的门槛。
+    if (!target.isActive)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.MEMBER_INACTIVE,
+        'MEMBER_INACTIVE',
+        { email: normalized },
+        422,
+      );
 
     const existing = await this.prisma.projectMember.findUnique({
       where: { projectId_userId: { projectId, userId: target.id } },
@@ -227,14 +243,45 @@ export class ProjectsService {
       };
     }
 
-    const saved = existing
-      ? await this.prisma.projectMember.update({
-          where: { projectId_userId: { projectId, userId: target.id } },
-          data: { role: 'MEMBER', revokedAt: null, version: { increment: 1 } },
-        })
-      : await this.prisma.projectMember.create({
-          data: { projectId, userId: target.id, role: 'MEMBER' },
-        });
+    const actor = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { authVersion: true },
+    });
+
+    const saved = await this.prisma.$transaction(async (tx) => {
+      const row = existing
+        ? await tx.projectMember.update({
+            where: { projectId_userId: { projectId, userId: target.id } },
+            data: { role: 'MEMBER', revokedAt: null, version: { increment: 1 } },
+          })
+        : await tx.projectMember.create({
+            data: { projectId, userId: target.id, role: 'MEMBER' },
+          });
+      // 审计：谁把谁加进来的、是不是复活了一个曾被移除的成员，必须留痕。
+      const stamp = await tx.principalStamp.create({
+        data: {
+          kind: 'HUMAN',
+          userId,
+          projectId,
+          userAuthVersion: actor?.authVersion ?? 1,
+          scopeSnapshot: [],
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          projectId,
+          actorStampId: stamp.id,
+          action: 'PROJECT_MEMBER_ADD',
+          targetType: 'PROJECT_MEMBER',
+          targetId: target.id,
+          targetVersion: row.version,
+          outcome: 'APPLIED',
+          details: { role: row.role, revived: Boolean(existing) },
+        },
+      });
+      return row;
+    });
+
     return {
       id: target.id,
       name: target.email,

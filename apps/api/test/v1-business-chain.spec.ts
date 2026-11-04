@@ -159,8 +159,19 @@ class ChainStore {
     this.artifactSets.clear();
     this.reviews.clear();
     this.projects.set(PROJECT_ID, { id: PROJECT_ID, key: 'WM', version: 1, archivedAt: null });
-    this.users.set(OWNER, { id: OWNER, email: 'alice@workmesh.test' });
-    this.users.set(MEMBER, { id: MEMBER, email: 'bob@workmesh.test' });
+    // 与真实库默认一致：新账号 isActive=true、authVersion=1（缺了它会被成员准入当成停用账号）。
+    this.users.set(OWNER, {
+      id: OWNER,
+      email: 'alice@workmesh.test',
+      isActive: true,
+      authVersion: 1,
+    });
+    this.users.set(MEMBER, {
+      id: MEMBER,
+      email: 'bob@workmesh.test',
+      isActive: true,
+      authVersion: 1,
+    });
     this.members.set(`${PROJECT_ID}:${OWNER}`, {
       projectId: PROJECT_ID,
       userId: OWNER,
@@ -257,6 +268,17 @@ const prismaFake = {
       };
       store.requirements.set(row.id, row);
       return row;
+    },
+  },
+  // 加成员现在会写审计记录：替身要提供 stamp 与审计两张表，否则链路会以 500 断在这里。
+  principalStamp: {
+    async create({ data }: { data: Record<string, unknown> }) {
+      return { id: randomUUID(), ...data };
+    },
+  },
+  auditEvent: {
+    async create({ data }: { data: Record<string, unknown> }) {
+      return { id: randomUUID(), ...data };
     },
   },
   async $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
