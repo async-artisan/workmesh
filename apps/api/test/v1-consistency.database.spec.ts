@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '../../node_modules/.prisma/workmesh-v1-client';
 import { evaluateSuiteTestDatabase, verifiedTestDatabase } from '../src/common/v1-test-database';
 import { runWithRequestId } from '../src/common/request-context.middleware';
+import { RetentionService } from '../src/common/retention.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { ChangeRequestsService } from '../src/changes/change-requests.service';
 import { V1GithubEvidencePrismaRepository } from '../src/integrations/v1-github-evidence.prisma-repository';
@@ -280,6 +281,26 @@ suite('PostgreSQL decision and webhook consistency', () => {
       expect(outside.requestId).toBeNull();
     } finally {
       await stamped.$disconnect();
+      if (previous === undefined) delete process.env.WORKMESH_V1_DATABASE_URL;
+      else process.env.WORKMESH_V1_DATABASE_URL = previous;
+    }
+  });
+
+  it('runs the retention sweep against real PostgreSQL', async () => {
+    // 关系过滤（decisions / stamps / tickets / cliViews）只有真实库才会校验：
+    // 关系名写错在单元测试的假 Prisma 上永远发现不了。这里只要求它跑通且不误删。
+    const previous = process.env.WORKMESH_V1_DATABASE_URL;
+    process.env.WORKMESH_V1_DATABASE_URL = testUrl;
+    const service = new PrismaService();
+    try {
+      const report = await new RetentionService(service).sweep();
+      expect(report.authRateWindows).toBeGreaterThanOrEqual(0);
+      expect(report.confirmationTickets).toBeGreaterThanOrEqual(0);
+      expect(report.webSessions).toBeGreaterThanOrEqual(0);
+      // 审计与收据永不自动清理：本套件刚写的证据与操作必须还在。
+      expect(await service.changeRequest.count({ where: { projectId } })).toBeGreaterThan(0);
+    } finally {
+      await service.$disconnect();
       if (previous === undefined) delete process.env.WORKMESH_V1_DATABASE_URL;
       else process.env.WORKMESH_V1_DATABASE_URL = previous;
     }

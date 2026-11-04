@@ -17,6 +17,7 @@ import { StrictJsonInterceptor } from './common/strict-json.interceptor';
 import { MetricsInterceptor } from './common/metrics.interceptor';
 import { MetricsService } from './common/metrics.service';
 import { ReadinessService } from './common/readiness.service';
+import { RetentionService } from './common/retention.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { RequestContextMiddleware } from './common/request-context.middleware';
 
@@ -46,6 +47,7 @@ import { RequestContextMiddleware } from './common/request-context.middleware';
     { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
     MetricsService,
     ReadinessService,
+    RetentionService,
   ],
 })
 export class AppModule implements NestModule {
