@@ -29,6 +29,18 @@ function bodyParserLimitOf(error: unknown): number {
     : MAX_JSON_BODY_BYTES;
 }
 
+/**
+ * Prisma 把非法 UUID/数值传给强类型列时抛 `P2023`（inconsistent column data，PG 侧为 22P02）。
+ * 那是**客户端传错参数**，不是服务端故障：`/projects/not-a-uuid` 之类应当 400，
+ * 否则每个拼错 URL 的调用都会变成一条 500 并污染错误率。仍然记一条 warn，避免掩盖
+ * 内部代码把坏值传进查询的真实 bug。
+ */
+function isPrismaInvalidInput(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { name?: unknown; code?: unknown };
+  return candidate.name === 'PrismaClientKnownRequestError' && candidate.code === 'P2023';
+}
+
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
@@ -43,6 +55,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let code = 'INTERNAL_ERROR';
     let message = '服务器内部错误';
     let details: Record<string, unknown> | undefined;
+    let warned = false;
 
     if (error instanceof WorkmeshError) {
       status = error.status;
@@ -55,6 +68,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
       code = V1_ERROR_CODES.PAYLOAD_TOO_LARGE;
       message = PAYLOAD_TOO_LARGE_MESSAGE;
       details = { limitBytes: bodyParserLimitOf(error) };
+    } else if (isPrismaInvalidInput(error)) {
+      status = 400;
+      code = V1_ERROR_CODES.INVALID_REQUEST;
+      message = '请求参数格式不正确';
+      details = { reason: 'INVALID_COLUMN_DATA' };
+      warned = true;
     } else if (error instanceof HttpException) {
       status = error.getStatus();
       const body = error.getResponse();
@@ -80,6 +99,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
         // 未映射异常必须留堆栈：只记一行 message 会让 500 无法定位（A3 首跑就撞上过）。
         this.logger.error(line, error instanceof Error ? error.stack : String(error));
       }
+    } else if (warned) {
+      // 已降级为 4xx 的 Prisma 输入错误：不值得报警，但要留痕以便发现内部把坏值传进查询。
+      const column = (error as { meta?: { columnName?: unknown } }).meta?.columnName;
+      this.logger.warn(
+        `${request?.method ?? 'UNKNOWN'} ${request?.path ?? 'UNKNOWN'} returned ${status} [${code}]: ${message}${
+          typeof column === 'string' ? ` (column ${column})` : ''
+        }`,
+      );
     }
     response?.setHeader?.('X-Request-Id', requestId);
     response?.status?.(status).json({

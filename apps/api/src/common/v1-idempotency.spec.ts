@@ -108,6 +108,27 @@ describe('idempotency policy', () => {
     expect(requireExpectedVersion(3)).toBe(3);
   });
 
+  it('rejects keys that are not UUID shaped instead of letting the database do it', () => {
+    // 回归：旧实现只校验「36 个 [0-9a-f-] 字符」，36 个横线也能通过，
+    // 随后写进 @db.Uuid 列触发 22P02，把一个 400 的输入错误变成 500。
+    const uuid = '11111111-1111-4111-8111-111111111111';
+    expect(requireIdempotencyKey(uuid)).toBe(uuid);
+    for (const bad of [
+      '-'.repeat(36),
+      'zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz',
+      '11111111-1111-4111-8111-11111111111',
+      '11111111_1111_4111_8111_111111111111',
+      '',
+    ])
+      expect(() => requireIdempotencyKey(bad)).toThrowError(
+        expect.objectContaining({ code: 'IDEMPOTENCY_KEY_REQUIRED', status: 400 }),
+      );
+    // 版本位不限制：客户端用 v7 也应该通过。
+    expect(requireIdempotencyKey('0190a5c4-1f3e-7a2b-8c4d-5e6f7a8b9c0d')).toBe(
+      '0190a5c4-1f3e-7a2b-8c4d-5e6f7a8b9c0d',
+    );
+  });
+
   it('digests ValidationPipe-transformed DTO instances instead of failing (route 500 regression)', () => {
     // 回归：控制器把 transform 后的 DTO 实例交给摘要；原型非 Object.prototype 曾导致 canonicalJson 抛错并整条路由 500。
     class StepBindingDto {

@@ -88,8 +88,22 @@ export function assertReplayable(
     );
 }
 
+/** RFC 4122 形态的 UUID。只校验形状，不限定版本位——客户端可能用 v7，服务端不需要限制。 */
+const UUID_SHAPE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+export function isUuidShaped(value: unknown): value is string {
+  return typeof value === 'string' && UUID_SHAPE.test(value);
+}
+
+/**
+ * Idempotency-Key 必须是 UUID。
+ *
+ * 原实现用 `/^[0-9a-fA-F-]{36}$/`，放行「36 个横线」这类根本不是 UUID 的字符串，
+ * 随后它在写进 `@db.Uuid` 列时被 PostgreSQL 拒绝（22P02），把一个可纠正的输入错误
+ * 变成 500。校验必须与列类型同源。
+ */
 export function requireIdempotencyKey(headerValue: string | undefined): string {
-  if (typeof headerValue !== 'string' || !/^[0-9a-fA-F-]{36}$/.test(headerValue))
+  if (!isUuidShaped(headerValue))
     throw new WorkmeshError(
       V1_ERROR_CODES.IDEMPOTENCY_KEY_REQUIRED,
       'IDEMPOTENCY_KEY_REQUIRED',

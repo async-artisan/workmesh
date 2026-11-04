@@ -8,6 +8,7 @@ import {
   type Principal,
 } from '@workmesh/shared';
 import { V1AuthorizationService } from '../auth/v1-authorization';
+import { isUuidShaped } from './v1-idempotency';
 import {
   V1_OPERATION_RECEIPT_REPOSITORY,
   type V1OperationReceiptRecord,
@@ -24,8 +25,6 @@ export type V1OperationReceiptView = {
   route: string;
   projectId: string | null;
 };
-
-const OPERATION_KEY_MAX = 200;
 
 function invalidOperationKey(operationKey: string): WorkmeshError {
   return new WorkmeshError(
@@ -65,8 +64,10 @@ export class V1OperationReceiptService {
     operationKey: string,
     projectId: string | null,
   ): Promise<V1OperationReceiptView> {
-    if (operationKey.length === 0 || operationKey.length > OPERATION_KEY_MAX)
-      throw invalidOperationKey(operationKey);
+    // 收据键是 UUID 列上的查询键；只按长度校验会让非法值落到 PostgreSQL 变 500。
+    if (!isUuidShaped(operationKey)) throw invalidOperationKey(operationKey);
+    // projectId 同样是 UUID 列，非法值不该变成服务端错误。
+    if (projectId !== null && !isUuidShaped(projectId)) throw invalidOperationKey(operationKey);
 
     const expectedProjectId = projectId ?? null;
     const scopeKey = projectId ? projectScopeKey(projectId) : accountScopeKey(principal.userId);
