@@ -18,6 +18,8 @@ export const CLI_INTERVAL_SECONDS = 5;
 
 const USER_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const NO_PROOF = V1_ERROR_CODES.AUTH_INVALID;
+/** 签发的 Agent 凭据最长有效天数。 */
+const MAX_CREDENTIAL_DAYS = 30;
 
 function unauthorized(message: string): WorkmeshError {
   return new WorkmeshError(NO_PROOF, message, undefined, 401);
@@ -185,15 +187,18 @@ export class V1CliAuthorizationService {
       );
     await this.assertView(request.id, sessionId, principal.userId, now);
 
+    // 凭据有效期上限 30 天。原先是 365 天：签发 Agent 凭据是本系统价值最高的授权动作，
+    // 一个被劫持的会话就能换出一整年的任意 scope 凭据。短期凭据到期即失效，
+    // 续签是一次新的、可审计的人类决定（GitHub PAT 与 npm token 也是这个方向）。
     if (
       !Number.isInteger(input.expiresInDays) ||
       input.expiresInDays < 1 ||
-      input.expiresInDays > 365
+      input.expiresInDays > MAX_CREDENTIAL_DAYS
     )
       throw new WorkmeshError(
         V1_ERROR_CODES.INVALID_REQUEST,
-        'expiresInDays 必须为 1–365',
-        undefined,
+        `expiresInDays 必须为 1–${MAX_CREDENTIAL_DAYS}`,
+        { maxDays: MAX_CREDENTIAL_DAYS },
         400,
       );
     if (!Array.isArray(input.scopes) || input.scopes.length === 0)

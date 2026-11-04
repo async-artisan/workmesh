@@ -221,6 +221,15 @@ suite('real account and device authorization HTTP boundaries', () => {
         })
       ).status,
     ).toBe(422);
+    // 凭据有效期上限 30 天：一年期的 Agent 凭据让一次会话劫持能长期占用授权。
+    expect(
+      (
+        await post(`/auth/cli-authorizations/${device.authorizationId}/approve`, {
+          ...approval,
+          expiresInDays: 31,
+        })
+      ).status,
+    ).toBe(400);
     expect(
       (await post(`/auth/cli-authorizations/${device.authorizationId}/approve`, approval)).body.data
         .status,

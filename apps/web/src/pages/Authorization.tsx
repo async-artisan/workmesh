@@ -211,7 +211,7 @@ export function Authorization() {
               <input
                 type="number"
                 min={1}
-                max={365}
+                max={30}
                 value={expiresInDays}
                 aria-label="授权有效期"
                 onChange={(event) => setExpiresInDays(Number(event.target.value))}
