@@ -14,6 +14,7 @@ import {
   assertWorkflowInstanceActive,
 } from './v1-task-consistency-policy';
 import { acceptanceReviewKindOf, acceptanceSlotBindings } from '../reviews/v1-review-derivation';
+import { boundEvidenceIds } from '../reviews/v1-review-code-evidence';
 import {
   type V1ArtifactRepository,
   type V1ArtifactSetSnapshot,
@@ -110,8 +111,21 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
     projectId: string,
     artifactSetId: string,
   ): Promise<V1CodeReviewEvidenceSnapshot[]> {
+    // 与验收闸门同口径：工件集下挂着的是 PENDING 占位票据行，
+    // 真实证据要沿「已消费票据 → preparedEvidenceId」解析，否则界面永远显示待定。
+    const tickets = await this.prisma.codeReviewEvidence.findMany({
+      where: { projectId, artifactSetId, preparedSecretHash: { not: null } },
+      select: {
+        preparedSecretHash: true,
+        preparedExpiresAt: true,
+        preparedEvidenceId: true,
+      },
+    });
+    const boundIds = boundEvidenceIds(tickets);
+    if (boundIds.length === 0) return [];
+
     const evidence = await this.prisma.codeReviewEvidence.findMany({
-      where: { projectId, artifactSetId },
+      where: { projectId, id: { in: boundIds }, preparedSecretHash: null },
       select: {
         id: true,
         repositoryId: true,
