@@ -14,6 +14,9 @@
 ## 通用约定
 
 - 请求体为严格 JSON：拒绝浮点数、重复键、尾随内容和超限深度；DTO 开启 `whitelist` 与 `forbidNonWhitelisted`，未声明字段一律 400。
+- 体积上限（超出均返回 `413 PAYLOAD_TOO_LARGE`，`details.limitBytes` 给出该层实际生效的上限）：
+  - **JSON 请求体 16MiB**，由传输层在路由之前判定。注意 Base64 约 4/3 膨胀，所以单个文档实际可传约 12MiB 原始字节。
+  - **单个文档 / 单件 HOSTED 正文 10MiB**（按解码后的原始字节算），覆盖 PRD 候选的 `bodyBase64`、角色包资源正文与 HOSTED 工件正文；**单次交付所有 HOSTED 正文总和同样 10MiB**。这一层必须解码后校验——传输层只看得到 JSON 字符串长度，看不到解码后字节。
 - 错误 envelope：`{ "error": { "code": "FORBIDDEN", "message": "...", "requestId": "..." } }`。
 - 写接口必须携带 `Idempotency-Key`；同一键同语义重放返回原结果，同键异语义返回 `409 IDEMPOTENCY_CONFLICT`。
 - 带版本的资源（需求、任务、评审请求、文档、附件集等）必须提交 `expectedVersion`，不一致返回 `409 VERSION_CONFLICT`。

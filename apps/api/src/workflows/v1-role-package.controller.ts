@@ -25,10 +25,9 @@ import {
 } from 'class-validator';
 import { V1_ERROR_CODES, WorkmeshError, type Confirmation } from '@workmesh/shared';
 import { V1AuthGuard, type V1Request } from '../auth/v1-auth.guard';
+import { decodeDocumentBody, IsCanonicalBase64Body } from '../common/strict-json.interceptor';
 import { requireIdempotencyKey } from '../common/v1-idempotency';
 import { V1RolePackageService } from './v1-role-package.service';
-
-const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 class ConfirmationDto {
   @IsUUID() ticketId!: string;
@@ -39,7 +38,7 @@ class ConfirmationDto {
 class ResourceUploadDto {
   @IsString() @MaxLength(48) @Matches(/^[a-z][a-z0-9-]{0,47}$/) resourceId!: string;
 
-  @IsString() @Matches(BASE64) bodyBase64!: string;
+  @IsString() @IsCanonicalBase64Body() bodyBase64!: string;
 }
 
 class RegisterRolePackageDto {
@@ -114,7 +113,8 @@ export class V1RolePackageController {
         manifest: dto.manifest,
         resources: dto.resources.map((resource) => ({
           resourceId: resource.resourceId,
-          bodyBytes: new Uint8Array(Buffer.from(resource.bodyBase64, 'base64')),
+          // 05 §5：角色包资源正文也是文档正文，解码后按原始字节校验 10MiB。
+          bodyBytes: decodeDocumentBody(resource.bodyBase64),
         })),
         confirmation: confirmationOf(dto.confirmation),
       },

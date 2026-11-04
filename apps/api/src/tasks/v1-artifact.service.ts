@@ -17,6 +17,10 @@ import {
   type V1IdempotencyRepository,
 } from '../common/v1-idempotency';
 import {
+  assertDocumentBodyWithinLimit,
+  isCanonicalBase64,
+} from '../common/strict-json.interceptor';
+import {
   V1_TASK_REPOSITORY,
   type V1TaskRepository,
   type V1TaskSnapshot,
@@ -78,7 +82,6 @@ export type V1DeliverResult = {
 
 const DIGEST = /^[0-9a-f]{64}$/;
 const COMMIT_SHA = /^[0-9a-f]{40}$/;
-const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const KINDS = new Set<V1ArtifactKind>(['PRD', 'DESIGN', 'IMPL', 'CASES', 'RELEASE']);
 
 /**
@@ -334,6 +337,13 @@ export class V1ArtifactService {
         );
       seen.add(key);
     }
+    // 05 §1：单件 10MiB 之外，单次交付所有 HOSTED 正文总和也不得超过 10MiB。
+    // 总和与单件共用 MAX_DOCUMENT_BODY_BYTES 与同一个 413 构造，不另写一套文案。
+    const hostedTotalBytes = items.reduce(
+      (total, item) => total + (item.storage === 'HOSTED' ? item.byteLength : 0),
+      0,
+    );
+    assertDocumentBodyWithinLimit(hostedTotalBytes, 'hostedTotalBytes');
     return items;
   }
 
@@ -402,7 +412,9 @@ export class V1ArtifactService {
       );
 
     if (item.storage === 'HOSTED') {
-      if (typeof item.bodyBase64 !== 'string' || !BASE64.test(item.bodyBase64))
+      // 不用嵌套量词正则：8MB+ 的 base64 字符串会让 V8 回溯爆栈（RangeError → 500），
+      // 线性校验才能让超限请求稳定走到下面的 413。
+      if (typeof item.bodyBase64 !== 'string' || !isCanonicalBase64(item.bodyBase64))
         throw new WorkmeshError(
           V1_ERROR_CODES.ARTIFACT_INVALID,
           'ARTIFACT_BODY_REQUIRED',
@@ -417,6 +429,10 @@ export class V1ArtifactService {
           422,
         );
       const bytes = Buffer.from(item.bodyBase64, 'base64');
+      // 05 §5：HOSTED 正文按解码后的原始字节校验 10MiB。CLI deliver 把文件整段 Base64 放进
+      // JSON，`MAX_JSON_BODY_BYTES`（16MiB）只能约束传输串，不能替代这里对原始字节的限制，
+      // 也防止 Base64 约 4/3 膨胀绕过 10MiB。
+      assertDocumentBodyWithinLimit(bytes.byteLength, 'bodyBase64');
       if (bytes.toString('base64') !== item.bodyBase64)
         throw new WorkmeshError(
           V1_ERROR_CODES.ARTIFACT_INVALID,

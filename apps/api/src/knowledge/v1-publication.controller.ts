@@ -19,7 +19,6 @@ import {
   IsOptional,
   IsString,
   IsUUID,
-  Matches,
   MaxLength,
   Min,
   ValidateNested,
@@ -27,12 +26,12 @@ import {
 import { Type } from 'class-transformer';
 import { V1_ERROR_CODES, WorkmeshError, type Confirmation } from '@workmesh/shared';
 import { V1AuthGuard, type V1Request } from '../auth/v1-auth.guard';
+import { decodeDocumentBody, IsCanonicalBase64Body } from '../common/strict-json.interceptor';
 import { requireIdempotencyKey } from '../common/v1-idempotency';
 import { V1PublicationService, type V1DocumentWriteContext } from './v1-publication.service';
 import type { DocumentKind } from './v1-publication-policy';
 
 const DOCUMENT_KINDS = ['UNDERSTANDING', 'DECISION', 'PRD', 'KNOWLEDGE'] as const;
-const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 class ConfirmationDto {
   @IsUUID() ticketId!: string;
@@ -60,7 +59,7 @@ class CreateDocumentDto extends BindingDto {
   @IsString() @MaxLength(100) mimeType!: string;
 
   /** 原始正文 base64；服务端按解码后的原始字节计算摘要，不按字符串 trim 或截断。 */
-  @IsString() @Matches(BASE64) bodyBase64!: string;
+  @IsString() @IsCanonicalBase64Body() bodyBase64!: string;
 }
 
 class ProposeRevisionDto extends BindingDto {
@@ -68,7 +67,7 @@ class ProposeRevisionDto extends BindingDto {
 
   @IsString() @MaxLength(100) mimeType!: string;
 
-  @IsString() @Matches(BASE64) bodyBase64!: string;
+  @IsString() @IsCanonicalBase64Body() bodyBase64!: string;
 }
 
 class RestoreDto {
@@ -161,7 +160,8 @@ export class V1PublicationController {
         requirementId: dto.requirementId ?? null,
         title: dto.title,
         mimeType: dto.mimeType,
-        bodyBytes: new Uint8Array(Buffer.from(dto.bodyBase64, 'base64')),
+        // 05 §5：解码后按原始字节校验 10MiB；HTTP 层只量 Base64 字符串，膨胀不能绕过上限。
+        bodyBytes: decodeDocumentBody(dto.bodyBase64),
         basisUnderstandingRevisionId: dto.basisUnderstandingRevisionId ?? null,
         deliveryScope: dto.deliveryScope,
         acceptance: dto.acceptance,
@@ -225,7 +225,8 @@ export class V1PublicationController {
       {
         title: dto.title,
         mimeType: dto.mimeType,
-        bodyBytes: new Uint8Array(Buffer.from(dto.bodyBase64, 'base64')),
+        // 05 §5：解码后按原始字节校验 10MiB；HTTP 层只量 Base64 字符串，膨胀不能绕过上限。
+        bodyBytes: decodeDocumentBody(dto.bodyBase64),
         basisUnderstandingRevisionId: dto.basisUnderstandingRevisionId ?? null,
         deliveryScope: dto.deliveryScope,
         acceptance: dto.acceptance,
