@@ -207,6 +207,18 @@ export async function collectStatus(ctx: BoxContext): Promise<StatusReport> {
       critical: false,
       detail: webListening ? `端口 ${ctx.webPort} 已监听` : `端口 ${ctx.webPort} 未监听`,
     },
+    {
+      // 未验证过的备份等于没有备份；但旧备份本来就没有 verification 字段，
+      // 所以这条只做提示、不让 doctor 变红，避免一升级就全员红。
+      name: 'backup-verified',
+      ok: backups[0]?.verification != null,
+      critical: false,
+      detail: backups[0]
+        ? backups[0].verification
+          ? `最近备份已验证：${backups[0].verification.verifiedAt}，恢复出 ${backups[0].verification.tables} 张表`
+          : '最近备份未验证可恢复性（运行 workmesh-box backup --verify）'
+        : '还没有备份（运行 workmesh-box backup --verify）',
+    },
   ];
 
   return {
@@ -278,7 +290,13 @@ export function renderStatus(report: StatusReport): string {
   lines.push(
     `备份：${report.backup.count} 份${
       report.backup.latest
-        ? `，最近 ${report.backup.latest.createdAt}（${report.backup.latest.dumpBytes} 字节）`
+        ? `，最近 ${report.backup.latest.createdAt}（${report.backup.latest.dumpBytes} 字节` +
+          `${report.backup.latest.tables === null ? '' : ` · ${report.backup.latest.tables} 张表`}）` +
+          `${
+            report.backup.latest.verification
+              ? ` · 已验证可恢复（恢复出 ${report.backup.latest.verification.tables} 张表）`
+              : ' · 未验证可恢复性'
+          }`
         : ''
     }`,
   );

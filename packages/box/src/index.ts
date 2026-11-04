@@ -17,6 +17,7 @@ const HELP = `workmesh-box ${BOX_VERSION} — 一个盒子的管理命令（Wind
   doctor                     只体检不启动；关键检查失败时退出码 1
   dev                        本机开发：确保 PG 可达 → 起 API → 起 Web（已运行则跳过）
   backup                     备份数据库到 <data-dir>/backups/<时间>/（SQL dump + manifest）
+  backup --verify            备份后立刻恢复到临时库核对表数量/迁移数，再删掉临时库
   restore --from <dir> --yes 把备份恢复到一个新数据库（不动现有库）
 
 选项：
@@ -29,6 +30,7 @@ const HELP = `workmesh-box ${BOX_VERSION} — 一个盒子的管理命令（Wind
   --from <dir>               备份目录（restore）
   --database <name>          恢复目标库名（restore，默认 workmesh_restore_<时间>）
   --yes                      确认执行有副作用的恢复
+  --verify                   备份后验证可恢复性（backup；会建一个临时库再删掉）
   --check                    只报告，不启动（dev）
   -h, --help                 显示本帮助
 
@@ -62,6 +64,7 @@ async function main(): Promise<number> {
       from: { type: 'string' },
       database: { type: 'string' },
       yes: { type: 'boolean', default: false },
+      verify: { type: 'boolean', default: false },
       check: { type: 'boolean', default: false },
       help: { type: 'boolean', short: 'h', default: false },
     },
@@ -119,7 +122,7 @@ async function main(): Promise<number> {
   }
 
   if (command === 'backup') {
-    const result = await runBackup(ctx);
+    const result = await runBackup(ctx, { verify: Boolean(values.verify) });
     if (json) console.log(JSON.stringify(result, null, 2));
     else {
       console.log(`备份完成：${result.dir}`);
@@ -127,8 +130,16 @@ async function main(): Promise<number> {
         `数据库：${result.manifest.database.host}:${result.manifest.database.port}/${result.manifest.database.name}`,
       );
       console.log(
-        `dump：${result.manifest.dumpBytes} 字节 · 迁移 ${result.manifest.migrationsApplied ?? '?'} 个`,
+        `dump：${result.manifest.dumpBytes} 字节 · 迁移 ${result.manifest.migrationsApplied ?? '?'} 个 · 表 ${result.manifest.tables ?? '?'} 张`,
       );
+      console.log(`sha256：${result.manifest.dumpSha256 ?? '（未计算）'}`);
+      if (result.verification) {
+        console.log(
+          `可恢复性：已验证（${result.verification.verifiedAt}，恢复出 ${result.verification.tables} 张表）`,
+        );
+      } else {
+        console.log('可恢复性：未验证——加 --verify 会真的恢复一次再删掉临时库');
+      }
     }
     return 0;
   }

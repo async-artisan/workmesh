@@ -62,7 +62,13 @@ describe('backup naming and manifest', () => {
       dumpBytes: 128,
       migrationsApplied: 12,
     };
-    expect(parseManifest(manifest)).toEqual(manifest);
+    // 1.0 旧清单仍然可读，但完整性/验证字段归一为 null：没有就是没有，不伪造成已验证。
+    expect(parseManifest(manifest)).toEqual({
+      ...manifest,
+      dumpSha256: null,
+      tables: null,
+      verification: null,
+    });
     expect(() => parseManifest({ ...manifest, schemaVersion: '2.0' })).toThrow(/schemaVersion/);
     expect(() => parseManifest(null)).toThrow(/不是对象/);
     const { dumpBytes: _dumpBytes, ...missing } = manifest;

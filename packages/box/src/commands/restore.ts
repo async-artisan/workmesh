@@ -1,11 +1,18 @@
 import { join } from 'node:path';
 import type { BoxContext } from '../context';
-import { backupStamp, readManifest, type BackupManifest } from '../lib/backup';
+import {
+  COUNT_TABLES_SQL,
+  backupStamp,
+  readManifest,
+  sha256File,
+  type BackupManifest,
+} from '../lib/backup';
 import { maskUrl } from '../lib/config';
 import {
   createDatabase,
   databaseExists,
   databaseUrlFor,
+  dropDatabase,
   queryScalar,
   restoreDatabase,
 } from '../lib/pg';
@@ -31,6 +38,17 @@ export async function runRestore(
   if (!ctx.pg) throw new Error('未找到 pg_dump/psql：设置 WORKMESH_PG_BIN');
 
   const manifest = readManifest(input.from);
+  const dumpFile = join(input.from, manifest.dumpFile);
+
+  // 清单里有 sha256 就先校验字节：损坏的备份应该在建库之前就被拒绝，而不是恢复出半个库。
+  if (manifest.dumpSha256 !== null) {
+    const actual = await sha256File(dumpFile);
+    if (actual !== manifest.dumpSha256)
+      throw new Error(
+        `备份文件校验失败：${dumpFile}\n期望 sha256 ${manifest.dumpSha256}\n实际 ${actual}`,
+      );
+  }
+
   const stamp = backupStamp(ctx.now).replace(/-/g, '_').toLowerCase();
   const name = input.database ?? `workmesh_restore_${stamp}`;
 
@@ -39,16 +57,18 @@ export async function runRestore(
 
   await createDatabase({ tools: ctx.pg, target: ctx.database, name });
   const targetUrl = databaseUrlFor(ctx.database, name);
-  await restoreDatabase({
-    tools: ctx.pg,
-    targetUrl,
-    file: join(input.from, manifest.dumpFile),
-  });
+  try {
+    await restoreDatabase({ tools: ctx.pg, targetUrl, file: dumpFile });
+  } catch (caught) {
+    // 半成品库必须清掉：否则下次同名恢复只会报"目标数据库已存在"，需要人工 drop。
+    await dropDatabase({ tools: ctx.pg, target: ctx.database, name }).catch(() => undefined);
+    throw caught;
+  }
 
   const tables = await queryScalar({
     tools: ctx.pg,
     url: targetUrl,
-    sql: "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'workmesh_v1'",
+    sql: COUNT_TABLES_SQL,
   });
 
   return {

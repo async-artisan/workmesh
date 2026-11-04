@@ -182,3 +182,22 @@ export async function createDatabase(input: {
 export function databaseUrlFor(target: DatabaseTarget, name: string): string {
   return withDatabase(target.url, name);
 }
+
+/**
+ * 删除数据库。用于两条路径：验证备份时清理临时库，以及恢复失败时清理半成品。
+ * `WITH (FORCE)` 会断开残留连接（PostgreSQL 13+）；没有它，一个没关掉的连接就会让
+ * DROP 失败，半成品库反而更清不掉。
+ */
+export async function dropDatabase(input: {
+  tools: PgTools;
+  target: DatabaseTarget;
+  name: string;
+}): Promise<void> {
+  if (!/^[a-z][a-z0-9_]{0,62}$/.test(input.name))
+    throw new Error(`数据库名不合法：${input.name}（小写字母开头，仅含小写字母/数字/下划线）`);
+  await runSql({
+    tools: input.tools,
+    url: adminUrlOf(input.target),
+    sql: `DROP DATABASE IF EXISTS "${input.name}" WITH (FORCE)`,
+  });
+}

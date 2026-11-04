@@ -5,14 +5,15 @@
 
 ## 命令
 
-| 命令                                      | 作用                                                                                | 有副作用       |
-| ----------------------------------------- | ----------------------------------------------------------------------------------- | -------------- |
-| `workmesh-box status`                     | 版本、平台、目录、数据库、端口、PG 客户端、备份与检查项                             | 只创建数据目录 |
-| `workmesh-box doctor`                     | 只体检；关键检查（数据库 / PG 客户端 / 数据目录 / API 就绪 / 迁移一致）失败退出码 1 | 无             |
-| `workmesh-box dev`                        | 本机开发：PG 可达 → API 就绪 → Web；已在监听的一律跳过，可反复执行                  | 启动缺失的进程 |
-| `workmesh-box dev --check`                | 只报告，不启动                                                                      | 无             |
-| `workmesh-box backup`                     | 备份数据库到 `<data-dir>/backups/<时间>/`（`db.sql` + `manifest.json`）             | 写备份文件     |
-| `workmesh-box restore --from <dir> --yes` | 把备份恢复到**新数据库**（默认 `workmesh_restore_<时间>`），不动现有库              | 建库 + 写数据  |
+| 命令                                      | 作用                                                                                          | 有副作用            |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------- |
+| `workmesh-box status`                     | 版本、平台、目录、数据库、端口、PG 客户端、备份与检查项                                       | 只创建数据目录      |
+| `workmesh-box doctor`                     | 只体检；关键检查（数据库 / PG 客户端 / 数据目录 / API 就绪 / 迁移一致）失败退出码 1           | 无                  |
+| `workmesh-box dev`                        | 本机开发：PG 可达 → API 就绪 → Web；已在监听的一律跳过，可反复执行                            | 启动缺失的进程      |
+| `workmesh-box dev --check`                | 只报告，不启动                                                                                | 无                  |
+| `workmesh-box backup`                     | 备份到 `<data-dir>/backups/<时间>/`（`db.sql` + `manifest.json`，含 dump 的 sha256 与表数量） | 写备份文件          |
+| `workmesh-box backup --verify`            | 同上，并立刻把 dump 恢复进临时库核对表数量/迁移数，核对完删掉临时库                           | 写备份 + 建删临时库 |
+| `workmesh-box restore --from <dir> --yes` | 把备份恢复到**新数据库**（默认 `workmesh_restore_<时间>`），不动现有库                        | 建库 + 写数据       |
 
 ```powershell
 pnpm box status
@@ -33,6 +34,19 @@ pnpm box restore --from C:\Users\me\AppData\Local\workmesh\backups\20261103-1009
 | `GET /api/health/ready` | 能否干活（readiness）：`SELECT 1` + 迁移已应用 | `503 DEPENDENCY_UNAVAILABLE`，不重启       |
 
 `box doctor` 把 `api-ready` 列为关键检查（仅当 API 在跑时），并用 `migrations-in-sync` 比对「数据库已应用迁移数」与「仓库迁移目录数」——部署漏跑迁移会直接变红。`box dev` 等的是就绪而不是存活。
+
+### 备份的完成标准是「恢复得回来」
+
+`backup` 只证明文件写成功了，不证明它可恢复。要拿可恢复的证据，跑 `backup --verify`：它把刚写好的 dump 真的恢复进一个临时库，核对 `workmesh_v1` 表数量与已应用迁移数，无论成败都删掉临时库，结果写进 `manifest.json` 的 `verification`。
+
+清单从 schema 1.1 起记录 `dumpSha256`、`tables` 与 `verification`。旧清单（1.0）仍可读，缺失字段一律归一为 `null`——没有验证过就不显示成已验证。
+
+`restore` 的行为也跟着收紧：
+
+- 清单里有 `dumpSha256` 时，**先校验字节再建库**；被篡改或损坏的备份不应恢复出半个库；
+- 恢复中途失败会 `DROP` 掉刚建的半成品库，避免下次同名恢复只报「目标数据库已存在」还要人工清理。
+
+`box status` / `box doctor` 会显示最近一次备份是否已验证；未验证只是一条提示（非关键），不会让 doctor 变红。
 
 ## 目录与平台
 
