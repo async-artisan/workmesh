@@ -502,8 +502,11 @@ function reviewRepository(state: Store): V1ReviewRepository {
   };
 }
 
-function authRepository(overrides: { memberActive?: boolean } = {}): V1AuthorizationRepository {
+function authRepository(
+  overrides: { memberActive?: boolean; assignments?: Array<{ roleId: string }> } = {},
+): V1AuthorizationRepository {
   const memberActive = overrides.memberActive ?? true;
+  const assignments = overrides.assignments ?? [];
   return {
     async findProject(projectId) {
       return { id: projectId, version: 1, archivedAt: null };
@@ -517,8 +520,15 @@ function authRepository(overrides: { memberActive?: boolean } = {}): V1Authoriza
         revokedAt: memberActive ? null : now,
       };
     },
-    async findActiveRoleAssignments() {
-      return [];
+    async findActiveRoleAssignments(projectId, userId) {
+      return assignments.map((item, index) => ({
+        id: `as-${index}`,
+        projectId,
+        userId,
+        roleId: item.roleId,
+        version: 1,
+        revokedAt: null,
+      }));
     },
     async findRoleAssignment(projectId, userId, roleId) {
       return roleId === 'r-qa' && userId === 'bob'
@@ -932,6 +942,42 @@ describe('V1ReviewService.decide', () => {
       code: 'RESOURCE_NOT_FOUND',
       status: 404,
     });
+  });
+
+  it('hides a review from an agent scoped to another project', async () => {
+    // 工件类评审的 subject 为 null：知识库校验不触发。若不像 HUMAN 那样先解析项目上下文，
+    // 跨项目 Agent 只要拿到 reviewId 就能读到别的项目的 projectId/taskId/责任人/驳回意见。
+    const artifactState = store();
+    artifactState.review.subject = null;
+    const scoped = new V1ReviewService(
+      reviewRepository(artifactState),
+      new V1AuthorizationService(authRepository({ assignments: [{ roleId: 'r-product' }] })),
+      {
+        async createTicket() {
+          throw new Error('not used');
+        },
+        async findTicket() {
+          return null;
+        },
+        async consumeTicket() {
+          return { consumed: false, ticket: null };
+        },
+      },
+      {
+        async findOperation() {
+          return null;
+        },
+      },
+    );
+
+    await expect(
+      scoped.getReview({ ...agentAlice, projectId: 'p-b' }, 'rr-1'),
+    ).rejects.toMatchObject(
+      // notFound() 把细因放在 message 上，外层 code 统一为 RESOURCE_NOT_FOUND。
+      { code: 'RESOURCE_NOT_FOUND', message: 'CROSS_PROJECT_AGENT', status: 404 },
+    );
+    // 同项目 Agent 读同一份评审不受影响。
+    await expect(scoped.getReview(agentAlice, 'rr-1')).resolves.toMatchObject({ id: 'rr-1' });
   });
 
   it('binds the decision to the server derived binding, not to client supplied slots', async () => {

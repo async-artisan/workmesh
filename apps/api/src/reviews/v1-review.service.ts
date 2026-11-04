@@ -215,9 +215,13 @@ export class V1ReviewService {
     // 无对象访问权按 404 返回，不泄露 review 存在性。
     if (review.subject)
       await this.authorization.assertCanReadKnowledge(principal, review.subject.knowledgeBaseId);
-    // 可签性只对人类审批工位有意义；Agent 读取不额外要求项目上下文。
-    if (principal.kind !== 'HUMAN') return review;
+    // 项目上下文必须在这里解析，不能像原先那样只在 HUMAN 分支里解析。
+    // 工件类评审的 subject 恒为 null（上面的知识库校验不触发），于是 AGENT 分支会在
+    // 任何项目校验之前 return：跨项目 Agent 只要拿到 reviewId 就能读到别的项目的
+    // projectId/taskId/slot 责任人/驳回意见，与本服务其余入口「跨项目一律 404」的口径不一致。
     const context = await this.authorization.resolveProjectContext(principal, review.projectId);
+    // 可签性只对人类审批工位有意义。
+    if (principal.kind !== 'HUMAN') return review;
     const decided = new Set(review.decisions.map((decision) => decision.approvalSlotId));
     return {
       ...review,
