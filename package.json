@@ -34,6 +34,15 @@
     "test:browser": "pnpm --filter @workmesh/shared build && pnpm --filter @workmesh/api build && pnpm --filter @workmesh/web build && pnpm test:browser:run",
     "test:browser:run": "node scripts/test-browser.mjs"
   },
+  "lint-staged": {
+    "*.{ts,tsx,mts}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{js,json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
   "devDependencies": {
     "@commitlint/cli": "^19.5.0",
     "@commitlint/config-conventional": "^19.5.0",
