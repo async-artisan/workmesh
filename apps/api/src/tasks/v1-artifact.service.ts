@@ -114,7 +114,7 @@ export class V1ArtifactService {
         { taskId: set.taskId },
         404,
       );
-    await this.authorization.resolveProjectContext(principal, task.projectId);
+    await this.authorization.resolveProjectContext(principal, task.projectId, 'read');
     const evidence = (await this.artifacts.findCodeReviewEvidence?.(task.projectId, set.id)) ?? [];
     const required = needsCodeEvidence(set.artifacts);
     return {
@@ -136,7 +136,11 @@ export class V1ArtifactService {
     const task = await this.tasks.findTask(taskId);
     if (!task)
       throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
-    const resolved = await this.authorization.resolveProjectContext(principal, task.projectId);
+    const resolved = await this.authorization.resolveProjectContext(
+      principal,
+      task.projectId,
+      'write',
+    );
     await this.authorization.requireScope(principal, resolved.project.id, 'task:deliver');
 
     const ownerScopeKey = principalScopeKey(principal);

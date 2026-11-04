@@ -67,7 +67,7 @@ export class V1FlowMetricsService {
   ) {}
 
   async flow(principal: Principal, projectId: string, days: number): Promise<FlowMetrics> {
-    await this.authorization.resolveProjectContext(principal, projectId);
+    await this.authorization.resolveProjectContext(principal, projectId, 'read');
     await this.authorization.requireScope(principal, projectId, 'task:read');
 
     const to = new Date();

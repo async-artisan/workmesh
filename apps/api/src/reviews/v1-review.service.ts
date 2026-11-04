@@ -219,7 +219,11 @@ export class V1ReviewService {
     // 工件类评审的 subject 恒为 null（上面的知识库校验不触发），于是 AGENT 分支会在
     // 任何项目校验之前 return：跨项目 Agent 只要拿到 reviewId 就能读到别的项目的
     // projectId/taskId/slot 责任人/驳回意见，与本服务其余入口「跨项目一律 404」的口径不一致。
-    const context = await this.authorization.resolveProjectContext(principal, review.projectId);
+    const context = await this.authorization.resolveProjectContext(
+      principal,
+      review.projectId,
+      'read',
+    );
     // 可签性只对人类审批工位有意义。
     if (principal.kind !== 'HUMAN') return review;
     const decided = new Set(review.decisions.map((decision) => decision.approvalSlotId));
@@ -284,6 +288,7 @@ export class V1ReviewService {
       const projectContext = await this.authorization.resolveProjectContext(
         principal,
         subject.projectId,
+        'write',
       );
       await this.authorization.requireScope(principal, subject.projectId, 'review:request');
       this.assertTaskResponsibility(
@@ -379,6 +384,7 @@ export class V1ReviewService {
     const projectContext = await this.authorization.resolveProjectContext(
       principal,
       input.projectId,
+      'read',
     );
     await this.authorization.requireScope(principal, input.projectId, 'review:read');
     const query: V1ReviewListQuery = {

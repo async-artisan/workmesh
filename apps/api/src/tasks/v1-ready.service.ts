@@ -85,7 +85,7 @@ export class V1ReadyService {
   ) {}
 
   async ready(principal: Principal, projectId: string, query: V1ReadyQuery): Promise<V1ReadyPage> {
-    const context = await this.authorization.resolveProjectContext(principal, projectId);
+    const context = await this.authorization.resolveProjectContext(principal, projectId, 'read');
     await this.authorization.requireScope(principal, projectId, 'task:read');
 
     const limit = normalizeLimit(query.limit);

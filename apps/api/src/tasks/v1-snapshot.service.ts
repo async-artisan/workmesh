@@ -76,7 +76,7 @@ export class V1SnapshotService {
     const task = await this.repository.findTaskState(taskId);
     if (!task)
       throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
-    await this.authorization.resolveProjectContext(principal, task.projectId);
+    await this.authorization.resolveProjectContext(principal, task.projectId, 'write');
     await this.authorization.requireScope(principal, task.projectId, CONTEXT_CREATE);
 
     const ownerScopeKey = principalScopeKey(principal);
@@ -404,7 +404,7 @@ export class V1SnapshotService {
         { snapshotId },
         404,
       );
-    await this.authorization.resolveProjectContext(principal, snapshot.projectId);
+    await this.authorization.resolveProjectContext(principal, snapshot.projectId, 'read');
     await this.authorization.requireScope(principal, snapshot.projectId, CONTEXT_READ);
 
     for (const resource of snapshot.resources) {
@@ -435,7 +435,7 @@ export class V1SnapshotService {
         { snapshotId },
         404,
       );
-    await this.authorization.resolveProjectContext(principal, snapshot.projectId);
+    await this.authorization.resolveProjectContext(principal, snapshot.projectId, 'read');
     await this.authorization.requireScope(principal, snapshot.projectId, CONTEXT_READ);
 
     const declared = snapshot.resources.find((resource) => resource.refId === refId);
@@ -542,7 +542,8 @@ export class V1SnapshotService {
     if (kind === 'ROLE_RESOURCE') {
       // 项目私有包只在所属项目内读取；内置包 ownerProjectId=null，对所有项目可见。
       const ownerProjectId = await this.repository.findRoleResourceProjectId(targetId);
-      if (ownerProjectId) await this.authorization.resolveProjectContext(principal, ownerProjectId);
+      if (ownerProjectId)
+        await this.authorization.resolveProjectContext(principal, ownerProjectId, 'read');
     }
   }
 }

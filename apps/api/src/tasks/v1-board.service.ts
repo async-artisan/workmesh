@@ -20,7 +20,7 @@ export class V1BoardService {
 
   /** 只读派生看板：按任务当前认领/工作态/交付态分组为固定列。 */
   async board(principal: Principal, projectId: string): Promise<V1BoardSnapshot> {
-    await this.authorization.resolveProjectContext(principal, projectId);
+    await this.authorization.resolveProjectContext(principal, projectId, 'read');
     await this.authorization.requireScope(principal, projectId, 'task:read');
 
     const cards = await this.repository.listCards(projectId);

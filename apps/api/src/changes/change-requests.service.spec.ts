@@ -15,6 +15,8 @@ function fakePrisma() {
     userId: string;
     role: { key: string; isActive: boolean };
   }> = [];
+  /** 归档状态：用来验证归档项目拒绝一切写入。 */
+  const projects = [{ id: 'p1', archivedAt: null as Date | null }];
   const requirements = [
     { id: 'req-1', projectId: 'p1', frozenAt: null as Date | null },
     { id: 'req-2', projectId: 'p1', frozenAt: new Date('2026-11-01T00:00:00Z') as Date | null },
@@ -60,6 +62,10 @@ function fakePrisma() {
         assignments.filter(
           (item) => item.projectId === input.where.projectId && item.userId === input.where.userId,
         ),
+    },
+    project: {
+      findUnique: async (input: { where: { id: string } }) =>
+        projects.find((project) => project.id === input.where.id) ?? null,
     },
     changeRequest: {
       create: async (input: { data: Record<string, unknown> }) => {
@@ -172,6 +178,7 @@ function fakePrisma() {
     recipients,
     policies,
     assignments,
+    projects,
     prisma,
   };
 }
@@ -419,5 +426,25 @@ describe('ChangeRequestsService', () => {
     await expect(
       service.decide('p1', 'owner', change.id, { decision: 'ACCEPTED' }),
     ).resolves.toMatchObject({ decision: 'ACCEPTED' });
+  });
+
+  it('rejects every write path once the project is archived', async () => {
+    const { service, projects } = fakePrisma();
+    projects[0].archivedAt = new Date('2026-11-04T00:00:00Z');
+
+    // 提案、决定、策略调整都是写入，归档后一律拒绝。
+    await expect(
+      service.create('p1', 'owner', {
+        requirementId: 'req-1',
+        affected: ['COPY'],
+        reason: '归档后新建',
+      }),
+    ).rejects.toMatchObject({ code: 'RESOURCE_CONFLICT', message: 'PROJECT_ARCHIVED' });
+    await expect(
+      service.updatePolicy('p1', 'owner', { freezeMode: 'WARN', levels: { L1: ['qa'] } }),
+    ).rejects.toMatchObject({ message: 'PROJECT_ARCHIVED' });
+    // 读路径不受影响：归档项目仍然可以查看。
+    await expect(service.getPolicy('p1', 'member')).resolves.toMatchObject({ freezeMode: 'BLOCK' });
+    await expect(service.list('p1', 'member')).resolves.toHaveLength(0);
   });
 });

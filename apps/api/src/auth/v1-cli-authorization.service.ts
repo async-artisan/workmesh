@@ -219,7 +219,8 @@ export class V1CliAuthorizationService {
         422,
       );
 
-    await this.authorization.resolveProjectContext(principal, input.projectId);
+    // 签发 Agent 凭据同样是项目范围内的写入：归档项目不应再产出新凭据。
+    await this.authorization.resolveProjectContext(principal, input.projectId, 'write');
     const holdsRole = await this.authorization.hasBusinessRole(
       principal,
       input.projectId,

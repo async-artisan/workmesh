@@ -151,7 +151,7 @@ export class V1GithubEvidenceService {
     // 2) payload digest 由服务端计算，客户端无法通过字段声明影响去重判断。
     const payloadDigest = createHash('sha256').update(input.rawBody).digest('hex');
 
-    await this.authorization.resolveProjectContext(principal, projectId);
+    await this.authorization.resolveProjectContext(principal, projectId, 'write');
     await this.authorization.requireScope(principal, projectId, SCOPE_RECEIVE);
 
     const projectScopeKey = `project:${projectId}`;
@@ -311,7 +311,7 @@ export class V1GithubEvidenceService {
     input: V1PrepareInput,
     context: V1PrepareContext,
   ): Promise<V1PrepareResult> {
-    await this.authorization.resolveProjectContext(principal, projectId);
+    await this.authorization.resolveProjectContext(principal, projectId, 'write');
     await this.authorization.requireScope(principal, projectId, SCOPE_PREPARE);
 
     const projectScopeKey = `project:${projectId}`;
@@ -474,7 +474,7 @@ export class V1GithubEvidenceService {
     input: V1UseTicketInput,
     context: V1UseTicketContext,
   ): Promise<V1UseTicketResult> {
-    await this.authorization.resolveProjectContext(principal, projectId);
+    await this.authorization.resolveProjectContext(principal, projectId, 'write');
 
     const ticket = await this.repository.findVersionedTicket(input.ticketId);
     if (!ticket || ticket.projectId !== projectId)

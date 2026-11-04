@@ -144,7 +144,7 @@ export class V1WorkbenchService {
     warnings: string[],
   ): Promise<ProjectResult> {
     const [context, reviewPage, changePage, readyPage] = await Promise.allSettled([
-      this.authorization.resolveProjectContext(principal, project.id),
+      this.authorization.resolveProjectContext(principal, project.id, 'read'),
       this.reviews.listReviews(principal, {
         projectId: project.id,
         assignedToMe: true,

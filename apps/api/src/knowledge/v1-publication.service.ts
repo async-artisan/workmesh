@@ -351,7 +351,7 @@ export class V1PublicationService {
     projectId: string,
     query: V1ListDocumentsQuery,
   ): Promise<{ items: V1DocumentDetail[]; nextCursor: string | null }> {
-    await this.authorization.resolveProjectContext(principal, projectId);
+    await this.authorization.resolveProjectContext(principal, projectId, 'read');
     const limit = Number.isInteger(query.limit)
       ? Math.min(Math.max(query.limit ?? 20, 1), 100)
       : 20;
@@ -383,7 +383,7 @@ export class V1PublicationService {
     input: V1CreateDocumentInput,
     context: V1DocumentWriteContext,
   ): Promise<V1CreateDocumentSnapshot> {
-    await this.authorization.resolveProjectContext(principal, projectId);
+    await this.authorization.resolveProjectContext(principal, projectId, 'write');
     const knowledgeBaseProjectId = await this.repository.findKnowledgeBaseProjectId(
       input.knowledgeBaseId,
     );

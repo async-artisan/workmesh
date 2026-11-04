@@ -163,7 +163,33 @@ describe('V1AuthorizationService', () => {
   });
 
   it('denies a project-A agent acting on project B without leaking existence', async () => {
-    await expect(service.resolveProjectContext(agentProductInA, 'p-b')).rejects.toMatchObject({
+    await expect(
+      service.resolveProjectContext(agentProductInA, 'p-b', 'read'),
+    ).rejects.toMatchObject({
+      code: 'RESOURCE_NOT_FOUND',
+      status: 404,
+    });
+  });
+
+  it('refuses writes on an archived project but still allows reads', async () => {
+    db.projects[0].archivedAt = past;
+    await expect(service.resolveProjectContext(humanAlice, 'p-a', 'write')).rejects.toMatchObject({
+      code: 'RESOURCE_CONFLICT',
+      message: 'PROJECT_ARCHIVED',
+      status: 409,
+      details: { projectId: 'p-a' },
+    });
+    // 归档是「不再被改写」，不是「看不见」：读路径必须照常。
+    await expect(service.resolveProjectContext(humanAlice, 'p-a', 'read')).resolves.toMatchObject({
+      project: { id: 'p-a' },
+    });
+  });
+
+  it('keeps archived projects hidden from non-members on write as well', async () => {
+    db.projects[0].archivedAt = past;
+    // 非成员不能因为「项目已归档」而推断出项目存在。
+    const stranger: Principal = { kind: 'HUMAN', userId: 'stranger', scopes: [] };
+    await expect(service.resolveProjectContext(stranger, 'p-a', 'write')).rejects.toMatchObject({
       code: 'RESOURCE_NOT_FOUND',
       status: 404,
     });
@@ -182,7 +208,9 @@ describe('V1AuthorizationService', () => {
 
   it('rejects an agent whose credential role assignment was revoked', async () => {
     db.assignments = db.assignments.filter((item) => item.roleId !== 'r-product');
-    await expect(service.resolveProjectContext(agentProductInA, 'p-a')).rejects.toMatchObject({
+    await expect(
+      service.resolveProjectContext(agentProductInA, 'p-a', 'read'),
+    ).rejects.toMatchObject({
       code: 'ROLE_INACTIVE',
       status: 422,
     });

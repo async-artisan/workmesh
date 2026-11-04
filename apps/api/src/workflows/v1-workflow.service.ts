@@ -122,7 +122,7 @@ export class V1WorkflowService {
     projectId: string,
     input: V1ValidateInput,
   ): Promise<WorkflowCompileResult> {
-    const context = await this.authorization.resolveProjectContext(principal, projectId);
+    const context = await this.authorization.resolveProjectContext(principal, projectId, 'read');
     if (principal.kind === 'AGENT' && !principal.scopes.includes('workflow:propose'))
       throw new WorkmeshError(
         V1_ERROR_CODES.SCOPE_DENIED,
@@ -735,7 +735,7 @@ export class V1WorkflowService {
   }
 
   private async requireRead(principal: Principal, projectId: string) {
-    const context = await this.authorization.resolveProjectContext(principal, projectId);
+    const context = await this.authorization.resolveProjectContext(principal, projectId, 'read');
     if (principal.kind === 'AGENT' && !principal.scopes.includes('workflow:read'))
       throw new WorkmeshError(
         V1_ERROR_CODES.SCOPE_DENIED,
@@ -754,7 +754,7 @@ export class V1WorkflowService {
         undefined,
         403,
       );
-    const context = await this.authorization.resolveProjectContext(principal, projectId);
+    const context = await this.authorization.resolveProjectContext(principal, projectId, 'write');
     if (!this.isManager(context.membership.role))
       throw new WorkmeshError(
         V1_ERROR_CODES.FORBIDDEN,

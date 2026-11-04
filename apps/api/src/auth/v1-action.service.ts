@@ -45,7 +45,7 @@ export class V1ActionService {
   async preview(principal: Principal, binding: ActionBinding): Promise<V1PreviewResult> {
     requireHuman(principal);
     if (binding.projectId)
-      await this.authorization.resolveProjectContext(principal, binding.projectId);
+      await this.authorization.resolveProjectContext(principal, binding.projectId, 'read');
     const normalized = this.confirmation.normalize(binding);
     return {
       binding: normalized,
@@ -92,7 +92,7 @@ export class V1ActionService {
         409,
       );
     if (normalized.projectId)
-      await this.authorization.resolveProjectContext(principal, normalized.projectId);
+      await this.authorization.resolveProjectContext(principal, normalized.projectId, 'read');
     if (principal.kind !== 'HUMAN' || !principal.authVersion)
       throw new WorkmeshError(
         V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,

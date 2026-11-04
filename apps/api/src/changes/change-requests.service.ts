@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertProjectWritable } from '../projects/project-archive';
 import type {
   ChangeAffected,
   CreateChangeRequestDto,
@@ -71,6 +72,9 @@ export class ChangeRequestsService {
       );
     if (write && member.role === 'MEMBER')
       throw new WorkmeshError(V1_ERROR_CODES.FORBIDDEN, 'FORBIDDEN', undefined, 403);
+    // 归档项目不再接受变更申请/决定/策略调整。本服务用自己的成员查询，不经过授权服务，
+    // 所以在这里显式补同一道闸。
+    if (write) await assertProjectWritable(this.prisma, projectId);
   }
 
   private async requirement(projectId: string, requirementId: string) {
@@ -214,7 +218,9 @@ export class ChangeRequestsService {
   }
 
   async create(projectId: string, userId: string, input: CreateChangeRequestDto) {
+    // 提案允许普通成员，所以这里不传 write；但提案本身也是写入，归档项目必须拒绝。
     await this.membership(projectId, userId, false);
+    await assertProjectWritable(this.prisma, projectId);
     const requirement = await this.requirement(projectId, input.requirementId);
     const level = ChangeRequestsService.levelOf(input.affected);
     const acceptanceKeys = input.acceptanceKeys ?? [];

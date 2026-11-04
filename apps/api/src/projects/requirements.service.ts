@@ -19,7 +19,7 @@ export class RequirementsService {
     projectId: string,
     query: { limit?: number; cursor?: string | null },
   ) {
-    await this.authorization.resolveProjectContext(principal, projectId);
+    await this.authorization.resolveProjectContext(principal, projectId, 'read');
     await this.authorization.requireScope(principal, projectId, 'requirement:read');
 
     const take = Number.isInteger(query.limit)
@@ -48,15 +48,8 @@ export class RequirementsService {
   }
 
   async create(principal: Principal, projectId: string, dto: CreateRequirementDto) {
-    const context = await this.authorization.resolveProjectContext(principal, projectId);
+    await this.authorization.resolveProjectContext(principal, projectId, 'write');
     await this.authorization.requireScope(principal, projectId, 'requirement:propose');
-    if (context.project.archivedAt)
-      throw new WorkmeshError(
-        V1_ERROR_CODES.RESOURCE_CONFLICT,
-        'PROJECT_ARCHIVED',
-        { projectId },
-        409,
-      );
 
     return this.prisma.$transaction(async (tx) => {
       const project = await tx.project.findUnique({
@@ -92,15 +85,8 @@ export class RequirementsService {
     requirementId: string,
     dto: { expectedVersion: number; title?: string; description?: string },
   ) {
-    const context = await this.authorization.resolveProjectContext(principal, projectId);
+    await this.authorization.resolveProjectContext(principal, projectId, 'write');
     await this.authorization.requireScope(principal, projectId, 'requirement:propose');
-    if (context.project.archivedAt)
-      throw new WorkmeshError(
-        V1_ERROR_CODES.RESOURCE_CONFLICT,
-        'PROJECT_ARCHIVED',
-        { projectId },
-        409,
-      );
 
     const current = await this.prisma.requirement.findFirst({
       where: { id: requirementId, projectId },
@@ -206,7 +192,7 @@ export class RequirementsService {
    * key 同时接受需求 UUID 与人类编号（如 YFF-REQ-12），方便深链。
    */
   async detail(principal: Principal, projectId: string, key: string) {
-    await this.authorization.resolveProjectContext(principal, projectId);
+    await this.authorization.resolveProjectContext(principal, projectId, 'read');
     await this.authorization.requireScope(principal, projectId, 'requirement:read');
 
     const isUuid =

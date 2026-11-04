@@ -20,6 +20,7 @@
 - 错误 envelope：`{ "error": { "code": "FORBIDDEN", "message": "...", "requestId": "..." } }`。
 - 写接口必须携带 `Idempotency-Key`；同一键同语义重放返回原结果，同键异语义返回 `409 IDEMPOTENCY_CONFLICT`。
 - 带版本的资源（需求、任务、评审请求、文档、附件集等）必须提交 `expectedVersion`，不一致返回 `409 VERSION_CONFLICT`。
+- **归档项目只读**：`archivedAt` 非空的项目，所有写入返回 `409 PROJECT_ARCHIVED`（`details.archivedAt`），读取不受影响。归档与解除归档本身不受此限制，否则归档后再也解不开。实现上由 `resolveProjectContext(..., 'write' \| 'read')` 的第二参数强制声明访问意图——该参数是必填的，漏声明即编译失败，避免「只有某几个模块记得检查归档」。
 - 需要二次确认的高风险动作（发布、撤销、批准决定、撤回、升级流程等）必须先用 `POST /api/v1/auth/confirmation-tickets` 取得一次性票据，并在请求中携带 `confirmation`；票据绑定主体、会话、动作、目标、版本与 payload 摘要，只能消费一次。
 
 ## 认证

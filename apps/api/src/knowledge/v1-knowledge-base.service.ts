@@ -198,7 +198,11 @@ export class V1KnowledgeBaseService {
 
     let membershipRole: ProjectManagementRole;
     try {
-      const resolved = await this.authorization.resolveProjectContext(principal, projectId);
+      const resolved = await this.authorization.resolveProjectContext(
+        principal,
+        projectId,
+        'write',
+      );
       membershipRole = resolved.membership.role;
     } catch {
       throw projectNotFound(projectId);
@@ -253,7 +257,7 @@ export class V1KnowledgeBaseService {
   ): Promise<{ items: V1KnowledgeBaseView[]; nextCursor: string | null; hasMore: boolean }> {
     let context;
     try {
-      context = await this.authorization.resolveProjectContext(principal, projectId);
+      context = await this.authorization.resolveProjectContext(principal, projectId, 'read');
     } catch {
       throw projectNotFound(projectId);
     }
@@ -299,6 +303,7 @@ export class V1KnowledgeBaseService {
       const resolved = await this.authorization.resolveProjectContext(
         principal,
         knowledgeBase.projectId,
+        'read',
       );
       membershipRole = resolved.membership.role;
     } catch {
@@ -345,6 +350,7 @@ export class V1KnowledgeBaseService {
       const resolved = await this.authorization.resolveProjectContext(
         principal,
         knowledgeBase.projectId,
+        'write',
       );
       membershipRole = resolved.membership.role;
     } catch {

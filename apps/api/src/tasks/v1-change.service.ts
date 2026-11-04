@@ -96,7 +96,7 @@ export class V1ChangeService {
       );
 
     // 授权：必须是该项目活动成员；Agent 受项目/角色边界约束。
-    await this.authorization.resolveProjectContext(principal, recipient.projectId);
+    await this.authorization.resolveProjectContext(principal, recipient.projectId, 'write');
     await this.authorization.requireScope(principal, recipient.projectId, 'change:ack');
 
     // 仅收件人本人可确认；不匹配时按 404 处理，不泄露存在性。
@@ -155,7 +155,7 @@ export class V1ChangeService {
     principal: Principal,
     input: V1ListServiceInput,
   ): Promise<V1ListServiceResult> {
-    await this.authorization.resolveProjectContext(principal, input.projectId);
+    await this.authorization.resolveProjectContext(principal, input.projectId, 'read');
     await this.authorization.requireScope(principal, input.projectId, 'change:read');
 
     const query: V1ChangeListQuery = {
@@ -174,7 +174,7 @@ export class V1ChangeService {
     principal: Principal,
     input: V1RecordChangeServiceInput,
   ): Promise<V1RecordChangeServiceResult> {
-    await this.authorization.resolveProjectContext(principal, input.projectId);
+    await this.authorization.resolveProjectContext(principal, input.projectId, 'write');
 
     const projectScopeKey = `project:${input.projectId}`;
     const principalScopeKeyValue = principalScopeKey(principal);

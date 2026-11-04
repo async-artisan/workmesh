@@ -70,7 +70,7 @@ export class V1OperationReceiptService {
 
     const expectedProjectId = projectId ?? null;
     const scopeKey = projectId ? projectScopeKey(projectId) : accountScopeKey(principal.userId);
-    if (projectId) await this.authorization.resolveProjectContext(principal, projectId);
+    if (projectId) await this.authorization.resolveProjectContext(principal, projectId, 'read');
 
     const records = await this.repository.findOperations({
       projectScopeKey: scopeKey,

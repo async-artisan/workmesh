@@ -50,7 +50,7 @@ export class V1TaskService {
     if (!task)
       throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
     // 无项目访问权按 404 返回，不泄露任务存在性。
-    await this.authorization.resolveProjectContext(principal, task.projectId);
+    await this.authorization.resolveProjectContext(principal, task.projectId, 'read');
     return task;
   }
 
@@ -62,7 +62,11 @@ export class V1TaskService {
     const task = await this.tasks.findTask(taskId);
     if (!task)
       throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
-    const resolved = await this.authorization.resolveProjectContext(principal, task.projectId);
+    const resolved = await this.authorization.resolveProjectContext(
+      principal,
+      task.projectId,
+      'write',
+    );
     await this.authorization.requireScope(principal, resolved.project.id, 'task:claim');
 
     const ownerScopeKey = principalScopeKey(principal);
@@ -134,7 +138,11 @@ export class V1TaskService {
     const task = await this.tasks.findTask(taskId);
     if (!task)
       throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
-    const resolved = await this.authorization.resolveProjectContext(principal, task.projectId);
+    const resolved = await this.authorization.resolveProjectContext(
+      principal,
+      task.projectId,
+      'write',
+    );
     await this.authorization.requireScope(principal, resolved.project.id, 'task:release');
 
     const ownerScopeKey = principalScopeKey(principal);
@@ -200,7 +208,11 @@ export class V1TaskService {
     const task = await this.tasks.findTask(taskId);
     if (!task)
       throw new WorkmeshError(V1_ERROR_CODES.RESOURCE_NOT_FOUND, 'TASK_NOT_FOUND', { taskId }, 404);
-    const resolved = await this.authorization.resolveProjectContext(principal, task.projectId);
+    const resolved = await this.authorization.resolveProjectContext(
+      principal,
+      task.projectId,
+      'write',
+    );
     await this.authorization.requireScope(principal, resolved.project.id, 'task:deliver');
 
     const ownerScopeKey = principalScopeKey(principal);

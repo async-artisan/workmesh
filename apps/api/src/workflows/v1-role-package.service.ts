@@ -273,7 +273,7 @@ export class V1RolePackageService {
   }
 
   private async requireRead(principal: Principal, projectId: string) {
-    const context = await this.authorization.resolveProjectContext(principal, projectId);
+    const context = await this.authorization.resolveProjectContext(principal, projectId, 'read');
     if (principal.kind === 'AGENT' && !principal.scopes.includes('workflow:read'))
       throw new WorkmeshError(
         V1_ERROR_CODES.SCOPE_DENIED,
@@ -292,7 +292,7 @@ export class V1RolePackageService {
         undefined,
         403,
       );
-    const context = await this.authorization.resolveProjectContext(principal, projectId);
+    const context = await this.authorization.resolveProjectContext(principal, projectId, 'write');
     if (context.membership.role !== 'OWNER' && context.membership.role !== 'ADMIN')
       throw new WorkmeshError(
         V1_ERROR_CODES.FORBIDDEN,
