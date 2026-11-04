@@ -36,6 +36,10 @@ suite('real account and device authorization HTTP boundaries', () => {
     db = new PrismaClient({ datasources: { db: { url: target.url } } });
     const identity = await db.$queryRaw<Array<{ name: string }>>`SELECT current_database() AS name`;
     expect(identity[0].name).toBe(target.database);
+    // 登录限流是按 IP/邮箱落在 AuthRateWindow 里的固定窗口，同一台机器上的多次测试运行
+    // 会落在同一个窗口（login-ip 都是 127.0.0.1）。不清掉就会在合并跑覆盖率/集成套件时
+    // 偶发 429，看起来像功能坏了，其实只是上一个文件刚用完配额。
+    await db.authRateWindow.deleteMany({});
     const { AppModule } = await import('../src/app.module');
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = module.createNestApplication();
