@@ -107,6 +107,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
           typeof column === 'string' ? ` (column ${column})` : ''
         }`,
       );
+    } else if (status >= 400) {
+      // 4xx 过去在服务端完全没有痕迹：用户把响应里的 requestId 报过来时，日志里搜不到
+      // 任何对应记录，登录/CSRF/票据失败也无从排查。这里统一留一行 warn（含 requestId），
+      // 不记堆栈——4xx 是客户端问题，堆栈没有价值且会刷屏。
+      this.logger.warn(
+        `${request?.method ?? 'UNKNOWN'} ${request?.path ?? 'UNKNOWN'} returned ${status} [${code}] requestId=${requestId}: ${message}`,
+      );
     }
     response?.setHeader?.('X-Request-Id', requestId);
     response?.status?.(status).json({

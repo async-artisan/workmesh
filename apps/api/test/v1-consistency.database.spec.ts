@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '../../node_modules/.prisma/workmesh-v1-client';
 import { evaluateSuiteTestDatabase, verifiedTestDatabase } from '../src/common/v1-test-database';
+import { runWithRequestId } from '../src/common/request-context.middleware';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { ChangeRequestsService } from '../src/changes/change-requests.service';
 import { V1GithubEvidencePrismaRepository } from '../src/integrations/v1-github-evidence.prisma-repository';
@@ -20,10 +21,12 @@ suite('PostgreSQL decision and webhook consistency', () => {
   let userId: string;
   let deciderId: string;
   let requirementId: string;
+  let testUrl: string;
   const constraint = `recipient_failure_${randomUUID().replaceAll('-', '')}`;
 
   beforeAll(async () => {
     const target = verifiedTestDatabase();
+    testUrl = target.url;
     db = new PrismaClient({ datasources: { db: { url: target.url } } });
     const identity = await db.$queryRaw<Array<{ name: string }>>`SELECT current_database() AS name`;
     expect(identity[0].name).toBe(target.database);
@@ -68,6 +71,8 @@ suite('PostgreSQL decision and webhook consistency', () => {
         await db.webhookReceipt.deleteMany({ where: { projectId } });
         await db.idempotentOperation.deleteMany({ where: { projectId } });
         await db.requirement.deleteMany({ where: { projectId } });
+        // PrincipalStamp 也带 projectId 外键：requestId 注入用例会创建它，不清理会挡住项目删除。
+        await db.principalStamp.deleteMany({ where: { projectId } });
         await db.projectMember.deleteMany({ where: { projectId } });
         await db.project.delete({ where: { id: projectId } });
       }
@@ -249,5 +254,34 @@ suite('PostgreSQL decision and webhook consistency', () => {
     expect(await repository.findReceiptByDelivery('GITHUB', recorded.deliveryId)).toMatchObject({
       status: 'PROCESSED',
     });
+  });
+
+  it('stamps the current requestId onto PrincipalStamp', async () => {
+    // 回归：stamp 原先从不写 requestId，用户把响应里的 requestId 报过来时数据库里查不到关联行。
+    // 这里用真实 PrismaService（带请求上下文中间件）验证该字段确实被注入。
+    const previous = process.env.WORKMESH_V1_DATABASE_URL;
+    process.env.WORKMESH_V1_DATABASE_URL = testUrl;
+    const stamped = new PrismaService();
+    try {
+      const requestId = '33333333-3333-4333-8333-333333333333';
+      // 注意：PrismaPromise 是惰性的，必须在 ALS 作用域**内部** await，
+      // 否则执行发生在作用域之外，requestId 取不到。
+      const row = await runWithRequestId(requestId, async () =>
+        stamped.principalStamp.create({
+          data: { kind: 'HUMAN', userId, projectId, userAuthVersion: 1, scopeSnapshot: [] },
+        }),
+      );
+      expect(row.requestId).toBe(requestId);
+
+      // 没有请求上下文时（脚本 / 定时任务）不写入，避免造出不存在的关联。
+      const outside = await stamped.principalStamp.create({
+        data: { kind: 'HUMAN', userId, projectId, userAuthVersion: 1, scopeSnapshot: [] },
+      });
+      expect(outside.requestId).toBeNull();
+    } finally {
+      await stamped.$disconnect();
+      if (previous === undefined) delete process.env.WORKMESH_V1_DATABASE_URL;
+      else process.env.WORKMESH_V1_DATABASE_URL = previous;
+    }
   });
 });

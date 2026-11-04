@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
+import { currentRequestId } from '../common/request-context.middleware';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   V1ConfirmationRepository,
@@ -64,7 +66,7 @@ export class V1ConfirmationPrismaRepository implements V1ConfirmationRepository 
   }): Promise<{ consumed: boolean; ticket: V1TicketRecord | null }> {
     const updated = await this.prisma.$executeRaw(
       Prisma.sql`UPDATE "workmesh_v1"."ConfirmationTicket"
-        SET "consumedAt" = ${input.now}, "consumedRequestId" = gen_random_uuid(), "consumedOperationId" = ${input.operationId}::uuid
+        SET "consumedAt" = ${input.now}, "consumedRequestId" = ${currentRequestId() ?? randomUUID()}::uuid, "consumedOperationId" = ${input.operationId}::uuid
         WHERE "id" = ${input.ticketId}::uuid
           AND "secretHash" = ${input.secretHash}
           AND "webSessionId" = ${input.webSessionId}::uuid
