@@ -1,0 +1,163 @@
+/**
+ * Stage 2：任务展示状态 / 流程图定位 / 流程初始化状态的样式。
+ * 独立文件，由 main.tsx 在 tokens.css、feedback.css 之后引入；
+ * 只使用 --wm-* 令牌，不依赖旧主题层的加载顺序。
+ * 状态一律「文字 + 样式」双重表达，不允许只靠颜色区分。
+ */
+
+/* ---------- 任务行：定位与临时高亮 ---------- */
+
+.wm-task-row {
+  position: relative;
+  outline: none;
+}
+
+.wm-task-row:focus-visible {
+  outline: var(--wm-focus-width) solid var(--wm-color-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--wm-radius-sm);
+}
+
+.wm-task-row.is-task-focus {
+  background: var(--wm-color-accent-soft);
+  box-shadow: inset 3px 0 0 var(--wm-color-accent);
+  animation: wm-task-focus-pulse 1.2s ease-in-out 2;
+}
+
+@keyframes wm-task-focus-pulse {
+  0% {
+    background: var(--wm-color-accent-soft);
+  }
+  50% {
+    background: color-mix(in srgb, var(--wm-color-accent) 14%, var(--wm-color-surface));
+  }
+  100% {
+    background: var(--wm-color-accent-soft);
+  }
+}
+
+.wm-task-state-desc {
+  color: var(--wm-color-text-secondary);
+  font-size: var(--wm-text-sm);
+}
+
+/* ---------- 状态标签：文字 + 边框/底色，色调只作辅助 ---------- */
+
+.status-tag.is-ready,
+.status-tag.is-waiting,
+.status-tag.is-active,
+.status-tag.is-blocked,
+.status-tag.is-done,
+.status-tag.is-unknown {
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.status-tag.is-ready {
+  color: var(--wm-color-success);
+  border-color: var(--wm-color-success-border);
+  background: var(--wm-color-success-soft);
+}
+
+.status-tag.is-active {
+  color: var(--wm-color-accent-text);
+  border-color: var(--wm-color-accent-border);
+  background: var(--wm-color-accent-soft);
+}
+
+.status-tag.is-waiting {
+  color: var(--wm-color-warning);
+  border-color: var(--wm-color-warning-border);
+  background: var(--wm-color-warning-soft);
+}
+
+.status-tag.is-blocked {
+  color: var(--wm-color-danger);
+  border-color: var(--wm-color-danger-border);
+  background: var(--wm-color-danger-soft);
+}
+
+.status-tag.is-done {
+  color: var(--wm-color-success);
+  border-color: var(--wm-color-success-border);
+  background: var(--wm-color-surface-subtle);
+}
+
+.status-tag.is-unknown {
+  color: var(--wm-color-text-secondary);
+  border-color: var(--wm-color-border-strong);
+  border-style: dashed;
+  background: var(--wm-color-surface-muted);
+}
+
+/* ---------- 流程图任务卡的展示状态 ---------- */
+
+.pipeline-task-card.is-state-claimable {
+  border-color: var(--wm-color-success-border);
+}
+
+.pipeline-task-card.is-state-waiting_predecessor,
+.pipeline-task-card.is-state-waiting_approval,
+.pipeline-task-card.is-state-unknown {
+  border-style: dashed;
+  border-color: var(--wm-color-warning-border);
+}
+
+.pipeline-task-card.is-state-claimed,
+.pipeline-task-card.is-state-in_progress {
+  border-color: var(--wm-color-accent-border);
+}
+
+.pipeline-task-card.is-state-blocked_or_frozen {
+  border-color: var(--wm-color-danger-border);
+}
+
+/* ---------- 流程初始化状态卡 ---------- */
+
+.wm-init-state {
+  display: grid;
+  gap: var(--wm-space-2);
+  border: 1px solid var(--wm-color-border);
+  border-left: 4px solid var(--wm-color-warning-strong);
+  background: var(--wm-color-surface);
+}
+
+.wm-init-state h3 {
+  margin: 0;
+}
+
+.wm-init-state strong {
+  font-size: var(--wm-text-lg);
+  color: var(--wm-color-text-primary);
+}
+
+.wm-init-state p {
+  margin: 0;
+  color: var(--wm-color-text-secondary);
+  font-size: var(--wm-text-md);
+}
+
+.wm-init-state .next-step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--wm-space-2);
+  margin-top: var(--wm-space-1);
+}
+
+.wm-init-hint {
+  display: grid;
+  gap: var(--wm-space-2);
+}
+
+.wm-init-hint p {
+  margin: 0;
+}
+
+.wm-definition-hint {
+  color: var(--wm-color-warning);
+}
+
+.wm-board-note {
+  margin: var(--wm-space-2) 0;
+  color: var(--wm-color-text-muted);
+}

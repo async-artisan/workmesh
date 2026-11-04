@@ -4,27 +4,35 @@ import { formatApiError } from '../api/client';
 import { boardApi, type BoardCard, type BoardSnapshot } from '../api/resources';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
-import { STEP_LABELS, labelFor } from '../lib/labels';
+import { STEP_LABELS, WORK_STATUS_LABELS, labelFor } from '../lib/labels';
+import { resolveTaskDisplayState } from '../lib/taskDisplayState';
 
 const COLUMN_LABELS: Record<string, string> = {
-  BACKLOG: '待认领',
+  BACKLOG: '未开始',
   ACTIVE: '进行中',
   BLOCKED: '阻塞',
   PAUSED: '暂停',
   DELIVERED: '已交付',
 };
 
-const WORK_STATUS_LABELS: Record<string, string> = {
-  ACTIVE: '进行中',
-  BLOCKED: '阻塞',
-  PAUSED: '暂停',
-  CANCELLED: '已取消',
-};
-
 /**
  * 看板只读：按服务端派生列展示任务与工作态。
  * 认领与交付属于执行动作，由本地 Agent 通过 CLI 完成；Web 不提供认领入口。
+ *
+ * 看板响应不包含流程依赖与评审状态，所以「未开始」不能写成「可认领」：
+ * 卡片统一用共享映射展示，依赖信息不可用时明确显示「状态待确认」，
+ * 具体可领取判定以需求详情（按已发布流程的步骤依赖）为准。
  */
+function cardDisplayState(card: BoardCard) {
+  return resolveTaskDisplayState({
+    executionStatus: card.executionStatus,
+    workStatus: card.workStatus,
+    currentClaimId: card.currentClaimId,
+    reviewStatus: null,
+    dependsOnStepKeys: null,
+    doneStepKeys: null,
+  });
+}
 export function Board() {
   const navigate = useNavigate();
   const { projectId } = useProjectContext();
@@ -212,6 +220,12 @@ export function Board() {
         </div>
       )}
 
+      {snapshot && (
+        <p className="page-sub wm-board-note">
+          看板不包含流程依赖与评审状态：未开始任务显示「状态待确认」，具体能否领取以需求详情为准（按已发布流程的步骤依赖判定）。
+        </p>
+      )}
+
       {snapshot && viewMode === 'columns' && (
         <div className="board-grid">
           {filteredColumns.map((column) => (
@@ -227,12 +241,15 @@ export function Board() {
                   const requirementLabel = card.requirementCode
                     ? `${card.requirementCode} · ${card.requirementTitle ?? ''}`
                     : card.taskId.slice(0, 8);
+                  const display = cardDisplayState(card);
                   return (
                     <article
                       className="board-card"
                       key={card.taskId}
                       title={card.taskId}
                       tabIndex={card.requirementCode ? 0 : undefined}
+                      data-task-state={display.kind}
+                      aria-label={`${labelFor(STEP_LABELS, card.stepKey)}，状态：${display.label}`}
                       onClick={() => {
                         if (card.requirementCode)
                           navigate(`/requirements/${encodeURIComponent(card.requirementCode)}`);
@@ -247,6 +264,7 @@ export function Board() {
                     >
                       <div className="board-card-top">
                         <span className="board-code">{labelFor(STEP_LABELS, card.stepKey)}</span>
+                        <span className={`status-tag is-${display.tone}`}>{display.label}</span>
                         {card.claimedUserId && (
                           <span className="status-tag">
                             {WORK_STATUS_LABELS[card.workStatus ?? ''] ?? card.workStatus}
@@ -277,7 +295,7 @@ export function Board() {
                 <tr>
                   <th>需求</th>
                   <th className="cell-num">任务</th>
-                  <th className="cell-num">待认领</th>
+                  <th className="cell-num">未开始</th>
                   <th className="cell-num">进行中</th>
                   <th className="cell-num">阻塞</th>
                   <th className="cell-num">暂停</th>

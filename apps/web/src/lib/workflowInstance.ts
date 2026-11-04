@@ -2,6 +2,46 @@ import type { WorkflowSlotDefinition, WorkflowStepDefinition } from '../api/reso
 
 export const IMPL_OUTPUT_KIND = 'IMPL';
 
+function isWorkflowStep(value: unknown): value is WorkflowStepDefinition {
+  if (!value || typeof value !== 'object') return false;
+  const step = value as Record<string, unknown>;
+  return typeof step.key === 'string' && typeof step.roleKey === 'string';
+}
+
+function isWorkflowSlot(value: unknown): value is WorkflowSlotDefinition {
+  if (!value || typeof value !== 'object') return false;
+  const slot = value as Record<string, unknown>;
+  return typeof slot.key === 'string' && typeof slot.roleKey === 'string';
+}
+
+/** 从已发布修订的 `definition` 里读出步骤定义（与 WorkflowInstanceDialog 同一口径）。 */
+export function readWorkflowSteps(definition: unknown): WorkflowStepDefinition[] {
+  if (!definition || typeof definition !== 'object') return [];
+  const steps = (definition as Record<string, unknown>).steps;
+  return Array.isArray(steps) ? steps.filter(isWorkflowStep) : [];
+}
+
+/** 从已发布修订的 `definition` 里读出审批槽定义。 */
+export function readWorkflowSlots(definition: unknown): WorkflowSlotDefinition[] {
+  if (!definition || typeof definition !== 'object') return [];
+  const slots = (definition as Record<string, unknown>).roleSlots;
+  return Array.isArray(slots) ? slots.filter(isWorkflowSlot) : [];
+}
+
+/**
+ * 步骤 → 直接前置步骤 key 列表。只保留定义里真实存在的步骤，避免脏数据造成
+ * 「永远等待一个不存在的步骤」。没有依赖信息的步骤返回空数组（= 起点）。
+ */
+export function stepDependencyMap(definition: unknown): Record<string, string[]> {
+  const steps = readWorkflowSteps(definition);
+  const keys = new Set(steps.map((step) => step.key));
+  const map: Record<string, string[]> = {};
+  for (const step of steps) {
+    map[step.key] = (step.deps ?? []).filter((key) => keys.has(key));
+  }
+  return map;
+}
+
 /** IMPL 步骤必须声明代码仓库范围：交付的 GIT_REF 工件要能落回仓库。 */
 export function isImplStep(step: WorkflowStepDefinition): boolean {
   return (step.outputKinds ?? []).includes(IMPL_OUTPUT_KIND);

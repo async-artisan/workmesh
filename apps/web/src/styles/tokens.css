@@ -1,0 +1,100 @@
+/**
+ * WorkMesh 设计令牌（新公共组件的唯一视觉来源）。
+ *
+ * 背景：现有样式按 index.css → ui-v2.css → ui-v3.css → ui-v4.css 依次加载，
+ * 四份文件都定义了同名的旧主题变量（--accent / --bg-app / --text-* 等），
+ * 后加载的文件覆盖先加载的文件，页面实际外观由「加载顺序 + 选择器权重」决定。
+ * 为了不在本阶段做大范围视觉重写，旧变量与其覆盖关系保持原样，新组件改用
+ * `--wm-*` 前缀的独立令牌：
+ *   - 不依赖旧主题层的加载顺序；
+ *   - 后续阶段可逐页收敛旧样式，而不必同时改动新组件；
+ *   - 旧 CSS 中重复定义的颜色 / 字号 / 圆角 / 阴影清单见
+ *     docs/design/ui-foundations.md。
+ *
+ * 可读性约束：正文默认不低于 14px（--wm-text-md），次要信息不低于 12px
+ * （--wm-text-xs）；9px / 10px 仅用于短编号或装饰性标记，公共组件不使用。
+ */
+
+:root {
+  color-scheme: light;
+
+  /* ---------- 表面 ---------- */
+  --wm-color-bg-app: #f3f6fb;
+  --wm-color-surface: #ffffff;
+  --wm-color-surface-subtle: #f8fafc;
+  --wm-color-surface-muted: #f1f5f9;
+  --wm-color-border: #e2e8f0;
+  --wm-color-border-strong: #cbd5e1;
+
+  /* ---------- 文字 ---------- */
+  --wm-color-text-primary: #0f172a;
+  --wm-color-text-secondary: #475569;
+  --wm-color-text-muted: #7b8aa0;
+  --wm-color-text-inverse: #ffffff;
+
+  /* ---------- 强调色（v4 亮色主题的青色信号） ---------- */
+  --wm-color-accent: #0891b2;
+  --wm-color-accent-hover: #0e7490;
+  --wm-color-accent-text: #0e7490;
+  --wm-color-accent-soft: rgba(8, 145, 178, 0.08);
+  --wm-color-accent-border: rgba(8, 145, 178, 0.28);
+
+  /* ---------- 语义色 ---------- */
+  /* 成功：可继续 / 已完成 */
+  --wm-color-success: #047857;
+  --wm-color-success-soft: rgba(5, 150, 105, 0.08);
+  --wm-color-success-border: rgba(5, 150, 105, 0.24);
+
+  /* 警告：仍可使用但数据可能过期；黄/橙警示，不用错误红 */
+  --wm-color-warning: #b45309;
+  --wm-color-warning-strong: #d97706;
+  --wm-color-warning-soft: #fffbeb;
+  --wm-color-warning-border: rgba(217, 119, 6, 0.38);
+
+  /* 危险：页面不可用 / 操作失败；文本色取对比度更高的玫瑰色 */
+  --wm-color-danger: #be123c;
+  --wm-color-danger-strong: #e11d48;
+  --wm-color-danger-soft: #fff1f2;
+  --wm-color-danger-border: rgba(190, 18, 60, 0.3);
+
+  /* 焦点环：键盘焦点必须清晰可见，且不依赖颜色本身表达状态 */
+  --wm-color-focus-ring: rgba(8, 145, 178, 0.55);
+  --wm-color-focus-ring-danger: rgba(190, 18, 60, 0.45);
+
+  /* ---------- 间距 ---------- */
+  --wm-space-1: 4px;
+  --wm-space-2: 8px;
+  --wm-space-3: 12px;
+  --wm-space-4: 16px;
+  --wm-space-5: 24px;
+  --wm-space-6: 32px;
+
+  /* ---------- 圆角 ---------- */
+  --wm-radius-sm: 7px;
+  --wm-radius-md: 10px;
+  --wm-radius-lg: 14px;
+
+  /* ---------- 字号（正文基准 14px） ---------- */
+  --wm-text-xs: 12px; /* 次要信息下限 */
+  --wm-text-sm: 13px;
+  --wm-text-md: 14px; /* 正文默认 */
+  --wm-text-lg: 16px;
+  --wm-text-xl: 20px;
+
+  /* ---------- 字体 ---------- */
+  --wm-font-body:
+    Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --wm-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* ---------- 阴影 ---------- */
+  --wm-shadow-sm:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 24px rgba(15, 23, 42, 0.04);
+  --wm-shadow-md:
+    0 0 0 1px rgba(8, 145, 178, 0.1),
+    0 18px 50px rgba(15, 23, 42, 0.09);
+
+  /* ---------- 其他 ---------- */
+  --wm-line-height: 1.6;
+  --wm-focus-width: 2px;
+}

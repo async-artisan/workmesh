@@ -119,6 +119,23 @@ describe('Requirements（流程实例只由管理员显式绑定）', () => {
     expect(await screen.findByText('DEMO-REQ-1')).toBeInTheDocument();
     expect(screen.getByText(/流程实例由项目管理员初始化/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '初始化流程' })).not.toBeInTheDocument();
+    // 成员不能只看到「没有按钮」：要能看到等待管理员这一明确状态。
+    expect(screen.getByText('等待管理员初始化')).toBeInTheDocument();
+    expect(screen.getByText('等待管理员初始化')).toHaveAttribute(
+      'title',
+      expect.stringContaining('Alice'),
+    );
+  });
+
+  it('流程定义未发布时，管理员看到明确禁用状态而不是可点的初始化按钮', async () => {
+    mockFetch(handler({ definitions: [] }));
+
+    renderPage();
+
+    expect(await screen.findByText('DEMO-REQ-1')).toBeInTheDocument();
+    expect(screen.getByText('当前项目还没有已发布的流程定义。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '流程定义未发布' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '初始化流程' })).not.toBeInTheDocument();
   });
 
   it('管理员逐项选择责任人与审批人后创建实例', async () => {

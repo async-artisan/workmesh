@@ -15,11 +15,11 @@ describe('RequirementPipeline execution progress', () => {
       />,
     );
     expect(screen.getByText('3/3')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /收尾 · 已完成 3/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /已完成 3/ })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /执行中 \/ 阻塞 0/ })).toBeInTheDocument();
   });
 
-  it('keeps an ACTIVE but OPEN task ready to claim', () => {
+  it('未完成但没有依赖信息时显示「状态待确认」，不再写「可立即领取」', () => {
     render(
       <RequirementPipeline
         tasks={[
@@ -27,8 +27,53 @@ describe('RequirementPipeline execution progress', () => {
         ]}
       />,
     );
-    expect(screen.getByRole('heading', { name: /无依赖 · 可立即领 1/ })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /执行中 \/ 阻塞 0/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /可立即领取 0/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /等待中（前置 \/ 审批 \/ 待确认） 1/ })).toBeInTheDocument();
+    const card = screen.getByRole('button', { name: /implement/ });
+    expect(within(card).getByText('状态待确认')).toBeInTheDocument();
+    expect(within(card).getByText(/依赖信息不可用/)).toBeInTheDocument();
+    expect(screen.queryByText(/无依赖 · 可立即领/)).not.toBeInTheDocument();
+  });
+
+  it('只有直接前置步骤全部完成时才计入「可立即领取」', () => {
+    render(
+      <RequirementPipeline
+        tasks={[
+          {
+            id: 'impl',
+            stepKey: 'implement',
+            executionStatus: 'OPEN',
+            workStatus: 'ACTIVE',
+            dependsOnStepKeys: ['prd'],
+            doneStepKeys: ['prd'],
+          },
+          {
+            id: 'verify',
+            stepKey: 'verify',
+            executionStatus: 'OPEN',
+            workStatus: 'ACTIVE',
+            dependsOnStepKeys: ['implement'],
+            doneStepKeys: ['prd'],
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByRole('heading', { name: /可立即领取 1/ })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('button', { name: /^implement，状态：可立即领取/ })).getByText(
+        '可立即领取',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('button', { name: /^verify，状态：等待前置任务/ })).getByText(
+        '等待前置任务',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('button', { name: /^verify，状态：等待前置任务/ })).getByText(
+        /#implement/,
+      ),
+    ).toBeInTheDocument();
   });
 
   it('keeps review work active and respects blocked, paused and cancelled work', () => {
@@ -67,17 +112,45 @@ describe('RequirementPipeline execution progress', () => {
       />,
     );
     expect(
-      within(screen.getByRole('button', { name: /Review task/ })).getByText('工作中'),
+      within(screen.getByRole('button', { name: /Review task/ })).getByText('等待审批'),
     ).toBeInTheDocument();
     expect(
-      within(screen.getByRole('button', { name: /Blocked task/ })).getByText('阻塞'),
+      within(screen.getByRole('button', { name: /Blocked task/ })).getByText('阻塞 / 冻结'),
     ).toBeInTheDocument();
     expect(
-      within(screen.getByRole('button', { name: /Paused task/ })).getByText('阻塞'),
+      within(screen.getByRole('button', { name: /Paused task/ })).getByText('暂停 / 冻结'),
     ).toBeInTheDocument();
     expect(
-      within(screen.getByRole('button', { name: /Cancelled task/ })).getByText('跳过'),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /无依赖 · 可立即领 0/ })).toBeInTheDocument();
+      within(screen.getByRole('button', { name: /Cancelled task/ })).getAllByText('已取消').length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { name: /可立即领取 0/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /已完成 1/ })).toBeInTheDocument();
+  });
+
+  it('任务卡是原生可聚焦按钮，并带有可访问名称', () => {
+    let clicked = '';
+    render(
+      <RequirementPipeline
+        tasks={[
+          {
+            id: 'task-1',
+            stepKey: 'implement',
+            title: '实现登录',
+            executionStatus: 'OPEN',
+            dependsOnStepKeys: [],
+            doneStepKeys: [],
+          },
+        ]}
+        onTaskClick={(task) => {
+          clicked = task.id;
+        }}
+      />,
+    );
+    const card = screen.getByRole('button', { name: /实现登录，状态：可立即领取/ });
+    expect(card.tagName).toBe('BUTTON');
+    card.focus();
+    expect(card).toHaveFocus();
+    card.click();
+    expect(clicked).toBe('task-1');
   });
 });

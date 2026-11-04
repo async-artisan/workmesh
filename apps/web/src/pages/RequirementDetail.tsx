@@ -4,12 +4,17 @@ import { ArrowLeft, ArrowRight, Copy, Link2, MoreHorizontal, Terminal } from 'lu
 import { formatApiError } from '../api/client';
 import {
   documentApi,
+  projectApi,
   requirementApi,
+  workflowApi,
   type DocumentDetail,
+  type MemberView,
   type RequirementArtifactDetail,
   type RequirementDetail as RequirementDetailView,
   type RequirementReviewDetail,
   type RequirementTaskDetail,
+  type RoleView,
+  type WorkflowDefinitionView,
 } from '../api/resources';
 import { ConfirmDialog, Modal } from '../components/Modal';
 import {
@@ -17,19 +22,28 @@ import {
   type RequirementPipelinePhase,
   type RequirementPipelineTask,
 } from '../components/RequirementPipeline';
+import { WorkflowInstanceDialog } from '../components/WorkflowInstanceDialog';
 import { useProjectContext } from '../hooks/useProjectContext';
+import { useAuthStore } from '../store/auth';
 import {
   ARTIFACT_KIND_LABELS,
   DECISION_LABELS,
-  EXECUTION_STATUS_LABELS,
   PHASE_LABELS,
   REVIEW_KIND_LABELS,
   REVIEW_STATUS_LABELS,
   REVISION_STATE_LABELS,
   STEP_LABELS,
-  WORK_STATUS_LABELS,
   labelFor,
 } from '../lib/labels';
+import {
+  resolveTaskDisplayState,
+  type TaskDisplayState,
+  type TaskStateSignals,
+} from '../lib/taskDisplayState';
+import {
+  describeWorkflowInitState,
+} from '../lib/workflowInitState';
+import { stepDependencyMap } from '../lib/workflowInstance';
 
 type DetailTab = 'overview' | 'tasks' | 'artifacts' | 'changes' | 'prd' | 'reviews' | 'trace';
 
@@ -130,6 +144,11 @@ function scrollToRole(roleKeys: string[]): void {
   document
     .getElementById(`task-group-${first}`)
     ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** 任务行的 DOM id：流程图点击后用它定位（刷新/复制链接后同样可用）。 */
+function taskDomId(taskId: string): string {
+  return `requirement-task-${taskId}`;
 }
 
 function buildGates(tasks: RequirementTaskDetail[]): GateNode[] {
@@ -258,6 +277,19 @@ export function RequirementDetail({
   const [notice, setNotice] = useState('');
   const [editDiscardOpen, setEditDiscardOpen] = useState(false);
   const [traceKind, setTraceKind] = useState('all');
+  const user = useAuthStore((state) => state.user);
+  const [members, setMembers] = useState<MemberView[]>([]);
+  const [roles, setRoles] = useState<RoleView[]>([]);
+  /** null = 还没读到流程定义；不能用 [] 假装「未发布」。 */
+  const [definitions, setDefinitions] = useState<WorkflowDefinitionView[] | null>(null);
+  const [definitionError, setDefinitionError] = useState('');
+  const [initContextLoading, setInitContextLoading] = useState(false);
+  const [initOpen, setInitOpen] = useState(false);
+  /** 每个流程实例的 步骤→前置步骤 映射；缺失表示依赖信息不可用。 */
+  const [stepDepsByInstance, setStepDepsByInstance] = useState<
+    Record<string, Record<string, string[]>>
+  >({});
+  const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
 
   useEffect(() => {
     if (routeProject && routeProject.id !== selectedProjectId) setProjectId(routeProject.id);
@@ -289,6 +321,119 @@ export function RequirementDetail({
       alive = false;
     };
   }, [effectiveProjectId, routeKey]);
+
+  useEffect(() => {
+    if (!detail || detail.tasks.length > 0 || !effectiveProjectId) return;
+    let alive = true;
+    setInitContextLoading(true);
+    (async () => {
+      const [memberResult, roleResult, definitionResult] = await Promise.allSettled([
+        projectApi.members(effectiveProjectId),
+        projectApi.roles(effectiveProjectId),
+        workflowApi.listDefinitions(effectiveProjectId),
+      ]);
+      if (!alive) return;
+      if (memberResult.status === 'fulfilled') setMembers(memberResult.value);
+      else setMembers([]);
+      if (roleResult.status === 'fulfilled') setRoles(roleResult.value);
+      else setRoles([]);
+      if (definitionResult.status === 'fulfilled') {
+        setDefinitions(definitionResult.value.items);
+        setDefinitionError('');
+      } else {
+        setDefinitions([]);
+        setDefinitionError(formatApiError(definitionResult.reason));
+      }
+      setInitContextLoading(false);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [detail, effectiveProjectId]);
+
+  /**
+   * 依赖信息来自「实例 → 定义修订」两步 GET；任何一步失败都标记该实例依赖不可用，
+   * 页面据此显示「状态待确认」，不会退化成「无依赖 · 可领取」。
+   */
+  useEffect(() => {
+    if (!detail || detail.tasks.length === 0) {
+      setStepDepsByInstance({});
+      return;
+    }
+    const instanceIds = [...new Set(detail.tasks.map((task) => task.instanceId))].filter(Boolean);
+    let alive = true;
+    (async () => {
+      const next: Record<string, Record<string, string[]>> = {};
+      const revisionCache = new Map<string, Record<string, string[]>>();
+      for (const instanceId of instanceIds) {
+        try {
+          const instance = await workflowApi.instance(instanceId);
+          const revisionId = instance.definitionRevisionId;
+          let deps = revisionCache.get(revisionId);
+          if (!deps) {
+            const revision = await workflowApi.revision(revisionId);
+            deps = stepDependencyMap(revision.definition);
+            revisionCache.set(revisionId, deps);
+          }
+          next[instanceId] = deps;
+        } catch {
+          // 缺失即不可用；保留空对象会被误读成「没有依赖」，所以这里不写入 next。
+        }
+      }
+      if (alive) setStepDepsByInstance(next);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [detail]);
+
+  const focusedTaskId = searchParams.get('taskId');
+
+  // 带 taskId 的链接（刷新/复制）即使 tab 不是 tasks，也自动切到任务页签。
+  useEffect(() => {
+    if (focusedTaskId && tab !== 'tasks') setTab('tasks');
+  }, [focusedTaskId, tab]);
+
+  /**
+   * 流程图/链接定位任务：校验存在性 → 滚动到可视区 → 临时高亮 → 聚焦。
+   * 无效 taskId 清理参数并给出轻量提示，避免页面报错或一直等待。
+   */
+  useEffect(() => {
+    if (tab !== 'tasks' || !detail || !focusedTaskId) {
+      setHighlightTaskId(null);
+      return;
+    }
+    const exists = detail.tasks.some((task) => task.id === focusedTaskId);
+    if (!exists) {
+      setNotice('未找到该任务，已清除无效的任务定位参数。');
+      setSearchParams(
+        (current) => {
+          const nextParams = new URLSearchParams(current);
+          nextParams.delete('taskId');
+          return nextParams;
+        },
+        { replace: true },
+      );
+      return;
+    }
+    let cancelled = false;
+    const frame = window.requestAnimationFrame(() => {
+      if (cancelled) return;
+      const element = document.getElementById(taskDomId(focusedTaskId));
+      if (!element) return;
+      element.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+      element.focus({ preventScroll: true });
+      setHighlightTaskId(focusedTaskId);
+    });
+    const timer = window.setTimeout(() => {
+      if (!cancelled) setHighlightTaskId(null);
+    }, 2600);
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [tab, focusedTaskId, detail, setSearchParams]);
 
   useEffect(() => {
     if (!detail) {
@@ -344,20 +489,89 @@ export function RequirementDetail({
 
   const gates = useMemo(() => buildGates(detail?.tasks ?? []), [detail]);
 
-  const pipelineTasks = useMemo<RequirementPipelineTask[]>(
-    () =>
-      (detail?.tasks ?? []).map((task) => ({
-        id: task.id,
-        stepKey: task.stepKey,
-        title: STEP_LABELS[task.stepKey] ?? task.stepKey,
-        role: task.role.key,
-        roleLabel: task.role.title,
+  /** 每个实例里已完成的步骤 key；没拿到依赖信息时不会被使用。 */
+  const doneStepKeysByInstance = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const task of detail?.tasks ?? []) {
+      if (task.executionStatus !== 'DONE') continue;
+      const set = map.get(task.instanceId) ?? new Set<string>();
+      set.add(task.stepKey);
+      map.set(task.instanceId, set);
+    }
+    return map;
+  }, [detail]);
+
+  /**
+   * 任务状态统一由共享映射推出：依赖信息可用时按「直接前置步骤是否完成」判断可领取，
+   * 不可用时一律「状态待确认」。绝不以 executionStatus === 'OPEN' 推断可领取。
+   */
+  const taskStates = useMemo<Record<string, TaskDisplayState>>(() => {
+    const states: Record<string, TaskDisplayState> = {};
+    for (const task of detail?.tasks ?? []) {
+      const deps = stepDepsByInstance[task.instanceId];
+      const done = doneStepKeysByInstance.get(task.instanceId);
+      // 定义里找不到该 stepKey 时不能当成「没有依赖」，只能当作依赖信息不可用。
+      const hasStepDefinition = Boolean(deps && Object.prototype.hasOwnProperty.call(deps, task.stepKey));
+      const signals: TaskStateSignals = {
         executionStatus: task.executionStatus,
         workStatus: task.workStatus,
-        artifactCount: task.artifactCount,
-        updatedAt: undefined,
-      })),
-    [detail],
+        currentClaimId: task.currentClaimId,
+        reviewStatus: task.review?.status ?? null,
+        dependsOnStepKeys: hasStepDefinition ? deps![task.stepKey] : null,
+        // 依赖可用但没有任务完成时也要给空集合，否则会被误判成「依赖信息不可用」。
+        doneStepKeys: hasStepDefinition ? (done ?? new Set<string>()) : null,
+      };
+      states[task.id] = resolveTaskDisplayState(signals);
+    }
+    return states;
+  }, [detail, stepDepsByInstance, doneStepKeysByInstance]);
+
+  const currentMember = members.find((member) => member.id === user?.id);
+  const isAdmin = currentMember?.role === 'OWNER' || currentMember?.role === 'ADMIN';
+
+  const initState = useMemo(() => {
+    const base = describeWorkflowInitState({
+      hasInstance: (detail?.tasks.length ?? 0) > 0,
+      definitions,
+      isAdmin,
+      admins: members.filter((member) => member.role === 'OWNER' || member.role === 'ADMIN'),
+    });
+    // 定义读取失败时不能断言「尚未发布」，只能说明「无法确认」。
+    if (!definitionError || (definitions?.length ?? 0) > 0) return base;
+    return {
+      ...base,
+      kind: 'LOADING' as const,
+      title: '流程定义读取失败',
+      description: '无法确认流程定义是否已发布或已创建实例；请稍后重试，或联系项目管理员核对流程配置。',
+      canInitialize: false,
+      linkToWorkflows: false,
+    };
+  }, [detail, definitions, definitionError, isAdmin, members]);
+
+  const pipelineTasks = useMemo<RequirementPipelineTask[]>(
+    () =>
+      (detail?.tasks ?? []).map((task) => {
+        const deps = stepDepsByInstance[task.instanceId];
+        const done = doneStepKeysByInstance.get(task.instanceId);
+        const hasStepDefinition = Boolean(deps && Object.prototype.hasOwnProperty.call(deps, task.stepKey));
+        return {
+          id: task.id,
+          stepKey: task.stepKey,
+          title: STEP_LABELS[task.stepKey] ?? task.stepKey,
+          role: task.role.key,
+          roleLabel: task.role.title,
+          executionStatus: task.executionStatus,
+          workStatus: task.workStatus,
+          artifactCount: task.artifactCount,
+          currentClaimId: task.currentClaimId,
+          reviewStatus: task.review?.status ?? null,
+          dependsOnStepKeys: hasStepDefinition ? deps![task.stepKey] : null,
+          doneStepKeys: hasStepDefinition ? [...(done ?? [])] : null,
+          displayState: taskStates[task.id],
+          updatedAt: undefined,
+        };
+      }),
+    [detail, stepDepsByInstance, doneStepKeysByInstance, taskStates],
   );
 
   const pipelinePhases = useMemo<RequirementPipelinePhase[]>(() => {
@@ -451,7 +665,9 @@ export function RequirementDetail({
     traceKind === 'all' ? trace : trace.filter((item) => item.kind === traceKind);
 
   const openReviews = detail?.reviews.filter((review) => review.status === 'OPEN') ?? [];
-  const readyTasks = detail?.tasks.filter((task) => task.executionStatus === 'OPEN') ?? [];
+  const claimableTasks = detail?.tasks.filter((task) => taskStates[task.id]?.claimable) ?? [];
+  const unknownStateTasks =
+    detail?.tasks.filter((task) => taskStates[task.id]?.kind === 'UNKNOWN') ?? [];
 
   const next = useMemo(() => {
     if (!detail) return null;
@@ -461,30 +677,49 @@ export function RequirementDetail({
         text: '只保留历史证据，不再提供签字或编辑入口。',
         action: null,
       };
-    if (detail.tasks.length === 0)
-      return {
-        title: '等待初始化流程',
-        text: '项目管理员需要为这条需求创建流程实例，之后任务才会出现。',
-        action: null,
-      };
+    if (detail.tasks.length === 0) {
+      const action = initState.canInitialize
+        ? { label: '初始化流程', run: () => setInitOpen(true) }
+        : initState.linkToWorkflows
+          ? { label: '查看流程定义', run: () => navigate('/workflows') }
+          : {
+              label: '复制需求链接',
+              run: () => void copyText(window.location.href, '需求链接'),
+            };
+      return { title: initState.title, text: initState.description, action };
+    }
     if (openReviews.length > 0)
       return {
         title: `有 ${openReviews.length} 条评审待签字`,
         text: '签字前请确认正文、验收标准、工件与上一次决定。',
         action: { label: '去签字', run: () => navigate(`/reviews/${openReviews[0].id}`) },
       };
-    if (readyTasks.length > 0)
+    if (claimableTasks.length > 0)
       return {
-        title: `有 ${readyTasks.length} 个任务可开工`,
-        text: '任务由本地 Agent 通过 CLI 认领与交付；这里只读。',
+        title: `有 ${claimableTasks.length} 个任务可立即领取`,
+        text: '判定依据：已发布流程的直接前置步骤均已完成。任务由本地 Agent 认领与交付；这里只读。',
         action: { label: '查看看板', run: () => navigate('/board') },
+      };
+    if (unknownStateTasks.length > 0)
+      return {
+        title: '任务状态待确认',
+        text: '服务端没有返回可用的流程依赖信息，无法确认哪些任务可以领取；请稍后刷新或联系项目管理员。',
+        action: null,
       };
     return {
       title: '当前没有待处理动作',
       text: '等待 Agent 交付或下一次评审触发。',
       action: null,
     };
-  }, [detail, openReviews, readyTasks, navigate]);
+  }, [
+    detail,
+    openReviews,
+    claimableTasks,
+    unknownStateTasks,
+    initState,
+    navigate,
+    copyText,
+  ]);
 
   async function copyText(text: string, label: string) {
     try {
@@ -496,11 +731,34 @@ export function RequirementDetail({
     }
   }
 
-  function changeTab(next: DetailTab) {
+  function changeTab(next: DetailTab, taskId?: string) {
     setTab(next);
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.set('tab', next);
-    setSearchParams(nextParams, { replace: true });
+    setSearchParams(
+      (current) => {
+        const nextParams = new URLSearchParams(current);
+        nextParams.set('tab', next);
+        if (taskId) nextParams.set('taskId', taskId);
+        else nextParams.delete('taskId');
+        return nextParams;
+      },
+      { replace: true },
+    );
+  }
+
+  /** 流程图任务点击：切到任务页签并记录目标 taskId（可刷新/复制恢复）。 */
+  function focusTask(taskId: string) {
+    changeTab('tasks', taskId);
+  }
+
+  async function reloadDetail() {
+    if (!effectiveProjectId || !routeKey) return;
+    try {
+      const value = await requirementApi.detail(effectiveProjectId, routeKey);
+      setDetail(value);
+      setError('');
+    } catch (caught) {
+      setError(formatApiError(caught));
+    }
   }
 
   function openEdit() {
@@ -698,9 +956,48 @@ export function RequirementDetail({
           const firstTaskRole = phase.tasks?.[0]?.role;
           window.setTimeout(() => scrollToRole(firstTaskRole ? [firstTaskRole] : []), 0);
         }}
-        onTaskClick={() => changeTab('tasks')}
+        onTaskClick={(task) => focusTask(task.id)}
       />
 
+      {detail.tasks.length === 0 && (
+        <div className="detail-card wm-init-state" role="status" aria-live="polite">
+          <div className="detail-card-head">
+            <h3>流程初始化</h3>
+            {initContextLoading && <span className="task-row-meta">正在读取流程定义…</span>}
+          </div>
+          <strong>{initState.title}</strong>
+          <p>{initState.description}</p>
+          {initState.adminNames.length > 0 && (
+            <p className="task-row-meta">项目管理员：{initState.adminNames.join('、')}</p>
+          )}
+          {definitionError && (
+            <p className="error" role="alert">
+              流程定义读取失败：{definitionError}
+            </p>
+          )}
+          <div className="next-step-actions">
+            {initState.canInitialize && (
+              <button className="primary" onClick={() => setInitOpen(true)}>
+                初始化流程
+              </button>
+            )}
+            {initState.linkToWorkflows && (
+              <button className="ghost" onClick={() => navigate('/workflows')}>
+                查看流程定义
+              </button>
+            )}
+            <button
+              className="ghost"
+              onClick={() => void copyText(window.location.href, '需求链接')}
+            >
+              复制需求链接
+            </button>
+            <button className="ghost" onClick={() => navigate('/requirements')}>
+              返回需求列表
+            </button>
+          </div>
+        </div>
+      )}
       <ol className="req-tabs" role="tablist" aria-label="需求详情">
         {DETAIL_STAGES.map((item) => {
           const count = stageCountOf(item.key, detail, prdDocs.length, trace.length);
@@ -760,7 +1057,17 @@ export function RequirementDetail({
                 </h3>
               </div>
               {taskGroups.length === 0 ? (
-                <p className="detail-empty">还没有任务；等待管理员初始化流程实例。</p>
+                <div className="detail-empty wm-init-hint">
+                  <p>
+                    <strong>{initState.title}</strong>
+                  </p>
+                  <p>{initState.description}</p>
+                  {initState.canInitialize && (
+                    <button className="primary" onClick={() => setInitOpen(true)}>
+                      初始化流程
+                    </button>
+                  )}
+                </div>
               ) : (
                 <div className="task-groups">
                   {taskGroups.map((group) => (
@@ -769,61 +1076,75 @@ export function RequirementDetail({
                         <strong>{group.title}</strong>
                         <span className="task-row-meta">{group.tasks.length} 个任务</span>
                       </div>
-                      {group.tasks.map((task) => (
-                        <div
-                          className={`task-row${task.review?.status === 'OPEN' ? ' is-pending' : ''}`}
-                          key={task.id}
-                        >
-                          <div className="task-row-main">
-                            <div className="task-row-top">
-                              <strong title={task.stepKey}>
-                                {labelFor(STEP_LABELS, task.stepKey)}
-                              </strong>
-                              <span className="status-tag">
-                                {labelFor(EXECUTION_STATUS_LABELS, task.executionStatus)}
-                              </span>
-                              {task.workStatus !== 'ACTIVE' && (
-                                <span className="status-tag">
-                                  {labelFor(WORK_STATUS_LABELS, task.workStatus)}
+                      {group.tasks.map((task) => {
+                        const display =
+                          taskStates[task.id] ??
+                          resolveTaskDisplayState({
+                            executionStatus: task.executionStatus,
+                            workStatus: task.workStatus,
+                          });
+                        return (
+                          <div
+                            className={`task-row wm-task-row${task.review?.status === 'OPEN' ? ' is-pending' : ''}${highlightTaskId === task.id ? ' is-task-focus' : ''}`}
+                            key={task.id}
+                            id={taskDomId(task.id)}
+                            data-task-id={task.id}
+                            data-task-state={display.kind}
+                            tabIndex={-1}
+                            aria-label={`任务 ${labelFor(STEP_LABELS, task.stepKey)}，状态：${display.label}`}
+                          >
+                            <div className="task-row-main">
+                              <div className="task-row-top">
+                                <strong title={task.stepKey}>
+                                  {labelFor(STEP_LABELS, task.stepKey)}
+                                </strong>
+                                <span className={`status-tag is-${display.tone}`}>
+                                  {display.label}
                                 </span>
-                              )}
-                              {task.review && (
-                                <span className="status-tag">
-                                  {labelFor(REVIEW_STATUS_LABELS, task.review.status)}
-                                </span>
-                              )}
-                            </div>
-                            <div className="task-row-meta">
-                              责任人 {task.responsibleUser.email} · 工件 {task.artifactCount} 件 · v
-                              {task.version}
-                            </div>
-                          </div>
-                          <div className="task-row-actions">
-                            {!readOnly && task.review?.status === 'OPEN' ? (
-                              <button
-                                className="primary"
-                                onClick={() => navigate(`/reviews/${task.review!.id}`)}
-                              >
-                                去签字
-                                <ArrowRight size={14} />
-                              </button>
-                            ) : task.review ? (
-                              <div className="task-signed">
-                                <span>{labelFor(REVIEW_STATUS_LABELS, task.review.status)}</span>
-                                {task.review.decisions?.[0] && (
-                                  <span className="task-row-meta">
-                                    {labelFor(DECISION_LABELS, task.review.decisions[0].decision)}
-                                    {task.review.decisions[0].actor
-                                      ? ` · ${task.review.decisions[0].actor.email}`
-                                      : ''}
-                                    {` · ${dateTime(task.review.decisions[0].createdAt)}`}
+                                {task.review && (
+                                  <span className="status-tag">
+                                    {labelFor(REVIEW_STATUS_LABELS, task.review.status)}
                                   </span>
                                 )}
+                                {task.currentClaimId && (
+                                  <span className="status-tag">已认领</span>
+                                )}
                               </div>
-                            ) : null}
+                              <div className="task-row-meta">
+                                责任人 {task.responsibleUser.email} · 工件 {task.artifactCount} 件 ·
+                                v{task.version}
+                              </div>
+                              <div className="task-row-meta wm-task-state-desc">
+                                {display.description}
+                              </div>
+                            </div>
+                            <div className="task-row-actions">
+                              {!readOnly && task.review?.status === 'OPEN' ? (
+                                <button
+                                  className="primary"
+                                  onClick={() => navigate(`/reviews/${task.review!.id}`)}
+                                >
+                                  去签字
+                                  <ArrowRight size={14} />
+                                </button>
+                              ) : task.review ? (
+                                <div className="task-signed">
+                                  <span>{labelFor(REVIEW_STATUS_LABELS, task.review.status)}</span>
+                                  {task.review.decisions?.[0] && (
+                                    <span className="task-row-meta">
+                                      {labelFor(DECISION_LABELS, task.review.decisions[0].decision)}
+                                      {task.review.decisions[0].actor
+                                        ? ` · ${task.review.decisions[0].actor.email}`
+                                        : ''}
+                                      {` · ${dateTime(task.review.decisions[0].createdAt)}`}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ))}
                 </div>
@@ -1198,6 +1519,20 @@ export function RequirementDetail({
           </div>
         </aside>
       </div>
+
+      <WorkflowInstanceDialog
+        open={initOpen}
+        requirement={detail.requirement}
+        definitions={definitions ?? []}
+        roles={roles}
+        members={members}
+        onClose={() => setInitOpen(false)}
+        onCreated={(message) => {
+          setInitOpen(false);
+          setNotice(message);
+          void reloadDetail();
+        }}
+      />
 
       <Modal
         open={editOpen}

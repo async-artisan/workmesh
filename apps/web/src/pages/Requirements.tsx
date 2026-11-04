@@ -16,6 +16,7 @@ import { WorkflowInstanceDialog } from '../components/WorkflowInstanceDialog';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { useAuthStore } from '../store/auth';
 import { PHASE_LABELS, labelFor } from '../lib/labels';
+import { publishedWorkflowDefinitions } from '../lib/workflowInitState';
 
 /**
  * 需求页只收集最小产品意图并展示服务端状态；PRD、知识和实现产物由本地 Agent 生成。
@@ -51,6 +52,10 @@ export function Requirements() {
 
   const currentMember = members.find((member) => member.id === user?.id);
   const isAdmin = currentMember?.role === 'OWNER' || currentMember?.role === 'ADMIN';
+  const adminNames = members
+    .filter((member) => member.role === 'OWNER' || member.role === 'ADMIN')
+    .map((member) => member.name?.trim() || member.email);
+  const publishedDefinitions = publishedWorkflowDefinitions(definitions);
 
   const phaseOptions = useMemo(() => [...new Set(items.map((item) => item.phase))].sort(), [items]);
 
@@ -136,6 +141,9 @@ export function Requirements() {
             这里提交最小产品意图并查看状态；PRD、知识和实现产物由本地 Agent 生成后送入 Web
             评审。流程实例由项目管理员初始化。
           </p>
+          {definitions.length === 0 && (
+            <p className="page-sub wm-definition-hint">当前项目还没有已发布的流程定义。</p>
+          )}
         </div>
         <div className="page-actions">
           <ProjectSelect onChange={() => setItems([])} />
@@ -246,9 +254,33 @@ export function Requirements() {
                         详情
                       </button>
                       {isAdmin && item.phase === 'DISCOVERY' && (
-                        <button className="ghost" onClick={() => setWorkflowTarget(item)}>
-                          初始化流程
-                        </button>
+                        <>
+                          {publishedDefinitions.length > 0 ? (
+                            <button className="ghost" onClick={() => setWorkflowTarget(item)}>
+                              初始化流程
+                            </button>
+                          ) : (
+                            <button
+                              className="ghost"
+                              disabled
+                              title="流程定义尚未发布：先到「流程」页发布"
+                            >
+                              流程定义未发布
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {!isAdmin && item.phase === 'DISCOVERY' && (
+                        <span
+                          className="status-tag"
+                          title={
+                            adminNames.length > 0
+                              ? `项目管理员：${adminNames.join('、')}`
+                              : '请联系项目管理员初始化流程实例'
+                          }
+                        >
+                          等待管理员初始化
+                        </span>
                       )}
                     </div>
                   </td>

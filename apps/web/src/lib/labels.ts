@@ -8,7 +8,8 @@ export const PHASE_LABELS: Record<string, string> = {
 };
 
 export const EXECUTION_STATUS_LABELS: Record<string, string> = {
-  OPEN: '可开工',
+  // OPEN 只表示任务还没开始，不代表现在可以领取；可领取由依赖/readiness 状态决定。
+  OPEN: '未开始',
   IN_PROGRESS: '进行中',
   REVIEW_PENDING: '待签字',
   DONE: '已完成',

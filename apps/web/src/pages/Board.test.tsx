@@ -77,8 +77,12 @@ describe('Board（只读看板）', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('待认领')).toBeInTheDocument();
+    expect(await screen.findByText('未开始')).toBeInTheDocument();
     expect(screen.getAllByText('进行中').length).toBeGreaterThan(0);
+    // 看板不提供依赖/评审信息：OPEN 任务只能显示「状态待确认」，不能写成「待认领」。
+    expect(screen.getAllByText('状态待确认').length).toBeGreaterThan(0);
+    expect(screen.queryByText('待认领')).not.toBeInTheDocument();
+    expect(screen.getByText(/看板不包含流程依赖与评审状态/)).toBeInTheDocument();
     expect(screen.getByText('task-ope')).toBeInTheDocument();
     expect(screen.getByText('task-cla')).toBeInTheDocument();
     expect(screen.getByText(/认领与交付由本地 Agent 通过 CLI 完成/)).toBeInTheDocument();

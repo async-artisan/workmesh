@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { resolveTaskDisplayState, type TaskDisplayState } from '../lib/taskDisplayState';
 
 export type PipelineStatus = 'done' | 'active' | 'blocked' | 'pending' | 'skipped';
 export interface RequirementPipelineTask {
@@ -14,6 +15,16 @@ export interface RequirementPipelineTask {
   blockedBy?: string[];
   deps?: string[];
   updatedAt?: string;
+  /** 被认领的 claim；有 claim 时按执行中展示。 */
+  currentClaimId?: string | null;
+  /** 任务当前评审状态；OPEN 表示等待人工审批。 */
+  reviewStatus?: string | null;
+  /** 定义里的直接前置步骤 key；null/undefined 表示依赖信息不可用（不能推出可领取）。 */
+  dependsOnStepKeys?: string[] | null;
+  /** 已完成（DONE）的步骤 key；与 dependsOnStepKeys 一起使用。 */
+  doneStepKeys?: string[] | null;
+  /** 父级已用统一映射算好的展示状态；缺省时组件自行用同一函数计算。 */
+  displayState?: TaskDisplayState;
 }
 export interface RequirementPipelinePhase {
   id: string;
@@ -111,12 +122,50 @@ function phaseStatus(
 function roleLabel(role?: string, explicit?: string): string {
   return explicit ?? (role ? (ROLE_LABELS[role] ?? role) : '未分配');
 }
-function taskBucket(task: RequirementPipelineTask): 'ready' | 'active' | 'blocked' | 'done' {
-  const status = normalizeStatus(task);
-  if (status === 'blocked') return 'blocked';
-  if (status === 'done' || status === 'skipped') return 'done';
-  if (status === 'active') return 'active';
-  return 'ready';
+
+/**
+ * 任务展示状态的唯一入口：优先用父级算好的状态，否则用共享映射按任务字段计算。
+ * 组件内绝不再把「未完成」推断成「可领取」。
+ */
+function displayStateOf(task: RequirementPipelineTask): TaskDisplayState {
+  if (task.displayState) return task.displayState;
+  return resolveTaskDisplayState({
+    executionStatus: task.executionStatus ?? task.status ?? null,
+    workStatus: task.workStatus ?? null,
+    currentClaimId: task.currentClaimId ?? null,
+    reviewStatus: task.reviewStatus ?? null,
+    dependsOnStepKeys: task.dependsOnStepKeys === undefined ? null : task.dependsOnStepKeys,
+    doneStepKeys: task.doneStepKeys ? new Set(task.doneStepKeys) : null,
+  });
+}
+
+function laneOf(state: TaskDisplayState): 'claimable' | 'waiting' | 'active' | 'blocked' | 'done' {
+  switch (state.kind) {
+    case 'CLAIMABLE':
+      return 'claimable';
+    case 'WAITING_PREDECESSOR':
+    case 'WAITING_APPROVAL':
+    case 'UNKNOWN':
+      return 'waiting';
+    case 'IN_PROGRESS':
+      return 'active';
+    case 'BLOCKED_OR_FROZEN':
+      return 'blocked';
+    default:
+      return 'done';
+  }
+}
+
+function taskHint(task: RequirementPipelineTask, state: TaskDisplayState): string {
+  if (state.kind === 'CLAIMABLE') return '前置已完成 · 等待责任人认领';
+  if (state.kind === 'WAITING_PREDECESSOR')
+    return `等待前置：${state.missingPredecessors.map((step) => `#${step}`).join(' ')}`;
+  if (state.kind === 'WAITING_APPROVAL') return '等待人工审批';
+  if (state.kind === 'UNKNOWN') return '依赖信息不可用';
+  if (state.kind === 'BLOCKED_OR_FROZEN') return '解除阻塞或冻结后才能继续';
+  if (state.kind === 'DONE') return '已完成';
+  if (state.kind === 'CANCELLED') return '已取消';
+  return task.currentClaimId ? '已被认领' : '执行中';
 }
 
 export function RequirementPipeline({
@@ -174,17 +223,19 @@ export function RequirementPipeline({
     members[0];
   const buckets = useMemo(
     () => ({
-      ready: allTasks.filter((task) => taskBucket(task) === 'ready'),
-      active: allTasks.filter((task) => taskBucket(task) === 'active'),
-      blocked: allTasks.filter((task) => taskBucket(task) === 'blocked'),
-      done: allTasks.filter((task) => taskBucket(task) === 'done'),
+      claimable: allTasks.filter((task) => laneOf(displayStateOf(task)) === 'claimable'),
+      waiting: allTasks.filter((task) => laneOf(displayStateOf(task)) === 'waiting'),
+      active: allTasks.filter((task) => laneOf(displayStateOf(task)) === 'active'),
+      blocked: allTasks.filter((task) => laneOf(displayStateOf(task)) === 'blocked'),
+      completed: allTasks.filter((task) => laneOf(displayStateOf(task)) === 'done'),
     }),
     [allTasks],
   );
-  const doneCount = buckets.done.length;
+  const doneCount = buckets.completed.length;
   const activeCount = buckets.active.length;
   const blockedCount = buckets.blocked.length;
-  const readyCount = buckets.ready.length;
+  const claimableCount = buckets.claimable.length;
+  const waitingCount = buckets.waiting.length;
   const derivedNextAction =
     nextAction ??
     phaseModels.find((item) => item.status === 'active' || item.status === 'blocked')?.phase
@@ -252,37 +303,41 @@ export function RequirementPipeline({
     };
   }, [members, allTasks]);
   const renderTask = (task: RequirementPipelineTask) => {
+    const state = displayStateOf(task);
     const status = normalizeStatus(task);
-    const deps = task.deps ?? task.blockedBy ?? [];
     const progress =
-      status === 'done' || status === 'skipped'
+      state.kind === 'DONE' || state.kind === 'CANCELLED'
         ? 100
-        : status === 'active'
+        : state.kind === 'IN_PROGRESS'
           ? 60
-          : status === 'blocked'
+          : state.kind === 'BLOCKED_OR_FROZEN'
             ? 30
             : 8;
+    const stepLabel = task.title ?? task.stepKey ?? task.id;
+    const accessibleName = `${stepLabel}，状态：${state.label}；${taskHint(task, state)}`;
     return (
       <button
-        className={`pipeline-task-card is-${status}${selectedTaskIds && !selectedTaskIds.has(task.id) ? ' is-dim' : ''}`}
+        className={`pipeline-task-card is-${status} is-state-${state.kind.toLowerCase()}${selectedTaskIds && !selectedTaskIds.has(task.id) ? ' is-dim' : ''}`}
         type="button"
         key={task.id}
         data-task-id={task.id}
+        data-task-state={state.kind}
+        aria-label={accessibleName}
         onClick={() => onTaskClick?.(task)}
         disabled={!onTaskClick}
       >
         <span className="pipeline-task-card-top">
           <b>#{task.stepKey ?? task.id.slice(0, 6)}</b>
-          <em>{STATUS_LABELS[status]}</em>
+          <em>{state.label}</em>
         </span>
-        <strong>{task.title ?? task.stepKey ?? task.id}</strong>
+        <strong>{stepLabel}</strong>
         <span className="pipeline-task-card-owner">
           <img src={robotAvatar(task.role)} alt="" loading="lazy" />
           <span>
             {roleLabel(task.role, task.roleLabel)}
             {task.artifactCount !== undefined ? ` · ${task.artifactCount} 件证据` : ''}
           </span>
-          <small>{deps.length ? `依赖 ${deps.map((dep) => `#${dep}`).join(' ')}` : '起点'}</small>
+          <small>{taskHint(task, state)}</small>
         </span>
         <span className="pipeline-task-card-progress" aria-hidden="true">
           <i style={{ width: `${progress}%` }} />
@@ -306,7 +361,7 @@ export function RequirementPipeline({
           <strong>{derivedNextAction}</strong>
         </div>
       </div>
-      <div className="pipeline-team-stats">
+      <div className="pipeline-team-stats" aria-label="任务状态统计">
         <span>
           <b>
             {doneCount}/{allTasks.length}
@@ -314,10 +369,10 @@ export function RequirementPipeline({
           完成
         </span>
         <span>
-          <b>{activeCount}</b> 进行中
+          <b>{claimableCount}</b> 可领取
         </span>
         <span>
-          <b>{readyCount}</b> 待领
+          <b>{waitingCount}</b> 等待中
         </span>
         <span className={blockedCount ? 'is-alert' : ''}>
           <b>{blockedCount}</b> 阻塞
@@ -405,12 +460,26 @@ export function RequirementPipeline({
           })}
         </div>
       </div>
-      <div className="pipeline-task-lanes">
+      <div className="pipeline-task-lanes" aria-label="任务分栏">
         <div className="pipeline-task-lane">
           <h4>
-            无依赖 · 可立即领 <small>{readyCount}</small>
+            可立即领取 <small>{claimableCount}</small>
           </h4>
-          {buckets.ready.length ? buckets.ready.map(renderTask) : <p>暂无可领取任务</p>}
+          {buckets.claimable.length ? (
+            buckets.claimable.map(renderTask)
+          ) : (
+            <p>当前没有可立即领取的任务；只有直接前置步骤全部完成的任务才会计入这里。</p>
+          )}
+        </div>
+        <div className="pipeline-task-lane">
+          <h4>
+            等待中（前置 / 审批 / 待确认） <small>{waitingCount}</small>
+          </h4>
+          {buckets.waiting.length ? (
+            buckets.waiting.map(renderTask)
+          ) : (
+            <p>没有等待中的任务。</p>
+          )}
         </div>
         <div className="pipeline-task-lane">
           <h4>
@@ -424,9 +493,9 @@ export function RequirementPipeline({
         </div>
         <div className="pipeline-task-lane">
           <h4>
-            收尾 · 已完成 <small>{doneCount}</small>
+            已完成 <small>{doneCount}</small>
           </h4>
-          {buckets.done.length ? buckets.done.map(renderTask) : <p>暂无已完成任务</p>}
+          {buckets.completed.length ? buckets.completed.map(renderTask) : <p>暂无已完成任务</p>}
         </div>
       </div>
       <svg className="pipeline-wires" aria-hidden="true">
@@ -464,7 +533,7 @@ export function RequirementPipeline({
         </span>
         <span>
           <i className="is-pending" />
-          等待
+          等待（含待确认）
         </span>
       </div>
     </section>
