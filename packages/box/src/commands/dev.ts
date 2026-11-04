@@ -3,6 +3,7 @@ import { closeSync, existsSync, mkdirSync, openSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { BoxContext } from '../context';
 import { isPortOpen, waitForHttp, waitForPort } from '../lib/net';
+import { readinessFailureDetail } from './status';
 
 export type DevStep = {
   name: string;
@@ -49,6 +50,22 @@ function databaseStart(ctx: BoxContext): { command: string; args: string[] } | n
   return { command: 'node', args: [startScript] };
 }
 
+/** 已有的 API 是否真的能干活（就绪），而不是仅端口在监听。 */
+async function readinessDetail(port: number): Promise<string> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/health/ready`, {
+      signal: AbortSignal.timeout(3_000),
+    });
+    if (response.ok) return 'ok';
+    const body = (await response.json().catch(() => null)) as {
+      error?: { details?: { reason?: string } };
+    } | null;
+    return `不就绪：${readinessFailureDetail(response.status, body?.error?.details?.reason)}`;
+  } catch (caught) {
+    return (caught as Error).message;
+  }
+}
+
 /**
  * 本机开发：确保 PG 可达 → 起 API → 起 Web；已在监听的一律跳过，可反复执行。
  * --check 只报告状态，不启动任何进程。
@@ -89,7 +106,7 @@ export async function runDev(
 
   const apiListeningBefore = await isPortOpen(ctx.apiPort);
   let apiListening = apiListeningBefore;
-  let apiHealth = apiListeningBefore ? '正在运行' : '未运行';
+  let apiHealth = apiListeningBefore ? await readinessDetail(ctx.apiPort) : '未运行';
   let apiStarted = false;
   if (!apiListening && !input.check) {
     if (!ctx.repoRoot)
@@ -100,11 +117,14 @@ export async function runDev(
       cwd: ctx.repoRoot,
       logFile: join(ctx.dataDir, 'logs', 'api.log'),
     });
-    apiListening = await waitForHttp(`http://127.0.0.1:${ctx.apiPort}/api/health`, {
+    // 等「就绪」而不是等「存活」：数据库没迁移或连不上时不能报启动成功。
+    apiListening = await waitForHttp(`http://127.0.0.1:${ctx.apiPort}/api/health/ready`, {
       timeoutMs: 120_000,
     });
     apiStarted = apiListening;
-    apiHealth = apiListening ? 'ok' : '启动超时';
+    apiHealth = apiListening
+      ? 'ok'
+      : `启动超时（120s 内就绪探针未通过：${await readinessDetail(ctx.apiPort)}）`;
   }
   steps.push({
     name: 'api',

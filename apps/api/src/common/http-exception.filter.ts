@@ -38,12 +38,17 @@ export class HttpExceptionFilter implements ExceptionFilter {
       code = status >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_REJECTED';
     }
 
-    if (status >= 500)
-      // 未映射异常必须留堆栈：只记一行 message 会让 500 无法定位（A3 首跑就撞上过）。
-      this.logger.error(
-        `${request?.method ?? 'UNKNOWN'} ${request?.path ?? 'UNKNOWN'} returned ${status}: ${message}`,
-        error instanceof Error ? error.stack : String(error),
-      );
+    if (status >= 500) {
+      const line = `${request?.method ?? 'UNKNOWN'} ${request?.path ?? 'UNKNOWN'} returned ${status} [${code}]: ${message}`;
+      if (error instanceof WorkmeshError) {
+        // 已映射错误（如就绪探针 503）只记一行：堆栈对语义明确的错误没有定位价值，
+        // 且探针被轮询时会刷屏。未映射异常仍必须留堆栈。
+        this.logger.error(line);
+      } else {
+        // 未映射异常必须留堆栈：只记一行 message 会让 500 无法定位（A3 首跑就撞上过）。
+        this.logger.error(line, error instanceof Error ? error.stack : String(error));
+      }
+    }
     response?.setHeader?.('X-Request-Id', requestId);
     response?.status?.(status).json({
       error: {

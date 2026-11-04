@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type { BoxContext } from '../context';
 import { isPortOpen } from '../lib/net';
 import { listBackups, type BackupManifest } from '../lib/backup';
@@ -32,9 +33,42 @@ export type StatusReport = {
   pgTools: { source: string; version: string | null; binDir: string | null } | null;
   ports: { api: number; web: number; apiListening: boolean; webListening: boolean };
   health: { ok: boolean; detail: string };
+  /**
+   * 就绪（能否干活）与 health（进程是否活着）分开：
+   * health 只证明进程在跑，数据库不可达或迁移没应用时它照样 ok——这正是原先假绿的来源。
+   */
+  ready: { ok: boolean; detail: string; appliedMigrations: number | null };
   backup: { count: number; latest: BackupManifest | null };
   checks: StatusCheck[];
 };
+
+/** 就绪失败的 reason 码转成可操作的说明；不回显底层驱动文本。 */
+export function readinessFailureDetail(status: number, reason: unknown): string {
+  switch (reason) {
+    case 'CONNECT_FAILED':
+      return '数据库不可达（端口开着但连接失败？检查 WORKMESH_V1_DATABASE_URL 与库是否已创建）';
+    case 'SCHEMA_NOT_MIGRATED':
+      return '数据库可连接但 schema 未迁移（运行 prisma migrate deploy）';
+    case 'TIMEOUT':
+      return '数据库探针超时';
+    default:
+      return `HTTP ${status}`;
+  }
+}
+
+/** 仓库内迁移目录数量，用于发现「库里的迁移比代码少」。打包形态无该目录时返回 null。 */
+function expectedMigrationCount(repoRoot: string | null): number | null {
+  if (!repoRoot) return null;
+  const dir = join(repoRoot, 'apps', 'api', 'prisma', 'migrations');
+  if (!existsSync(dir)) return null;
+  try {
+    return readdirSync(dir, { withFileTypes: true }).filter(
+      (entry) => entry.isDirectory() && /^\d{4}_/.test(entry.name),
+    ).length;
+  } catch {
+    return null;
+  }
+}
 
 function pgVersionOf(pgDump: string): string | null {
   try {
@@ -74,6 +108,45 @@ export async function collectStatus(ctx: BoxContext): Promise<StatusReport> {
     }
   }
 
+  // 就绪探测：只有 API 在监听时才问得出结果；API 未启动时一律留给启动流程去验证。
+  let ready: { ok: boolean; detail: string; appliedMigrations: number | null } = {
+    ok: false,
+    detail: 'API 未监听',
+    appliedMigrations: null,
+  };
+  if (apiListening) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${ctx.apiPort}/api/health/ready`, {
+        signal: AbortSignal.timeout(3_000),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        data?: { database?: { appliedMigrations?: number } };
+        error?: { details?: { reason?: string } };
+      } | null;
+      const appliedMigrations = body?.data?.database?.appliedMigrations ?? null;
+      ready = response.ok
+        ? {
+            ok: true,
+            detail: appliedMigrations === null ? 'ok' : `ok · 已应用迁移 ${appliedMigrations} 项`,
+            appliedMigrations,
+          }
+        : {
+            ok: false,
+            detail: readinessFailureDetail(response.status, body?.error?.details?.reason),
+            appliedMigrations,
+          };
+    } catch (caught) {
+      ready = { ok: false, detail: (caught as Error).message, appliedMigrations: null };
+    }
+  }
+
+  // 库里应用的迁移数少于仓库里的迁移文件，说明这次部署漏跑了迁移。
+  const expectedMigrations = expectedMigrationCount(ctx.repoRoot);
+  const migrationsInSync =
+    ready.appliedMigrations === null || expectedMigrations === null
+      ? null
+      : ready.appliedMigrations === expectedMigrations;
+
   const backups = listBackups(ctx.dataDir);
   const service = ctx.adapter.service({
     installRoot: ctx.installRoot,
@@ -110,6 +183,24 @@ export async function collectStatus(ctx: BoxContext): Promise<StatusReport> {
       critical: false,
       detail: apiListening ? health.detail : `端口 ${ctx.apiPort} 未监听`,
     },
+    {
+      // API 正在跑却不就绪，是真实故障，必须让 doctor 变红；
+      // API 根本没启动时这条不成立（交给 dev/install 去验证），所以不判关键。
+      name: 'api-ready',
+      ok: ready.ok,
+      critical: apiListening,
+      detail: ready.detail,
+    },
+    ...(migrationsInSync === null
+      ? []
+      : [
+          {
+            name: 'migrations-in-sync',
+            ok: migrationsInSync,
+            critical: true,
+            detail: `数据库 ${ready.appliedMigrations} 项 / 仓库 ${expectedMigrations} 项`,
+          },
+        ]),
     {
       name: 'web',
       ok: webListening,
@@ -148,6 +239,7 @@ export async function collectStatus(ctx: BoxContext): Promise<StatusReport> {
       webListening,
     },
     health,
+    ready,
     backup: { count: backups.length, latest: backups[0] ?? null },
     checks,
   };
@@ -180,8 +272,9 @@ export function renderStatus(report: StatusReport): string {
   lines.push(
     `端口：API ${report.ports.api}${report.ports.apiListening ? '（监听中）' : '（未监听）'} · Web ${report.ports.web}${
       report.ports.webListening ? '（监听中）' : '（未监听）'
-    } · API 健康：${report.health.detail}`,
+    }`,
   );
+  lines.push(`API 存活：${report.health.detail} · 就绪：${report.ready.detail}`);
   lines.push(
     `备份：${report.backup.count} 份${
       report.backup.latest

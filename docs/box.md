@@ -5,14 +5,14 @@
 
 ## 命令
 
-| 命令                                      | 作用                                                                    | 有副作用       |
-| ----------------------------------------- | ----------------------------------------------------------------------- | -------------- |
-| `workmesh-box status`                     | 版本、平台、目录、数据库、端口、PG 客户端、备份与检查项                 | 只创建数据目录 |
-| `workmesh-box doctor`                     | 只体检；关键检查（数据库 / PG 客户端 / 数据目录）失败退出码 1           | 无             |
-| `workmesh-box dev`                        | 本机开发：PG 可达 → API → Web；已在监听的一律跳过，可反复执行           | 启动缺失的进程 |
-| `workmesh-box dev --check`                | 只报告，不启动                                                          | 无             |
-| `workmesh-box backup`                     | 备份数据库到 `<data-dir>/backups/<时间>/`（`db.sql` + `manifest.json`） | 写备份文件     |
-| `workmesh-box restore --from <dir> --yes` | 把备份恢复到**新数据库**（默认 `workmesh_restore_<时间>`），不动现有库  | 建库 + 写数据  |
+| 命令                                      | 作用                                                                                | 有副作用       |
+| ----------------------------------------- | ----------------------------------------------------------------------------------- | -------------- |
+| `workmesh-box status`                     | 版本、平台、目录、数据库、端口、PG 客户端、备份与检查项                             | 只创建数据目录 |
+| `workmesh-box doctor`                     | 只体检；关键检查（数据库 / PG 客户端 / 数据目录 / API 就绪 / 迁移一致）失败退出码 1 | 无             |
+| `workmesh-box dev`                        | 本机开发：PG 可达 → API 就绪 → Web；已在监听的一律跳过，可反复执行                  | 启动缺失的进程 |
+| `workmesh-box dev --check`                | 只报告，不启动                                                                      | 无             |
+| `workmesh-box backup`                     | 备份数据库到 `<data-dir>/backups/<时间>/`（`db.sql` + `manifest.json`）             | 写备份文件     |
+| `workmesh-box restore --from <dir> --yes` | 把备份恢复到**新数据库**（默认 `workmesh_restore_<时间>`），不动现有库              | 建库 + 写数据  |
 
 ```powershell
 pnpm box status
@@ -22,6 +22,17 @@ pnpm box restore --from C:\Users\me\AppData\Local\workmesh\backups\20261103-1009
 ```
 
 `--json` 对每个命令都可用；`--data-dir`、`--install-root`、`--database-url`、`--api-port`、`--web-port` 可覆盖默认值。
+
+### 存活与就绪是两件事
+
+`doctor` / `dev` 不再以 `/api/health` 判断「能用」——那个端点只证明进程还活着，数据库不可达或迁移没跑时它照样返回 200，是假绿的来源。
+
+| 探针                    | 回答什么                                       | 失败时                                     |
+| ----------------------- | ---------------------------------------------- | ------------------------------------------ |
+| `GET /api/health`       | 进程是否活着（liveness，**故意不查数据库**）   | 重启进程；查库会让数据库抖动演变成连环重启 |
+| `GET /api/health/ready` | 能否干活（readiness）：`SELECT 1` + 迁移已应用 | `503 DEPENDENCY_UNAVAILABLE`，不重启       |
+
+`box doctor` 把 `api-ready` 列为关键检查（仅当 API 在跑时），并用 `migrations-in-sync` 比对「数据库已应用迁移数」与「仓库迁移目录数」——部署漏跑迁移会直接变红。`box dev` 等的是就绪而不是存活。
 
 ## 目录与平台
 

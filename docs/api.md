@@ -2,6 +2,15 @@
 
 正式协议根路径为 `/api/v1`（Nest 全局前缀 `api` + 领域控制器前缀 `v1`）。除健康探针与 Webhook 外，所有接口都要求认证，并在服务端重新校验项目成员资格与知识库读权限。
 
+## 健康探针
+
+两个端点都在 `/api` 前缀下、没有 `v1` 段（`AppController` 不属于 v1 领域控制器），且不需要认证，语义严格分开（参照 Kubernetes 的 liveness/readiness）：
+
+- `GET /api/health` — **liveness**。进程活着即返回 `{status:"ok"}`，**故意不检查数据库**：liveness 失败会导致重启，把数据库检查放进来会让数据库抖动演变成连环重启。
+- `GET /api/health/ready` — **readiness**。执行 `SELECT 1` 并确认 `workmesh_v1._prisma_migrations` 已应用至少一项迁移，成功返回 `{ok,database:{reachable,appliedMigrations},checkedAt}`；失败返回 `503 DEPENDENCY_UNAVAILABLE`，`details.reason` 为 `CONNECT_FAILED` / `SCHEMA_NOT_MIGRATED` / `TIMEOUT` 之一。
+
+失败原因只给枚举值，不回显底层驱动文本——该端点未认证，Prisma 的连接错误会带主机名与库名。运维侧以 `/health/ready` 判定「能用」，`box doctor` 与 `box dev` 已切到该口径。
+
 ## 通用约定
 
 - 请求体为严格 JSON：拒绝浮点数、重复键、尾随内容和超限深度；DTO 开启 `whitelist` 与 `forbidNonWhitelisted`，未声明字段一律 400。
@@ -152,6 +161,9 @@ workmesh product draft --request <requestId>
 ## 代码证据
 
 - **`IMPL` 工件必须绑定代码证据才能被验收。** 交付 `kind: 'IMPL'` 的工件集时，服务端会按工作流为该步骤派生 `CODE_REVIEW_EVIDENCE` 系统闸门；若工件没有通过下面的 code-evidence 接口绑定到具体提交，评审决定会以 `422 CODE_EVIDENCE_MISSING`（`CODE_REVIEW_EVIDENCE_MISSING`）拒绝。也就是说：`IMPL` 不能只交托管字节，必须能被人类按 commit 复核。非代码类工件（`DESIGN` / `CASES` / `RELEASE` / `PRD`）不受此约束。
+
+  验收时的证据解析口径：`prepare` 在工件集下建的是一条 `PENDING` 占位票据行，而 webhook 写入的真实批准证据不带 `artifactSetId`。因此闸门**不按 `artifactSetId` 直接取证据**，而是沿「已消费（`preparedExpiresAt` 为空）的票据 → `preparedEvidenceId`」解析出真正被认领的那条证据，占位行本身不计入。`403`/`422` 之外，`details.reason` 为 `CODE_CLAIM_REQUIRES_APPROVED_PR_REVIEW`（未建立绑定）或 `BOUND_EVIDENCE_NOT_APPROVED`（已绑定但证据不是全员 APPROVED 的他人评审）。
+
 - `POST /api/v1/integrations/github/webhooks` — GitHub Webhook（HMAC-SHA256 签名校验，免会话认证）。
 - `POST /api/v1/integrations/github/code-evidence/prepare`、`POST /api/v1/integrations/github/code-evidence/:ticketId/use` — 准备提交级代码证据并把证据绑定到工件集。仓库身份使用稳定的数值仓库 ID，owner/name 仅作展示；两次读取之间 head/状态变化返回 `UPSTREAM_CHANGED`。
 
@@ -161,6 +173,6 @@ workmesh product draft --request <requestId>
 
 ## 运维
 
-- `GET /api/health` — 健康探针（不属于 `/api/v1` 协议面）。
+- `GET /api/health`、`GET /api/health/ready` — 存活/就绪探针，语义与差异见上文「健康探针」（不属于 `/api/v1` 协议面）。
 - `GET /api/metrics` — 请求计数、失败数与平均延迟。
 - Swagger 在 API 启动后于 `/api/docs` 可读。
