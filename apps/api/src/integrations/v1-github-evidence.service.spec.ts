@@ -7,6 +7,7 @@ import type { V1IdempotencyRepository } from '../common/v1-idempotency';
 import type { RepositoryEvidenceInput } from './v1-code-evidence-policy';
 import {
   V1GithubEvidenceService,
+  evidenceFingerprintOf,
   type V1WebhookReceiveContext,
   type V1WebhookReceiveInput,
 } from './v1-github-evidence.service';
@@ -87,8 +88,15 @@ class FakeEvidenceRepository implements V1GithubEvidenceRepository {
     await this.recordReceiptProcessed(receiptId, status, errorMessage);
   }
 
-  async findEvidenceByFingerprint(fingerprint: string): Promise<V1CodeReviewEvidenceRecord | null> {
-    return this.evidence.find((row) => row.evidenceFingerprint === fingerprint) ?? null;
+  async findEvidenceByFingerprint(
+    projectId: string,
+    fingerprint: string,
+  ): Promise<V1CodeReviewEvidenceRecord | null> {
+    return (
+      this.evidence.find(
+        (row) => row.projectId === projectId && row.evidenceFingerprint === fingerprint,
+      ) ?? null
+    );
   }
 
   async recordEvidence(input: V1RecordEvidenceInput): Promise<V1CodeReviewEvidenceRecord> {
@@ -119,6 +127,7 @@ class FakeEvidenceRepository implements V1GithubEvidenceRepository {
   }
 
   async findApprovedEvidenceForHead(
+    _projectId: string,
     _repositoryId: string,
     _changeRequestId: string,
     _headSha: string,
@@ -248,6 +257,28 @@ function serviceWith(
     ticketKey,
   );
 }
+
+describe('evidenceFingerprintOf', () => {
+  const review = {
+    repositoryId: '1234',
+    changeRequestId: '42',
+    headSha: 'a'.repeat(40),
+    reviewerExternalId: 'reviewer',
+    reviewExternalId: 'review-1',
+    state: 'APPROVED',
+    commitSha: 'a'.repeat(40),
+  };
+
+  it('separates the same upstream review recorded under two projects', () => {
+    // 同一个 GitHub 仓库可以被两个项目登记；指纹不含 projectId 时两边会互相顶掉，
+    // 表现为后登记的项目永远查不到自己的证据。
+    const inA = evidenceFingerprintOf({ ...review, projectId: 'p-a' });
+    const inB = evidenceFingerprintOf({ ...review, projectId: 'p-b' });
+    expect(inA).not.toBe(inB);
+    // 同项目同内容必须稳定，否则去重失效。
+    expect(evidenceFingerprintOf({ ...review, projectId: 'p-a' })).toBe(inA);
+  });
+});
 
 describe('v1 github evidence delivery idempotency', () => {
   function prepareFixture() {

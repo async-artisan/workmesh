@@ -1083,7 +1083,9 @@ model CodeReviewEvidence {
   artifactSet      ArtifactSet?       @relation(fields: [artifactSetId], references: [id], onDelete: Restrict)
   receipt          WebhookReceipt?    @relation(fields: [receiptId], references: [id], onDelete: Restrict)
 
-  @@unique([evidenceFingerprint])
+  // 去重只在项目内成立：同一 GitHub 仓库可以被多个项目登记，全局唯一会让先到者
+  // 占住键、后到项目复用它的行，于是那个项目永远拿不到属于自己的证据。
+  @@unique([projectId, evidenceFingerprint])
   @@index([projectId, repositoryId, changeRequestId])
   @@index([artifactSetId])
   @@schema("workmesh_v1")

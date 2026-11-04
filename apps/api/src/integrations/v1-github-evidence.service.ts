@@ -93,6 +93,7 @@ export type V1UseTicketResult = {
 };
 
 export type V1EvidenceFingerprintParts = {
+  projectId: string;
   repositoryId: string;
   changeRequestId: string;
   headSha: string;
@@ -102,8 +103,14 @@ export type V1EvidenceFingerprintParts = {
   commitSha: string | null;
 };
 
+/**
+ * 证据去重指纹。**必须包含 projectId**：同一个 GitHub 仓库可以被两个 WorkMesh 项目登记，
+ * 指纹若不含项目，两边的同一条评审会被判成同一条证据——先到者占住唯一键，
+ * 后到的项目复用它的行、`projectId` 却是对方的，于是该项目永远拿不到自己的证据。
+ */
 export function evidenceFingerprintOf(parts: V1EvidenceFingerprintParts): string {
   const canonical = JSON.stringify({
+    projectId: parts.projectId,
     repositoryId: parts.repositoryId,
     changeRequestId: parts.changeRequestId,
     headSha: parts.headSha,
@@ -234,6 +241,7 @@ export class V1GithubEvidenceService {
     for (const repo of input.repositories) {
       for (const review of repo.reviews) {
         const fingerprint = evidenceFingerprintOf({
+          projectId,
           repositoryId: repo.repositoryId,
           changeRequestId: repo.changeRequestId,
           headSha: repo.changeRequestHeadSha ?? '',
@@ -242,7 +250,7 @@ export class V1GithubEvidenceService {
           state: review.state,
           commitSha: review.commitSha,
         });
-        const prior = await this.repository.findEvidenceByFingerprint(fingerprint);
+        const prior = await this.repository.findEvidenceByFingerprint(projectId, fingerprint);
         if (prior) {
           evidenceIds.push(prior.id);
           continue;
@@ -388,7 +396,10 @@ export class V1GithubEvidenceService {
       );
 
     // 多仓/缺证据拒绝：必须存在针对该 head 的他人 APPROVED 证据。
+    // projectId 必须进查询条件：同一仓库被两个项目登记时，只按仓库/PR 查会命中对方的证据，
+    // 随后再比对 projectId 只会把"有证据"误判成"缺证据"。
     const approved = await this.repository.findApprovedEvidenceForHead(
+      projectId,
       input.repositoryId,
       input.changeRequestId,
       input.headSha,

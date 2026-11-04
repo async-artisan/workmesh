@@ -128,10 +128,14 @@ export interface V1GithubEvidenceRepository {
     operation: V1PersistIdempotencyInput,
   ): Promise<void>;
   findEvidenceIdsByReceipt(receiptId: string): Promise<string[]>;
-  findEvidenceByFingerprint(fingerprint: string): Promise<V1CodeReviewEvidenceRecord | null>;
+  findEvidenceByFingerprint(
+    projectId: string,
+    fingerprint: string,
+  ): Promise<V1CodeReviewEvidenceRecord | null>;
   recordEvidence(input: V1RecordEvidenceInput): Promise<V1CodeReviewEvidenceRecord>;
   findArtifactSet(id: string): Promise<V1ArtifactSetSummary | null>;
   findApprovedEvidenceForHead(
+    projectId: string,
     repositoryId: string,
     changeRequestId: string,
     headSha: string,

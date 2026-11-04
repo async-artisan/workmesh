@@ -1,4 +1,4 @@
-﻿import { Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { createHash, randomBytes } from 'node:crypto';
 import {
@@ -94,19 +94,27 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
     });
   }
 
-  async findEvidenceByFingerprint(fingerprint: string): Promise<V1CodeReviewEvidenceRecord | null> {
-    const row = await this.prisma.codeReviewEvidence.findUnique({
-      where: { evidenceFingerprint: fingerprint },
+  async findEvidenceByFingerprint(
+    projectId: string,
+    fingerprint: string,
+  ): Promise<V1CodeReviewEvidenceRecord | null> {
+    const row = await this.prisma.codeReviewEvidence.findFirst({
+      where: { projectId, evidenceFingerprint: fingerprint },
     });
     return row ? this.toEvidence(row) : null;
   }
 
   async recordEvidence(input: V1RecordEvidenceInput): Promise<V1CodeReviewEvidenceRecord> {
-    const row = await this.prisma.codeReviewEvidence
-      .upsert({
-        where: { evidenceFingerprint: input.evidenceFingerprint },
-        update: {},
-        create: {
+    // 去重键是 (projectId, evidenceFingerprint)。这里不依赖 Prisma 生成的复合唯一键 API，
+    // 而是「先查后建 + 冲突回读」：并发下的 P2002 由数据库唯一索引兜住，语义与 upsert 等价，
+    // 同时不必在业务代码里绑定索引名。
+    const where = { projectId: input.projectId, evidenceFingerprint: input.evidenceFingerprint };
+    const existing = await this.prisma.codeReviewEvidence.findFirst({ where });
+    if (existing) return this.toEvidence(existing);
+
+    try {
+      const created = await this.prisma.codeReviewEvidence.create({
+        data: {
           projectId: input.projectId,
           repositoryId: input.repositoryId,
           changeRequestId: input.changeRequestId,
@@ -122,15 +130,15 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
           evidenceFingerprint: input.evidenceFingerprint,
           receiptId: input.receiptId,
         },
-      })
-      .catch(async (error: unknown) => {
-        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002')
-          throw error;
-        return this.prisma.codeReviewEvidence.findUniqueOrThrow({
-          where: { evidenceFingerprint: input.evidenceFingerprint },
-        });
       });
-    return this.toEvidence(row);
+      return this.toEvidence(created);
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002')
+        throw error;
+      // 并发写入的失败者回读赢家那一行，仍然返回同一条证据。
+      const winner = await this.prisma.codeReviewEvidence.findFirstOrThrow({ where });
+      return this.toEvidence(winner);
+    }
   }
 
   async findArtifactSet(id: string): Promise<V1ArtifactSetSummary | null> {
@@ -145,12 +153,13 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
   }
 
   async findApprovedEvidenceForHead(
+    projectId: string,
     repositoryId: string,
     changeRequestId: string,
     headSha: string,
   ): Promise<V1CodeReviewEvidenceRecord | null> {
     const row = await this.prisma.codeReviewEvidence.findFirst({
-      where: { repositoryId, changeRequestId, headSha, state: 'APPROVED' },
+      where: { projectId, repositoryId, changeRequestId, headSha, state: 'APPROVED' },
       orderBy: { createdAt: 'desc' },
     });
     return row ? this.toEvidence(row) : null;

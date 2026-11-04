@@ -185,7 +185,9 @@ suite('PostgreSQL decision and webhook consistency', () => {
     );
     expect(new Set(results.map((result) => result.id)).size).toBe(1);
     expect(await repository.findEvidenceIdsByReceipt(recorded.id)).toEqual([results[0].id]);
-    expect(await repository.findEvidenceByFingerprint(input.evidenceFingerprint)).toMatchObject({
+    expect(
+      await repository.findEvidenceByFingerprint(projectId, input.evidenceFingerprint),
+    ).toMatchObject({
       id: results[0].id,
     });
   });
