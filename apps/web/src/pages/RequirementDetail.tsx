@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Copy, Link2, MoreHorizontal, Terminal } from 'lucide-react';
-import { formatApiError } from '../api/client';
+import { ApiError, formatApiError } from '../api/client';
 import {
   documentApi,
   projectApi,
@@ -37,13 +37,12 @@ import {
 } from '../lib/labels';
 import {
   resolveTaskDisplayState,
+  type DependencyInfoIssue,
   type TaskDisplayState,
   type TaskStateSignals,
 } from '../lib/taskDisplayState';
-import {
-  describeWorkflowInitState,
-} from '../lib/workflowInitState';
-import { stepDependencyMap } from '../lib/workflowInstance';
+import { describeWorkflowInitState } from '../lib/workflowInitState';
+import { stepDependencyGraph, type StepDependencyGraph } from '../lib/workflowInstance';
 
 type DetailTab = 'overview' | 'tasks' | 'artifacts' | 'changes' | 'prd' | 'reviews' | 'trace';
 
@@ -149,6 +148,80 @@ function scrollToRole(roleKeys: string[]): void {
 /** 任务行的 DOM id：流程图点击后用它定位（刷新/复制链接后同样可用）。 */
 function taskDomId(taskId: string): string {
   return `requirement-task-${taskId}`;
+}
+
+/** 任务行可见标题 / 状态的稳定 id，供 role="group" 的 aria-labelledby 使用。 */
+function taskTitleDomId(taskId: string): string {
+  return `requirement-task-title-${taskId}`;
+}
+
+function taskStateDomId(taskId: string): string {
+  return `requirement-task-state-${taskId}`;
+}
+
+type InitLoadStatus = 'idle' | 'loading' | 'ready' | 'error' | 'forbidden';
+type InitContextKind = 'members' | 'roles' | 'definitions';
+
+const INIT_CONTEXT_KINDS: InitContextKind[] = ['members', 'roles', 'definitions'];
+
+const INIT_STATUS_LABELS: Record<InitLoadStatus, string> = {
+  idle: '未读取',
+  loading: '读取中',
+  ready: '已读取',
+  error: '读取失败',
+  forbidden: '无读取权限',
+};
+
+interface InitContextError {
+  /** 面向用户的一句话说明。 */
+  message: string;
+  /** formatApiError 输出（含错误码与 requestId）。 */
+  detail: string;
+  requestId?: string;
+}
+
+/** 成员/角色/定义读取失败时保留真实错误，调用方据此决定是否可判定权限。 */
+function initContextErrorOf(caught: unknown, label: string): InitContextError {
+  const detail = formatApiError(caught);
+  const requestId = caught instanceof ApiError ? caught.requestId : undefined;
+  if (caught instanceof ApiError && caught.status === 403) {
+    return {
+      message: `当前账号没有查看${label}的权限（403），无法确认初始化权限。`,
+      detail,
+      requestId,
+    };
+  }
+  return { message: `${label}读取失败，暂时无法确认初始化权限。`, detail, requestId };
+}
+
+/**
+ * 依赖信号：只有「定义存在 + 该步骤存在 + 该步骤依赖图完整」时才交给状态映射；
+ * 否则显式标记原因，让任务显示「状态待确认」，绝不退化成「无依赖 · 可领取」。
+ */
+function dependencySignalsOf(
+  graph: StepDependencyGraph | undefined,
+  task: RequirementTaskDetail,
+  done: ReadonlySet<string> | undefined,
+): Pick<TaskStateSignals, 'dependsOnStepKeys' | 'doneStepKeys' | 'dependencyInfoIssue'> {
+  if (!graph || !graph.hasSteps) {
+    return { dependsOnStepKeys: null, doneStepKeys: null, dependencyInfoIssue: 'unavailable' };
+  }
+  const info = graph.steps[task.stepKey];
+  if (!info) {
+    return { dependsOnStepKeys: null, doneStepKeys: null, dependencyInfoIssue: 'missing-step' };
+  }
+  if (!info.isDependencyGraphComplete) {
+    return {
+      dependsOnStepKeys: null,
+      doneStepKeys: null,
+      dependencyInfoIssue: 'unknown-dependencies',
+    };
+  }
+  return {
+    dependsOnStepKeys: info.dependencyKeys,
+    doneStepKeys: done ?? new Set<string>(),
+    dependencyInfoIssue: null,
+  };
 }
 
 function buildGates(tasks: RequirementTaskDetail[]): GateNode[] {
@@ -279,21 +352,47 @@ export function RequirementDetail({
   const [traceKind, setTraceKind] = useState('all');
   const user = useAuthStore((state) => state.user);
   const [members, setMembers] = useState<MemberView[]>([]);
+  const [membersStatus, setMembersStatus] = useState<InitLoadStatus>('idle');
+  const [membersError, setMembersError] = useState<InitContextError | null>(null);
   const [roles, setRoles] = useState<RoleView[]>([]);
-  /** null = 还没读到流程定义；不能用 [] 假装「未发布」。 */
+  const [rolesStatus, setRolesStatus] = useState<InitLoadStatus>('idle');
+  const [rolesError, setRolesError] = useState<InitContextError | null>(null);
+  /** null = 还没读过流程定义；失败时保留上一次成功的数据，不用 [] 冒充「未发布」。 */
   const [definitions, setDefinitions] = useState<WorkflowDefinitionView[] | null>(null);
-  const [definitionError, setDefinitionError] = useState('');
-  const [initContextLoading, setInitContextLoading] = useState(false);
+  const [definitionsStatus, setDefinitionsStatus] = useState<InitLoadStatus>('idle');
+  const [definitionError, setDefinitionError] = useState<InitContextError | null>(null);
   const [initOpen, setInitOpen] = useState(false);
-  /** 每个流程实例的 步骤→前置步骤 映射；缺失表示依赖信息不可用。 */
-  const [stepDepsByInstance, setStepDepsByInstance] = useState<
-    Record<string, Record<string, string[]>>
-  >({});
+  /** 上一次初始化失败的真实错误；关闭弹窗后仍驱动详情页的 CREATE_FAILED 状态。 */
+  const [createFailure, setCreateFailure] = useState<{
+    message: string;
+    requestId?: string;
+  } | null>(null);
+  /** 初始化上下文的请求代号，切换需求/项目/重试时淘汰旧响应。 */
+  const initRequestRef = useRef(0);
+  /** 每个流程实例的步骤依赖图（含未知依赖与完整性）；缺失表示依赖信息不可用。 */
+  const [stepDepsByInstance, setStepDepsByInstance] = useState<Record<string, StepDependencyGraph>>(
+    {},
+  );
   const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
 
   useEffect(() => {
     if (routeProject && routeProject.id !== selectedProjectId) setProjectId(routeProject.id);
   }, [routeProject, selectedProjectId, setProjectId]);
+
+  // 切换需求或项目时清理旧上下文与失败状态，避免把上一条需求的角色/定义当成当前事实。
+  useEffect(() => {
+    setMembers([]);
+    setMembersStatus('idle');
+    setMembersError(null);
+    setRoles([]);
+    setRolesStatus('idle');
+    setRolesError(null);
+    setDefinitions(null);
+    setDefinitionsStatus('idle');
+    setDefinitionError(null);
+    setCreateFailure(null);
+    setInitOpen(false);
+  }, [effectiveProjectId, routeKey]);
 
   useEffect(() => {
     if (!effectiveProjectId || !routeKey) {
@@ -304,6 +403,8 @@ export function RequirementDetail({
     let alive = true;
     setLoading(true);
     setError('');
+    // 切换需求/项目后，上一次初始化失败不再适用于新目标。
+    setCreateFailure(null);
     requirementApi
       .detail(effectiveProjectId, routeKey)
       .then((value) => {
@@ -322,34 +423,104 @@ export function RequirementDetail({
     };
   }, [effectiveProjectId, routeKey]);
 
+  /**
+   * 流程初始化上下文：成员 / 角色 / 流程定义各自保留 idle|loading|ready|error|forbidden，
+   * 失败只更新状态与错误，不覆盖最后一次成功读取的数据；权限判断只认 status=ready。
+   */
+  async function loadInitContext(projectId: string, only?: InitContextKind[]) {
+    const kinds = new Set<InitContextKind>(only ?? INIT_CONTEXT_KINDS);
+    const requestId = initRequestRef.current + 1;
+    initRequestRef.current = requestId;
+    if (kinds.has('members')) {
+      setMembersStatus('loading');
+      setMembersError(null);
+    }
+    if (kinds.has('roles')) {
+      setRolesStatus('loading');
+      setRolesError(null);
+    }
+    if (kinds.has('definitions')) {
+      setDefinitionsStatus('loading');
+      setDefinitionError(null);
+    }
+
+    const [memberResult, roleResult, definitionResult] = await Promise.allSettled([
+      kinds.has('members') ? projectApi.members(projectId) : Promise.resolve(null),
+      kinds.has('roles') ? projectApi.roles(projectId) : Promise.resolve(null),
+      kinds.has('definitions') ? workflowApi.listDefinitions(projectId) : Promise.resolve(null),
+    ]);
+    if (initRequestRef.current !== requestId) return;
+
+    if (kinds.has('members')) {
+      if (memberResult.status === 'fulfilled' && memberResult.value) {
+        setMembers(memberResult.value);
+        setMembersStatus('ready');
+        setMembersError(null);
+      } else if (memberResult.status === 'rejected') {
+        // 保留上一次成功读取的成员数据；失败事实只由 status/error 表达。
+        setMembersError(initContextErrorOf(memberResult.reason, '项目成员信息'));
+        setMembersStatus(
+          memberResult.reason instanceof ApiError && memberResult.reason.status === 403
+            ? 'forbidden'
+            : 'error',
+        );
+      }
+    }
+
+    if (kinds.has('roles')) {
+      if (roleResult.status === 'fulfilled' && roleResult.value) {
+        setRoles(roleResult.value);
+        setRolesStatus('ready');
+        setRolesError(null);
+      } else if (roleResult.status === 'rejected') {
+        setRolesError(initContextErrorOf(roleResult.reason, '项目角色'));
+        setRolesStatus(
+          roleResult.reason instanceof ApiError && roleResult.reason.status === 403
+            ? 'forbidden'
+            : 'error',
+        );
+      }
+    }
+
+    if (kinds.has('definitions')) {
+      if (definitionResult.status === 'fulfilled' && definitionResult.value) {
+        setDefinitions(
+          Array.isArray(definitionResult.value.items) ? definitionResult.value.items : [],
+        );
+        setDefinitionsStatus('ready');
+        setDefinitionError(null);
+      } else if (definitionResult.status === 'rejected') {
+        // 保留上一次成功读取的定义数据；当前状态不允许断言「未发布」。
+        setDefinitionError(initContextErrorOf(definitionResult.reason, '流程定义'));
+        setDefinitionsStatus(
+          definitionResult.reason instanceof ApiError && definitionResult.reason.status === 403
+            ? 'forbidden'
+            : 'error',
+        );
+      }
+    }
+  }
+
+  const initContextLoading =
+    membersStatus === 'loading' || rolesStatus === 'loading' || definitionsStatus === 'loading';
+
   useEffect(() => {
     if (!detail || detail.tasks.length > 0 || !effectiveProjectId) return;
-    let alive = true;
-    setInitContextLoading(true);
-    (async () => {
-      const [memberResult, roleResult, definitionResult] = await Promise.allSettled([
-        projectApi.members(effectiveProjectId),
-        projectApi.roles(effectiveProjectId),
-        workflowApi.listDefinitions(effectiveProjectId),
-      ]);
-      if (!alive) return;
-      if (memberResult.status === 'fulfilled') setMembers(memberResult.value);
-      else setMembers([]);
-      if (roleResult.status === 'fulfilled') setRoles(roleResult.value);
-      else setRoles([]);
-      if (definitionResult.status === 'fulfilled') {
-        setDefinitions(definitionResult.value.items);
-        setDefinitionError('');
-      } else {
-        setDefinitions([]);
-        setDefinitionError(formatApiError(definitionResult.reason));
-      }
-      setInitContextLoading(false);
-    })();
+    void loadInitContext(effectiveProjectId);
     return () => {
-      alive = false;
+      // 组件卸载或目标变化时让在途响应失效。
+      initRequestRef.current += 1;
     };
-  }, [detail, effectiveProjectId]);
+    // 只在目标需求/项目或流程实例数量变化时重新读取初始化上下文。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.requirement.id, detail?.tasks.length, effectiveProjectId]);
+
+  // 三个上下文全部 ready 且成员身份已确认，才允许打开/保留初始化表单。
+  const initContextsReady =
+    membersStatus === 'ready' && rolesStatus === 'ready' && definitionsStatus === 'ready';
+  useEffect(() => {
+    if (initOpen && !initContextsReady) setInitOpen(false);
+  }, [initOpen, initContextsReady]);
 
   /**
    * 依赖信息来自「实例 → 定义修订」两步 GET；任何一步失败都标记该实例依赖不可用，
@@ -363,19 +534,19 @@ export function RequirementDetail({
     const instanceIds = [...new Set(detail.tasks.map((task) => task.instanceId))].filter(Boolean);
     let alive = true;
     (async () => {
-      const next: Record<string, Record<string, string[]>> = {};
-      const revisionCache = new Map<string, Record<string, string[]>>();
+      const next: Record<string, StepDependencyGraph> = {};
+      const revisionCache = new Map<string, StepDependencyGraph>();
       for (const instanceId of instanceIds) {
         try {
           const instance = await workflowApi.instance(instanceId);
           const revisionId = instance.definitionRevisionId;
-          let deps = revisionCache.get(revisionId);
-          if (!deps) {
+          let graph = revisionCache.get(revisionId);
+          if (!graph) {
             const revision = await workflowApi.revision(revisionId);
-            deps = stepDependencyMap(revision.definition);
-            revisionCache.set(revisionId, deps);
+            graph = stepDependencyGraph(revision.definition);
+            revisionCache.set(revisionId, graph);
           }
-          next[instanceId] = deps;
+          next[instanceId] = graph;
         } catch {
           // 缺失即不可用；保留空对象会被误读成「没有依赖」，所以这里不写入 next。
         }
@@ -508,26 +679,27 @@ export function RequirementDetail({
   const taskStates = useMemo<Record<string, TaskDisplayState>>(() => {
     const states: Record<string, TaskDisplayState> = {};
     for (const task of detail?.tasks ?? []) {
-      const deps = stepDepsByInstance[task.instanceId];
-      const done = doneStepKeysByInstance.get(task.instanceId);
-      // 定义里找不到该 stepKey 时不能当成「没有依赖」，只能当作依赖信息不可用。
-      const hasStepDefinition = Boolean(deps && Object.prototype.hasOwnProperty.call(deps, task.stepKey));
-      const signals: TaskStateSignals = {
+      const dependencySignals = dependencySignalsOf(
+        stepDepsByInstance[task.instanceId],
+        task,
+        doneStepKeysByInstance.get(task.instanceId),
+      );
+      states[task.id] = resolveTaskDisplayState({
         executionStatus: task.executionStatus,
         workStatus: task.workStatus,
         currentClaimId: task.currentClaimId,
         reviewStatus: task.review?.status ?? null,
-        dependsOnStepKeys: hasStepDefinition ? deps![task.stepKey] : null,
-        // 依赖可用但没有任务完成时也要给空集合，否则会被误判成「依赖信息不可用」。
-        doneStepKeys: hasStepDefinition ? (done ?? new Set<string>()) : null,
-      };
-      states[task.id] = resolveTaskDisplayState(signals);
+        ...dependencySignals,
+      });
     }
     return states;
   }, [detail, stepDepsByInstance, doneStepKeysByInstance]);
 
-  const currentMember = members.find((member) => member.id === user?.id);
-  const isAdmin = currentMember?.role === 'OWNER' || currentMember?.role === 'ADMIN';
+  const currentMember =
+    membersStatus === 'ready' ? members.find((member) => member.id === user?.id) : undefined;
+  const isAdmin = Boolean(
+    currentMember && (currentMember.role === 'OWNER' || currentMember.role === 'ADMIN'),
+  );
 
   const initState = useMemo(() => {
     const base = describeWorkflowInitState({
@@ -535,25 +707,108 @@ export function RequirementDetail({
       definitions,
       isAdmin,
       admins: members.filter((member) => member.role === 'OWNER' || member.role === 'ADMIN'),
+      createError: createFailure?.message ?? null,
     });
-    // 定义读取失败时不能断言「尚未发布」，只能说明「无法确认」。
-    if (!definitionError || (definitions?.length ?? 0) > 0) return base;
-    return {
-      ...base,
-      kind: 'LOADING' as const,
-      title: '流程定义读取失败',
-      description: '无法确认流程定义是否已发布或已创建实例；请稍后重试，或联系项目管理员核对流程配置。',
-      canInitialize: false,
-      linkToWorkflows: false,
-    };
-  }, [detail, definitions, definitionError, isAdmin, members]);
+    // 已有实例时不再进入初始化判断。
+    if ((detail?.tasks.length ?? 0) > 0) return base;
+
+    // 成员状态未知/失败/无权限时，优先修复权限上下文，绝不断言「未发布」或「普通成员」。
+    if (membersStatus === 'error')
+      return {
+        ...base,
+        kind: 'LOADING' as const,
+        title: '项目成员信息读取失败，暂时无法确认初始化权限',
+        description:
+          '无法读取项目成员列表，因此不能判断你是否具备初始化流程实例的权限；这不等于当前账号没有权限。',
+        canInitialize: false,
+        linkToWorkflows: false,
+        // 成员名单读取失败时不再展示旧名单，避免把过期管理员当成当前事实。
+        adminNames: [],
+      };
+    if (membersStatus === 'forbidden')
+      return {
+        ...base,
+        kind: 'NO_PERMISSION' as const,
+        title: '当前账号没有初始化流程实例的权限',
+        description:
+          '项目成员接口返回 403：当前账号无法查看项目成员与管理员名单，因此也无法确认初始化权限；如需初始化，请联系项目管理员。',
+        canInitialize: false,
+        linkToWorkflows: false,
+        // 403 时不伪造管理员姓名。
+        adminNames: [],
+      };
+    if (membersStatus !== 'ready')
+      return {
+        ...base,
+        kind: 'LOADING' as const,
+        title: '正在确认项目权限',
+        description: '正在读取项目成员与权限；读取完成前不会判断你是否可以初始化流程。',
+        canInitialize: false,
+        linkToWorkflows: false,
+      };
+
+    // 角色接口失败（含 403）只表示「角色暂时无法读取」，不能映射成没有初始化权限。
+    if (rolesStatus === 'error' || rolesStatus === 'forbidden')
+      return {
+        ...base,
+        kind: 'LOADING' as const,
+        title: '项目角色暂时无法读取',
+        description:
+          '角色信息没有读取成功，无法确认初始化表单所需的角色与审批人；这不代表当前账号没有初始化权限。请重试读取。',
+        canInitialize: false,
+        linkToWorkflows: false,
+      };
+    if (rolesStatus !== 'ready')
+      return {
+        ...base,
+        kind: 'LOADING' as const,
+        title: '正在读取项目角色',
+        description: '正在读取项目角色；读取完成前不会判断你是否可以初始化流程。',
+        canInitialize: false,
+        linkToWorkflows: false,
+      };
+
+    // 定义接口失败（含 403）只表示「定义暂时无法读取」，不能断言「未发布」或「无权限」。
+    if (definitionsStatus === 'error' || definitionsStatus === 'forbidden')
+      return {
+        ...base,
+        kind: 'LOADING' as const,
+        title: '流程定义暂时无法读取',
+        description:
+          '流程定义没有读取成功，无法确认是否已有已发布定义；这不代表定义未发布，也不代表当前账号没有初始化权限。请重试读取。',
+        canInitialize: false,
+        linkToWorkflows: false,
+      };
+    if (definitionsStatus !== 'ready')
+      return {
+        ...base,
+        kind: 'LOADING' as const,
+        title: '正在读取流程定义',
+        description: '还在读取本项目的流程定义；读取完成前不会断言「未发布」。',
+        canInitialize: false,
+        linkToWorkflows: false,
+      };
+
+    return base;
+  }, [
+    detail,
+    definitions,
+    definitionsStatus,
+    membersStatus,
+    rolesStatus,
+    isAdmin,
+    members,
+    createFailure,
+  ]);
 
   const pipelineTasks = useMemo<RequirementPipelineTask[]>(
     () =>
       (detail?.tasks ?? []).map((task) => {
-        const deps = stepDepsByInstance[task.instanceId];
-        const done = doneStepKeysByInstance.get(task.instanceId);
-        const hasStepDefinition = Boolean(deps && Object.prototype.hasOwnProperty.call(deps, task.stepKey));
+        const dependencySignals = dependencySignalsOf(
+          stepDepsByInstance[task.instanceId],
+          task,
+          doneStepKeysByInstance.get(task.instanceId),
+        );
         return {
           id: task.id,
           stepKey: task.stepKey,
@@ -565,8 +820,8 @@ export function RequirementDetail({
           artifactCount: task.artifactCount,
           currentClaimId: task.currentClaimId,
           reviewStatus: task.review?.status ?? null,
-          dependsOnStepKeys: hasStepDefinition ? deps![task.stepKey] : null,
-          doneStepKeys: hasStepDefinition ? [...(done ?? [])] : null,
+          dependsOnStepKeys: dependencySignals.dependsOnStepKeys ?? null,
+          doneStepKeys: dependencySignals.doneStepKeys ? [...dependencySignals.doneStepKeys] : null,
           displayState: taskStates[task.id],
           updatedAt: undefined,
         };
@@ -679,7 +934,10 @@ export function RequirementDetail({
       };
     if (detail.tasks.length === 0) {
       const action = initState.canInitialize
-        ? { label: '初始化流程', run: () => setInitOpen(true) }
+        ? {
+            label: initState.kind === 'CREATE_FAILED' ? '重新初始化流程' : '初始化流程',
+            run: () => setInitOpen(true),
+          }
         : initState.linkToWorkflows
           ? { label: '查看流程定义', run: () => navigate('/workflows') }
           : {
@@ -711,15 +969,7 @@ export function RequirementDetail({
       text: '等待 Agent 交付或下一次评审触发。',
       action: null,
     };
-  }, [
-    detail,
-    openReviews,
-    claimableTasks,
-    unknownStateTasks,
-    initState,
-    navigate,
-    copyText,
-  ]);
+  }, [detail, openReviews, claimableTasks, unknownStateTasks, initState, navigate, copyText]);
 
   async function copyText(text: string, label: string) {
     try {
@@ -867,6 +1117,130 @@ export function RequirementDetail({
   const projectName = projects.find((project) => project.id === requirement.projectId)?.name;
   const readOnly = requirement.workStatus === 'CANCELLED';
 
+  /** 初始化上下文的失败说明、保留数据与重试入口；失败状态不能被空数组/空态掩盖。 */
+  function initContextAlerts() {
+    const retry = (kinds?: InitContextKind[]) => {
+      if (effectiveProjectId) void loadInitContext(effectiveProjectId, kinds);
+    };
+    return (
+      <>
+        {membersStatus === 'error' && membersError && (
+          <div className="wm-init-context-error" role="group" aria-label="项目成员读取状态">
+            <p className="error" role="alert">
+              项目成员信息读取失败，暂时无法确认初始化权限
+            </p>
+            <p className="task-row-meta">{membersError.detail}</p>
+            <button type="button" className="ghost" onClick={() => retry(['members'])}>
+              重试读取权限信息
+            </button>
+          </div>
+        )}
+        {membersStatus === 'forbidden' && membersError && (
+          <div className="wm-init-context-error" role="group" aria-label="项目成员读取状态">
+            <p className="error" role="alert">
+              当前账号没有初始化流程实例的权限
+            </p>
+            <p className="task-row-meta">
+              项目成员接口返回 403，无法读取项目成员与管理员名单，因此也无法确认初始化权限。
+              {membersError.detail}
+            </p>
+          </div>
+        )}
+        {(rolesStatus === 'error' || rolesStatus === 'forbidden') && rolesError && (
+          <div className="wm-init-context-error" role="group" aria-label="项目角色读取状态">
+            <p className="error" role="alert">
+              项目角色暂时无法读取
+            </p>
+            <p className="task-row-meta">{rolesError.detail}</p>
+            {roles.length > 0 && (
+              <p className="task-row-meta">
+                上次成功读取的角色：{roles.map((role) => role.title).join('、')}
+                （仅供展示；当前读取失败，不能据此提交初始化表单）
+              </p>
+            )}
+            {rolesStatus === 'forbidden' && (
+              <p className="task-row-meta">
+                角色接口返回 403：这是角色读取权限问题，不代表当前账号被判定为无初始化权限。
+              </p>
+            )}
+            <button
+              type="button"
+              className="ghost"
+              aria-label="重试读取角色信息"
+              onClick={() => retry(['roles'])}
+            >
+              重试读取权限信息
+            </button>
+          </div>
+        )}
+        {(definitionsStatus === 'error' || definitionsStatus === 'forbidden') &&
+          definitionError && (
+            <div className="wm-init-context-error" role="group" aria-label="流程定义读取状态">
+              <p className="error" role="alert">
+                流程定义暂时无法读取
+              </p>
+              <p className="task-row-meta">{definitionError.detail}</p>
+              {definitions && definitions.length > 0 && (
+                <p className="task-row-meta">
+                  上次成功读取的流程定义：
+                  {definitions
+                    .map(
+                      (definition) =>
+                        `${definition.title}（${definition.currentPublishedRevisionId ? '已发布' : '未发布'}）`,
+                    )
+                    .join('、')}
+                  （仅供展示；当前读取失败，不能据此判断「未发布」或初始化）
+                </p>
+              )}
+              {definitionsStatus === 'forbidden' && (
+                <p className="task-row-meta">
+                  流程定义接口返回 403：这是定义读取权限问题，不代表当前账号被判定为无初始化权限。
+                </p>
+              )}
+              <button
+                type="button"
+                className="ghost"
+                aria-label="重试读取流程定义"
+                onClick={() => retry(['definitions'])}
+              >
+                重试读取权限信息
+              </button>
+            </div>
+          )}
+        {createFailure?.requestId && (
+          <p className="task-row-meta">requestId：{createFailure.requestId}</p>
+        )}
+      </>
+    );
+  }
+
+  /** 统一刷新入口：明确说明会同时刷新三类上下文。 */
+  function initRefreshControl() {
+    return (
+      <>
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => {
+            if (effectiveProjectId) void loadInitContext(effectiveProjectId);
+          }}
+        >
+          刷新权限信息
+        </button>
+        <span className="task-row-meta">刷新会同时重新读取项目成员、角色与流程定义。</span>
+      </>
+    );
+  }
+
+  function initContextStatusLine() {
+    return (
+      <p className="task-row-meta">
+        权限上下文：成员 {INIT_STATUS_LABELS[membersStatus]} · 角色{' '}
+        {INIT_STATUS_LABELS[rolesStatus]} · 流程定义 {INIT_STATUS_LABELS[definitionsStatus]}
+      </p>
+    );
+  }
+
   return (
     <section>
       <header className="req-head">
@@ -967,18 +1341,15 @@ export function RequirementDetail({
           </div>
           <strong>{initState.title}</strong>
           <p>{initState.description}</p>
+          {initContextStatusLine()}
           {initState.adminNames.length > 0 && (
             <p className="task-row-meta">项目管理员：{initState.adminNames.join('、')}</p>
           )}
-          {definitionError && (
-            <p className="error" role="alert">
-              流程定义读取失败：{definitionError}
-            </p>
-          )}
+          {initContextAlerts()}
           <div className="next-step-actions">
             {initState.canInitialize && (
               <button className="primary" onClick={() => setInitOpen(true)}>
-                初始化流程
+                {initState.kind === 'CREATE_FAILED' ? '重新初始化流程' : '初始化流程'}
               </button>
             )}
             {initState.linkToWorkflows && (
@@ -986,6 +1357,7 @@ export function RequirementDetail({
                 查看流程定义
               </button>
             )}
+            {initRefreshControl()}
             <button
               className="ghost"
               onClick={() => void copyText(window.location.href, '需求链接')}
@@ -1062,11 +1434,16 @@ export function RequirementDetail({
                     <strong>{initState.title}</strong>
                   </p>
                   <p>{initState.description}</p>
-                  {initState.canInitialize && (
-                    <button className="primary" onClick={() => setInitOpen(true)}>
-                      初始化流程
-                    </button>
-                  )}
+                  {initContextStatusLine()}
+                  {initContextAlerts()}
+                  <div className="next-step-actions">
+                    {initState.canInitialize && (
+                      <button className="primary" onClick={() => setInitOpen(true)}>
+                        {initState.kind === 'CREATE_FAILED' ? '重新初始化流程' : '初始化流程'}
+                      </button>
+                    )}
+                    {initRefreshControl()}
+                  </div>
                 </div>
               ) : (
                 <div className="task-groups">
@@ -1090,15 +1467,19 @@ export function RequirementDetail({
                             id={taskDomId(task.id)}
                             data-task-id={task.id}
                             data-task-state={display.kind}
+                            role="group"
+                            aria-labelledby={`${taskTitleDomId(task.id)} ${taskStateDomId(task.id)}`}
                             tabIndex={-1}
-                            aria-label={`任务 ${labelFor(STEP_LABELS, task.stepKey)}，状态：${display.label}`}
                           >
                             <div className="task-row-main">
                               <div className="task-row-top">
-                                <strong title={task.stepKey}>
+                                <strong id={taskTitleDomId(task.id)} title={task.stepKey}>
                                   {labelFor(STEP_LABELS, task.stepKey)}
                                 </strong>
-                                <span className={`status-tag is-${display.tone}`}>
+                                <span
+                                  className={`status-tag is-${display.tone}`}
+                                  id={taskStateDomId(task.id)}
+                                >
                                   {display.label}
                                 </span>
                                 {task.review && (
@@ -1106,9 +1487,7 @@ export function RequirementDetail({
                                     {labelFor(REVIEW_STATUS_LABELS, task.review.status)}
                                   </span>
                                 )}
-                                {task.currentClaimId && (
-                                  <span className="status-tag">已认领</span>
-                                )}
+                                {task.currentClaimId && <span className="status-tag">已认领</span>}
                               </div>
                               <div className="task-row-meta">
                                 责任人 {task.responsibleUser.email} · 工件 {task.artifactCount} 件 ·
@@ -1529,8 +1908,13 @@ export function RequirementDetail({
         onClose={() => setInitOpen(false)}
         onCreated={(message) => {
           setInitOpen(false);
+          setCreateFailure(null);
           setNotice(message);
           void reloadDetail();
+        }}
+        onCreateFailed={(failure) => {
+          // 弹窗内仍保留错误；详情页同时进入 CREATE_FAILED，关闭弹窗后不会回到“尚未创建”。
+          setCreateFailure(failure);
         }}
       />
 

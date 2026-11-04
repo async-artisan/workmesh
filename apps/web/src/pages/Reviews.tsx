@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { formatApiError } from '../api/client';
 import { reviewApi, type ReviewDecision, type ReviewSlot, type ReviewView } from '../api/resources';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
+import type { DecisionSummaryData } from '../components/DecisionSummary';
 import { Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
@@ -11,10 +12,31 @@ import {
   REVIEW_KIND_LABELS,
   REVIEW_STATUS_LABELS,
   STEP_LABELS,
+  decisionImpact,
   labelFor,
+  type ReviewDecisionValue,
 } from '../lib/labels';
 
-type DecisionValue = 'APPROVE' | 'CHANGES_REQUESTED' | 'REJECT';
+type DecisionValue = ReviewDecisionValue;
+
+/** 收件箱分页请求的序号：切项目 / 刷新 / 返回收件箱时淘汰仍在途的旧响应。 */
+function nextListRequestId(current: number): number {
+  return current + 1;
+}
+
+/**
+ * 服务端按游标返回下一页；加载更多只追加新 ID，保持服务端顺序，不重复插入同一条评审。
+ */
+function appendUniqueReviews(current: ReviewView[], incoming: ReviewView[]): ReviewView[] {
+  const seen = new Set(current.map((item) => item.id));
+  const appended: ReviewView[] = [];
+  incoming.forEach((item) => {
+    if (seen.has(item.id)) return;
+    seen.add(item.id);
+    appended.push(item);
+  });
+  return appended.length === 0 ? current : [...current, ...appended];
+}
 
 interface DecideTarget {
   slot: ReviewSlot;
@@ -25,6 +47,34 @@ interface DecideTarget {
 interface RevokeTarget {
   decision: ReviewDecision;
   reason: string;
+}
+
+/**
+ * 把“用户实际要提交的决定”翻译成确认前的业务摘要：决定、对象、槽位与版本
+ * 全部取自当前确认目标（而不是点开流程时的旧快照），说明与影响随最新输入实时变化。
+ */
+function buildDecisionSummary(sourceReview: ReviewView, target: DecideTarget): DecisionSummaryData {
+  const subject = sourceReview.requirement
+    ? `${sourceReview.requirement.code} · ${sourceReview.requirement.title}`
+    : sourceReview.subjectLabel
+      ? labelFor(STEP_LABELS, sourceReview.subjectLabel)
+      : labelFor(REVIEW_KIND_LABELS, sourceReview.kind);
+  const slotLabel = sourceReview.role?.title
+    ? `${target.slot.slotKey} · ${sourceReview.role.title}`
+    : target.slot.slotKey;
+
+  return {
+    decision: target.decision,
+    subject,
+    reviewKindLabel: labelFor(REVIEW_KIND_LABELS, sourceReview.kind),
+    slotLabel,
+    // 与 binding / 决定 payload 的 expectedVersion 保持一致，避免确认页与提交版本不一致。
+    version: sourceReview.version,
+    // 收件箱列表没有加载证据详情，这里只提示，不伪造具体证据。
+    artifacts: [{ label: '证据详情', detail: '请在评审决定页核对完整证据' }],
+    comment: target.comment.trim(),
+    impact: decisionImpact(target.decision, sourceReview.kind),
+  };
 }
 
 /**
@@ -39,46 +89,71 @@ export function Reviews() {
   const [review, setReview] = useState<ReviewView | null>(null);
   const [reviews, setReviews] = useState<ReviewView[]>([]);
   const [listLoading, setListLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState('');
+  const [reloadToken, setReloadToken] = useState(0);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [decideTarget, setDecideTarget] = useState<DecideTarget | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<RevokeTarget | null>(null);
   const [pendingDecision, setPendingDecision] = useState<DecideTarget | null>(null);
   const [pendingRevoke, setPendingRevoke] = useState<RevokeTarget | null>(null);
+  // 所有收件箱列表请求共享的代号；只有代号最新的响应允许写回列表状态。
+  const listRequestRef = useRef(0);
 
   useEffect(() => {
     let alive = true;
+    // 项目切换 / 刷新 / 从详情返回时，旧请求的响应必须被丢弃，不能覆盖新一轮列表。
+    const requestId = nextListRequestId(listRequestRef.current);
+    listRequestRef.current = requestId;
     setError('');
+    setLoadMoreError('');
     if (!reviewId) {
       setReview(null);
       if (!projectId) {
         setReviews([]);
+        setNextCursor(null);
+        setHasMore(false);
         setListLoading(false);
+        setLoadingMore(false);
         return () => {
           alive = false;
         };
       }
+      // 首屏（含切项目、刷新、返回收件箱）一律从第一页重新加载，游标与列表同时重置。
+      setReviews([]);
+      setNextCursor(null);
+      setHasMore(false);
       setListLoading(true);
+      setLoadingMore(false);
       reviewApi
         .list(projectId, { assignedToMe: true, status: 'OPEN' })
         .then((page) => {
-          if (!alive) return;
+          if (!alive || requestId !== listRequestRef.current) return;
           setReviews(page.items);
+          setNextCursor(page.nextCursor ?? null);
+          // 服务端没有 total，只能用游标 / hasMore 判断是否还有下一页，绝不伪造总数。
+          setHasMore(Boolean(page.nextCursor) || Boolean(page.hasMore));
           setNotice('');
         })
         .catch((caught: unknown) => {
-          if (!alive) return;
+          if (!alive || requestId !== listRequestRef.current) return;
           setReviews([]);
+          setNextCursor(null);
+          setHasMore(false);
           setError(formatApiError(caught));
         })
         .finally(() => {
-          if (alive) setListLoading(false);
+          if (alive && requestId === listRequestRef.current) setListLoading(false);
         });
       return () => {
         alive = false;
       };
     }
     setListLoading(false);
+    setLoadingMore(false);
     reviewApi
       .get(reviewId)
       .then((value) => {
@@ -95,7 +170,49 @@ export function Reviews() {
     return () => {
       alive = false;
     };
-  }, [reviewId, projectId]);
+  }, [reviewId, projectId, reloadToken]);
+
+  /**
+   * 刷新 / 切项目：先清空列表与游标，再触发首屏重新加载（effect 统一负责请求与竞态）。
+   */
+  function resetInbox() {
+    listRequestRef.current = nextListRequestId(listRequestRef.current);
+    setReviews([]);
+    setNextCursor(null);
+    setHasMore(false);
+    setLoadingMore(false);
+    setLoadMoreError('');
+    setListLoading(true);
+    setReloadToken((value) => value + 1);
+  }
+
+  /**
+   * 加载更多：只追加下一页里此前没有出现过的 review；失败时保留已有列表与游标，可重试。
+   */
+  async function loadMore() {
+    if (!projectId || !nextCursor || loadingMore) return;
+    const requestId = listRequestRef.current;
+    setLoadingMore(true);
+    setLoadMoreError('');
+    try {
+      const page = await reviewApi.list(projectId, {
+        assignedToMe: true,
+        status: 'OPEN',
+        cursor: nextCursor,
+      });
+      if (requestId !== listRequestRef.current) return;
+      setReviews((current) => appendUniqueReviews(current, page.items));
+      setNextCursor(page.nextCursor ?? null);
+      setHasMore(Boolean(page.nextCursor) || Boolean(page.hasMore));
+      setNotice('');
+    } catch (caught) {
+      if (requestId !== listRequestRef.current) return;
+      // 加载更多失败不清空列表：保留已显示数据，只在底部给出可读错误与重试入口。
+      setLoadMoreError(formatApiError(caught));
+    } finally {
+      if (requestId === listRequestRef.current) setLoadingMore(false);
+    }
+  }
 
   async function reload() {
     if (!reviewId) return;
@@ -163,6 +280,10 @@ export function Reviews() {
     ? (review?.slots.find((slot) => slot.id === pendingRevoke.decision.approvalSlotId) ?? null)
     : null;
 
+  // 摘要每次渲染都从“当前待确认目标 + 最新 review”派生：用户修改决定或说明后，确认页立即反映最新值。
+  const decisionSummary =
+    review && pendingDecision ? buildDecisionSummary(review, pendingDecision) : undefined;
+
   return (
     <section>
       <header className="page-head">
@@ -173,28 +294,13 @@ export function Reviews() {
           </p>
         </div>
         <div className="page-actions">
-          <ProjectSelect onChange={() => setReviews([])} />
+          <ProjectSelect onChange={resetInbox} />
           {reviewId ? (
             <button className="ghost" onClick={backToInbox}>
               返回待评审
             </button>
           ) : (
-            <button
-              className="ghost"
-              disabled={!projectId || listLoading}
-              onClick={() => {
-                if (!projectId) return;
-                setListLoading(true);
-                reviewApi
-                  .list(projectId, { assignedToMe: true, status: 'OPEN' })
-                  .then((page) => {
-                    setReviews(page.items);
-                    setError('');
-                  })
-                  .catch((caught: unknown) => setError(formatApiError(caught)))
-                  .finally(() => setListLoading(false));
-              }}
-            >
+            <button className="ghost" disabled={!projectId || listLoading} onClick={resetInbox}>
               {listLoading ? '加载中…' : '刷新'}
             </button>
           )}
@@ -267,11 +373,50 @@ export function Reviews() {
                 })}
                 {reviews.length === 0 && (
                   <tr className="table-empty">
-                    <td colSpan={5}>{listLoading ? '加载中…' : '当前没有待评审请求。'}</td>
+                    <td colSpan={5}>
+                      {listLoading
+                        ? '加载中…'
+                        : error
+                          ? '加载失败，请重试。'
+                          : '当前没有待评审请求。'}
+                    </td>
                   </tr>
                 )}
               </tbody>
             </table>
+          </div>
+          <div className="table-foot">
+            <small>已显示 {reviews.length} 条</small>
+            {loadMoreError ? (
+              <div className="pager">
+                <span className="error" role="alert">
+                  {loadMoreError}
+                </span>
+                <button
+                  className="ghost"
+                  type="button"
+                  disabled={loadingMore}
+                  onClick={() => void loadMore()}
+                >
+                  重试
+                </button>
+              </div>
+            ) : (
+              <div className="pager">
+                {hasMore && nextCursor ? (
+                  <button
+                    className="ghost"
+                    type="button"
+                    disabled={loadingMore}
+                    onClick={() => void loadMore()}
+                  >
+                    {loadingMore ? '加载中…' : '加载更多'}
+                  </button>
+                ) : (
+                  !listLoading && !error && <small>已加载全部</small>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -522,6 +667,7 @@ export function Reviews() {
         open={Boolean(pendingDecision)}
         title="确认评审决定"
         description={pendingDecision ? `槽位 ${pendingDecision.slot.slotKey}` : ''}
+        summary={decisionSummary}
         binding={
           review && pendingDecision
             ? {

@@ -28,7 +28,9 @@ describe('RequirementPipeline execution progress', () => {
       />,
     );
     expect(screen.getByRole('heading', { name: /可立即领取 0/ })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /等待中（前置 \/ 审批 \/ 待确认） 1/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: /等待中（前置 \/ 审批 \/ 待确认） 1/ }),
+    ).toBeInTheDocument();
     const card = screen.getByRole('button', { name: /implement/ });
     expect(within(card).getByText('状态待确认')).toBeInTheDocument();
     expect(within(card).getByText(/依赖信息不可用/)).toBeInTheDocument();
@@ -137,6 +139,7 @@ describe('RequirementPipeline execution progress', () => {
             stepKey: 'implement',
             title: '实现登录',
             executionStatus: 'OPEN',
+            workStatus: 'ACTIVE',
             dependsOnStepKeys: [],
             doneStepKeys: [],
           },
@@ -152,5 +155,25 @@ describe('RequirementPipeline execution progress', () => {
     expect(card).toHaveFocus();
     card.click();
     expect(clicked).toBe('task-1');
+  });
+
+  it('缺少 workStatus 的任务卡显示「状态待确认」，不会显示可立即领取', () => {
+    render(
+      <RequirementPipeline
+        tasks={[
+          {
+            id: 'task-2',
+            stepKey: 'implement',
+            title: '缺少工作状态',
+            executionStatus: 'OPEN',
+            dependsOnStepKeys: [],
+            doneStepKeys: [],
+          },
+        ]}
+      />,
+    );
+    const card = screen.getByRole('button', { name: /缺少工作状态，状态：状态待确认/ });
+    expect(within(card).getByText('状态待确认')).toBeInTheDocument();
+    expect(within(card).queryByText('可立即领取')).not.toBeInTheDocument();
   });
 });

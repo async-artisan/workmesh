@@ -7,6 +7,7 @@ import {
 } from '../api/auth';
 import { formatApiError } from '../api/client';
 import type { Confirmation } from '../api/resources';
+import { DecisionSummary, type DecisionSummaryData } from './DecisionSummary';
 import { Modal } from './Modal';
 
 export interface ConfirmationPromptProps {
@@ -15,6 +16,11 @@ export interface ConfirmationPromptProps {
   description?: string;
   binding: ActionBindingInput | null;
   submitLabel?: string;
+  /**
+   * 业务决定摘要。评审决定等场景必须提供：密码输入前先展示用户实际提交的决定，
+   * 技术摘要（actionDigest / 目标 / 期望版本）收进“查看技术详情”折叠区。
+   */
+  summary?: DecisionSummaryData;
   /** 票据签发前填写的业务字段（例如撤销原因）。 */
   children?: ReactNode;
   onClose: () => void;
@@ -32,6 +38,7 @@ export function ConfirmationPrompt({
   description,
   binding,
   submitLabel = '确认执行',
+  summary,
   children,
   onClose,
   onConfirmed,
@@ -127,6 +134,7 @@ export function ConfirmationPrompt({
       }
     >
       <div className="form-grid">
+        {summary && <DecisionSummary summary={summary} />}
         {children}
         {error && (
           <p className="modal-error" role="alert">
@@ -136,28 +144,56 @@ export function ConfirmationPrompt({
         {!preview && !error && <p className="modal-note">正在读取服务端动作预览…</p>}
         {preview && (
           <>
-            <dl className="signoff-meta">
-              <div>
-                <dt>动作</dt>
-                <dd>{preview.display.action}</dd>
-              </div>
-              <div>
-                <dt>目标</dt>
-                <dd className="cell-mono">
-                  {preview.display.targetType} · {preview.display.targetId}
-                </dd>
-              </div>
-              <div>
-                <dt>期望版本</dt>
-                <dd>v{preview.display.expectedVersion}</dd>
-              </div>
-              <div>
-                <dt>动作摘要</dt>
-                <dd className="cell-mono" data-testid="action-digest">
-                  {preview.actionDigest}
-                </dd>
-              </div>
-            </dl>
+            {summary ? (
+              <details className="wm-decision-technical">
+                <summary>查看技术详情</summary>
+                <dl className="signoff-meta">
+                  <div>
+                    <dt>动作</dt>
+                    <dd>{preview.display.action}</dd>
+                  </div>
+                  <div>
+                    <dt>目标</dt>
+                    <dd className="cell-mono">
+                      {preview.display.targetType} · {preview.display.targetId}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>期望版本</dt>
+                    <dd>v{preview.display.expectedVersion}</dd>
+                  </div>
+                  <div>
+                    <dt>动作摘要</dt>
+                    <dd className="cell-mono" data-testid="action-digest">
+                      {preview.actionDigest}
+                    </dd>
+                  </div>
+                </dl>
+              </details>
+            ) : (
+              <dl className="signoff-meta">
+                <div>
+                  <dt>动作</dt>
+                  <dd>{preview.display.action}</dd>
+                </div>
+                <div>
+                  <dt>目标</dt>
+                  <dd className="cell-mono">
+                    {preview.display.targetType} · {preview.display.targetId}
+                  </dd>
+                </div>
+                <div>
+                  <dt>期望版本</dt>
+                  <dd>v{preview.display.expectedVersion}</dd>
+                </div>
+                <div>
+                  <dt>动作摘要</dt>
+                  <dd className="cell-mono" data-testid="action-digest">
+                    {preview.actionDigest}
+                  </dd>
+                </div>
+              </dl>
+            )}
             {ticket ? (
               <p className="confirm-banner">
                 票据已签发，单次有效，截止 {new Date(ticket.expiresAt).toLocaleString('zh-CN')}。
@@ -173,7 +209,11 @@ export function ConfirmationPrompt({
                   onChange={(event) => setPassword(event.target.value)}
                   autoComplete="current-password"
                 />
-                <small>密码只用于签发一次性票据；票据绑定当前动作摘要与版本。</small>
+                <small>
+                  {summary
+                    ? '确认后会提交上述决定；密码只用于签发一次性票据，票据绑定当前动作摘要与版本。'
+                    : '密码只用于签发一次性票据；票据绑定当前动作摘要与版本。'}
+                </small>
               </div>
             )}
           </>

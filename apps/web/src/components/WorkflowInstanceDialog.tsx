@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { formatApiError } from '../api/client';
+import { ApiError, formatApiError } from '../api/client';
 import {
   repositoryApi,
   requirementApi,
@@ -28,6 +28,11 @@ interface WorkflowInstanceDialogProps {
   members: MemberView[];
   onClose: () => void;
   onCreated: (message: string) => void;
+  /**
+   * 初始化提交失败：详情页据此保持 CREATE_FAILED 状态（关闭弹窗后仍可见），
+   * 同时保留可读错误与 requestId 供重试定位。
+   */
+  onCreateFailed?: (failure: { message: string; requestId?: string }) => void;
 }
 
 function isStep(value: unknown): value is WorkflowStepDefinition {
@@ -137,6 +142,7 @@ export function WorkflowInstanceDialog({
   members,
   onClose,
   onCreated,
+  onCreateFailed,
 }: WorkflowInstanceDialogProps) {
   const [revisionId, setRevisionId] = useState('');
   const [revision, setRevision] = useState<WorkflowRevisionView | null>(null);
@@ -166,12 +172,24 @@ export function WorkflowInstanceDialog({
   /** 表单控件与分组节点的 ref 映射：缺项跳转时据此滚动 + 聚焦。 */
   const fieldRefs = useRef<Record<string, HTMLElement | null>>({});
   const sectionRefs = useRef<Partial<Record<SectionKey, HTMLElement | null>>>({});
+  /** 表单初始化只针对「需求 + 已发布修订」组合；同一组合重新打开时保留已填内容。 */
+  const resetKeyRef = useRef('');
+  /** 已加载过的流程修订；重新打开同一修订时不再清空表单。 */
+  const loadedRevisionRef = useRef('');
 
   const published = definitions.filter((definition) => definition.currentPublishedRevisionId);
   const implSteps = useMemo(() => steps.filter(isImplStep), [steps]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !requirement) return;
+    const publishedKey = published
+      .map((definition) => definition.currentPublishedRevisionId ?? '')
+      .join(',');
+    const resetKey = `${requirement.id}:${requirement.version}:${publishedKey}`;
+    // 失败后关闭再打开：同一需求/修订保留已填内容，便于直接重试。
+    if (resetKeyRef.current === resetKey) return;
+    resetKeyRef.current = resetKey;
+    loadedRevisionRef.current = '';
     const first = published[0]?.currentPublishedRevisionId ?? '';
     setRevisionId(first);
     setRevision(null);
@@ -189,7 +207,7 @@ export function WorkflowInstanceDialog({
     setSubmitError('');
     setSubmitErrorSection(null);
     // `published` 由父级 definitions 派生；打开时取第一个已发布修订即可。
-  }, [open, requirement?.id, definitions]);
+  }, [open, requirement?.id, requirement?.version, definitions]);
 
   // 仓库范围与验收条目来自项目与需求本身，与流程修订无关，打开时各取一次。
   // 两个请求互不阻塞：仓库取不到只影响 IMPL 步骤，验收取不到就当没有 PRD。
@@ -214,10 +232,15 @@ export function WorkflowInstanceDialog({
   }, [open, requirement?.id, requirement?.projectId]);
 
   useEffect(() => {
-    if (!open || !revisionId) {
+    // 关闭弹窗时保留 revision 与已填内容，便于失败后直接重试。
+    if (!open) return;
+    if (!revisionId) {
       setRevision(null);
       return;
     }
+    // 重新打开同一修订（例如失败后重试）：保留已填内容，不重新拉取并清空表单。
+    if (loadedRevisionRef.current === revisionId) return;
+    loadedRevisionRef.current = revisionId;
     let alive = true;
     setRevision(null);
     setSteps([]);
@@ -411,7 +434,9 @@ export function WorkflowInstanceDialog({
     ];
     const parts: string[] = [];
     if (otherCount > 0)
-      parts.push(`还有 ${otherCount} 项未完成${groups.length > 0 ? `（${groups.join('、')}）` : ''}`);
+      parts.push(
+        `还有 ${otherCount} 项未完成${groups.length > 0 ? `（${groups.join('、')}）` : ''}`,
+      );
     if (conflictCount > 0) parts.push(`存在 ${conflictCount} 处自审冲突`);
     return `还不能提交：${parts.join('；')}`;
   }, [busy, revision, steps.length, requirement, missingItems, missingCount, conflicts.length]);
@@ -519,6 +544,10 @@ export function WorkflowInstanceDialog({
       const message = formatApiError(caught);
       setSubmitError(message);
       setSubmitErrorSection(mapErrorToSection(message));
+      onCreateFailed?.({
+        message,
+        requestId: caught instanceof ApiError ? caught.requestId : undefined,
+      });
     } finally {
       setBusy(false);
     }
@@ -569,9 +598,7 @@ export function WorkflowInstanceDialog({
                 <p className="wm-wf-readiness__progress" id={readinessId}>
                   初始化准备度：已完成 {completedCount} / {requiredCount} 项
                 </p>
-                <span
-                  className={`wm-wf-readiness__badge ${ready ? 'is-ready' : 'is-incomplete'}`}
-                >
+                <span className={`wm-wf-readiness__badge ${ready ? 'is-ready' : 'is-incomplete'}`}>
                   {ready ? `已完成全部 ${requiredCount} 项` : `缺项 ${missingCount} 项`}
                 </span>
               </div>
@@ -595,9 +622,7 @@ export function WorkflowInstanceDialog({
                             ⚠
                           </span>
                           <span className="wm-wf-missing__text">{item.text}</span>
-                          {index === 0 && (
-                            <span className="wm-wf-missing__first">建议先处理</span>
-                          )}
+                          {index === 0 && <span className="wm-wf-missing__first">建议先处理</span>}
                         </button>
                       </li>
                     ))}
@@ -850,8 +875,7 @@ export function WorkflowInstanceDialog({
                   </div>
                 </div>
                 <p className="wm-wf-field-error" id={repoEmptyErrorId}>
-                  ⚠ 需要先登记代码仓库：IMPL 步骤必须声明仓库范围，登记后会自动带入所有 IMPL
-                  步骤。
+                  ⚠ 需要先登记代码仓库：IMPL 步骤必须声明仓库范围，登记后会自动带入所有 IMPL 步骤。
                 </p>
                 <button
                   className="ghost"
@@ -891,9 +915,7 @@ export function WorkflowInstanceDialog({
                               <input
                                 type="checkbox"
                                 ref={
-                                  index === 0
-                                    ? registerField(repoStepFieldId(step.key))
-                                    : undefined
+                                  index === 0 ? registerField(repoStepFieldId(step.key)) : undefined
                                 }
                                 aria-label={`步骤 ${step.key} 仓库 ${repository.owner}/${repository.name}`}
                                 aria-invalid={repoMissing ? 'true' : undefined}
@@ -1066,9 +1088,7 @@ export function WorkflowInstanceDialog({
                               className="select"
                               aria-label={`验收 ${key} 归属步骤`}
                               aria-invalid={ownerMissing ? 'true' : undefined}
-                              aria-describedby={
-                                ownerMissing ? acceptanceErrorId(key) : undefined
-                              }
+                              aria-describedby={ownerMissing ? acceptanceErrorId(key) : undefined}
                               value={acceptanceOwners[key] ?? ''}
                               onChange={(event) =>
                                 setAcceptanceOwners((current) => ({
@@ -1125,9 +1145,7 @@ export function WorkflowInstanceDialog({
               </div>
               <div className="wm-wf-publish__row">
                 <dt>definitionDigest</dt>
-                <dd className="wm-wf-mono">
-                  {revision ? revision.digest.slice(0, 12) : '—'}
-                </dd>
+                <dd className="wm-wf-mono">{revision ? revision.digest.slice(0, 12) : '—'}</dd>
               </div>
             </dl>
             <p className="wm-wf-section__note">

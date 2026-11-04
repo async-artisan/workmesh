@@ -1,11 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setCsrfToken } from '../api/client';
-import type {
-  RoleView,
-  WorkflowDefinitionView,
-  WorkflowStepDefinition,
-} from '../api/resources';
+import type { RoleView, WorkflowDefinitionView, WorkflowStepDefinition } from '../api/resources';
 import { bodyOf, envelope, methodOf, mockFetch, pathOf } from '../test-utils';
 import { WorkflowInstanceDialog } from './WorkflowInstanceDialog';
 
@@ -120,6 +116,7 @@ function renderDialog(options: HandlerOptions = {}) {
   const mock = mockFetch(handler(options));
   const onCreated = vi.fn();
   const onClose = vi.fn();
+  const onCreateFailed = vi.fn();
   render(
     <WorkflowInstanceDialog
       open
@@ -129,9 +126,10 @@ function renderDialog(options: HandlerOptions = {}) {
       members={members}
       onClose={onClose}
       onCreated={onCreated}
+      onCreateFailed={onCreateFailed}
     />,
   );
-  return { mock, onCreated, onClose };
+  return { mock, onCreated, onClose, onCreateFailed };
 }
 
 function fillOwnersAndApprover() {
@@ -173,9 +171,7 @@ describe('WorkflowInstanceDialog（初始化流程实例的可推进性）', () 
     expect(screen.getByText('项目还没有登记代码仓库')).toBeInTheDocument();
     expect(screen.getByText('建议先处理')).toBeInTheDocument();
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /步骤 prd（产品）责任人未选择/ }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /步骤 prd（产品）责任人未选择/ }));
     expect(screen.getByLabelText('步骤 prd 责任人')).toHaveFocus();
   });
 
@@ -224,9 +220,7 @@ describe('WorkflowInstanceDialog（初始化流程实例的可推进性）', () 
 
     fillOwnersAndApprover();
 
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: '确认创建' })).toBeEnabled(),
-    );
+    await waitFor(() => expect(screen.getByRole('button', { name: '确认创建' })).toBeEnabled());
     expect(screen.queryByText(/还不能提交/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '确认创建' }));
@@ -254,9 +248,7 @@ describe('WorkflowInstanceDialog（初始化流程实例的可推进性）', () 
 
     await screen.findByText(/还不能提交：还有 3 项未完成/);
     fillOwnersAndApprover();
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: '确认创建' })).toBeEnabled(),
-    );
+    await waitFor(() => expect(screen.getByRole('button', { name: '确认创建' })).toBeEnabled());
 
     fireEvent.click(screen.getByRole('button', { name: '确认创建' }));
 
@@ -272,6 +264,35 @@ describe('WorkflowInstanceDialog（初始化流程实例的可推进性）', () 
     fireEvent.click(screen.getByRole('button', { name: '重试提交' }));
     await waitFor(() => expect(postCalls.count).toBe(2));
     expect(postCallOf(mock)).toBeTruthy();
+  });
+
+  it('提交失败会回调 onCreateFailed（含 requestId），供详情页保持 CREATE_FAILED', async () => {
+    const { onCreateFailed } = renderDialog({
+      definition: baseDefinition,
+      repositories: [repository],
+      acceptanceKeys: ['A1'],
+      postStatus: 409,
+      postBody: {
+        error: {
+          code: 'WORKFLOW_SELF_REVIEW',
+          message: '不能自审：审批人与责任人相同',
+          requestId: 'rid-failed',
+        },
+      },
+    });
+
+    await screen.findByText(/还不能提交：还有 3 项未完成/);
+    fillOwnersAndApprover();
+    await waitFor(() => expect(screen.getByRole('button', { name: '确认创建' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: '确认创建' }));
+
+    await waitFor(() =>
+      expect(onCreateFailed).toHaveBeenCalledWith({
+        message: expect.stringContaining('WORKFLOW_SELF_REVIEW'),
+        requestId: 'rid-failed',
+      }),
+    );
+    expect(onCreateFailed).toHaveBeenCalledTimes(1);
   });
 
   it('自审冲突出现在缺项摘要并阻断提交', async () => {
@@ -330,9 +351,7 @@ describe('WorkflowInstanceDialog（初始化流程实例的可推进性）', () 
     fireEvent.change(screen.getByLabelText('审批槽 release-acceptance 审批人'), {
       target: { value: 'u-1' },
     });
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: '确认创建' })).toBeEnabled(),
-    );
+    await waitFor(() => expect(screen.getByRole('button', { name: '确认创建' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: '确认创建' }));
 
     await waitFor(() =>

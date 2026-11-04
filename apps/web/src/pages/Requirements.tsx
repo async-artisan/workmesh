@@ -15,7 +15,7 @@ import { ProjectSelect } from '../components/ProjectSelect';
 import { WorkflowInstanceDialog } from '../components/WorkflowInstanceDialog';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { useAuthStore } from '../store/auth';
-import { PHASE_LABELS, labelFor } from '../lib/labels';
+import { describeRequirementState, phaseLabelOf } from '../lib/pipelineStatus';
 import { publishedWorkflowDefinitions } from '../lib/workflowInitState';
 
 /**
@@ -213,7 +213,7 @@ export function Requirements() {
               <option value="">全部阶段</option>
               {phaseOptions.map((phase) => (
                 <option key={phase} value={phase}>
-                  {labelFor(PHASE_LABELS, phase)}
+                  {phaseLabelOf(phase)}
                 </option>
               ))}
             </select>
@@ -228,67 +228,76 @@ export function Requirements() {
                 <th>描述</th>
                 <th>版本</th>
                 <th>阶段</th>
+                <th>执行状态</th>
                 <th className="col-actions">操作</th>
               </tr>
             </thead>
             <tbody>
-              {visibleRequirements.map((item) => (
-                <tr key={item.id}>
-                  <td>
-                    <span className="status-tag">{item.code}</span>
-                  </td>
-                  <td>{item.title}</td>
-                  <td>
-                    <span className="cell-truncate" title={item.description ?? ''}>
-                      {item.description || '—'}
-                    </span>
-                  </td>
-                  <td className="cell-num">v{item.version}</td>
-                  <td>{labelFor(PHASE_LABELS, item.phase)}</td>
-                  <td className="col-actions">
-                    <div className="cell-actions row-actions">
-                      <button
-                        className="ghost"
-                        onClick={() => navigate(`/requirements/${encodeURIComponent(item.code)}`)}
-                      >
-                        详情
-                      </button>
-                      {isAdmin && item.phase === 'DISCOVERY' && (
-                        <>
-                          {publishedDefinitions.length > 0 ? (
-                            <button className="ghost" onClick={() => setWorkflowTarget(item)}>
-                              初始化流程
-                            </button>
-                          ) : (
-                            <button
-                              className="ghost"
-                              disabled
-                              title="流程定义尚未发布：先到「流程」页发布"
-                            >
-                              流程定义未发布
-                            </button>
-                          )}
-                        </>
-                      )}
-                      {!isAdmin && item.phase === 'DISCOVERY' && (
-                        <span
-                          className="status-tag"
-                          title={
-                            adminNames.length > 0
-                              ? `项目管理员：${adminNames.join('、')}`
-                              : '请联系项目管理员初始化流程实例'
-                          }
+              {visibleRequirements.map((item) => {
+                const state = describeRequirementState(item);
+                return (
+                  <tr key={item.id}>
+                    <td>
+                      <span className="status-tag">{item.code}</span>
+                    </td>
+                    <td>{item.title}</td>
+                    <td>
+                      <span className="cell-truncate" title={item.description ?? ''}>
+                        {item.description || '—'}
+                      </span>
+                    </td>
+                    <td className="cell-num">v{item.version}</td>
+                    <td>{state.phase.label}</td>
+                    <td>
+                      <span className={`status-tag is-${state.execution.tone}`}>
+                        {state.execution.label}
+                      </span>
+                    </td>
+                    <td className="col-actions">
+                      <div className="cell-actions row-actions">
+                        <button
+                          className="ghost"
+                          onClick={() => navigate(`/requirements/${encodeURIComponent(item.code)}`)}
                         >
-                          等待管理员初始化
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                          详情
+                        </button>
+                        {isAdmin && item.phase === 'DISCOVERY' && (
+                          <>
+                            {publishedDefinitions.length > 0 ? (
+                              <button className="ghost" onClick={() => setWorkflowTarget(item)}>
+                                初始化流程
+                              </button>
+                            ) : (
+                              <button
+                                className="ghost"
+                                disabled
+                                title="流程定义尚未发布：先到「流程」页发布"
+                              >
+                                流程定义未发布
+                              </button>
+                            )}
+                          </>
+                        )}
+                        {!isAdmin && item.phase === 'DISCOVERY' && (
+                          <span
+                            className="status-tag"
+                            title={
+                              adminNames.length > 0
+                                ? `项目管理员：${adminNames.join('、')}`
+                                : '请联系项目管理员初始化流程实例'
+                            }
+                          >
+                            等待管理员初始化
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {visibleRequirements.length === 0 && (
                 <tr className="table-empty">
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     {projectId
                       ? items.length === 0
                         ? '还没有需求，先在上方创建。'

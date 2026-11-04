@@ -1,27 +1,37 @@
 import { useMemo, useState } from 'react';
+import {
+  PIPELINE_PHASE_DEFINITIONS,
+  PIPELINE_STAT_DEFINITIONS,
+  computePipelineStats,
+  describeRequirementState,
+  normalizePhase,
+  phaseLabelOf,
+  requirementStageProgress,
+  stageConnectorCompletion,
+  stageCounts,
+  stageProgressDescription,
+  stageProgressLabel,
+  type PipelinePhase,
+  type PipelineRequirementSignals,
+  type PipelineStatKey,
+  type StageProgressState,
+} from '../lib/pipelineStatus';
 
-/** Project-level requirement shape. Extra fields are intentionally optional so the
- * component can consume list views as well as richer requirement detail payloads. */
-export interface PipelineRequirement {
+/** Project-level requirement shape. Extra fields are optional so richer payloads can be consumed. */
+export interface PipelineRequirement extends PipelineRequirementSignals {
   id: string;
   code: string;
   title: string;
-  phase: string;
-  workStatus?: string | null;
   updatedAt?: string | null;
   createdAt?: string | null;
-  tasks?: Array<{
-    executionStatus?: string | null;
-    workStatus?: string | null;
-    artifactCount?: number;
-  }>;
-  artifacts?: Array<unknown>;
+  /** 仅当调用方拿到更丰富载荷时展示；列表接口当前不返回任务/工件/评审计数。 */
+  tasks?: Array<{ executionStatus?: string | null; workStatus?: string | null }>;
+  artifacts?: unknown[];
   reviews?: Array<{ status?: string | null }>;
   counts?: { tasks?: number; artifacts?: number; reviews?: number };
 }
 
-export type PipelineStageKey =
-  'DISCOVERY' | 'DEFINITION' | 'DELIVERY' | 'ACCEPTANCE' | 'RELEASED' | 'ARCHIVED';
+export type PipelineStageKey = PipelinePhase;
 
 export interface PipelineStageDefinition {
   key: PipelineStageKey;
@@ -31,67 +41,60 @@ export interface PipelineStageDefinition {
 
 export interface ProjectPipelineOverviewProps {
   requirements: PipelineRequirement[];
-  /** Called when a requirement card or timeline stage is activated. */
-  onSelectRequirement?: (requirement: PipelineRequirement, stage?: PipelineStageKey) => void;
+  /** Called when a requirement card is activated. */
+  onSelectRequirement?: (requirement: PipelineRequirement) => void;
   /** Optional initial phase filter; defaults to all phases. */
-  initialPhase?: PipelineStageKey | 'ALL';
+  initialPhase?: PipelinePhase | 'ALL' | 'UNKNOWN';
   className?: string;
 }
 
-export const PIPELINE_STAGES: PipelineStageDefinition[] = [
-  { key: 'DISCOVERY', label: '需求发现', shortLabel: '发现' },
-  { key: 'DEFINITION', label: '定义', shortLabel: '定义' },
-  { key: 'DELIVERY', label: '交付', shortLabel: '交付' },
-  { key: 'ACCEPTANCE', label: '验收', shortLabel: '验收' },
-  { key: 'RELEASED', label: '已发布', shortLabel: '发布' },
-  { key: 'ARCHIVED', label: '已归档', shortLabel: '归档' },
-];
+/** 兼容旧引用；阶段定义现由 lib/pipelineStatus 统一提供。 */
+export const PIPELINE_STAGES: PipelineStageDefinition[] = PIPELINE_PHASE_DEFINITIONS;
 
-const PHASE_INDEX = new Map(PIPELINE_STAGES.map((stage, index) => [stage.key, index]));
-const normalizePhase = (phase: string): PipelineStageKey =>
-  PHASE_INDEX.has(phase as PipelineStageKey) ? (phase as PipelineStageKey) : 'DISCOVERY';
-
-function stageStatus(requirement: PipelineRequirement, stage: PipelineStageKey) {
-  const current = PHASE_INDEX.get(normalizePhase(requirement.phase)) ?? 0;
-  const target = PHASE_INDEX.get(stage) ?? 0;
-  if (requirement.workStatus === 'BLOCKED' && target === current) return 'blocked';
-  if (requirement.workStatus === 'PAUSED' && target === current) return 'paused';
-  if (target < current) return 'done';
-  if (target === current) return 'current';
-  return 'pending';
-}
-
-function countOf(requirement: PipelineRequirement, key: 'tasks' | 'artifacts' | 'reviews') {
-  const explicit = requirement.counts?.[key];
-  if (typeof explicit === 'number') return explicit;
-  return requirement[key]?.length ?? 0;
-}
+type PhaseFilter = PipelinePhase | 'ALL' | 'UNKNOWN';
+type StatusFilter = Exclude<PipelineStatKey, 'ALL'> | 'ALL';
 
 function formatUpdated(value?: string | null) {
-  if (!value) return '暂无更新时间';
+  if (!value) return '更新时间未知';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '更新时间未知';
   return new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric' }).format(date);
 }
 
+function explicitCount(
+  requirement: PipelineRequirement,
+  key: 'tasks' | 'artifacts' | 'reviews',
+): number | null {
+  const explicit = requirement.counts?.[key];
+  if (typeof explicit === 'number') return explicit;
+  const list = requirement[key];
+  return Array.isArray(list) ? list.length : null;
+}
+
+const PROGRESS_LEGEND = '已完成 / 已越过 / 当前 / 待进入';
+
 const css = `
 .pipeline-overview { color: var(--text-primary, #0f172a); }
+.pipeline-overview__stats { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0 8px; }
+.pipeline-overview__stat { border:1px solid var(--border, #e2e8f0); border-radius:9px; background:var(--surface, #fff); padding:9px 13px; min-width:88px; text-align:left; cursor:pointer; font:inherit; color:inherit; }
+.pipeline-overview__stat[aria-pressed='true'] { border-color:var(--accent,#0891b2); box-shadow:0 0 0 3px var(--accent-soft,rgba(8,145,178,.08)); }
+.pipeline-overview__stat strong { display:block; font-size:18px; }
+.pipeline-overview__stat span { color:var(--text-secondary, #64748b); font-size:12px; }
+.pipeline-overview__stat-note { color:var(--text-muted,#7b8aa0); font-size:12px; margin:0 0 14px; }
 .pipeline-overview__toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:12px 0 18px; }
 .pipeline-overview__search { flex:1 1 220px; min-width:180px; }
 .pipeline-overview__filter { min-width:130px; }
-.pipeline-overview__stats { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
-.pipeline-overview__stat { border:1px solid var(--border, #e2e8f0); border-radius:9px; background:var(--surface, #fff); padding:9px 13px; min-width:94px; }
-.pipeline-overview__stat strong { display:block; font-size:18px; }
-.pipeline-overview__stat span { color:var(--text-secondary, #64748b); font-size:12px; }
-.pipeline-overview__timeline { display:flex; align-items:flex-start; overflow-x:auto; padding:4px 2px 14px; margin-bottom:18px; }
-.pipeline-overview__stage { display:flex; align-items:flex-start; min-width:112px; flex:1; }
-.pipeline-overview__stage-button { border:0; background:none; color:inherit; cursor:pointer; padding:0; text-align:center; min-width:70px; }
+.pipeline-overview__timeline { display:flex; align-items:flex-start; overflow-x:auto; padding:4px 2px 14px; margin-bottom:8px; }
+.pipeline-overview__stage { display:flex; align-items:flex-start; min-width:132px; flex:1; }
+.pipeline-overview__stage-button { border:0; background:none; color:inherit; cursor:pointer; padding:0; text-align:center; min-width:96px; }
+.pipeline-overview__stage-button:focus-visible { outline:2px solid var(--accent,#0891b2); outline-offset:3px; border-radius:6px; }
 .pipeline-overview__stage-dot { display:grid; place-items:center; width:28px; height:28px; margin:0 auto 6px; border:2px solid var(--border-strong,#cbd5e1); border-radius:50%; background:var(--surface,#fff); font-size:12px; }
 .pipeline-overview__stage-button[data-active='true'] .pipeline-overview__stage-dot { border-color:var(--accent,#0891b2); color:var(--accent,#0891b2); box-shadow:0 0 0 4px var(--accent-soft,rgba(8,145,178,.08)); }
 .pipeline-overview__stage-label { font-size:12px; white-space:nowrap; }
-.pipeline-overview__stage-count { display:block; color:var(--text-muted,#7b8aa0); font-size:11px; margin-top:3px; }
-.pipeline-overview__connector { height:2px; flex:1; min-width:22px; margin:14px 5px 0; background:var(--border,#e2e8f0); }
+.pipeline-overview__stage-count { display:block; color:var(--text-muted,#7b8aa0); font-size:11px; margin-top:3px; white-space:nowrap; }
+.pipeline-overview__connector { align-self:flex-start; height:2px; flex:1; min-width:22px; margin:14px 5px 0; background:var(--border,#e2e8f0); }
 .pipeline-overview__connector[data-complete='true'] { background:var(--success,#059669); }
+.pipeline-overview__timeline-note { color:var(--text-muted,#7b8aa0); font-size:12px; margin:0 0 18px; }
 .pipeline-overview__list { display:grid; gap:10px; }
 .pipeline-overview__row { border:1px solid var(--border,#e2e8f0); border-radius:10px; background:var(--surface,#fff); padding:13px 15px; cursor:pointer; text-align:left; width:100%; }
 .pipeline-overview__row:hover, .pipeline-overview__row:focus-visible { border-color:var(--accent-border,#0891b2); box-shadow:0 0 0 3px var(--accent-soft,rgba(8,145,178,.08)); outline:none; }
@@ -100,17 +103,31 @@ const css = `
 .pipeline-overview__code, .pipeline-overview__badge { font-size:11px; border-radius:999px; padding:3px 8px; white-space:nowrap; }
 .pipeline-overview__code { color:var(--accent-hover,#0e7490); background:var(--accent-soft,rgba(8,145,178,.08)); }
 .pipeline-overview__badge { background:var(--surface-hover,#f1f5f9); color:var(--text-secondary,#475569); }
+.pipeline-overview__badge[data-kind='phase'] { background:var(--surface-hover,#f1f5f9); color:var(--text-primary,#0f172a); }
+.pipeline-overview__badge[data-status='active'] { background:var(--accent-soft,rgba(8,145,178,.08)); color:var(--accent-hover,#0e7490); }
 .pipeline-overview__badge[data-status='blocked'] { color:var(--danger,#e11d48); background:var(--danger-soft,rgba(225,29,72,.07)); }
 .pipeline-overview__badge[data-status='paused'] { color:var(--warning,#d97706); background:var(--warning-soft,rgba(217,119,6,.08)); }
-.pipeline-overview__meta { display:flex; gap:14px; flex-wrap:wrap; color:var(--text-secondary,#64748b); font-size:12px; margin-top:9px; }
+.pipeline-overview__badge[data-status='cancelled'] { color:var(--text-muted,#7b8aa0); background:var(--surface-hover,#f1f5f9); }
+.pipeline-overview__badge[data-status='unknown'] { color:var(--text-secondary,#475569); background:var(--surface-hover,#f1f5f9); }
+.pipeline-overview__meta { display:flex; gap:14px; flex-wrap:wrap; align-items:center; color:var(--text-secondary,#64748b); font-size:12px; margin-top:9px; }
+.pipeline-overview__hint { color:var(--text-muted,#7b8aa0); font-size:12px; margin-top:7px; }
 .pipeline-overview__progress { display:flex; gap:4px; margin-top:12px; }
 .pipeline-overview__progress i { height:5px; flex:1; border-radius:5px; background:var(--border,#e2e8f0); }
-.pipeline-overview__progress i[data-state='done'] { background:var(--success,#059669); }
+.pipeline-overview__progress i[data-state='complete'] { background:var(--success,#059669); }
+.pipeline-overview__progress i[data-state='passed'] { background:var(--border-strong,#cbd5e1); }
 .pipeline-overview__progress i[data-state='current'] { background:var(--accent,#0891b2); }
-.pipeline-overview__progress i[data-state='blocked'] { background:var(--danger,#e11d48); }
+.pipeline-overview__progress i[data-state='unknown'] { background:repeating-linear-gradient(90deg,var(--border,#e2e8f0),var(--border,#e2e8f0) 4px,transparent 4px,transparent 8px); }
 .pipeline-overview__empty { padding:28px; text-align:center; color:var(--text-muted,#7b8aa0); border:1px dashed var(--border-strong,#cbd5e1); border-radius:10px; }
-@media (max-width:620px) { .pipeline-overview__stage { min-width:92px; } .pipeline-overview__row-head { align-items:flex-start; flex-direction:column; gap:6px; } }
+.pipeline-overview__sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+@media (max-width:620px) { .pipeline-overview__stage { min-width:108px; } .pipeline-overview__row-head { align-items:flex-start; flex-direction:column; gap:6px; } }
 `;
+
+function progressSummary(requirement: PipelineRequirement): string {
+  return PIPELINE_PHASE_DEFINITIONS.map((stage) => {
+    const state = requirementStageProgress(requirement, stage.key);
+    return `${stage.label}：${stageProgressLabel(state)}（${stageProgressDescription(state)}）`;
+  }).join('；');
+}
 
 export function ProjectPipelineOverview({
   requirements,
@@ -119,54 +136,96 @@ export function ProjectPipelineOverview({
   className = '',
 }: ProjectPipelineOverviewProps) {
   const [query, setQuery] = useState('');
-  const [phase, setPhase] = useState<PipelineStageKey | 'ALL'>(initialPhase);
+  const [phase, setPhase] = useState<PhaseFilter>(initialPhase);
+  const [status, setStatus] = useState<StatusFilter>('ALL');
   const normalizedQuery = query.trim().toLowerCase();
+
+  const stats = useMemo(() => computePipelineStats(requirements), [requirements]);
+  const timeline = useMemo(() => stageCounts(requirements), [requirements]);
+  const unknownPhaseCount = useMemo(
+    () => requirements.filter((requirement) => normalizePhase(requirement.phase) === null).length,
+    [requirements],
+  );
+  const hasCompletionEvidence = useMemo(
+    () =>
+      requirements.some(
+        (requirement) => (requirement.stageCompletion?.completedPhases?.length ?? 0) > 0,
+      ),
+    [requirements],
+  );
 
   const filtered = useMemo(
     () =>
       requirements.filter((requirement) => {
-        if (phase !== 'ALL' && normalizePhase(requirement.phase) !== phase) return false;
+        const normalized = normalizePhase(requirement.phase);
+        if (phase === 'ALL') {
+          // all phases
+        } else if (phase === 'UNKNOWN') {
+          if (normalized !== null) return false;
+        } else if (normalized !== phase) {
+          return false;
+        }
+        if (status !== 'ALL') {
+          const state = describeRequirementState(requirement);
+          if (state.statKey !== status) return false;
+        }
         if (!normalizedQuery) return true;
         return `${requirement.code} ${requirement.title}`.toLowerCase().includes(normalizedQuery);
       }),
-    [normalizedQuery, phase, requirements],
+    [normalizedQuery, phase, requirements, status],
   );
 
-  const stageCounts = useMemo(
-    () =>
-      PIPELINE_STAGES.map((stage) => ({
-        ...stage,
-        count: requirements.filter((requirement) => normalizePhase(requirement.phase) === stage.key)
-          .length,
-      })),
-    [requirements],
-  );
-  const blockedCount = requirements.filter((item) => item.workStatus === 'BLOCKED').length;
-  const activeCount = requirements.filter(
-    (item) => !['RELEASED', 'ARCHIVED'].includes(item.phase),
-  ).length;
+  function chooseStatus(next: StatusFilter) {
+    setStatus((current) => (current === next ? 'ALL' : next));
+    // 统计卡与列表联动：切换执行状态筛选时清除阶段/搜索，保证数字与列表一致。
+    if (next !== 'ALL') {
+      setPhase('ALL');
+      setQuery('');
+    }
+  }
 
   return (
     <section className={`pipeline-overview ${className}`.trim()} aria-label="项目需求流水线">
       <style>{css}</style>
-      <div className="pipeline-overview__stats" aria-label="项目流水线统计">
-        <div className="pipeline-overview__stat">
-          <strong>{requirements.length}</strong>
+
+      <div className="pipeline-overview__stats" aria-label="需求执行状态统计">
+        <button
+          type="button"
+          className="pipeline-overview__stat"
+          aria-pressed={status === 'ALL'}
+          aria-label={`全部需求：${stats.total} 条${status === 'ALL' ? '，当前筛选' : ''}`}
+          onClick={() => chooseStatus('ALL')}
+        >
+          <strong>{stats.total}</strong>
           <span>全部需求</span>
-        </div>
-        <div className="pipeline-overview__stat">
-          <strong>{activeCount}</strong>
-          <span>进行中</span>
-        </div>
-        <div className="pipeline-overview__stat">
-          <strong>{blockedCount}</strong>
-          <span>阻塞</span>
-        </div>
-        <div className="pipeline-overview__stat">
+        </button>
+        {PIPELINE_STAT_DEFINITIONS.map((definition) => {
+          const count = stats.counts[definition.key];
+          const active = status === definition.key;
+          return (
+            <button
+              type="button"
+              key={definition.key}
+              className="pipeline-overview__stat"
+              aria-pressed={active}
+              aria-label={`${definition.label}：${count} 条${active ? '，当前筛选' : ''}。口径：${definition.description}`}
+              onClick={() => chooseStatus(definition.key)}
+            >
+              <strong>{count}</strong>
+              <span>{definition.label}</span>
+            </button>
+          );
+        })}
+        <div className="pipeline-overview__stat" aria-label={`当前显示 ${filtered.length} 条`}>
           <strong>{filtered.length}</strong>
           <span>当前显示</span>
         </div>
       </div>
+      <p className="pipeline-overview__stat-note">
+        统计口径：执行状态按服务端 workStatus 分类；「已发布/已归档」按业务阶段 phase
+        统计；缺少/未知状态计入「状态待确认」。未开始仅在服务端显式返回 executionStatus=OPEN
+        时计入（当前需求列表接口未返回该字段）。
+      </p>
 
       <div className="pipeline-overview__toolbar">
         <input
@@ -180,85 +239,151 @@ export function ProjectPipelineOverview({
           className="pipeline-overview__filter"
           aria-label="按阶段筛选"
           value={phase}
-          onChange={(event) => setPhase(event.target.value as PipelineStageKey | 'ALL')}
+          onChange={(event) => setPhase(event.target.value as PhaseFilter)}
         >
           <option value="ALL">全部阶段</option>
-          {PIPELINE_STAGES.map((stage) => (
+          {PIPELINE_PHASE_DEFINITIONS.map((stage) => (
             <option key={stage.key} value={stage.key}>
               {stage.label}
             </option>
           ))}
+          <option value="UNKNOWN">阶段待确认</option>
         </select>
       </div>
 
       <div className="pipeline-overview__timeline" aria-label="需求阶段时间线">
-        {stageCounts.map((stage, index) => (
-          <div className="pipeline-overview__stage" key={stage.key}>
-            <button
-              className="pipeline-overview__stage-button"
-              data-active={phase === stage.key}
-              aria-pressed={phase === stage.key}
-              onClick={() => setPhase(phase === stage.key ? 'ALL' : stage.key)}
-            >
-              <span className="pipeline-overview__stage-dot">{stage.count}</span>
-              <span className="pipeline-overview__stage-label">{stage.shortLabel}</span>
-              <span className="pipeline-overview__stage-count">{stage.label}</span>
-            </button>
-            {index < PIPELINE_STAGES.length - 1 && (
-              <span className="pipeline-overview__connector" data-complete={stage.count > 0} />
-            )}
-          </div>
-        ))}
+        {timeline.map((stage, index) => {
+          const connector = stageConnectorCompletion(requirements, stage.key);
+          const nextStage = timeline[index + 1];
+          const active = phase === stage.key;
+          return (
+            <div className="pipeline-overview__stage" key={stage.key}>
+              <button
+                type="button"
+                className="pipeline-overview__stage-button"
+                data-active={active}
+                aria-pressed={active}
+                aria-label={`${stage.label}：当前阶段需求数 ${stage.count}；${active ? '当前筛选' : '未筛选'}；阶段完成证据：${
+                  connector.complete ? '服务端已记录该阶段完成' : '阶段完成状态待确认'
+                }`}
+                onClick={() => setPhase(phase === stage.key ? 'ALL' : stage.key)}
+              >
+                <span className="pipeline-overview__stage-dot" aria-hidden="true">
+                  {stage.count}
+                </span>
+                <span className="pipeline-overview__stage-label">{stage.shortLabel}</span>
+                <span className="pipeline-overview__stage-count">当前阶段需求数 {stage.count}</span>
+              </button>
+              {nextStage && (
+                <span
+                  className="pipeline-overview__connector"
+                  data-complete={connector.complete}
+                  role="img"
+                  aria-label={`${stage.label} 至 ${nextStage.label} 的连接线：${
+                    connector.complete
+                      ? '存在服务端阶段完成记录'
+                      : '阶段完成状态待确认，连接线不代表阶段已完成'
+                  }`}
+                  title={
+                    connector.complete
+                      ? '服务端已记录该阶段完成'
+                      : '当前接口没有阶段完成记录，连接线保持中性'
+                  }
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
+      <p className="pipeline-overview__timeline-note">
+        阶段节点数字是「当前阶段需求数」，不是完成数。连接线只表示阶段顺序；
+        {hasCompletionEvidence
+          ? '当前数据提供了阶段完成记录，只有全部相关需求都有该阶段完成记录时连接线才显示完成。'
+          : '当前接口没有阶段完成记录，完成状态待确认，连接线保持中性。'}
+        {unknownPhaseCount > 0
+          ? ` 另有 ${unknownPhaseCount} 条需求阶段未知，未计入时间线，统计计入状态待确认。`
+          : ''}
+      </p>
 
       <div className="pipeline-overview__list">
-        {filtered.length === 0 ? (
+        {requirements.length === 0 ? (
+          <div className="pipeline-overview__empty">当前项目还没有需求。</div>
+        ) : filtered.length === 0 ? (
           <div className="pipeline-overview__empty">没有符合筛选条件的需求。</div>
         ) : (
           filtered.map((requirement) => {
-            const current = normalizePhase(requirement.phase);
-            const status =
-              requirement.workStatus === 'BLOCKED'
-                ? 'blocked'
-                : requirement.workStatus === 'PAUSED'
-                  ? 'paused'
-                  : current;
+            const state = describeRequirementState(requirement);
+            const phaseLabel = state.phase.known
+              ? state.phase.label
+              : phaseLabelOf(requirement.phase);
+            const taskCount = explicitCount(requirement, 'tasks');
+            const artifactCount = explicitCount(requirement, 'artifacts');
+            const reviewCount = explicitCount(requirement, 'reviews');
+            const progressLabel = progressSummary(requirement);
             return (
               <button
                 className="pipeline-overview__row"
                 key={requirement.id}
                 onClick={() => onSelectRequirement?.(requirement)}
                 type="button"
+                aria-label={`打开需求 ${requirement.code} ${requirement.title}；当前阶段：${phaseLabel}；执行状态：${state.execution.label}`}
               >
                 <span className="pipeline-overview__row-head">
                   <span className="pipeline-overview__title">
                     <span className="pipeline-overview__code">{requirement.code}</span>{' '}
                     {requirement.title}
                   </span>
-                  <span className="pipeline-overview__badge" data-status={status}>
-                    {requirement.workStatus === 'BLOCKED'
-                      ? '阻塞'
-                      : requirement.workStatus === 'PAUSED'
-                        ? '暂停'
-                        : PIPELINE_STAGES.find((item) => item.key === current)?.label}
-                  </span>
                 </span>
                 <span className="pipeline-overview__meta">
-                  <span>任务 {countOf(requirement, 'tasks')}</span>
-                  <span>产物 {countOf(requirement, 'artifacts')}</span>
-                  <span>评审 {countOf(requirement, 'reviews')}</span>
+                  <span className="pipeline-overview__badge" data-kind="phase">
+                    当前阶段：{phaseLabel}
+                  </span>
+                  <span className="pipeline-overview__badge" data-status={state.execution.tone}>
+                    执行状态：{state.execution.label}
+                  </span>
                   <span>更新于 {formatUpdated(requirement.updatedAt)}</span>
+                  {taskCount !== null && <span>任务 {taskCount}</span>}
+                  {artifactCount !== null && <span>产物 {artifactCount}</span>}
+                  {reviewCount !== null && <span>评审 {reviewCount}</span>}
                 </span>
+                {state.execution.reasonMissing && (
+                  <span className="pipeline-overview__hint">
+                    阻塞/暂停原因由服务端记录提供，当前需求列表接口未返回原因。
+                  </span>
+                )}
+                {!state.phase.known && (
+                  <span className="pipeline-overview__hint">
+                    阶段信息缺失：当前阶段与阶段进度均为“阶段待确认”，统计计入“状态待确认”。
+                  </span>
+                )}
+                {state.isReleased && (
+                  <span className="pipeline-overview__hint">
+                    「已发布」是业务阶段；执行状态来自服务端 workStatus，两者不是同一维度。
+                  </span>
+                )}
+                {state.isArchived && (
+                  <span className="pipeline-overview__hint">
+                    「已归档」是业务阶段，不代表已发布；执行状态来自 workStatus。
+                  </span>
+                )}
                 <span
                   className="pipeline-overview__progress"
-                  aria-label={`${requirement.title} 阶段进度`}
+                  role="img"
+                  aria-label={`${requirement.title} 阶段进度：${progressLabel}`}
                 >
-                  {PIPELINE_STAGES.map((stage) => (
-                    <i
-                      key={stage.key}
-                      data-state={stageStatus(requirement, stage.key as PipelineStageKey)}
-                    />
-                  ))}
+                  {PIPELINE_PHASE_DEFINITIONS.map((stage) => {
+                    const progress = requirementStageProgress(requirement, stage.key);
+                    return (
+                      <i
+                        key={stage.key}
+                        data-state={progress}
+                        title={`${stage.label}：${stageProgressLabel(progress)}`}
+                      />
+                    );
+                  })}
+                </span>
+                <span className="pipeline-overview__sr-only">
+                  阶段进度：{progressLabel}。{PROGRESS_LEGEND}。
                 </span>
               </button>
             );

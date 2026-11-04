@@ -92,6 +92,38 @@ export const REVISION_STATE_LABELS: Record<string, string> = {
   WITHDRAWN: '已撤回',
 };
 
+/** 评审决定类型；业务文案与影响说明共用同一份枚举，避免页面各写一套。 */
+export type ReviewDecisionValue = 'APPROVE' | 'CHANGES_REQUESTED' | 'REJECT';
+
+/**
+ * “提交后影响”说明：审批人必须能在确认前看到自己的决定会造成什么。
+ * 文案按评审类型细化，未知类型给通用说明，不编造服务端未承诺的行为。
+ */
+export function decisionImpact(decision: ReviewDecisionValue, reviewKind?: string | null): string {
+  if (decision === 'APPROVE') {
+    if (reviewKind === 'TASK_ACCEPTANCE')
+      return '该槽位记为验收通过；若全部槽位通过，任务进入已完成状态。';
+    if (reviewKind === 'RELEASE_ACCEPTANCE')
+      return '该槽位记为发布验收通过；若全部槽位通过，发布流程继续执行。';
+    if (reviewKind === 'PRD_PUBLICATION' || reviewKind === 'KNOWLEDGE_PUBLICATION')
+      return '该槽位记为批准；若全部槽位已批准，服务端会发布对应文档版本。';
+    if (reviewKind === 'UNDERSTANDING_CONFIRM')
+      return '该槽位记为理解确认通过；若全部槽位通过，需求进入下一阶段。';
+    return '该槽位记为批准；若全部槽位通过，服务端按评审类型推进后续流程。';
+  }
+  if (decision === 'CHANGES_REQUESTED')
+    return '评审退回交付方修改，需要按说明调整后重新提交评审；当前版本不会发布。';
+  return '评审被驳回，按服务端规则结束本次评审；如需继续需要重新发起。';
+}
+
+/**
+ * 哪些评审类型要求证据完整：任务/发布验收直接决定交付是否被接受，
+ * 证据正文被截断或上下文读取失败时必须让审批人明确知晓。
+ */
+export function reviewRequiresCompleteEvidence(reviewKind: string | null | undefined): boolean {
+  return reviewKind === 'TASK_ACCEPTANCE' || reviewKind === 'RELEASE_ACCEPTANCE';
+}
+
 export function labelFor(map: Record<string, string>, key: string | null | undefined): string {
   if (!key) return '—';
   return map[key] ?? key;

@@ -4,6 +4,8 @@ import {
   buildInstanceBindings,
   defaultAcceptanceOwners,
   isImplStep,
+  stepDependencyGraph,
+  stepDependencyMap,
 } from '../lib/workflowInstance';
 
 const steps: WorkflowStepDefinition[] = [
@@ -100,5 +102,53 @@ describe('workflowInstance', () => {
     expect(() => buildInstanceBindings({ ...baseInput(), slotUsers: {} })).toThrow(
       '审批槽 task-acceptance 未选择审批人',
     );
+  });
+});
+
+describe('stepDependencyGraph（依赖完整性不能静默丢失）', () => {
+  it('空依赖且定义完整：该步骤依赖可判定，图为完整', () => {
+    const graph = stepDependencyGraph({
+      steps: [
+        { key: 'prd', roleKey: 'product', deps: [] },
+        { key: 'impl', roleKey: 'backend', deps: ['prd'] },
+      ],
+    });
+    expect(graph.isDependencyGraphComplete).toBe(true);
+    expect(graph.hasSteps).toBe(true);
+    expect(graph.steps.prd).toEqual({
+      stepKey: 'prd',
+      dependencyKeys: [],
+      unknownDependencyKeys: [],
+      isDependencyGraphComplete: true,
+    });
+    expect(graph.steps.impl.dependencyKeys).toEqual(['prd']);
+  });
+
+  it('未知依赖原样保留，不静默过滤成「没有依赖」', () => {
+    const graph = stepDependencyGraph({
+      steps: [{ key: 'impl', roleKey: 'backend', deps: ['missing-step'] }],
+    });
+    expect(graph.isDependencyGraphComplete).toBe(false);
+    expect(graph.steps.impl.dependencyKeys).toEqual(['missing-step']);
+    expect(graph.steps.impl.unknownDependencyKeys).toEqual(['missing-step']);
+    expect(graph.steps.impl.isDependencyGraphComplete).toBe(false);
+    // 兼容入口也保留未知 key，调用方不能据此推断「无依赖」。
+    expect(
+      stepDependencyMap({ steps: [{ key: 'impl', roleKey: 'backend', deps: ['missing'] }] }),
+    ).toEqual({ impl: ['missing'] });
+  });
+
+  it('定义缺少目标步骤时，图里没有该步骤（调用方按缺失处理）', () => {
+    const graph = stepDependencyGraph({
+      steps: [{ key: 'prd', roleKey: 'product', deps: [] }],
+    });
+    expect(graph.steps.impl).toBeUndefined();
+    expect(graph.isDependencyGraphComplete).toBe(true);
+  });
+
+  it('空定义 hasSteps=false，任何任务都不能据此判定可领取', () => {
+    const graph = stepDependencyGraph({});
+    expect(graph.hasSteps).toBe(false);
+    expect(graph.steps).toEqual({});
   });
 });

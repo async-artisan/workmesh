@@ -29,17 +29,69 @@ export function readWorkflowSlots(definition: unknown): WorkflowSlotDefinition[]
 }
 
 /**
- * 步骤 → 直接前置步骤 key 列表。只保留定义里真实存在的步骤，避免脏数据造成
- * 「永远等待一个不存在的步骤」。没有依赖信息的步骤返回空数组（= 起点）。
+ * 单个步骤的依赖完整性信息。
+ *
+ * 不能把「流程定义里不存在的依赖」静默过滤成「没有依赖」：那会把
+ * `impl → missing-step` 误读成起点，进而错误显示「可立即领取」。
  */
-export function stepDependencyMap(definition: unknown): Record<string, string[]> {
+export interface StepDependencyInfo {
+  stepKey: string;
+  /** 定义里声明的全部依赖 key（包含无法识别的 key，保留原始事实）。 */
+  dependencyKeys: string[];
+  /** 定义步骤集合里不存在的依赖 key。 */
+  unknownDependencyKeys: string[];
+  /** 该步骤的依赖图是否可完整解释（没有未知依赖）。 */
+  isDependencyGraphComplete: boolean;
+}
+
+export interface StepDependencyGraph {
+  /** 按步骤 key 索引的依赖信息；定义里找不到的任务步骤不会出现在这里。 */
+  steps: Record<string, StepDependencyInfo>;
+  /** 定义内所有步骤的依赖都指向已定义步骤。 */
+  isDependencyGraphComplete: boolean;
+  /** 定义里没有任何步骤（无法判断任何任务的依赖）。 */
+  hasSteps: boolean;
+}
+
+/**
+ * 步骤 → 依赖图（含完整性信息）。未知依赖原样保留在 `unknownDependencyKeys`，
+ * 由页面据此显示「状态待确认」，而不是把步骤当成无依赖。
+ */
+export function stepDependencyGraph(definition: unknown): StepDependencyGraph {
   const steps = readWorkflowSteps(definition);
   const keys = new Set(steps.map((step) => step.key));
-  const map: Record<string, string[]> = {};
+  const stepInfos: Record<string, StepDependencyInfo> = {};
+  let graphComplete = true;
+
   for (const step of steps) {
-    map[step.key] = (step.deps ?? []).filter((key) => keys.has(key));
+    const dependencyKeys = [...(step.deps ?? [])];
+    const unknownDependencyKeys = dependencyKeys.filter((key) => !keys.has(key));
+    const isDependencyGraphComplete = unknownDependencyKeys.length === 0;
+    if (!isDependencyGraphComplete) graphComplete = false;
+    stepInfos[step.key] = {
+      stepKey: step.key,
+      dependencyKeys,
+      unknownDependencyKeys,
+      isDependencyGraphComplete,
+    };
   }
-  return map;
+
+  return {
+    steps: stepInfos,
+    isDependencyGraphComplete: graphComplete,
+    hasSteps: steps.length > 0,
+  };
+}
+
+/**
+ * 旧调用兼容入口：仅返回原始依赖 key 列表（未知 key 也保留）。
+ * 需要判断「依赖信息是否完整」时请使用 `stepDependencyGraph`。
+ */
+export function stepDependencyMap(definition: unknown): Record<string, string[]> {
+  const graph = stepDependencyGraph(definition);
+  return Object.fromEntries(
+    Object.entries(graph.steps).map(([stepKey, info]) => [stepKey, info.dependencyKeys]),
+  );
 }
 
 /** IMPL 步骤必须声明代码仓库范围：交付的 GIT_REF 工件要能落回仓库。 */

@@ -22,6 +22,8 @@ export type TaskDisplayStateKind =
 
 export type TaskDisplayTone = 'ready' | 'active' | 'waiting' | 'blocked' | 'done' | 'unknown';
 
+export type DependencyInfoIssue = 'unknown-dependencies' | 'missing-step' | 'unavailable';
+
 export interface TaskStateSignals {
   executionStatus?: string | null;
   workStatus?: string | null;
@@ -35,6 +37,8 @@ export interface TaskStateSignals {
   dependsOnStepKeys?: string[] | null;
   /** 已完成（DONE）的步骤 key；依赖可用时必须提供，否则按不可用处理。 */
   doneStepKeys?: ReadonlySet<string> | null;
+  /** 依赖不可用的具体原因，仅影响 UNKNOWN 状态的可读说明。 */
+  dependencyInfoIssue?: DependencyInfoIssue | null;
 }
 
 export interface TaskDisplayState {
@@ -48,14 +52,24 @@ export interface TaskDisplayState {
   missingPredecessors: string[];
 }
 
-const UNKNOWN: TaskDisplayState = {
-  kind: 'UNKNOWN',
-  label: '状态待确认',
-  description: '服务端没有提供可用的依赖信息，无法确认这个任务现在能否领取；请稍后刷新或联系项目管理员。',
-  tone: 'unknown',
-  claimable: false,
-  missingPredecessors: [],
+const DEPENDENCY_ISSUE_DESCRIPTION: Record<DependencyInfoIssue, string> = {
+  'unknown-dependencies':
+    '流程定义里存在无法识别的依赖步骤，无法确认该任务的前置条件；不会把它当作“无依赖”。',
+  'missing-step': '流程定义里找不到该任务的步骤，无法确认它的前置依赖与就绪状态。',
+  unavailable:
+    '服务端没有提供可用的依赖信息，无法确认这个任务现在能否领取；请稍后刷新或联系项目管理员。',
 };
+
+function unknownState(description: string): TaskDisplayState {
+  return {
+    kind: 'UNKNOWN',
+    label: '状态待确认',
+    description,
+    tone: 'unknown',
+    claimable: false,
+    missingPredecessors: [],
+  };
+}
 
 function waitingPredecessor(missing: string[]): TaskDisplayState {
   return {
@@ -121,8 +135,7 @@ export function resolveTaskDisplayState(input: TaskStateSignals): TaskDisplaySta
 
   if (
     input.currentClaimId ||
-    (executionStatus !== null &&
-      ['ACTIVE', 'IN_PROGRESS', 'CLAIMED'].includes(executionStatus))
+    (executionStatus !== null && ['ACTIVE', 'IN_PROGRESS', 'CLAIMED'].includes(executionStatus))
   )
     return {
       kind: 'IN_PROGRESS',
@@ -134,22 +147,38 @@ export function resolveTaskDisplayState(input: TaskStateSignals): TaskDisplaySta
     };
 
   if (executionStatus === 'OPEN') {
+    // 服务端就绪判定还要求 workStatus === ACTIVE；缺失/未知状态不能推断为可领取。
+    if (workStatus === null || workStatus === '') {
+      return unknownState(
+        '任务缺少工作状态（workStatus），无法确认它是否处于可领取状态；请刷新后重试。',
+      );
+    }
+    if (workStatus !== 'ACTIVE') {
+      return unknownState(
+        `任务的工作状态“${workStatus}”不是可领取状态（ACTIVE），无法确认它现在能否领取。`,
+      );
+    }
+
     const dependsOn = input.dependsOnStepKeys;
-    if (dependsOn === undefined || dependsOn === null) return UNKNOWN;
-    if (!input.doneStepKeys) return UNKNOWN;
-    const missing = dependsOn.filter((stepKey) => !input.doneStepKeys?.has(stepKey));
+    if (dependsOn === undefined || dependsOn === null)
+      return unknownState(DEPENDENCY_ISSUE_DESCRIPTION[input.dependencyInfoIssue ?? 'unavailable']);
+    if (!input.doneStepKeys)
+      return unknownState(DEPENDENCY_ISSUE_DESCRIPTION[input.dependencyInfoIssue ?? 'unavailable']);
+    const doneKeys = input.doneStepKeys;
+    const missing = dependsOn.filter((stepKey) => !doneKeys.has(stepKey));
     if (missing.length > 0) return waitingPredecessor(missing);
     return {
       kind: 'CLAIMABLE',
       label: '可立即领取',
-      description: '直接前置步骤均已完成，且没有被认领或阻塞；责任人可通过本地 Agent 认领。',
+      description:
+        '直接前置步骤均已完成，任务工作状态为 ACTIVE，且没有被认领或阻塞；责任人可通过本地 Agent 认领。',
       tone: 'ready',
       claimable: true,
       missingPredecessors: [],
     };
   }
 
-  return UNKNOWN;
+  return unknownState(DEPENDENCY_ISSUE_DESCRIPTION[input.dependencyInfoIssue ?? 'unavailable']);
 }
 
 /** 依赖信息是否足以判断一个任务的可领取状态。 */
@@ -157,5 +186,9 @@ export function hasUsableDependencies(input: {
   dependsOnStepKeys?: string[] | null;
   doneStepKeys?: ReadonlySet<string> | null;
 }): boolean {
-  return input.dependsOnStepKeys !== undefined && input.dependsOnStepKeys !== null && !!input.doneStepKeys;
+  return (
+    input.dependsOnStepKeys !== undefined &&
+    input.dependsOnStepKeys !== null &&
+    !!input.doneStepKeys
+  );
 }

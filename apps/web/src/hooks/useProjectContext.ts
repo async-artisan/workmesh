@@ -1,40 +1,46 @@
-import { useEffect, useState } from 'react';
-import type { ProjectView } from '../api/resources';
-import { loadProjects, useProjectStore } from '../store/project';
+import { useEffect, useMemo } from 'react';
+import { useProjectStore } from '../store/project';
 
 /**
- * 读取当前项目上下文：项目列表只请求一次（模块级缓存），
- * 选中项目写入 localStorage，跨页面保持一致。
+ * 统一项目上下文：页面与 ProjectSelect 共用同一份 store，跨页面保持一致。
+ *
+ * - 挂载时按需加载（已成功加载过则复用，不重复请求；失败后不自动无限重试，由用户显式刷新）；
+ * - 当前项目失效时由 store 在加载成功后自动修正，localStorage 只是记忆；
+ * - 保留旧页面依赖的字段名（projects / projectId / setProjectId / loading / error）。
  */
 export function useProjectContext() {
+  const projects = useProjectStore((state) => state.projects);
   const projectId = useProjectStore((state) => state.projectId);
+  const loading = useProjectStore((state) => state.loading);
+  const loaded = useProjectStore((state) => state.loaded);
+  const error = useProjectStore((state) => state.error);
+  const errorDetail = useProjectStore((state) => state.errorDetail);
+  const updatedAt = useProjectStore((state) => state.updatedAt);
   const setProjectId = useProjectStore((state) => state.setProjectId);
-  const [projects, setProjects] = useState<ProjectView[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const ensureProjects = useProjectStore((state) => state.ensureProjects);
+  const refreshProjects = useProjectStore((state) => state.refreshProjects);
 
   useEffect(() => {
-    let alive = true;
-    loadProjects()
-      .then((list) => {
-        if (!alive) return;
-        setProjects(list);
-        setError('');
-        setLoading(false);
-        if (list.length && !list.some((item) => item.id === projectId)) {
-          setProjectId(list[0].id);
-        }
-      })
-      .catch(() => {
-        if (!alive) return;
-        setError('无法加载项目列表，请检查登录状态。');
-        setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-    // 只在挂载时拉取；项目增删由页面显式刷新
-  }, []);
+    // 只在挂载时触发一次；ensureProjects 内部会做 loaded / 并发去重。
+    void ensureProjects();
+  }, [ensureProjects]);
 
-  return { projects, projectId, setProjectId, loading, error };
+  const project = useMemo(
+    () => projects.find((item) => item.id === projectId) ?? null,
+    [projects, projectId],
+  );
+
+  return {
+    projects,
+    projectId,
+    project,
+    // 首次加载还没有结果时同样视为加载中，保持旧页面 `loading` 的语义。
+    loading: loading || (!loaded && !error),
+    loaded,
+    error,
+    errorDetail,
+    updatedAt,
+    setProjectId,
+    refreshProjects,
+  };
 }

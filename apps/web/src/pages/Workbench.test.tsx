@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Workbench } from './Workbench';
@@ -76,31 +76,110 @@ const snapshot = {
   warnings: [],
 };
 
-function handler(overrides: { ackStatus?: number } = {}) {
-  return (url: string, init: RequestInit) => {
+function makeChange(recipientId: string, code: string, title: string, version = 2) {
+  return {
+    recipientId,
+    eventId: `evt-${recipientId}`,
+    projectId: 'p1',
+    projectKey: 'DEMO',
+    projectName: 'Demo',
+    requirement: { code, title },
+    changedFields: ['acceptance'],
+    targets: {},
+    pendingRoles: [{ key: 'backend', title: '后端' }],
+    version,
+    createdAt: '2026-11-01T00:00:00.000Z',
+    ageSeconds: 100,
+  };
+}
+
+const multiChangeSnapshot = {
+  counts: { reviews: 0, changes: 3, readyTasks: 0, total: 3 },
+  reviews: [],
+  changes: [
+    makeChange('c1', 'DEMO-REQ-1', '登录页改版'),
+    makeChange('c2', 'DEMO-REQ-2', '订单取消规则'),
+    makeChange('c3', 'DEMO-REQ-3', '支付回调重试'),
+  ],
+  readyTasks: [],
+  warnings: [],
+};
+
+const emptySnapshot = {
+  counts: { reviews: 0, changes: 0, readyTasks: 0, total: 0 },
+  reviews: [],
+  changes: [],
+  readyTasks: [],
+  warnings: [],
+};
+
+interface StubReply {
+  status: number;
+  body: unknown;
+}
+
+const ACK_OK: StubReply = { status: 200, body: envelope({ acked: true }) };
+const SERVER_ERROR: StubReply = {
+  status: 500,
+  body: {
+    error: { code: 'INTERNAL_ERROR', message: '服务暂时不可用', requestId: 'req-500' },
+  },
+};
+const VERSION_CONFLICT: StubReply = {
+  status: 409,
+  body: {
+    error: {
+      code: 'VERSION_CONFLICT',
+      message: '收件人版本已变化',
+      details: { currentVersion: 3 },
+      requestId: 'req-409',
+    },
+  },
+};
+
+interface HandlerOptions {
+  /** 按第 N 次 workbench GET（从 1 开始）返回响应。 */
+  workbench?: (call: number) => StubReply;
+  /** 按收件人 + 第 N 次 ack（从 1 开始）返回响应。 */
+  ack?: (recipientId: string, call: number) => StubReply;
+}
+
+function makeHandler(options: HandlerOptions = {}) {
+  const ackCalls = new Map<string, number>();
+  let workbenchCall = 0;
+  const handler = (url: string, init: RequestInit): StubReply | undefined => {
     const path = pathOf(url);
     const method = methodOf(init);
     if (path === '/api/v1/projects' && method === 'GET')
       return { status: 200, body: envelope([project]) };
-    if (path === '/api/v1/workbench' && method === 'GET')
-      return { status: 200, body: envelope(snapshot) };
-    if (path === '/api/v1/change-recipients/c1/ack' && method === 'POST') {
-      if (overrides.ackStatus === 409)
-        return {
-          status: 409,
-          body: {
-            error: {
-              code: 'VERSION_CONFLICT',
-              message: '收件人版本已变化',
-              details: { currentVersion: 3 },
-              requestId: 'req-409',
-            },
-          },
-        };
-      return { status: 200, body: envelope({ acked: true }) };
+    if (path === '/api/v1/activity' && method === 'GET')
+      return { status: 200, body: envelope({ items: [] }) };
+    if (path === '/api/v1/workbench' && method === 'GET') {
+      workbenchCall += 1;
+      return options.workbench?.(workbenchCall) ?? { status: 200, body: envelope(snapshot) };
+    }
+    const ackPath = /^\/api\/v1\/change-recipients\/([^/]+)\/ack$/.exec(path);
+    if (ackPath && method === 'POST') {
+      const recipientId = decodeURIComponent(ackPath[1] ?? '');
+      const call = (ackCalls.get(recipientId) ?? 0) + 1;
+      ackCalls.set(recipientId, call);
+      return options.ack?.(recipientId, call) ?? ACK_OK;
     }
     return undefined;
   };
+  return { handler, ackCalls };
+}
+
+function setup(options: HandlerOptions = {}) {
+  const recorder = makeHandler(options);
+  const fetchMock = mockFetch(recorder.handler);
+  return { ...recorder, fetchMock };
+}
+
+function handler(overrides: { ackStatus?: number } = {}) {
+  return makeHandler({
+    ack: () => (overrides.ackStatus === 409 ? VERSION_CONFLICT : ACK_OK),
+  }).handler;
 }
 
 function renderWorkbench() {
@@ -180,5 +259,214 @@ describe('Workbench（跨项目待办聚合）', () => {
     fireEvent.click(await screen.findByRole('button', { name: '确认已处理' }));
 
     expect(await screen.findByText('变更已确认。')).toBeInTheDocument();
+  });
+
+  it('刷新成功后展示统一的 HH:mm 更新时间与“已同步”数据状态', async () => {
+    setup();
+    renderWorkbench();
+
+    const updated = await screen.findByText(/^更新于 \d{2}:\d{2}$/);
+    const railStatus = screen.getByText(/^已同步 · \d{2}:\d{2}$/);
+    const clock = (railStatus.textContent ?? '').replace('已同步 · ', '');
+
+    // 工具栏“更新于”、rail 主状态、UPDATED 元数据使用同一 HH:mm 来源。
+    expect(updated).toHaveTextContent(`更新于 ${clock}`);
+    expect(screen.getByText('UPDATED').nextElementSibling).toHaveTextContent(clock);
+  });
+
+  it('已有数据时刷新失败进入 stale：保留旧数据、给出上次成功时间并可重试', async () => {
+    const recorder = setup({
+      workbench: (call) => (call === 2 ? SERVER_ERROR : { status: 200, body: envelope(snapshot) }),
+    });
+    renderWorkbench();
+
+    expect(await screen.findByText(/登录页改版/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+
+    expect(await screen.findByText(/当前显示的是上次成功数据 · \d{2}:\d{2}/)).toBeInTheDocument();
+    expect(screen.getByText(/^显示上次成功数据 · \d{2}:\d{2}$/)).toBeInTheDocument();
+    // 刷新失败不得清空旧数据，也不得伪装成页面级错误。
+    expect(screen.getByText(/登录页改版/)).toBeInTheDocument();
+    expect(screen.queryByText('工作台加载失败')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '重试更新工作台数据' }));
+    await waitFor(() =>
+      expect(screen.queryByText(/当前显示的是上次成功数据/)).not.toBeInTheDocument(),
+    );
+    expect(await screen.findByText(/^已同步 · \d{2}:\d{2}$/)).toBeInTheDocument();
+    expect(recorder.ackCalls.size).toBe(0);
+  });
+
+  it('首次加载失败显示页面级错误与重试，恢复后展示数据', async () => {
+    setup({
+      workbench: (call) => (call === 1 ? SERVER_ERROR : { status: 200, body: envelope(snapshot) }),
+    });
+    renderWorkbench();
+
+    expect(await screen.findByText('工作台加载失败')).toBeInTheDocument();
+    expect(screen.getByText('暂时无法读取工作台数据。')).toBeInTheDocument();
+    expect(
+      screen.getByText(/\[INTERNAL_ERROR\] 服务暂时不可用 · requestId req-500/),
+    ).toBeInTheDocument();
+    // 失败不能显示成“没有待办”。
+    expect(screen.queryByText('现在没有待办')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '重试加载工作台数据' }));
+    expect(await screen.findByText(/登录页改版/)).toBeInTheDocument();
+    expect(screen.queryByText('工作台加载失败')).not.toBeInTheDocument();
+  });
+
+  it('首次加载中只显示骨架屏，不显示空态', async () => {
+    setup();
+    renderWorkbench();
+
+    expect(document.querySelectorAll('.skeleton-row')).toHaveLength(3);
+    expect(screen.queryByText('现在没有待办')).not.toBeInTheDocument();
+    expect(screen.queryByText('当前筛选没有匹配项')).not.toBeInTheDocument();
+
+    expect(await screen.findByText(/登录页改版/)).toBeInTheDocument();
+    expect(document.querySelectorAll('.skeleton-row')).toHaveLength(0);
+  });
+
+  it('筛选没有匹配项时给出清除入口，清除后恢复列表', async () => {
+    setup();
+    renderWorkbench();
+
+    await screen.findByText(/登录页改版/);
+    fireEvent.change(screen.getByLabelText('搜索待办'), {
+      target: { value: '不存在的关键词' },
+    });
+
+    expect(await screen.findByText('当前筛选没有匹配项')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '清除搜索' }));
+
+    expect(await screen.findByText(/登录页改版/)).toBeInTheDocument();
+    expect(screen.queryByText('当前筛选没有匹配项')).not.toBeInTheDocument();
+  });
+
+  it('无筛选且确实没有待办时显示真实空态并说明当前范围', async () => {
+    setup({ workbench: () => ({ status: 200, body: envelope(emptySnapshot) }) });
+    renderWorkbench();
+
+    expect(await screen.findByText('现在没有待办')).toBeInTheDocument();
+    expect(screen.getByText(/当前范围：全部项目/)).toBeInTheDocument();
+    expect(screen.queryByText('当前筛选没有匹配项')).not.toBeInTheDocument();
+  });
+
+  it('筛选条件变化会清除已选变更并提示', async () => {
+    setup({ workbench: () => ({ status: 200, body: envelope(multiChangeSnapshot) }) });
+    renderWorkbench();
+
+    fireEvent.click(await screen.findByRole('tab', { name: /待确认变更/ }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /选择变更 DEMO-REQ-1/ }));
+    expect(await screen.findByRole('button', { name: '批量确认 1 条' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('搜索待办'), { target: { value: '登录' } });
+
+    expect(await screen.findByText('筛选已变化，已清除之前的选择。')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /选择变更 DEMO-REQ-1/ })).not.toBeChecked();
+    expect(screen.queryByRole('button', { name: /批量确认/ })).not.toBeInTheDocument();
+  });
+
+  it('批量逐条确认：失败即停止，成功的条目不会被重复提交', async () => {
+    const recorder = setup({
+      workbench: () => ({ status: 200, body: envelope(multiChangeSnapshot) }),
+      ack: (recipientId, call) => (recipientId === 'c2' && call === 1 ? SERVER_ERROR : ACK_OK),
+    });
+    renderWorkbench();
+
+    fireEvent.click(await screen.findByRole('tab', { name: /待确认变更/ }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /选择变更 DEMO-REQ-1/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /选择变更 DEMO-REQ-2/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /选择变更 DEMO-REQ-3/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '批量确认 3 条' }));
+
+    // 确认前列出所有将提交条目（需求编号 · 标题、版本）。
+    const pending = await screen.findByRole('list', { name: '待提交变更列表' });
+    expect(pending).toHaveTextContent('DEMO-REQ-2 · 订单取消规则 · v2');
+
+    fireEvent.click(screen.getByRole('button', { name: '确认开始' }));
+
+    expect(await screen.findByText(/已确认 1 条 · 失败 1 条 · 未处理 1 条/)).toBeInTheDocument();
+    expect(recorder.ackCalls.get('c1')).toBe(1);
+    expect(recorder.ackCalls.get('c2')).toBe(1);
+    expect(recorder.ackCalls.get('c3')).toBeUndefined();
+
+    fireEvent.click(screen.getByRole('button', { name: '重试失败项（2）' }));
+
+    expect(await screen.findByText(/已确认 3 条 · 失败 0 条 · 未处理 0 条/)).toBeInTheDocument();
+    // 已成功项不重复提交，失败项与未处理项各重试一次。
+    expect(recorder.ackCalls.get('c1')).toBe(1);
+    expect(recorder.ackCalls.get('c2')).toBe(2);
+    expect(recorder.ackCalls.get('c3')).toBe(1);
+
+    const list = screen.getByRole('list', { name: '批量确认结果' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(3);
+    expect(within(list).getAllByText(/DEMO-REQ-1/)).toHaveLength(1);
+  });
+
+  it('批量结果按已确认/失败/未处理计数并保留失败原因', async () => {
+    const recorder = setup({
+      workbench: () => ({ status: 200, body: envelope(multiChangeSnapshot) }),
+      ack: () => SERVER_ERROR,
+    });
+    renderWorkbench();
+
+    fireEvent.click(await screen.findByRole('tab', { name: /待确认变更/ }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /选择变更 DEMO-REQ-1/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /选择变更 DEMO-REQ-2/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /选择变更 DEMO-REQ-3/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '批量确认 3 条' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认开始' }));
+
+    expect(await screen.findByText(/已确认 0 条 · 失败 1 条 · 未处理 2 条/)).toBeInTheDocument();
+    expect(screen.getByText(/\[INTERNAL_ERROR\] 服务暂时不可用/)).toBeInTheDocument();
+    expect(recorder.ackCalls.get('c1')).toBe(1);
+    expect(recorder.ackCalls.get('c2')).toBeUndefined();
+    expect(recorder.ackCalls.get('c3')).toBeUndefined();
+  });
+
+  it('批量确认遇到 409 时提示数据已变化，并允许重试', async () => {
+    const recorder = setup({
+      workbench: () => ({ status: 200, body: envelope(multiChangeSnapshot) }),
+      ack: (recipientId, call) => (recipientId === 'c1' && call === 1 ? VERSION_CONFLICT : ACK_OK),
+    });
+    renderWorkbench();
+
+    fireEvent.click(await screen.findByRole('tab', { name: /待确认变更/ }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /选择变更 DEMO-REQ-1/ }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /选择变更 DEMO-REQ-2/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '批量确认 2 条' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认开始' }));
+
+    expect(await screen.findByText(/数据已变化，请重新加载/)).toBeInTheDocument();
+    expect(screen.getByText(/\[VERSION_CONFLICT\] 收件人版本已变化/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '重试失败项（2）' }));
+    expect(await screen.findByText(/已确认 2 条 · 失败 0 条 · 未处理 0 条/)).toBeInTheDocument();
+    expect(recorder.ackCalls.get('c1')).toBe(2);
+    expect(recorder.ackCalls.get('c2')).toBe(1);
+  });
+
+  it('批量完成后刷新失败：保留批量结果并显示 stale 状态', async () => {
+    setup({
+      workbench: (call) =>
+        call === 1 ? { status: 200, body: envelope(multiChangeSnapshot) } : SERVER_ERROR,
+      ack: () => ACK_OK,
+    });
+    renderWorkbench();
+
+    fireEvent.click(await screen.findByRole('tab', { name: /待确认变更/ }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /选择变更 DEMO-REQ-1/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '批量确认 1 条' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认开始' }));
+
+    expect(await screen.findByText(/已确认 1 条 · 失败 0 条 · 未处理 0 条/)).toBeInTheDocument();
+    // 刷新失败：结果弹窗保留，同时提示数据已过期，旧列表不被清空。
+    expect(await screen.findByText(/当前显示的是上次成功数据 · \d{2}:\d{2}/)).toBeInTheDocument();
+    expect(screen.getByText(/批量确认已完成，但刷新工作台失败/)).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText(/已确认 1 条/)).toBeInTheDocument();
+    expect(screen.getByText(/订单取消规则/)).toBeInTheDocument();
   });
 });

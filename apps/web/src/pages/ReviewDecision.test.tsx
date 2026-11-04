@@ -1,11 +1,11 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ReviewDecision } from './ReviewDecision';
 import { setCsrfToken } from '../api/client';
 import { utf8ToBase64 } from '../api/resources';
 import { useAuthStore } from '../store/auth';
-import { envelope, mockFetch, pathOf } from '../test-utils';
+import { envelope, methodOf, mockFetch, pathOf, type StubReply } from '../test-utils';
 
 const review = {
   id: 'review-1',
@@ -703,5 +703,473 @@ describe('ReviewDecision（证据 + 一次确认 + 回执）', () => {
       expect(await screen.findByText('已发布')).toBeInTheDocument();
       expect(requirementReads).toBeGreaterThan(1);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 以下为证据完整性 / 上下文状态 / 确认摘要的新增覆盖；复用同一 mockFetch 风格。
+// ---------------------------------------------------------------------------
+
+const taskReviewBase = {
+  projectId: 'p1',
+  kind: 'TASK_ACCEPTANCE',
+  status: 'OPEN',
+  version: 3,
+  subjectDigest: 'd'.repeat(64),
+  documentRevisionId: null,
+  subject: null,
+  decisions: [],
+  slots: [
+    {
+      id: 'slot-1',
+      slotKey: 'product',
+      requiredRoleId: 'role-product',
+      requiredUserId: 'u-2',
+      sourceSlotBindingId: null,
+      viewerCanDecide: true,
+    },
+  ],
+};
+
+const hostedArtifact = {
+  id: 'artifact-hosted',
+  kind: 'IMPL',
+  schemaVersion: '1.0',
+  storage: 'HOSTED',
+  mediaType: 'text/markdown',
+  byteLength: 4096,
+  sha256: 'c'.repeat(64),
+  projectRepositoryId: 'repo-1',
+  commitSha: null,
+  repoPath: 'docs/impl.md',
+  summary: '实现说明工件',
+  contentPreview: { text: '实现说明预览', truncated: false },
+  checks: [
+    { code: 'lint-passed', passed: true, message: 'lint 通过', source: 'AGENT_REPORTED' },
+    { code: 'unit-passed', passed: false, message: '单测失败', source: 'AGENT_REPORTED' },
+  ],
+};
+
+const truncatedArtifact = {
+  ...hostedArtifact,
+  id: 'artifact-truncated',
+  byteLength: 8192,
+  commitSha: 'f'.repeat(40),
+  summary: '截断正文工件',
+  contentPreview: { text: '# 截断预览正文', truncated: true },
+};
+
+const taskPayload = {
+  id: 'task-task',
+  projectId: 'p1',
+  workflowInstanceId: 'instance-task',
+  stepKey: 'impl-be',
+  roleId: 'role-backend',
+  responsibleUserId: 'be@example.com',
+  version: 2,
+  generation: 1,
+  executionStatus: 'REVIEW_PENDING',
+  workStatus: 'ACTIVE',
+  currentClaim: null,
+};
+
+const requirementPayload = {
+  requirement: {
+    id: 'req-1',
+    projectId: 'p1',
+    seq: 1,
+    code: 'YFF-001',
+    title: '客户询价单',
+    description: '支持客户询价主流程',
+    version: 1,
+    generation: 1,
+    phase: 'DELIVERY',
+    workStatus: 'ACTIVE',
+    createdAt: '',
+    updatedAt: '',
+  },
+  acceptanceKeys: [],
+  tasks: [{ id: 'task-task', stepKey: 'impl-be' }],
+  artifacts: [],
+  reviews: [],
+  changes: [],
+  counts: { tasks: 1, artifacts: 1, reviews: 1, changes: 0 },
+};
+
+const repositoryPayload = [
+  {
+    id: 'repo-1',
+    adapter: 'github',
+    externalId: 'codeup-backend',
+    owner: 'nz_erp',
+    name: 'backend',
+    defaultBranch: 'main',
+    createdAt: '',
+  },
+];
+
+const artifactSetBase = {
+  id: 'set-task',
+  taskId: 'task-task',
+  taskGeneration: 1,
+  snapshotId: 'snap-task',
+  manifestDigest: 'a'.repeat(64),
+  workflowDefinitionRevisionId: 'wf-task',
+  localRunId: 'run-task',
+  candidateRevisionIds: [],
+  createdAt: '2026-11-04T00:00:00.000Z',
+  codeReview: { required: false, acceptable: true, evidence: [] },
+};
+
+function artifactSetPayload(artifacts: unknown[]) {
+  return { ...artifactSetBase, artifacts };
+}
+
+interface TaskScenarioOptions {
+  reviewId?: string;
+  reviewOverride?: Record<string, unknown>;
+  artifactSetId?: string | null;
+  taskId?: string | null;
+  /** 覆盖交付物响应，用于构造 500/403 与“首次失败、重试成功”。 */
+  artifactSet?: () => StubReply;
+  artifacts?: () => unknown[];
+  repositories?: () => StubReply;
+  documents?: () => StubReply;
+  task?: () => StubReply;
+  requirement?: () => StubReply;
+}
+
+function mockTaskScenario(options: TaskScenarioOptions = {}) {
+  const reviewId = options.reviewId ?? 'review-task';
+  const artifactSetId = options.artifactSetId === undefined ? 'set-task' : options.artifactSetId;
+  const taskId = options.taskId === undefined ? 'task-task' : options.taskId;
+  const reviewValue = {
+    ...taskReviewBase,
+    id: reviewId,
+    artifactSetId,
+    taskId,
+    ...options.reviewOverride,
+  };
+
+  return mockFetch((url, init) => {
+    const path = pathOf(url);
+    const method = methodOf(init);
+    if (method === 'GET' && path === `/api/v1/review-requests/${reviewId}`) {
+      return { status: 200, body: envelope(reviewValue) };
+    }
+    if (artifactSetId && method === 'GET' && path === `/api/v1/artifact-sets/${artifactSetId}`) {
+      if (options.artifactSet) return options.artifactSet();
+      return {
+        status: 200,
+        body: envelope(artifactSetPayload(options.artifacts?.() ?? [hostedArtifact])),
+      };
+    }
+    if (method === 'GET' && path === '/api/v1/projects/p1/repositories') {
+      if (options.repositories) return options.repositories();
+      return { status: 200, body: envelope(repositoryPayload) };
+    }
+    if (method === 'GET' && path === '/api/v1/projects/p1/documents') {
+      if (options.documents) return options.documents();
+      return { status: 200, body: envelope({ items: [], nextCursor: null }) };
+    }
+    if (taskId && method === 'GET' && path === `/api/v1/tasks/${taskId}`) {
+      if (options.task) return options.task();
+      return { status: 200, body: envelope(taskPayload) };
+    }
+    if (method === 'GET' && path === '/api/v1/workflow-instances/instance-task') {
+      return { status: 200, body: envelope({ requirementId: 'req-1' }) };
+    }
+    if (method === 'GET' && path === '/api/v1/projects/p1/requirements/req-1') {
+      if (options.requirement) return options.requirement();
+      return { status: 200, body: envelope(requirementPayload) };
+    }
+    if (method === 'POST' && path === '/api/v1/auth/action-previews') {
+      return {
+        status: 201,
+        body: envelope({
+          binding: {},
+          actionDigest: 'digest-task',
+          display: {
+            action: 'REVIEW_DECIDE',
+            targetType: 'REVIEW_REQUEST',
+            targetId: reviewId,
+            expectedVersion: 3,
+            projectId: 'p1',
+            roleSlot: { roleId: 'role-product', approvalSlotId: 'slot-1' },
+          },
+        }),
+      };
+    }
+    if (method === 'POST' && path === '/api/v1/auth/confirmation-tickets') {
+      return {
+        status: 201,
+        body: envelope({
+          ticketId: 'ticket-task',
+          ticketSecret: 'secret-task',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          actionDigest: 'digest-task',
+        }),
+      };
+    }
+    return undefined;
+  });
+}
+
+function renderDecisionPage(reviewId = 'review-task') {
+  render(
+    <MemoryRouter initialEntries={[`/reviews/${reviewId}`]}>
+      <Routes>
+        <Route path="/reviews/:reviewId" element={<ReviewDecision />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+describe('ReviewDecision 证据完整性与上下文状态', () => {
+  beforeEach(() => {
+    setCsrfToken('csrf-1');
+    useAuthStore.getState().setSession({ id: 'u-1', email: 'alice@example.com' });
+  });
+
+  afterEach(() => {
+    setCsrfToken(null);
+    useAuthStore.getState().clearAuth();
+    localStorage.clear();
+  });
+
+  it('截断工件明确说明预览范围、完整正文不可用原因与打开原工件链接', async () => {
+    mockTaskScenario({ artifacts: () => [truncatedArtifact] });
+    renderDecisionPage();
+
+    expect(await screen.findByText('正文预览已截断。')).toBeInTheDocument();
+    expect(screen.getByText(/预览 8 字符 · 工件 8\.0 KiB/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/当前服务只提供预览，未提供完整正文读取或下载接口/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '打开原工件' })).toHaveAttribute(
+      'href',
+      `https://github.com/nz_erp/backend/commit/${'f'.repeat(40)}`,
+    );
+    expect(screen.getByRole('button', { name: '读取完整正文' })).toBeDisabled();
+    expect(screen.getByText(/不可用：服务端没有提供完整正文读取或下载接口/)).toBeInTheDocument();
+    expect(screen.getByText('证据完整性')).toBeInTheDocument();
+    expect(screen.getByText('不完整')).toBeInTheDocument();
+  });
+
+  it('没有 GitHub 仓库或提交时说明原工件链接不可用', async () => {
+    mockTaskScenario({
+      artifacts: () => [
+        {
+          ...truncatedArtifact,
+          id: 'artifact-no-repo',
+          projectRepositoryId: null,
+          commitSha: null,
+        },
+      ],
+    });
+    renderDecisionPage();
+
+    expect(await screen.findByText('正文预览已截断。')).toBeInTheDocument();
+    expect(screen.getByText(/无可用原工件链接/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '打开原工件' })).not.toBeInTheDocument();
+  });
+
+  it('交付物上下文读取失败显示可重试失败态，重试成功后恢复证据', async () => {
+    let reads = 0;
+    mockTaskScenario({
+      artifactSet: () => {
+        reads += 1;
+        if (reads === 1) {
+          return {
+            status: 500,
+            body: {
+              error: {
+                code: 'TEMPORARY_UNAVAILABLE',
+                message: '暂时无法读取交付物',
+                requestId: 'req-delivery-500',
+              },
+            },
+          };
+        }
+        return { status: 200, body: envelope(artifactSetPayload([hostedArtifact])) };
+      },
+    });
+    renderDecisionPage();
+
+    expect(await screen.findByText('无法读取交付物上下文')).toBeInTheDocument();
+    expect(screen.getByText(/TEMPORARY_UNAVAILABLE/)).toBeInTheDocument();
+    expect(screen.getByText(/req-delivery-500/)).toBeInTheDocument();
+    expect(screen.queryByText('该评审没有关联交付物')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '重试读取交付物' }));
+    expect(await screen.findByText('实现说明工件')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('无法读取交付物上下文')).not.toBeInTheDocument());
+    expect(reads).toBeGreaterThanOrEqual(2);
+  });
+
+  it('没有关联交付物与需求时显示明确空态，而不是读取失败', async () => {
+    mockTaskScenario({ artifactSetId: null, taskId: null });
+    renderDecisionPage();
+
+    expect(await screen.findByText('该评审没有关联交付物')).toBeInTheDocument();
+    expect(screen.getByText('暂无关联需求')).toBeInTheDocument();
+    expect(screen.queryByText('无法读取交付物上下文')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '重试读取交付物' })).not.toBeInTheDocument();
+  });
+
+  it('交付物上下文 403 显示权限边界且不提供重试', async () => {
+    mockTaskScenario({
+      artifactSet: () => ({
+        status: 403,
+        body: {
+          error: {
+            code: 'FORBIDDEN',
+            message: '无权读取该交付物',
+            requestId: 'req-delivery-403',
+          },
+        },
+      }),
+    });
+    renderDecisionPage();
+
+    expect(await screen.findByText('无法读取交付物上下文')).toBeInTheDocument();
+    expect(screen.getByText('你没有查看该上下文的权限。')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '重试读取交付物' })).not.toBeInTheDocument();
+    expect(screen.getByText(/req-delivery-403/)).toBeInTheDocument();
+  });
+
+  it('证据不完整时批准必须先勾选确认，确认弹窗展示摘要与证据说明', async () => {
+    mockTaskScenario({ artifacts: () => [truncatedArtifact] });
+    renderDecisionPage();
+    expect(await screen.findByText('正文预览已截断。')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '作出决定' }));
+    const checkbox = screen.getByRole('checkbox', {
+      name: '我已知晓证据不完整，仍继续批准',
+    });
+    expect(checkbox).not.toBeChecked();
+    const nextButton = screen.getByRole('button', { name: /下一步：预览并验证/ });
+    expect(nextButton).toBeDisabled();
+    expect(screen.getByText(/请先勾选“我已知晓证据不完整，仍继续批准”/)).toBeInTheDocument();
+
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    expect(nextButton).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText('评审说明'), {
+      target: { value: '已核对原工件，风险可控' },
+    });
+    fireEvent.click(nextButton);
+
+    expect(await screen.findByText('即将提交的决定')).toBeInTheDocument();
+    expect(screen.getByText('v3（与提交版本一致）')).toBeInTheDocument();
+    expect(
+      screen.getByText('已核对原工件，风险可控', {
+        selector: '.wm-decision-summary__comment',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('该槽位记为验收通过；若全部槽位通过，任务进入已完成状态。'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/你已确认在不完整证据下继续批准/)).toBeInTheDocument();
+    expect(screen.getByText(/实现 · 截断正文工件/)).toBeInTheDocument();
+    expect(screen.getByText('通过 1 / 2（1 项失败）')).toBeInTheDocument();
+    expect(screen.getAllByText('YFF-001 · 客户询价单').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('修改决定与说明后，确认弹窗摘要使用最新值', async () => {
+    mockTaskScenario({ artifacts: () => [hostedArtifact] });
+    renderDecisionPage();
+    expect(await screen.findByText('实现说明工件')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '作出决定' }));
+    fireEvent.change(screen.getByLabelText('评审决定'), {
+      target: { value: 'CHANGES_REQUESTED' },
+    });
+    fireEvent.change(screen.getByLabelText('评审说明'), {
+      target: { value: '请补充完整正文与失败单测修复记录' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /下一步：预览并验证/ }));
+
+    expect(await screen.findByText('即将提交的决定')).toBeInTheDocument();
+    expect(
+      screen.getByText('请补充完整正文与失败单测修复记录', {
+        selector: '.wm-decision-summary__comment',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('评审退回交付方修改，需要按说明调整后重新提交评审；当前版本不会发布。'),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText('要求修改').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/证据不完整：/)).not.toBeInTheDocument();
+  });
+
+  it('补充证据 PRD 读取失败可单独重试，且不会误判关键证据不完整', async () => {
+    let prdReads = 0;
+    mockTaskScenario({
+      artifacts: () => [hostedArtifact],
+      documents: () => {
+        prdReads += 1;
+        if (prdReads === 1) {
+          return {
+            status: 500,
+            body: {
+              error: {
+                code: 'TEMPORARY_UNAVAILABLE',
+                message: '暂时无法读取 PRD',
+                requestId: 'req-prd-500',
+              },
+            },
+          };
+        }
+        return {
+          status: 200,
+          body: envelope({
+            items: [
+              {
+                document: {
+                  id: 'prd-1',
+                  projectId: 'p1',
+                  knowledgeBaseId: 'kb',
+                  requirementId: 'req-1',
+                  kind: 'PRD',
+                  version: 1,
+                  currentPublishedRevisionId: 'prd-rev',
+                  archivedAt: null,
+                },
+                revisions: [],
+                publishedRevision: {
+                  id: 'prd-rev',
+                  documentId: 'prd-1',
+                  seq: 1,
+                  title: 'PRD：客户询价单',
+                  mimeType: 'text/markdown',
+                  byteLength: 20,
+                  digest: 'e'.repeat(64),
+                  state: 'PUBLISHED',
+                  createdBy: 'pm',
+                  basisUnderstandingRevisionId: null,
+                  deliveryScope: null,
+                  acceptance: [{ key: 'a1', text: '询价主流程可走通', verification: 'TEST' }],
+                },
+              },
+            ],
+            nextCursor: null,
+          }),
+        };
+      },
+    });
+    renderDecisionPage();
+
+    expect(await screen.findByText('无法读取 PRD 上下文')).toBeInTheDocument();
+    // PRD 是补充证据：失败不应把“关键证据完整性”误判为不完整。
+    expect(screen.getByText('完整')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重试读取 PRD' }));
+    expect(await screen.findByText('询价主流程可走通')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('无法读取 PRD 上下文')).not.toBeInTheDocument());
+    expect(prdReads).toBeGreaterThanOrEqual(2);
+
+    fireEvent.click(screen.getByRole('button', { name: '作出决定' }));
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 });

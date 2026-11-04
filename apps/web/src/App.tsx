@@ -8,6 +8,7 @@ import { ACTION_LABELS, labelFor } from './lib/labels';
 import { useAuthStore } from './store/auth';
 import { NAV_GROUP_LABELS, findNav, navItems } from './nav';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { PageState } from './components/PageState';
 import { ToastHost } from './components/ToastHost';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
@@ -37,11 +38,7 @@ const Roles = lazy(() => import('./pages/Roles').then((m) => ({ default: m.Roles
 const Workbench = lazy(() => import('./pages/Workbench').then((m) => ({ default: m.Workbench })));
 const Workflows = lazy(() => import('./pages/Workflows').then((m) => ({ default: m.Workflows })));
 
-const pageLoading = (
-  <section className="page-card muted" role="status">
-    正在加载页面…
-  </section>
-);
+const pageLoading = <PageState state={{ kind: 'loading' }} title="正在加载页面…" />;
 
 export function App() {
   const location = useLocation();
@@ -211,7 +208,13 @@ export function App() {
       <>
         <ErrorBoundary key={location.pathname}>
           <Suspense fallback={pageLoading}>
-            {isInvitePage ? <Invite token={inviteMatch?.params.token ?? ''} /> : location.pathname === '/login' ? <Login /> : <Register />}
+            {isInvitePage ? (
+              <Invite token={inviteMatch?.params.token ?? ''} />
+            ) : location.pathname === '/login' ? (
+              <Login />
+            ) : (
+              <Register />
+            )}
           </Suspense>
         </ErrorBoundary>
         <ToastHost />
@@ -269,7 +272,7 @@ export function App() {
   };
 
   const apiState = (
-    <div className="api-state">
+    <div className="api-state" title="仅表示 API 连接可用，不代表页面服务可用或业务数据已同步">
       <i className={apiStatus} />
       API {apiStatus === 'ready' ? '已连接' : apiStatus === 'offline' ? '未连接' : '检测中'}
     </div>
