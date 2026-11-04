@@ -124,6 +124,55 @@ export class ChangeRequestsService {
     return this.readPolicy(projectId);
   }
 
+  /**
+   * 该等级要求哪些审批身份。`levels` 里的值是 `ProjectRole.key`；`owner` 指项目 OWNER 成员角色。
+   * 返回 null 表示该等级没有配置审批人：此时不额外限制，避免把「未配置」当成「谁都禁止」。
+   */
+  private async requiredApproverKeys(projectId: string, level: string): Promise<string[] | null> {
+    const policy = await this.readPolicy(projectId);
+    const keys = policy.levels[level];
+    return Array.isArray(keys) && keys.length > 0 ? keys : null;
+  }
+
+  /**
+   * 分级审批人校验。
+   *
+   * 原先 `decide` 只校验「OWNER/ADMIN 可决定」，`ProjectChangePolicy.levels` 被读出来却从不参与判定，
+   * 于是「L3 需 owner、L2 需 engineering-lead」只是文档承诺：任何 ADMIN 都能批 L3，
+   * 配置了 reviewer 却没有强制力。这里按等级解析审批身份并实际校验。
+   *
+   * 项目 OWNER 是最高权威，任何等级都可决定（否则一旦配错 levels 项目就再也改不动需求）；
+   * 其余人必须持有该等级配置的某个活动业务角色。
+   */
+  private async assertDeciderEligible(
+    projectId: string,
+    userId: string,
+    level: string,
+  ): Promise<void> {
+    const required = await this.requiredApproverKeys(projectId, level);
+    if (required === null) return;
+
+    const member = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+      select: { role: true },
+    });
+    if (member?.role === 'OWNER') return;
+
+    const assignments = await this.prisma.projectRoleAssignment.findMany({
+      where: { projectId, userId, revokedAt: null },
+      select: { role: { select: { key: true, isActive: true } } },
+    });
+    const held = assignments.filter((item) => item.role?.isActive).map((item) => item.role.key);
+    if (held.some((key) => required.includes(key))) return;
+
+    throw new WorkmeshError(
+      V1_ERROR_CODES.FORBIDDEN,
+      'CHANGE_LEVEL_APPROVER_REQUIRED',
+      { level, requiredRoleKeys: required, heldRoleKeys: held },
+      403,
+    );
+  }
+
   async updatePolicy(
     projectId: string,
     userId: string,
@@ -233,6 +282,18 @@ export class ChangeRequestsService {
         { decision: change.decision },
         409,
       );
+
+    // 提案人不得决定自己的变更。自批会让分级审批退化成橡皮章，而「谁提出的、谁批准的」
+    // 是本产品要留证据的核心事实。
+    if (change.proposedById === userId)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.FORBIDDEN,
+        'CHANGE_SELF_DECISION_FORBIDDEN',
+        { changeId, level: change.level },
+        403,
+      );
+    // 等级审批人校验：读 Policy.levels，真正卡住「配置了却不生效」。
+    await this.assertDeciderEligible(projectId, userId, change.level);
 
     const now = new Date();
     return this.prisma.$transaction(async (tx) => {

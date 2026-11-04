@@ -4,8 +4,17 @@ import { ChangeRequestsService } from './change-requests.service';
 function fakePrisma() {
   const members = [
     { projectId: 'p1', userId: 'owner', role: 'OWNER', revokedAt: null },
+    // 第二个 OWNER：提案人不得决定自己的变更，所以决定要用另一个人。
+    { projectId: 'p1', userId: 'owner2', role: 'OWNER', revokedAt: null },
+    { projectId: 'p1', userId: 'admin', role: 'ADMIN', revokedAt: null },
     { projectId: 'p1', userId: 'member', role: 'MEMBER', revokedAt: null },
   ];
+  /** 业务角色指派：用来验证「等级审批人」是否真的按 Policy.levels 判定。 */
+  const assignments: Array<{
+    projectId: string;
+    userId: string;
+    role: { key: string; isActive: boolean };
+  }> = [];
   const requirements = [
     { id: 'req-1', projectId: 'p1', frozenAt: null as Date | null },
     { id: 'req-2', projectId: 'p1', frozenAt: new Date('2026-11-01T00:00:00Z') as Date | null },
@@ -45,6 +54,12 @@ function fakePrisma() {
         tasks.filter((task) =>
           task.acceptanceKeys.some((key) => input.where.acceptanceKeys.hasSome.includes(key)),
         ).length,
+    },
+    projectRoleAssignment: {
+      findMany: async (input: { where: { projectId: string; userId: string } }) =>
+        assignments.filter(
+          (item) => item.projectId === input.where.projectId && item.userId === input.where.userId,
+        ),
     },
     changeRequest: {
       create: async (input: { data: Record<string, unknown> }) => {
@@ -156,6 +171,7 @@ function fakePrisma() {
     events,
     recipients,
     policies,
+    assignments,
     prisma,
   };
 }
@@ -172,14 +188,14 @@ describe('ChangeRequestsService', () => {
       new Error('storage failure'),
     );
     await expect(
-      service.decide('p1', 'owner', change.id, { decision: 'ACCEPTED' }),
+      service.decide('p1', 'owner2', change.id, { decision: 'ACCEPTED' }),
     ).rejects.toThrow('storage failure');
     expect(changes[0].decision).toBe('PENDING');
     expect(events).toHaveLength(0);
     expect(recipients).toHaveLength(0);
-    await service.decide('p1', 'owner', change.id, { decision: 'ACCEPTED' });
+    await service.decide('p1', 'owner2', change.id, { decision: 'ACCEPTED' });
     expect(events).toHaveLength(1);
-    expect(recipients).toHaveLength(2);
+    expect(recipients).toHaveLength(4);
   });
 
   it('rejects a decision when another writer wins the conditional update', async () => {
@@ -191,7 +207,7 @@ describe('ChangeRequestsService', () => {
     });
     vi.spyOn(prisma.changeRequest, 'updateMany').mockResolvedValueOnce({ count: 0 });
     await expect(
-      service.decide('p1', 'owner', change.id, { decision: 'ACCEPTED' }),
+      service.decide('p1', 'owner2', change.id, { decision: 'ACCEPTED' }),
     ).rejects.toMatchObject({ message: 'CHANGE_ALREADY_DECIDED', status: 409 });
     expect(events).toHaveLength(0);
   });
@@ -255,15 +271,15 @@ describe('ChangeRequestsService', () => {
       reason: '新增验收',
       acceptanceKeys: ['A1'],
     });
-    const decided = await service.decide('p1', 'owner', change.id, { decision: 'ACCEPTED' });
-    expect(decided).toMatchObject({ decision: 'ACCEPTED', decidedById: 'owner' });
+    const decided = await service.decide('p1', 'owner2', change.id, { decision: 'ACCEPTED' });
+    expect(decided).toMatchObject({ decision: 'ACCEPTED', decidedById: 'owner2' });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       sourceKind: 'CHANGE_REQUEST',
       sourceId: change.id,
       requirementId: 'req-1',
     });
-    expect(recipients).toHaveLength(2);
+    expect(recipients).toHaveLength(4);
     expect(recipients[0]).toHaveProperty('dueAt');
     expect(recipients[0]).toMatchObject({ action: 'ACK_ONLY' });
   });
@@ -275,7 +291,7 @@ describe('ChangeRequestsService', () => {
       affected: ['COPY'],
       reason: '不需要',
     });
-    await service.decide('p1', 'owner', change.id, { decision: 'REJECTED' });
+    await service.decide('p1', 'owner2', change.id, { decision: 'REJECTED' });
     expect(events).toHaveLength(0);
   });
 
@@ -286,9 +302,9 @@ describe('ChangeRequestsService', () => {
       affected: ['COPY'],
       reason: '文案',
     });
-    await service.decide('p1', 'owner', change.id, { decision: 'ACCEPTED' });
+    await service.decide('p1', 'owner2', change.id, { decision: 'ACCEPTED' });
     await expect(
-      service.decide('p1', 'owner', change.id, { decision: 'REJECTED' }),
+      service.decide('p1', 'owner2', change.id, { decision: 'REJECTED' }),
     ).rejects.toMatchObject({ code: 'RESOURCE_CONFLICT', message: 'CHANGE_ALREADY_DECIDED' });
   });
 
@@ -329,5 +345,79 @@ describe('ChangeRequestsService', () => {
     });
     expect(change.decision).toBe('PENDING');
     expect(change.impactPreview).toMatchObject({ warning: true, freezeMode: 'WARN' });
+  });
+
+  it('forbids a proposer from deciding their own change', async () => {
+    const { service, changes, events } = fakePrisma();
+    const change = await service.create('p1', 'owner', {
+      requirementId: 'req-1',
+      affected: ['COPY'],
+      reason: '自批',
+    });
+    await expect(
+      service.decide('p1', 'owner', change.id, { decision: 'ACCEPTED' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'CHANGE_SELF_DECISION_FORBIDDEN' });
+    // 必须在写库之前拒绝：变更仍是 PENDING，也没有产生变更事件。
+    expect(changes[0].decision).toBe('PENDING');
+    expect(events).toHaveLength(0);
+  });
+
+  it('requires the role configured for the change level instead of accepting any admin', async () => {
+    const { service, assignments } = fakePrisma();
+    // L1 需要 qa 角色；ADMIN 没有该业务角色，必须被拒。
+    await service.updatePolicy('p1', 'owner', { freezeMode: 'ALLOW', levels: { L1: ['qa'] } });
+    const change = await service.create('p1', 'owner', {
+      requirementId: 'req-1',
+      affected: ['ACCEPTANCE'],
+      reason: '验收变更',
+    });
+    await expect(
+      service.decide('p1', 'admin', change.id, { decision: 'ACCEPTED' }),
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'CHANGE_LEVEL_APPROVER_REQUIRED',
+      details: { level: 'L1', requiredRoleKeys: ['qa'] },
+    });
+
+    // 持有该等级配置的活动角色之后即可决定。
+    assignments.push({ projectId: 'p1', userId: 'admin', role: { key: 'qa', isActive: true } });
+    await expect(
+      service.decide('p1', 'admin', change.id, { decision: 'ACCEPTED' }),
+    ).resolves.toMatchObject({ decision: 'ACCEPTED' });
+  });
+
+  it('ignores an inactive role assignment when checking level eligibility', async () => {
+    const { service, assignments } = fakePrisma();
+    await service.updatePolicy('p1', 'owner', {
+      freezeMode: 'ALLOW',
+      levels: { L2: ['engineering-lead'] },
+    });
+    const change = await service.create('p1', 'owner', {
+      requirementId: 'req-1',
+      affected: ['CONTRACT'],
+      reason: '契约变更',
+    });
+    assignments.push({
+      projectId: 'p1',
+      userId: 'admin',
+      role: { key: 'engineering-lead', isActive: false },
+    });
+    await expect(
+      service.decide('p1', 'admin', change.id, { decision: 'ACCEPTED' }),
+    ).rejects.toMatchObject({ message: 'CHANGE_LEVEL_APPROVER_REQUIRED' });
+  });
+
+  it('keeps the project owner able to decide every level', async () => {
+    const { service } = fakePrisma();
+    await service.updatePolicy('p1', 'owner', { freezeMode: 'ALLOW', levels: { L3: ['owner'] } });
+    const change = await service.create('p1', 'admin', {
+      requirementId: 'req-1',
+      affected: ['GOAL'],
+      reason: '目标变更',
+    });
+    // 即使 levels 配错，OWNER 仍是最高权威——否则项目会再也改不动。
+    await expect(
+      service.decide('p1', 'owner', change.id, { decision: 'ACCEPTED' }),
+    ).resolves.toMatchObject({ decision: 'ACCEPTED' });
   });
 });

@@ -18,6 +18,7 @@ suite('PostgreSQL decision and webhook consistency', () => {
   let repository: V1GithubEvidencePrismaRepository;
   let projectId: string;
   let userId: string;
+  let deciderId: string;
   let requirementId: string;
   const constraint = `recipient_failure_${randomUUID().replaceAll('-', '')}`;
 
@@ -30,6 +31,11 @@ suite('PostgreSQL decision and webhook consistency', () => {
       data: { email: `${randomUUID()}@consistency.test`, passwordHash: 'fixture' },
     });
     userId = user.id;
+    // 提案人不得决定自己的变更，所以决定统一用第二个 OWNER。
+    const decider = await db.user.create({
+      data: { email: `${randomUUID()}@consistency.test`, passwordHash: 'fixture' },
+    });
+    deciderId = decider.id;
     const project = await db.project.create({
       data: {
         key: randomUUID().replaceAll('-', '').slice(0, 6),
@@ -39,6 +45,7 @@ suite('PostgreSQL decision and webhook consistency', () => {
     });
     projectId = project.id;
     await db.projectMember.create({ data: { projectId, userId, role: 'OWNER' } });
+    await db.projectMember.create({ data: { projectId, userId: deciderId, role: 'OWNER' } });
     const requirement = await db.requirement.create({
       data: { projectId, seq: 1, code: 'CONS-001', title: 'Concurrent decisions' },
     });
@@ -65,6 +72,7 @@ suite('PostgreSQL decision and webhook consistency', () => {
         await db.project.delete({ where: { id: projectId } });
       }
       if (userId) await db.user.delete({ where: { id: userId } });
+      if (deciderId) await db.user.delete({ where: { id: deciderId } });
     } finally {
       await db.$disconnect();
     }
@@ -83,7 +91,7 @@ suite('PostgreSQL decision and webhook consistency', () => {
     const proposed = await change();
     const results = await Promise.allSettled(
       Array.from({ length: 8 }, () =>
-        service.decide(projectId, userId, proposed.id, { decision: 'ACCEPTED' }),
+        service.decide(projectId, deciderId, proposed.id, { decision: 'ACCEPTED' }),
       ),
     );
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
@@ -92,14 +100,15 @@ suite('PostgreSQL decision and webhook consistency', () => {
         expect(result.reason).toMatchObject({ status: 409, message: 'CHANGE_ALREADY_DECIDED' });
     const events = await db.changeEvent.findMany({ where: { sourceId: proposed.id } });
     expect(events).toHaveLength(1);
-    expect(await db.changeRecipient.count({ where: { eventId: events[0].id } })).toBe(1);
+    // 两个 OWNER 成员各收到一条；收件人按活动成员生成。
+    expect(await db.changeRecipient.count({ where: { eventId: events[0].id } })).toBe(2);
   });
 
   it('does not overwrite an accepted or rejected result when decisions race', async () => {
     const proposed = await change();
     const results = await Promise.allSettled([
-      service.decide(projectId, userId, proposed.id, { decision: 'ACCEPTED' }),
-      service.decide(projectId, userId, proposed.id, { decision: 'REJECTED' }),
+      service.decide(projectId, deciderId, proposed.id, { decision: 'ACCEPTED' }),
+      service.decide(projectId, deciderId, proposed.id, { decision: 'REJECTED' }),
     ]);
     const winners = results.filter((result) => result.status === 'fulfilled');
     expect(winners).toHaveLength(1);
@@ -119,7 +128,7 @@ suite('PostgreSQL decision and webhook consistency', () => {
     );
     try {
       await expect(
-        service.decide(projectId, userId, proposed.id, { decision: 'ACCEPTED' }),
+        service.decide(projectId, deciderId, proposed.id, { decision: 'ACCEPTED' }),
       ).rejects.toThrow();
       expect(await db.changeRequest.findUnique({ where: { id: proposed.id } })).toMatchObject({
         decision: 'PENDING',
@@ -133,7 +142,7 @@ suite('PostgreSQL decision and webhook consistency', () => {
       );
     }
     await expect(
-      service.decide(projectId, userId, proposed.id, { decision: 'ACCEPTED' }),
+      service.decide(projectId, deciderId, proposed.id, { decision: 'ACCEPTED' }),
     ).resolves.toMatchObject({ decision: 'ACCEPTED' });
   });
 
