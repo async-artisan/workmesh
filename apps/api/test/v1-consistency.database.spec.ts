@@ -305,4 +305,25 @@ suite('PostgreSQL decision and webhook consistency', () => {
       else process.env.WORKMESH_V1_DATABASE_URL = previous;
     }
   });
+
+  it('rejects values outside the closed sets at the database level', async () => {
+    // 0015 给 level/decision/action 加了 CHECK。错拼的 decision 会造出一条永远无法被决定的行
+    // （CAS 只匹配 PENDING/DEFERRED），所以在数据库层拦下来，而不是靠调用方记得。
+    const insert = (level: string, decision: string) =>
+      db.$executeRawUnsafe(
+        `INSERT INTO workmesh_v1."ChangeRequest"
+           ("id","projectId","requirementId","level","diff","reason","proposedById","decision")
+         VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, '{}'::jsonb, 'closed-set probe', $4::uuid, $5)`,
+        projectId,
+        requirementId,
+        level,
+        userId,
+        decision,
+      );
+
+    await expect(insert('L9', 'PENDING')).rejects.toThrow();
+    await expect(insert('L1', 'ACCEPTD')).rejects.toThrow();
+    // 合法组合仍然能写入（约束不能误伤正常路径）。
+    await expect(insert('L1', 'PENDING')).resolves.toBeGreaterThan(0);
+  });
 });
