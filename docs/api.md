@@ -149,6 +149,9 @@ workmesh product draft --request <requestId>
 
 - `GET /api/v1/tasks/:taskId`、`POST /api/v1/tasks/:taskId/claims`、`POST /api/v1/tasks/:taskId/release`、`POST /api/v1/tasks/:taskId/work-status` — 认领/释放与工作状态；认领按任务当前代次串行，客户端不声明版本。
 - `GET /api/v1/projects/:projectId/tasks/ready?roleId&limit&cursor` — 就绪任务分页：`OPEN`、无活动认领、`ACTIVE`，且同实例同步骤的前序依赖全部 `DONE`。Agent 只能看本凭据角色，HUMAN 按责任人与活动角色范围过滤。
+
+  支持条件请求（RFC 7232）：响应带弱验证器 `ETag` 与 `Cache-Control: private, no-cache`；请求携带 `If-None-Match` 命中时返回 `304` 且不带正文（仍带 `X-Request-Id`）。验证器只由响应载荷派生，与 `meta.requestId` 无关，所以轮询方可以放心用它判断「就绪集是否变了」。这是给固定间隔轮询的 Agent 用的：命中 304 时省掉正文传输与解析；服务端仍会执行查询，只是不重复下发相同结果——查询本身的开销由 `Task_ready_queue_idx` / `Task_ready_role_idx` / `Task_ready_responsible_idx` 覆盖过滤与排序。
+
 - `POST /api/v1/tasks/:taskId/artifact-sets`、`GET /api/v1/artifact-sets/:id` — 交付并读取工件集（只接受真实字节或完整代码引用，交付时复核基线）。
 
 工件 `checks[]` 的旧格式仍兼容；未提供 `source` 的检查会按 `AGENT_REPORTED` 保存。若引用外部 CI 或测试报告，可提交 `source: "EXTERNAL_REFERENCE"` 与 `evidence: { kind: "CI_RUN" | "TEST_REPORT", provider, url, runId?, commitSha? }`。外部链接必须是 HTTPS，若声明 `commitSha` 则须与所交代码引用一致。该字段仅提供给评审人复核的链接，WorkMesh 当前不抓取或验证 CI 结果；Agent 不能提交 `verified` 标记。代码评审状态仍由独立代码托管证据决定。

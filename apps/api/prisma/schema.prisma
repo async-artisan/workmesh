@@ -593,6 +593,11 @@ model Task {
   reviews         ReviewRequest[]
   @@unique([workflowInstanceId, stepKey])
   @@unique([id, projectId])
+  /// 就绪队列：按项目 + 执行状态过滤并按 (stepKey, id) 排序，缺索引时每次轮询都全表扫再排序。
+  /// 显式 map：多列默认名会超过 PostgreSQL 63 字符上限被截断，名字不确定就没法保证迁移与 schema 对齐。
+  @@index([projectId, executionStatus, workStatus, stepKey, id], map: "Task_ready_queue_idx")
+  @@index([projectId, roleId, executionStatus, workStatus], map: "Task_ready_role_idx")
+  @@index([projectId, responsibleUserId, executionStatus, workStatus], map: "Task_ready_responsible_idx")
   @@schema("workmesh_v1")
 }
 
