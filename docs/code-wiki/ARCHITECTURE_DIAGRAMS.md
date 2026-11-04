@@ -2,7 +2,7 @@
 
 ## Architecture Diagrams
 
-> 图例基于当前工作树的源码、package manifests、Prisma schema、运行脚本和 `docs/*.md`。每张图都说明置信度；真实 PostgreSQL、浏览器和 GitHub live 链路尚未由本次分析执行。
+> 图例基于源码、package manifests、Prisma schema 和运行脚本。每张图都说明置信度；已有运行证据与待验收范围见 [阶段状态](../phase-status.md)，本轮文档整理未重跑这些验证。
 
 ## 1. 系统上下文图
 
@@ -18,17 +18,15 @@ flowchart LR
   WM["WorkMesh\nAPI + Web 工作台 + 协作协议"]
   DB[("PostgreSQL\nworkmesh_v1")]
   GH["GitHub\nWebhook / 提交证据"]
-  Redis[("可选 Redis\n缓存")]
 
   Human -->|登录、批准、发布、撤销| WM
   Agent -->|设备授权、认领、上下文、交付| WM
   Ops -->|配置、迁移、运行检查| WM
   WM -->|持久化事实与追加历史| DB
   GH -->|HMAC Webhook / 代码读取| WM
-  WM -.->|缓存，不承担正确性| Redis
 ```
 
-**边证据**：`README.md` 明确三个产品面；`docs/deployment.md` 明确 PostgreSQL 与可选 Redis；`docs/api.md` 和 `apps/api/src/integrations/` 明确 GitHub 集成。
+**边证据**：`README.md` 明确三个产品面；`docs/deployment.md` 和 Prisma schema 明确 PostgreSQL；`docs/api.md` 和 `apps/api/src/integrations/` 明确 GitHub 集成。
 
 ## 2. 容器与运行时图
 
@@ -211,7 +209,6 @@ flowchart LR
   Browser["浏览器"] --> WebDist
   WebDist --> APIProc
   CLIProc["workmesh CLI"] --> APIProc
-  APIProc -.-> Redis[("可选 REDIS_URL")]
 ```
 
 **运行前门禁**：`scripts/db-check.sh` 检查当前数据库；`scripts/db-plan.sh` 输出迁移计划；确认目标和回滚方式后才运行 `prisma migrate deploy`。`scripts/test-integration.sh` 默认不迁移，需显式 `--apply-migrations`。
@@ -219,6 +216,5 @@ flowchart LR
 ## 9. 图册假设与遗漏
 
 - 没有画出后台队列、定时 worker 或消息总线，因为当前源码和脚本没有足够证据证明存在这些运行单元。
-- Redis 以虚线表示可选缓存；`docs/deployment.md` 明确未设置时直通且不影响正确性。
 - Web 页面与 API resource 的细粒度映射只在页面和 `src/api/resources.ts` 中分散体现，未做浏览器 E2E，因此图中保持容器级关系。
-- GitHub live runner 当前明确未实现，不能从适配器存在推断线上 GitHub 已验证。
+- GitHub live runner 已实现显式开启后的只读 API 校验；获准真实仓库/PR 的端到端验收与真实 webhook 投递仍需验证，不能从适配器存在推断线上 GitHub 已验证。

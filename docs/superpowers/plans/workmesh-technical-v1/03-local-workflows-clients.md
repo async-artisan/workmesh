@@ -1,8 +1,8 @@
 # 本地角色工作流、角色包与 CLI／Web 技术方案
 
-日期：2026-11-01。状态：待实施的技术契约，本文不代表命令、宿主适配或页面已经可用。
+规格初稿日期：2026-11-01。角色包安装、CLI 和 Web 已有实现；本文保留客户端技术契约与后续目标，具体命令以 CLI 帮助和[现行 API 清单](../../../api.md)为准，覆盖与验证边界见[交付状态](../../../phase-status.md)。文中替换步骤及旧路径保留初稿语境，不作为当前执行计划。
 
-本分册落实[总纲](../2026-11-01-workmesh-open-source-collaboration-plan.md)中的本地执行、项目流程定制与 S5 客户端闭环。身份、票据和能力判定以 [01-identity-permissions.md](01-identity-permissions.md) 为准；正式对象、上下文快照、任务、交付和门禁以 [02-domain-state-transactions.md](02-domain-state-transactions.md) 为准；代码托管证据以 [04-code-hosting-adapters.md](04-code-hosting-adapters.md) 为准。API 的精确路由与请求响应以 [05-api-contract.md](05-api-contract.md) 为准，实施任务与验证入口以 [06-development-tasks-and-verification.md](06-development-tasks-and-verification.md) 为准；本册不另起状态机。
+本分册落实[总纲](../2026-11-01-workmesh-open-source-collaboration-plan.md)中的本地执行、项目流程定制与 S5 客户端闭环。身份、票据和能力判定以 [01-identity-permissions.md](01-identity-permissions.md) 为准；正式对象、上下文快照、任务、交付和门禁以 [02-domain-state-transactions.md](02-domain-state-transactions.md) 为准；代码托管证据以 [04-code-hosting-adapters.md](04-code-hosting-adapters.md) 为准。API 的精确路由与请求响应以 [05-api-contract.md](05-api-contract.md) 为准，当前任务与验证边界见 [开发计划](../../../dev-plan.md) 和 [交付状态](../../../phase-status.md)，旧任务覆盖要求保留在 [归档验收矩阵](../../../archive/2026-11-01/development-tasks-and-verification.md)；本册不另起状态机。
 
 **实施边界：** 保留 TypeScript CLI、NestJS、React 和当前模块化单体。产品、UI、前后端、测试、运维在本地 AI 中执行各自 SOP；平台存正式事实和版本，不运行本地工作流脚本。首版有 CLI 与 Web，不实现 MCP 服务、远程脚本、拖拽编排器或通用工作流 DSL。Spec Kit、BMAD、OpenSpec、Agent Skills 仅提供设计参考，不成为必装依赖。
 

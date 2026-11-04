@@ -1,8 +1,10 @@
 # WorkMesh 技术实施方案 v1
 
-> **实施调整（2026-11-01）：** 当前开发按[单一实现收敛与开发完成计划](2026-11-01-workmesh-single-implementation-plan.md)推进。保留 `/api/v1` 协议，但不保留新旧平行业务模块或兼容入口；01–06 的权限、领域和验收语义继续适用。下文“尚未实施”等描述是初稿记录，不代表当前代码状态，也不是停止开发的依据。
+> 历史归档（2026-11-04）：保留原始设计、实施步骤与当时的证据，不作为当前操作清单或完成状态。当前交付与验证状态见 [交付状态](../../phase-status.md)，未完成工作见 [开发计划](../../dev-plan.md)，部署操作见 [部署说明](../../deployment.md)。原路径：`docs/superpowers/plans/2026-11-01-workmesh-technical-implementation.md`。
 
-日期：2026-11-01。状态：开发用技术规格与任务入口，尚未实施。本方案将[产品与架构总纲](2026-11-01-workmesh-open-source-collaboration-plan.md)深化为明确的实体、API、权限、状态、工作流配置、迁移及验收任务，不把方案存在当成应用已完成。
+> **实施调整（2026-11-01）：** 当前开发按[单一实现收敛与开发完成计划](workmesh-single-implementation-plan.md)推进。保留 `/api/v1` 协议，但不保留新旧平行业务模块或兼容入口；01–06 的权限、领域和验收语义继续适用。下文“尚未实施”等描述是初稿记录，不代表当前代码状态，也不是停止开发的依据。
+
+日期：2026-11-01。状态：开发用技术规格与任务入口，尚未实施。本方案将[产品与架构总纲](../../superpowers/plans/2026-11-01-workmesh-open-source-collaboration-plan.md)深化为明确的实体、API、权限、状态、工作流配置、迁移及验收任务，不把方案存在当成应用已完成。
 
 **目标：** 各角色在自己的本地 AI 中使用各自工作流，通过 WorkMesh 共同管理知识发布、需求基线、任务、交付、人工审批与交接。首版跑通产品本地候选→Web发布→下游确定版本→交付／返工→GitHub代码证据→发布验收。
 
@@ -10,16 +12,16 @@
 
 ## 1. 文档导航与唯一来源
 
-详细规格集中在 [workmesh-technical-v1](workmesh-technical-v1/README.md)，下列分册共同构成可执行方案：
+详细规格集中在 [workmesh-technical-v1](../../superpowers/plans/workmesh-technical-v1/README.md)，下列分册共同构成可执行方案：
 
-| 分册                                                                                | 开发者应从中取得的确定答案                                                      |
-| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| [01 身份与权限](workmesh-technical-v1/01-identity-permissions.md)                   | Web会话、Agent凭据、浏览器授权、权限矩阵、KB ACL、密码二验及一次性票据。        |
-| [02 领域与事务](workmesh-technical-v1/02-domain-state-transactions.md)              | 数据实体、约束、修订、快照、状态与门禁、并发、失效传播和幂等事务。              |
-| [03 本地工作流与客户端](workmesh-technical-v1/03-local-workflows-clients.md)        | 角色包和流程JSON Schema、合法／非法配置、本地状态边界、CLI命令与安装、Web交互。 |
-| [04 代码托管](workmesh-technical-v1/04-code-hosting-adapters.md)                    | 仓库身份、厂商适配器、GitHub提交级他人评审、prepare证据、Webhook及Codeup边界。  |
-| [05 API契约](workmesh-technical-v1/05-api-contract.md)                              | `/api/v1`方法、路由、请求响应、错误、幂等、版本及候选／交付／批准协议。         |
-| [06 开发任务与验证](workmesh-technical-v1/06-development-tasks-and-verification.md) | T00–T09任务依赖、文件责任、迁移映射、测试fixture、命令、切换和交付门槛。        |
+| 分册                                                                                                 | 开发者应从中取得的确定答案                                                      |
+| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| [01 身份与权限](../../superpowers/plans/workmesh-technical-v1/01-identity-permissions.md)            | Web会话、Agent凭据、浏览器授权、权限矩阵、KB ACL、密码二验及一次性票据。        |
+| [02 领域与事务](../../superpowers/plans/workmesh-technical-v1/02-domain-state-transactions.md)       | 数据实体、约束、修订、快照、状态与门禁、并发、失效传播和幂等事务。              |
+| [03 本地工作流与客户端](../../superpowers/plans/workmesh-technical-v1/03-local-workflows-clients.md) | 角色包和流程JSON Schema、合法／非法配置、本地状态边界、CLI命令与安装、Web交互。 |
+| [04 代码托管](../../superpowers/plans/workmesh-technical-v1/04-code-hosting-adapters.md)             | 仓库身份、厂商适配器、GitHub提交级他人评审、prepare证据、Webhook及Codeup边界。  |
+| [05 API契约](../../superpowers/plans/workmesh-technical-v1/05-api-contract.md)                       | `/api/v1`方法、路由、请求响应、错误、幂等、版本及候选／交付／批准协议。         |
+| [06 开发任务与验证](development-tasks-and-verification.md)                                           | T00–T09任务依赖、文件责任、迁移映射、测试fixture、命令、切换和交付门槛。        |
 
 分册职责不相互覆盖：认证以01为准，领域状态和关系以02为准，配置schema以03为准，厂商事实以04为准，HTTP传输以05为准，执行顺序与验证以06为准。出现真实冲突先修正文档再编码，不能由各执行者自行选择不同解释。
 

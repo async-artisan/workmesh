@@ -1,6 +1,6 @@
 # 角色包设计（v0.1）
 
-> 状态：设计稿，未实施。日期：2026-11-02。
+> 状态：部分实施，复核日期：2026-11-04。六个内置角色包、manifest 1.1、资源摘要、CLI `roles install` 与服务端登记已实现；本文仍保留早期设计中的目录和协议示例，不能替代当前 manifest、代码与 [交付状态](phase-status.md)。
 > 范围：六个默认角色包的目录骨架、manifest v1.1、SKILL.md 规范、校验规则与分发方式。
 > 相关：[知识与变更架构](knowledge-architecture.md)、[工作流定义代码](../packages/shared/src/workflow.ts)、[标准模板](../packages/shared/src/workflow-template.ts)。
 

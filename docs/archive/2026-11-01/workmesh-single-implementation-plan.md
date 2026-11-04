@@ -1,12 +1,14 @@
 # WorkMesh 单一实现收敛与开发完成计划书
 
+> 历史归档（2026-11-04）：保留原始设计、实施步骤与当时的证据，不作为当前操作清单或完成状态。当前交付与验证状态见 [交付状态](../../phase-status.md)，未完成工作见 [开发计划](../../dev-plan.md)，部署操作见 [部署说明](../../deployment.md)。原路径：`docs/superpowers/plans/2026-11-01-workmesh-single-implementation-plan.md`。
+
 日期：2026-11-01。状态：待执行。本轮只编写计划，不实施源码、迁移、服务或外部操作。
 
 **目标：** 以已确认的新契约为唯一标准，复用已有有效实现，完成 API、CLI、Web 和测试的整体切换，移除被替代的旧实现与旁路，不维护兼容层。
 
 **架构：** 延续 TypeScript、NestJS、React、Prisma、PostgreSQL 模块化单体。一个能力只有一套正式路由、领域逻辑和数据访问路径；按业务职责拆文件，不按“新旧版本”复制模块。
 
-执行者先读本计划与[主技术方案](2026-11-01-workmesh-technical-implementation.md)，具体权限、状态、DTO 和验收语义仍以[01–06 分册](workmesh-technical-v1/README.md)为准。本计划调整代码组织与替换次序，不降低这些语义要求。出现真实冲突先登记并澄清，不擅自放宽门禁。
+执行者先读本计划与[主技术方案](workmesh-technical-implementation.md)，具体权限、状态、DTO 和验收语义仍以[01–06 分册](../../superpowers/plans/workmesh-technical-v1/README.md)为准。本计划调整代码组织与替换次序，不降低这些语义要求。出现真实冲突先登记并澄清，不擅自放宽门禁。
 
 ## 1. 固定决定
 

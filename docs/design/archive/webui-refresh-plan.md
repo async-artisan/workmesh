@@ -1,8 +1,10 @@
 # WorkMesh Web 工作台改造计划书
 
+> 历史设计记录：本文记录 2026-11-02 至 2026-11-03 的方案与实施过程。当前实现和状态以 [项目定位](../../positioning.md)、[阶段状态](../../phase-status.md)、[当前 UI 规范](../ui.md) 及源码为准；本文保留决策上下文，不作为当前操作指南。
+
 > 版本：v1.0 · 日期：2026-11-02 · 状态：待评审
 > 范围：`apps/web` 的信息架构、核心页面与视觉系统；`apps/api` 只新增只读读模型，不做数据库迁移
-> 依据：[项目定位](../positioning.md)、[工作台与需求详情交互方案](workbench-and-requirement-detail.md)、当前 `main` 工作树
+> 依据：[项目定位](../../positioning.md)、[工作台与需求详情交互方案](workbench-and-requirement-detail.md)、当前 `main` 工作树
 > 一句话：把 Web 从“接口控制台”改成“人关门的签字台”，用一条竖切验证，不重写后台。
 > 实现进度（2026-11-02）：`GET /v1/workbench`、工作台四类待办 + 搜索/角色筛选/排序 + 行级键盘、签字/审批抽屉（复用决定页）、变更影响抽屉、批量确认变更、`GET /v1/requirements/:id` + 需求编辑抽屉、需求详情（7 段门禁 + 概览/交付物/任务/变更/PRD/评审/追溯 Tab）、决定页（正文/差异/工件/历史 + 一次确认 + 回执）、最近活动流、站内通知中心、手动邮件摘要（SMTP 可选）、导航待办徽标、项目待办计数、移动端基础布局、看板只读与流程实例显式绑定已落地；定时邮件提醒（可由外部 cron 调用摘要接口）、导航 IA 收敛、设置页与完整视觉主题仍待做。
 
@@ -30,7 +32,7 @@
 
 > 人只在关键节点用浏览器作正式批准，Agent 只持有受限、可撤销的凭据。
 > 它不执行 Agent、不做 AI 对话、不替代 GitHub：它只裁决「这份交付是否成立」。
-> —— [docs/positioning.md](../positioning.md)
+> —— [docs/positioning.md](../../positioning.md)
 
 关键不对称是**责任在人，执行在 Agent**。因此 Web 不是数据管理后台，而是**决定发生的地方**。它唯一要优化的指标不是“页面数量”或“数据覆盖率”，而是：
 
@@ -46,12 +48,12 @@
 
 ### 2.1 四个直接症状
 
-| #   | 症状                                                                      | 证据                                                              |
-| --- | ------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| 1   | 打开一条待评审，需要手工粘贴评审请求 UUID                                 | [Workbench.tsx](../../apps/web/src/pages/Workbench.tsx#L120-L134) |
-| 2   | 评审页只有 id、digest、revision id、槽位 UUID，看不到正文、验收、工件、PR | [Reviews.tsx](../../apps/web/src/pages/Reviews.tsx#L290-L367)     |
-| 3   | 决定记录不显示“决定人”，只显示槽位、摘要、说明、时间                      | [Reviews.tsx](../../apps/web/src/pages/Reviews.tsx#L398-L411)     |
-| 4   | 在 PRD 页看完 diff，点“进入评审”就跳走，diff 消失                         | [Prds.tsx](../../apps/web/src/pages/Prds.tsx#L124-L127)           |
+| #   | 症状                                                                      | 证据                                                                 |
+| --- | ------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 1   | 打开一条待评审，需要手工粘贴评审请求 UUID                                 | [Workbench.tsx](../../../apps/web/src/pages/Workbench.tsx#L120-L134) |
+| 2   | 评审页只有 id、digest、revision id、槽位 UUID，看不到正文、验收、工件、PR | [Reviews.tsx](../../../apps/web/src/pages/Reviews.tsx#L290-L367)     |
+| 3   | 决定记录不显示“决定人”，只显示槽位、摘要、说明、时间                      | [Reviews.tsx](../../../apps/web/src/pages/Reviews.tsx#L398-L411)     |
+| 4   | 在 PRD 页看完 diff，点“进入评审”就跳走，diff 消失                         | [Prds.tsx](../../../apps/web/src/pages/Prds.tsx#L124-L127)           |
 
 ### 2.2 对照定位的四条原则
 
@@ -78,8 +80,8 @@ UI 既不让改，也不提示。如果服务端没有额外约束，这就是�
 
 - 当前是亮色后台风格：白底、白卡片、蓝色强调，信息密度低，和“审计 / 证据 / 签字”的品牌气质不匹配。
 - 历史 UI 总结曾描述已移除的 `Dashboard.tsx`、右侧面板和 ⌘K；当前行为以 `apps/web/src` 实现为准。
-- [index.css](../../apps/web/src/index.css#L7) 通过 Google Fonts `@import` 加载字体，自部署 / 内网 / 数据不出域场景会首屏阻塞并产生外部请求。
-- [index.css](../../apps/web/src/index.css#L3730) 起已有约 50 个 `wb-*` / `gate-*` / `evidence-*` / `signoff-*` 样式没有任何组件使用——工作台改版做过一半，缺的是页面，不是设计。
+- [index.css](../../../apps/web/src/index.css#L7) 通过 Google Fonts `@import` 加载字体，自部署 / 内网 / 数据不出域场景会首屏阻塞并产生外部请求。
+- [index.css](../../../apps/web/src/index.css#L3730) 起已有约 50 个 `wb-*` / `gate-*` / `evidence-*` / `signoff-*` 样式没有任何组件使用——工作台改版做过一半，缺的是页面，不是设计。
 
 ### 2.5 结论
 
@@ -119,7 +121,7 @@ UI 既不让改，也不提示。如果服务端没有额外约束，这就是�
 5. **不猜权限**：按钮是否可用由服务端 `viewerCanDecide` 等字段派生，前端不根据本地状态推断。
 6. **仪器感**：90% 的界面安静，10% 的信号强烈；一屏只有一个“亮”的元素。
 
-> 每个操作是否该由人做、是否该出现在 Web，见 [人机操作清单](workbench-and-requirement-detail.md#L626)。本计划的所有页面改造都以该清单为边界。
+> 每个操作是否该由人做、是否该出现在 Web，见 [人机操作清单](workbench-and-requirement-detail.md)。本计划的所有页面改造都以该清单为边界。
 
 ---
 
@@ -127,7 +129,7 @@ UI 既不让改，也不提示。如果服务端没有额外约束，这就是�
 
 ### 5.1 导航调整
 
-当前 10 个一级菜单（[nav.ts](../../apps/web/src/nav.ts#L22-L33)）把“工作台 / 项目 / 需求 / 知识库 / PRD / 评审 / 看板 / 角色 / 设备授权 / 用户中心”平铺，人的任务路径被管理功能淹没。
+当前 10 个一级菜单（[nav.ts](../../../apps/web/src/nav.ts#L22-L33)）把“工作台 / 项目 / 需求 / 知识库 / PRD / 评审 / 看板 / 角色 / 设备授权 / 用户中心”平铺，人的任务路径被管理功能淹没。
 
 目标收敛为 5 个一级入口 + 用户菜单：
 
@@ -155,7 +157,7 @@ UI 既不让改，也不提示。如果服务端没有额外约束，这就是�
 
 ### 5.2 路由改造
 
-当前 [App.tsx](../../apps/web/src/App.tsx#L239-L261) 用 `location.pathname === '...'` 做精确匹配，参数路由进不去；`findNav` 也是精确匹配，详情页侧栏不会高亮。
+当前 [App.tsx](../../../apps/web/src/App.tsx#L239-L261) 用 `location.pathname === '...'` 做精确匹配，参数路由进不去；`findNav` 也是精确匹配，详情页侧栏不会高亮。
 
 改造：
 
@@ -200,7 +202,7 @@ UI 既不让改，也不提示。如果服务端没有额外约束，这就是�
 - 数据过期：右上角“更新于 N 分钟前” + 刷新；
 - 无项目权限：整页空态 + 联系管理员。
 
-**导航徽标**：复用 `.menu-badge`（[index.css](../../apps/web/src/index.css#L292)），显示待办总数；60 秒轮询，页面隐藏时暂停。
+**导航徽标**：复用 `.menu-badge`（[index.css](../../../apps/web/src/index.css#L292)），显示待办总数；60 秒轮询，页面隐藏时暂停。
 
 ### 6.2 决定页（M2）
 
@@ -321,7 +323,7 @@ UI 既不让改，也不提示。如果服务端没有额外约束，这就是�
 | 中文             | MiSans / HarmonyOS Sans SC | 比 Noto 更几何；落地前复核许可证 |
 | 数据 / ID / hash | JetBrains Mono             | 版本、时间、摘要                 |
 
-全部自托管、子集化、`font-display: swap`；删除 [index.css](../../apps/web/src/index.css#L7) 的 Google Fonts `@import`。
+全部自托管、子集化、`font-display: swap`；删除 [index.css](../../../apps/web/src/index.css#L7) 的 Google Fonts `@import`。
 
 ### 7.4 五个标志性组件
 
@@ -656,8 +658,8 @@ E2E 用例（M2 开始写，M3 跑通）
 
 ### 15.4 参考
 
-- [项目定位](../positioning.md)
+- [项目定位](../../positioning.md)
 - [工作台与需求详情交互方案](workbench-and-requirement-detail.md)
-- [SPEC](../../spec/SPEC.md)
-- [API 清单](../api.md)
-- [当前状态](../phase-status.md)
+- [SPEC](../../../spec/SPEC.md)
+- [API 清单](../../api.md)
+- [当前状态](../../phase-status.md)

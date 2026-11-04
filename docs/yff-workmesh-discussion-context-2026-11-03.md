@@ -80,7 +80,7 @@ http://127.0.0.1:5180/api/v1
 
 当前 CLI 的 `candidate` 命令一次提交一个文件，不递归扫描整个目录。
 
-仓库的 `docs/operations-boundaries.md` 中记录过 `db:import-kb`，但本次检查发现 API 的 `package.json` 没有对应脚本，仓库中也未找到对应导入实现。因此，该文档中的命令不能当作当前已可用功能。
+旧运维文档曾记录 `db:import-kb`，但本次检查发现 API 的 `package.json` 没有对应脚本，仓库中也未找到对应导入实现。该失效文档已在 2026-11-04 清理，不能把旧命令当作当前已可用功能；现行接口见 [API 清单](api.md)。
 
 源码中存在 `scripts/seed-yff.mjs`。发现该脚本，不代表真实的 `G:\yesgoo\yff` 已完成正式接入、知识初始化或资料审核。
 
@@ -345,4 +345,4 @@ PRD 发布
 - `apps/api/src/tasks/v1-snapshot.service.ts`：PRD 和知识进入任务快照的逻辑。
 - `spec/SPEC.md`：候选提交和上下文装配约定。
 - `docs/knowledge-architecture.md`：知识架构设计；注意区分设计内容与已实施功能。
-- `docs/operations-boundaries.md`：含需复核的旧批量导入说明，不能据此认定命令已可用。
+- [API 清单](api.md) 与 [交付状态](phase-status.md)：核对当前接口和验证边界，不能依据旧批量导入说明认定命令可用。

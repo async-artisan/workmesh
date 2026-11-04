@@ -1,8 +1,8 @@
 # WorkMesh 协作事实与共享知识改造计划
 
-日期：2026-11-01。状态：计划修订并落盘，尚未实施。本文整合对话中确认的完整计划，明确各角色本地 AI 工作流与 WorkMesh 的集成边界，以及厂商中立的代码托管设计；现有实现不因此获得新的角色、工具或平台支持，也不因此取得开源发布资格。
+原始日期：2026-11-01；2026-11-04 文档整理时保留为目标总纲，部分能力已实施。本文整合对话中确认的完整计划，明确各角色本地 AI 工作流与 WorkMesh 的集成边界，以及厂商中立的代码托管设计；现有实现不因此获得新的角色、工具或平台支持，也不因此取得开源发布资格。
 
-本文保留为产品与架构总纲。开发使用配套[技术实施方案 v1](2026-11-01-workmesh-technical-implementation.md)，其中01–06分册进一步固定模型、权限、API、流程schema、迁移与任务验收；不得把本总纲的能力描述当作当前实现或跳过技术契约。
+本文保留为产品与架构总纲。技术契约见[技术规格分册](workmesh-technical-v1/README.md)，当前工作见[开发计划](../../dev-plan.md)，早期[技术实施方案 v1](../../archive/2026-11-01/workmesh-technical-implementation.md)已归档。不得把本总纲的目标能力当作当前实现或跳过技术契约；实际交付与验证边界见[交付状态](../../phase-status.md)。
 
 ## 1. 目标与已确认决策
 
@@ -346,7 +346,7 @@ CLI 公共协作路径：`login → doctor → ready → claim → context --tas
 
 实施围绕现有 API 的 auth、projects、prd、knowledge、tasks、artifacts、signoff、changes、integrations、trace 模块，CLI、Web、角色流程与模板资源、共享契约、Prisma schema 和测试入口展开。按职责调整而非另建平行系统；不要因适配云效改变所有领域模块，也不把角色的本地执行器迁成中心通用流程引擎。
 
-关键入口：[代码集成服务](/opt/homebrew/var/www/yesgooo/workmesh/apps/api/src/integrations/git-integration.service.ts)、[签字门禁](/opt/homebrew/var/www/yesgooo/workmesh/apps/api/src/signoff/signoff.service.ts)、[数据模型](/opt/homebrew/var/www/yesgooo/workmesh/apps/api/prisma/schema.prisma)。当前能力与上述目标有差距，不能把计划条目当成代码已完成事实。
+现行关键入口：[代码托管适配器](../../../apps/api/src/integrations/v1-code-host-adapter.ts)、[人工评审门禁](../../../apps/api/src/reviews/v1-review.service.ts)、[数据模型](../../../apps/api/prisma/schema.prisma)。原计划中的 `git-integration.service.ts` 和 `signoff.service.ts` 已退出当前实现。当前能力与上述目标有差距，不能把计划条目当成代码已完成事实。
 
 Codeup 一手依据（2026-11-01 已读取；动态资料仍可能变化）：
 

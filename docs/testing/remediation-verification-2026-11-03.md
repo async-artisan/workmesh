@@ -42,6 +42,7 @@ pnpm --filter @workmesh/api test:coverage
 
 ## 其他验证与边界
 
+- 原本地整改记录另记载：`pnpm exec turbo run test --force` 实际执行 740 项单元测试、8 个任务成功且无缓存命中，`pnpm test:contracts` 16 项运行时契约通过；多账号 API/数据库演练覆盖 Owner 注册、项目创建、前端与 QA 邀请及接受。这些是 2026-11-03 的历史结果，不是 2026-11-04 文档清理时重新执行的验证，也不能替代外部真实团队使用。
 - 全仓单元测试应使用 `pnpm exec turbo run test --force` 核验实际执行，避免把缓存命中当成新增行为验证。CLI 的文件权限测试保留真实 NTFS DACL 检查；一个多文件物化测试仅在 Windows 使用 20 秒截止时间，以容纳整仓并行负载下的系统命令启动。
 - Chromium 基础浏览器流程 2 项通过，覆盖注册、会话、创建项目、页面加载、登出再登录及 CSRF 拒绝；尚未覆盖从需求到发布的完整产品浏览器流程。
 - 生产依赖审计为 0；完整依赖审计仍有 2 项 low、3 项 moderate，无 high/critical。开发工具间接依赖仍需兼容性评估。

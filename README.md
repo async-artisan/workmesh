@@ -27,7 +27,7 @@ pnpm 10.28.2 + Turborepo 的 monorepo：
 - **知识与度量**：三类知识库（BUSINESS / SYSTEM / PRACTICE）字段、流程度量接口 `GET /projects/:id/metrics/flow`。
 - **项目治理**：代码仓库登记、自定义角色、成员与角色指派。
 - **一个盒子**：`workmesh-box status` / `dev` / `backup` / `restore`，三平台共用一份实现（Windows 已实测，Linux/macOS 适配器已实现待验收），见 [docs/box.md](docs/box.md)。
-- **文档**：[本地运行](docs/local-dev.md) · [一个盒子](docs/box.md) · [开发计划](docs/dev-plan.md) · [API 清单](docs/api.md) · [流程度量](docs/metrics.md) · [审批工位](docs/design/approval-workstation.md) · [迁移路线](docs/migration-plan.md) · [阻塞项](BLOCKED.md)。
+- **文档**：[文档导航](docs/README.md) · [本地运行](docs/local-dev.md) · [部署说明](docs/deployment.md) · [API 清单](docs/api.md) · [交付状态](docs/phase-status.md) · [开发计划](docs/dev-plan.md)。
 
 ## 快速开始
 

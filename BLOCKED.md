@@ -1,48 +1,39 @@
-# BLOCKED
+# 当前阻塞与外部验证
 
-> 记录当前无法在本机完成、需要外部条件的工作项。解除后按对应验证命令补证据。
+> 本文件只记录仍需要外部条件、生产窗口或额外验收的事项。已经完成的本地验证见 [当前交付与验证状态](docs/phase-status.md)、[工程整改验证](docs/testing/remediation-verification-2026-11-03.md) 和 [本机部署与团队使用验收](docs/testing/team-acceptance-2026-11-03.md)。
 
-## B1 迁移 apply 与真实库验证（已解除，生产仍待）
+## B1 生产迁移与生产恢复
 
-- 目标：`0005`–`0010` 在真实 PostgreSQL 上 apply，并验证约束、漂移与回滚。
-- 现状：已在隔离库 `workmesh_m5` 应用 0001–0010，`migrate status` 为 up to date，`migrate diff` 为 no difference；详见 [docs/baseline.md](docs/baseline.md)。
-- 2026-11-03 补充：专用隔离库已应用全部 12 项迁移，完成 pg_dump 备份、恢复到新库与 49 张表逐表行数核对；详见 [整改进度](docs/remediation-status.md)。历史上的“本机无 pg_dump”已不适用。
-- 仍未覆盖：生产库 apply 与生产备份恢复演练，需要单独运维窗口。
+- 隔离 PostgreSQL 已应用全部 12 项迁移，并完成备份、恢复到新库和 49 张基础表核对；这是本地证据，不是生产授权。
+- 仍待：生产库迁移窗口、生产备份恢复演练、升级回滚和正式 RTO/RPO 记录。
+- 解除条件：维护者确认目标、备份、回滚责任人和运维窗口，并在最终待发布 commit 上重跑验证。
 
-## B2 GitHub live 代码证据
+## B2 GitHub live 与真实 Webhook
 
-- 目标：真实仓库分页、Webhook 验签、提交级证据绑定。
-- 只读 live 入口已实现仓库/PR/reviews 分页读取及生产证据归一化，但本轮没有指定获准测试的仓库与 PR，运行结果 SKIPPED；私有仓库还需要只读凭据。
-- 解除条件：提供测试仓库与只读 token，且允许 webhook 回调到本机。
+- 只读 live 入口和证据归一化器已实现；2026-11-03 验收没有指定获准测试仓库、PR 和凭据，因此结果为 SKIPPED。
+- 仍待：真实仓库/PR/reviews 分页、Webhook 投递与签名、提交级证据绑定和发布链路联调。
+- 解除条件：提供获准测试仓库、只读凭据和可接收 Webhook 的隔离目标。
 
-## B3 浏览器 E2E（基础环境已解除，完整产品闭环仍待）
+## B3 完整浏览器产品闭环
 
-- 目标：工作台、需求详情、评审决定的真实浏览器闭环。
-- 已完成：隔离 API、数据库与 Chromium，2 项浏览器测试验证账户/会话、创建项目、页面加载及 CSRF 拒绝。入口 `pnpm test:browser`，不复用用户浏览器。
-- 仍待：需求详情、评审决定到发布的完整产品流程、跨浏览器与无障碍验收；不能将基础测试通过写成全部 E2E 完成。
+- 基础浏览器自动化已覆盖账户/会话、创建项目、页面加载、登出再登录和 CSRF 拒绝。
+- 仍待：需求详情、任务交付、评审决定、发布、变更传播、跨浏览器和无障碍验收。
+- 解除条件：使用隔离 API、数据库和浏览器跑完整流程，并保留结果和边界。
 
-## B4 进程内 HTTP 契约套件无法运行（已解除）
+## B4 跨平台安装与长期运行
 
-- 目标：`apps/api/test/v1-http-contract.spec.ts`。
-- 历史原因：ESM 插件被 CJS require。
-- 已处置：API 配置显式使用 `.mts`，动态加载 SWC 并发射装饰器元数据；单元、集成和覆盖率入口均可运行。当前合并套件 604 项通过，其中 57 项使用真实 PostgreSQL；生产行覆盖率 80.16%，保留原有 80% 门禁并实际通过。验证细节见 [工程整改验证](docs/testing/remediation-verification-2026-11-03.md)。
+- Windows 隔离安装、启动、备份、恢复和团队验收已有记录；Linux/macOS 适配器已实现但尚无对应平台验收。
+- 仍待：Linux/macOS 安装、服务管理、升级、卸载、备份恢复，以及长时间稳定性和容量测试。
+- 解除条件：在目标平台使用干净机器或隔离环境完成可复现验收。
 
-## B5 WP5 破坏性收紧（已解除）
+## B5 外部真实团队证据
 
-- 目标：文档 kind 与评审类型从枚举改为字符串注册表，删除旧枚举值。
-- 处置：迁移 `0011_kinds_as_strings` 在隔离库 `workmesh_m5` 应用成功；`DocumentKind` / `ReviewKind` 枚举已删除，列改为 `VARCHAR(48)`；`migrate diff` 无差异；API 全量 422 个单测通过。
-- 仍未覆盖：生产库 apply 仍按 B1 的运维流程执行。
+- 本地三人测试团队已经走过需求、交付、返修、评审、发布和恢复流程；这不等于外部团队使用。
+- 仍待：至少一个真实团队完成一条需求的人工签字链路，并留下时间线、截图和度量结果。
+- 解除条件：由维护者记录外部团队授权、过程证据和已知限制。
 
-## B6 分支分叉（非阻塞，记录）
+## B6 未完成产品协议
 
-- 现象：`feat/yff-demo-data` 与 `main` 分叉；本轮 WP2/WP6/WP9 提交在功能分支上。
-- 影响：合并到 `main` 前，主干看不到这些提交。
-- 处置：由仓库维护者在功能分支完成后合并；本会话不擅自切分支或 rebase。
-
-## B7 Prisma client 生成被运行中的服务锁住（已解除）
-
-- 目标：为后续模型（`Unit` / `UnitDependency` / `ChangeRequest` / `ApprovalSlotDelegation` 等）重新生成 Prisma client。
-- 现象：`prisma generate` 报 `EPERM: operation not permitted, rename ... query_engine-windows.dll.node`。
-- 原因：本机有 `pnpm dev`（Nest watch）、`dist/main.js`、`prisma studio` 等进程持有查询引擎 DLL。
-- 处置：经授权停掉 dev server / nest watch / vite / prisma studio 后，`prisma generate` 退出 0。
-- 现状：已解除；B7 不再阻塞开发。需要重启服务时另行启动。
+- Product Agent 第一阶段已有本地状态、理解、候选和 PRD 草稿路径；候选提交已经接入既有人工评审请求。
+- 仍待：澄清服务 API 与任务精确阻塞/恢复、15 章 PRD、原型 verify、产品/QA 验收和归档闭环。
+- 解除条件：按 [dev-plan.md](docs/dev-plan.md) WP12/WP13 的验收项实现并补测试。

@@ -25,11 +25,11 @@ pnpm box restore --from C:\Users\me\AppData\Local\workmesh\backups\20261103-1009
 
 ## 目录与平台
 
-| 平台    | 数据目录                                 | 安装目录                 | 服务管理 | 验证状态                                                             |
-| ------- | ---------------------------------------- | ------------------------ | -------- | -------------------------------------------------------------------- |
-| Windows | `%LOCALAPPDATA%\workmesh`                | `%ProgramData%\WorkMesh` | WinSW    | **已在本机实测**（status / doctor / dev --check / backup / restore） |
-| Linux   | `/var/lib/workmesh`                      | `/opt/workmesh`          | systemd  | 适配器已实现，未在 Linux 上跑验收                                    |
-| macOS   | `~/Library/Application Support/workmesh` | `/usr/local/workmesh`    | launchd  | 适配器已实现，未在 macOS 上跑验收                                    |
+| 平台    | 数据目录                                 | 安装目录                 | 服务管理 | 验证状态                                                          |
+| ------- | ---------------------------------------- | ------------------------ | -------- | ----------------------------------------------------------------- |
+| Windows | `%LOCALAPPDATA%\workmesh`                | `%ProgramData%\WorkMesh` | WinSW    | 包构建脚本与 `install.ps1` 已实现；隔离安装、运行和恢复有本机记录 |
+| Linux   | `/var/lib/workmesh`                      | `/opt/workmesh`          | systemd  | 适配器已实现，未在 Linux 上跑验收                                 |
+| macOS   | `~/Library/Application Support/workmesh` | `/usr/local/workmesh`    | launchd  | 适配器已实现，未在 macOS 上跑验收                                 |
 
 数据目录内约定：
 
@@ -49,6 +49,6 @@ logs/                         # dev 启动的进程日志
 
 ## 还没做（下一步）
 
-- 安装包（自带 Node + PostgreSQL 二进制）与 `install` 命令：目前 `dev` 从仓库启动，`service()` 只生成命令、不执行。
+- 通用 `workmesh-box install` 命令尚未实现；现有 Windows 安装由打包产物中的 `install.ps1` 执行，`workmesh-box dev` 仍从仓库启动，跨平台 `service()` 目前只生成命令、不执行。
 - `/download` 页与 CLI 分发。
 - Linux / macOS 的验收脚本运行记录（跑了之后才能把 `verified` 改成 true）。

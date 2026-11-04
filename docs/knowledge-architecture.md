@@ -1,9 +1,9 @@
 # WorkMesh 知识与变更架构（设计稿 v0.1）
 
-> 状态：设计稿，未实施。日期：2026-11-02。
+> 状态：设计稿，部分能力已实施；复核日期：2026-11-04。知识库、文档修订与发布、需求验收映射、变更请求/收件人等能力已在代码中落地；捕获/复用/改进/退役闭环和本文全部规则尚未完整实现。具体边界以 [交付状态](phase-status.md) 和源码为准。
 > 范围：三类知识库、五态生命周期、四个闭环、上下文装配、验收标准契约、项目开发规范、需求变更与通知。
 > 依据：现有 schema 与 API + 成熟实践（KCS、Diátaxis、Backstage TechDocs、ADR、Team Topologies、Parallel Change、OpenGitOps），文末列出处。
-> 本文只定义模型与规则，不含迁移与实现。
+> 本文保留目标模型与规则；不要将设计项直接视为现行契约。
 
 ---
 
@@ -205,7 +205,7 @@ sequenceDiagram
 | 改动                                           | 位置                                                                 | 说明                                                      |
 | ---------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------- |
 | `KnowledgeBase.kind`                           | [KnowledgeBase](../apps/api/prisma/schema.prisma#L220)               | `BUSINESS \| SYSTEM \| PRACTICE`                          |
-| 文档 kind 改为模板注册                         | [KnowledgeDocument](../apps/api/prisma/schema.prisma#L264)           | 不再用闭枚举                                              |
+| 文档 `kind` 存储改为字符串                     | [KnowledgeDocument](../apps/api/prisma/schema.prisma#L281)           | 数据库使用 `VARCHAR(48)`；当前 API 仍限制已支持的字符串值 |
 | `scopeKind` + `scopeId`                        | KnowledgeDocument                                                    | `PROJECT \| UNIT \| ROLE`                                 |
 | `ownerUserId`、`reviewDueAt`、`supersededById` | KnowledgeDocument                                                    | 治理与退役                                                |
 | `confidence`、`evidenceRefs`                   | [DocumentRevision](../apps/api/prisma/schema.prisma#L286)            | 老项目重建必需                                            |
@@ -221,7 +221,7 @@ sequenceDiagram
 | 文档模板 `freshnessPolicy`                     | 模板                                                                 | `BLOCK \| WARN \| ALLOW`                                  |
 | 验收 `acceptance[]` 结构                       | PRD revision JSON                                                    | key / text / verification / category / criticality / hash |
 
-> 迁移分批、执行纪律与回滚方式见 [migration-plan.md](migration-plan.md)。
+> 当前迁移状态见 [交付状态](phase-status.md)；部署前的迁移检查与执行纪律见 [deployment.md](deployment.md)。
 
 ## 11. 分期与验收
 
@@ -509,6 +509,6 @@ KnowledgeBase(kind=SYSTEM)
 
 ### 16.8 与现状差距
 
-当前 `DocumentKind` 没有 `CONVENTIONS`（[schema.prisma](../apps/api/prisma/schema.prisma#L264) 附近的枚举），也没有规范的结构化校验；`ProjectKnowledgeBinding` 能绑定，但快照装配还没有「编码角色必带规范」的规则；交付 `checks[]` 已经能承载 `enforcement: CI` 的证据。
+数据库中的 `KnowledgeDocument.kind` 是 `VARCHAR(48)`，不是 Prisma 枚举；但 API 当前仍以 `DocumentKind` 字符串联合类型和 `DOCUMENT_KINDS` 白名单校验，只接受 `UNDERSTANDING`、`DECISION`、`PRD`、`KNOWLEDGE`。因此 `CONVENTIONS` 目前尚不能通过文档 API 创建。`ProjectKnowledgeBinding` 能绑定知识库，但快照装配还没有「编码角色必带规范」的规则；交付 `checks[]` 已经能承载 `enforcement: CI` 的证据。
 
-需要补：`DocumentKind.CONVENTIONS`、`conventions.yaml` 的结构校验、装配必带规则，以及 [project-templates/software/](../project-templates/software/) 的初始模板。
+需要补：在 API 文档 kind 白名单中支持 `CONVENTIONS`、`conventions.yaml` 的结构校验、装配必带规则，以及 [project-templates/software/](../project-templates/software/) 的初始模板；无需新增 Prisma 枚举。

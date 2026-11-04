@@ -1,32 +1,41 @@
-# WorkMesh v1 delivery status (S00–S08)
+# WorkMesh 当前交付与验证状态
 
-本文件只记录新方案（`/api/v1`、opaque WebSession、AgentCredential、确认票据、幂等与版本并发）的交付状态。
-旧 Phase 0–6 内容（JWT/refresh、seed、GitLab、signoff、AI provider）已随旧代码退出，不再代表本仓库。
+> 更新时间：2026-11-04。本文是当前状态的唯一汇总入口。文中的验证结果来自已跟踪的 2026-11-03 验收记录；本轮只整理文档，没有重新运行服务、数据库或浏览器测试。
+>
+> 有日期的原始证据见 [工程整改验证](testing/remediation-verification-2026-11-03.md) 和 [本机部署与团队使用验收](testing/team-acceptance-2026-11-03.md)。工作计划见 [dev-plan.md](dev-plan.md)，仍未完成的外部条件见 [BLOCKED.md](../BLOCKED.md)。
 
-| 阶段 | 已交付内容                                                                                                                                      | 证据类别                              | 边界                                          |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | --------------------------------------------- |
-| S00  | 基线核对与工作树保护；类型检查基线归零                                                                                                          | 源码/类型                             | 未提交、未部署                                |
-| S01  | 唯一 `apps/api/prisma/schema.prisma`（`workmesh_v1` multiSchema）、单一干净初始迁移、`PrismaService` 独立 client 输出、旧迁移/seed/导入脚本删除 | 源码/类型                             | 真实 PostgreSQL apply 未授权                  |
-| S02  | `@Global AuthModule`：HUMAN WebSession Cookie + 双值 CSRF、AGENT `Bearer wm_a1.*`、确认票据、动作预览、CLI 设备授权（PKCE S256）、固定窗口限流  | 源码/类型、单测、进程内 Nest HTTP     | 真实部署 HTTP 与浏览器未验证                  |
-| S03  | 知识库文档/候选修订/发布/恢复/撤回、UNDERSTANDING/PRD 绑定与基线校验、工作流 DAG 编译与实例物化、审批槽派生                                     | 源码/类型、单测、进程内 Nest HTTP     | 真实 PostgreSQL 约束/并发未验证               |
-| S04  | 任务认领/释放/工作状态、确定性 ContextSnapshot、工件交付与基线复核、评审决定与撤销、TASK/RELEASE 验收效应、变更传播                             | 源码/类型、单测、进程内 Nest HTTP     | 真实 PostgreSQL 并发与触发器未验证            |
-| S05  | 厂商中立 GitHub adapter、分页/多仓、Webhook HMAC 验签与去重、提交级代码证据准备与绑定                                                           | 源码/类型、单测、fixture/HTTP adapter | GitHub live 未授权                            |
-| S06  | CLI 迁移到正式 API：设备授权、AgentCredential、角色包/上下文/交付/评审/回执，旧登录与 refresh 删除                                              | 源码/类型、单测                       | 打包后在干净 home 的真实执行未验证            |
-| S07  | Web 改为同源 Cookie + CSRF，删除旧 signoff/直接发布，补齐评审/返修/撤销/角色/ACL 页面                                                           | 源码/类型、单测                       | 浏览器 E2E 未验证                             |
-| S08  | 协议收尾：缺口端点补齐、正式命名收敛、文档与进度记录                                                                                            | 源码/类型、单测、构建                 | 真实数据库/HTTP/浏览器/GitHub 仍为 unverified |
+## 已交付能力
 
-## 证据口径
+| 范围         | 当前实现                                                                                                                                        | 证据与边界                                                               |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 认证与授权   | WebSession Cookie + 双值 CSRF；Agent Bearer 凭据；设备授权 PKCE；一次性确认票据；项目成员、角色和 scope 校验                                    | 源码、单测、进程内 HTTP 契约；真实公网部署和浏览器属性仍需独立验收       |
+| 知识与 PRD   | 文档修订、候选提交、评审请求、发布、撤回、恢复；PRD/Understanding 基线绑定                                                                      | 真实 PostgreSQL 测试已覆盖部分发布与权限链路；完整产品浏览器闭环仍待验收 |
+| 工作流       | 内置 `standard`、`software-delivery`、`software-delivery-no-ui` 模板；定义校验、发布、实例化、角色包锁和审批槽派生                              | 源码、单测、真实 PostgreSQL 验收；跨版本迁移和生产升级仍需运维证据       |
+| 任务与交付   | ready 查询、认领/释放、工作状态、确定性 ContextSnapshot、托管文件或 GIT_REF 工件、基线复核、返修                                                | CLI 与 API 已实现；Agent 不能批准或发布                                  |
+| 评审与变更   | 单条/批量决定、返修、拒绝、撤销、槽位委托、超时升级、变更请求、收件人 ack 和失效传播                                                            | 服务层和真实数据库并发测试已记录；真实团队长期使用尚未验证               |
+| GitHub 证据  | 仓库/PR/reviews 读取、分页、Webhook HMAC 验签、提交级代码证据归一化和绑定                                                                       | 当前只有 GitHub 适配器；本次没有获准的真实仓库/PR，live 结果为 SKIPPED   |
+| CLI 与角色包 | auth、setup、roles install、claim、context/materialize、product 草稿、candidate、deliver、review、receipt、changes；六个内置角色包 manifest 1.1 | 源码和包测试已通过；打包后在全新 home 的长期使用仍需单独记录             |
+| Web 工作台   | 工作台、需求、评审、项目、看板、知识、PRD、流程、角色/ACL、设备授权和用户中心                                                                   | 基础浏览器流程已验证；需求详情到发布的完整闭环、跨浏览器和无障碍仍待验收 |
+| workmesh-box | status、doctor、dev、backup、restore；Windows 本机已有隔离安装和恢复记录                                                                        | Linux/macOS 适配器已实现但未完成对应平台验收；正式安装包发布流程仍未完成 |
 
-- **源码/类型**：`tsc --noEmit`、构建与静态检查。
-- **单测**：shared/API/CLI/Web 的 vitest 套件，不跳过、不放宽断言。
-- **进程内 Nest HTTP**：`apps/api/test/v1-http-contract.spec.ts` 与各域 HTTP spec，使用内存仓储，不等价真实部署。
-- **隔离 PostgreSQL / 浏览器 E2E / GitHub live**：需要用户授权的外部目标，未执行时一律记为 unverified。
+## 证据等级
 
-## 未验证
+- **代码/类型**：源码、schema、构建和静态检查支持，不等于运行时部署验证。
+- **单测/进程内 HTTP**：Vitest 和 Nest HTTP 契约支持，不等于真实数据库或浏览器行为。
+- **真实隔离 PostgreSQL**：整改记录报告 604 项 API 测试通过，其中 57 项使用真实 PostgreSQL；另有全部 12 项迁移、备份恢复和 49 张基础表核对记录。
+- **基础浏览器自动化**：记录覆盖注册、会话、创建项目、页面加载、重新登录和 CSRF 拒绝；不等于完整产品闭环。
+- **手工隔离团队验收**：记录了 Windows 环境下三人测试团队的需求、交付、返修、评审、发布和恢复流程；不等于外部真实团队验收。
+- **SKIPPED / 未验证**：没有获准目标或必要外部条件时保持原状态，不把实现了入口写成已经验证。
 
-- 真实 PostgreSQL：迁移 apply、跨项目复合外键、不可变触发器、并发事务与回滚。
-- 真实 Nest HTTP 会话链与浏览器闭环。
-- GitHub live 分页/验签/提交级证据。
-- Node 版本矩阵（规格 Node 20/24，本机 v22.22.2）。
+## 当前仍未验证
 
-详细阻塞与解除条件见 `.agent-local/workmesh-v1/BLOCKED.md`，轮次记录见 `.agent-local/workmesh-v1/PROGRESS.md`。
+1. GitHub live：真实仓库、PR、reviews 分页、Webhook 投递和提交级代码证据的端到端联调。
+2. 完整浏览器产品闭环：需求详情、任务交付、评审决定、发布和变更传播；跨浏览器与无障碍验收。
+3. 生产运维：生产库迁移、生产备份恢复、升级回滚、容量、长时间稳定性和灾备。
+4. 跨平台：Linux/macOS 的安装、服务管理、备份恢复和卸载验收。
+5. 外部使用证据：尚无外部真实团队完成并签署一条交付链路。
+6. 未来协议：澄清服务 API、任务精确恢复、15 章 PRD、原型 verify 和产品/QA 归档闭环仍在开发计划中。
+
+## 解释
+
+当前仓库是可自部署的开发版。已记录的本地隔离验证证明实现链路可以运行，但不能替代最终 commit 的远端 CI、生产环境检查、外部 GitHub、跨平台安装或真实团队使用证据。

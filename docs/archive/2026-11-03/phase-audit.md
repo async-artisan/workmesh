@@ -1,5 +1,7 @@
 # WorkMesh v1 completion audit (S00–S08)
 
+> 历史归档（2026-11-04）：保留原始设计、实施步骤与当时的证据，不作为当前操作清单或完成状态。当前交付与验证状态见 [交付状态](../../phase-status.md)，未完成工作见 [开发计划](../../dev-plan.md)，部署操作见 [部署说明](../../deployment.md)。原路径：`docs/phase-audit.md`。
+
 审计区分“源码证据”和“环境依赖证据”；环境依赖项未执行时不得计入 completed。
 旧 Phase 0–6 审计结论已随旧实现退出而作废。
 

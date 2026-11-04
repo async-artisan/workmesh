@@ -27,7 +27,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev-local.ps1
 
 端口不在脚本参数里改：API 端口来自 `apps/api/.env` 的 `PORT`，Web 端口来自 `apps/web/vite.config.ts`。要换端口得同时改 `WORKMESH_PUBLIC_ORIGIN` / `WEB_ORIGIN`，否则 Cookie 和 Origin 校验会挡掉请求——所以默认别动。
 
-> 本机只有 Windows PowerShell 5.1，没有 `pwsh`。脚本已按 5.1 写，并且必须保存为 **UTF-8 with BOM**，否则中文会乱码到解析失败。
+> 启动入口使用 Windows PowerShell，脚本兼容 5.1；脚本须保存为 **UTF-8 with BOM**，避免 Windows PowerShell 5.1 误读中文。
 
 ## 2. 打开并登录
 
@@ -68,9 +68,9 @@ pnpm --filter @workmesh/web dev
 
 - **不要用 `corepack pnpm`**。本机 corepack 报 `Cannot find matching keyid`（签名密钥过期），README 里的那套命令会直接失败。已装的 `pnpm` 就是 10.28.2，和 `packageManager` 一致，直接用。
 - **不要用根目录的 `pnpm dev`**。它是 `turbo run dev`，会把 `cli` / `shared` / `ui` 的 watch 一起拉起来，CLI 那个 watch 纯噪音。本地只要 api + web，脚本里就是这么做的。
-- 配置已经就位，不用再抄 `.env`：`apps/api/.env` 指向 `postgresql://postgres:workmesh_local@127.0.0.1:5432/workmesh?schema=workmesh_v1`，并设置 `WORKMESH_COOKIE_MODE=LOCAL_INSECURE`（只允许 loopback + HTTP 的本地开发模式）。仓库根的 `.env.example` 是旧模板，别拿它覆盖 `apps/api/.env`。
+- 本地配置样例见 [`apps/api/.env.example`](../apps/api/.env.example)；首次运行前据此创建 `apps/api/.env`，设置匹配本机 PostgreSQL 的 `WORKMESH_V1_DATABASE_URL`，并保留 `WORKMESH_COOKIE_MODE=LOCAL_INSECURE`（只允许 loopback + HTTP 的本地开发模式）。已有个人 `.env` 时不要直接覆盖。
 - `apps/api` 的 `dev` 带了 `predev`（先 `prisma generate`），所以第一次启动会多几秒；这是为了防止切分支后 Prisma Client 与 schema 不一致。
-- `.env` 里的值会**覆盖**同名环境变量（`@nestjs/config` 无条件写入 `process.env`），所以 `$env:PORT=3100; pnpm --filter @workmesh/api dev` 仍然监听 3000。要改端口就改 `.env`。
+- API 使用 `@nestjs/config`，已有进程环境变量优先于 `.env`。修改端口时须同步启动脚本的端口检查、Web 代理与 Origin 配置；本地一键脚本默认按 API 3000、Web 5173 检查。
 
 ## 4. 界面里有什么
 

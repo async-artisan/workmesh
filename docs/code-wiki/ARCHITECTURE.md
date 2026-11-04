@@ -1,6 +1,6 @@
 # WorkMesh Code Wiki：架构与代码地图
 
-> 分析基线：2026-11-02 的当前工作树快照。仓库当时存在大量未提交、删除和新增文件，因此本文描述的是工作树中的 v1 方向，不把 Git 历史中的旧实现当作当前契约。所有结论优先以源码、schema、脚本和现有文档为证据；未能由当前运行验证的内容列在“假设与待核实”中。
+> 初始分析基线：2026-11-02 工作树快照；2026-11-04 文档清理时复核了运行入口、配置与验证状态。源码、schema 和脚本是实现依据；当前交付与验证边界统一见 [阶段状态](../phase-status.md)。本轮整理未重跑业务测试。
 
 ## 1. Executive Summary / 执行摘要
 
@@ -41,13 +41,13 @@ WorkMesh 是面向本地 AI Agent 的证据驱动协作中枢。人类通过浏�
 - **前端开发者**：从 `apps/web/src/App.tsx`、`apps/web/src/api/client.ts`、`apps/web/src/api/resources.ts`、`apps/web/src/store/` 及 `apps/web/src/pages/` 开始。
 - **CLI/Agent 集成开发者**：从 `apps/cli/src/index.ts`、`apps/cli/src/client.ts`、`apps/cli/src/auth.ts`、`apps/cli/src/config.ts`、`apps/cli/src/context.ts`、`apps/cli/src/deliver.ts` 和 `apps/cli/src/receipts.ts` 开始。
 - **运维人员**：先读 `docs/deployment.md`、`scripts/db-check.sh`、`scripts/db-plan.sh`、`scripts/test-integration.sh`、`scripts/verify.sh`。
-- **未来 AI Agent**：先读仓库根部 `README.md`、`docs/operations-boundaries.md`、`docs/api.md`、`spec/SPEC.md` 以及本文第 10、11 节；修改前确认当前工作树和目标环境。
+- **未来 AI Agent**：先读仓库根部 `README.md`、`docs/deployment.md`、`docs/phase-status.md`、`docs/api.md`、`spec/SPEC.md` 以及本文第 10、11 节；修改前确认当前工作树和目标环境。
 
 ## 4. System Context / 系统上下文
 
 系统包含三个直接使用者：浏览器中的人类操作者、本地运行的 AI Agent、负责部署和维护的工程人员。浏览器和 CLI 都通过正式 `/api/v1` 协议访问 API；API 使用 PostgreSQL `workmesh_v1` schema，GitHub 通过 Webhook 与代码证据 API 接入；当前实现未使用 Redis。
 
-详见根目录 `ARCHITECTURE_DIAGRAMS.md` 的系统上下文图、容器图和部署图。
+详见本目录 [`ARCHITECTURE_DIAGRAMS.md`](ARCHITECTURE_DIAGRAMS.md) 的系统上下文图、容器图和部署图。
 
 ## 5. Main Entry Points / 主要入口
 
@@ -135,7 +135,7 @@ CLI 使用 Commander 构建单文件入口，配置写入用户 `~/.workmesh` �
 
 ### 8.1 PostgreSQL 模型分组
 
-`schema.prisma` 当前包含约 38 个模型和 13 组枚举，全部落在 `workmesh_v1` schema。可以按业务关系理解为：
+数据模型定义在 `schema.prisma`，全部落在 `workmesh_v1` schema。可以按业务关系理解为：
 
 1. **身份与控制**：`User`、`WebSession`、`AgentCredential`、`CliAuthorizationRequest/View`、`ConfirmationTicket`、`PrincipalStamp`、`AuthRateWindow`。
 2. **项目与权限**：`Project`、`ProjectMember`、`ProjectRole`、`ProjectRoleAssignment`、`KnowledgeBaseGrant`、`ProjectKnowledgeBinding`。
@@ -189,13 +189,12 @@ Web 页面 → `api/client.ts` → `/api/v1` → 全局 middleware/interceptor/g
 ### 10.1 本地开发
 
 ```bash
-corepack pnpm install
-corepack pnpm --filter @workmesh/shared build
-corepack pnpm --filter @workmesh/api exec prisma generate --schema prisma/schema.prisma
-corepack pnpm dev
+pnpm install
+pnpm --filter @workmesh/shared build
+pnpm --filter @workmesh/api exec prisma generate --schema prisma/schema.prisma
 ```
 
-API 默认 `http://localhost:3000`，Swagger 为 `/api/docs`；Web 默认 `http://127.0.0.1:5173`，Vite 将 `/api` 代理到 `127.0.0.1:3000`。
+按 [部署说明](../deployment.md) 配置环境与数据库后，在两个终端分别执行 `pnpm --filter @workmesh/api dev` 和 `pnpm --filter @workmesh/web dev`。Windows 一键启动说明见 [本地运行](../local-dev.md)。API 默认端口为 3000，Swagger 为 `/api/docs`；Web 默认 `http://127.0.0.1:5173`，Vite 将 `/api` 代理到 `127.0.0.1:3000`。
 
 ### 10.2 数据库与生产部署
 
@@ -205,7 +204,7 @@ Node.js 20+、pnpm 10.28.2、PostgreSQL 15+ 是文档要求。正式连接只使
 corepack pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/schema.prisma
 ```
 
-生产默认 `WORKMESH_COOKIE_MODE=SECURE`，需要 HTTPS 与 `__Host-` Cookie；`LOCAL_INSECURE` 仅用于 loopback 开发。`WORKMESH_PUBLIC_ORIGIN`、`WEB_ORIGIN`、`PORT`、`RATE_LIMIT_MAX` 和可选 `REDIS_URL` 由部署环境注入。API 从 `apps/api/dist/main.js` 启动，Web `dist` 由 TLS 反向代理托管。
+生产默认 `WORKMESH_COOKIE_MODE=SECURE`，需要 HTTPS 与 `__Host-` Cookie；`LOCAL_INSECURE` 仅用于 loopback 开发。`WORKMESH_PUBLIC_ORIGIN`、`WEB_ORIGIN`、`PORT` 和 `RATE_LIMIT_MAX` 由部署环境注入。API 从 `apps/api/dist/main.js` 启动，Web `dist` 由 TLS 反向代理托管。
 
 ### 10.3 CLI
 
@@ -214,7 +213,7 @@ corepack pnpm --filter @workmesh/cli build
 corepack pnpm workmesh --help
 ```
 
-跨项目使用构建后的 `apps/cli/dist/index.js`。项目内先运行 `workmesh init` 创建 `.workmesh/` 配置，再执行 `workmesh auth login`、`claim`、`context`、`deliver`、`review`、`receipt` 和 `changes` 等命令。
+跨项目使用构建后的 `apps/cli/dist/index.js`。首次初始化执行 `workmesh setup --role backend --host codex --api https://<host>/api/v1 --project <项目UUID>`，完成浏览器设备授权、角色包安装和自检，再按需执行 `claim`、`context`、`deliver`、`review`、`receipt` 和 `changes` 等命令。也可分别使用 `auth login` 与 `roles install`；参数示例见根目录 README 的 CLI 章节。
 
 ## 11. Testing and Verification / 测试与验证
 
@@ -268,27 +267,27 @@ git diff --check
 
 ## 14. Assumptions and Items Needing Human Validation / 假设与待核实项
 
-- 本文基于当前工作树，未将大量未提交删除/新增视为已合并、已发布或已部署。
-- `README.md` 与 `docs/deployment.md` 描述的是 v1；根 `.env.example`、`apps/api/.env.example` 仍包含旧 JWT、旧 `DATABASE_URL` 等字段，与正式 v1 配置不一致，不能据此启动生产环境。
-- API 的事务、数据库触发器、多项目复合外键和并发行为在真实 PostgreSQL 上尚未完成验证；当前很多测试使用内存仓储或进程内 Nest HTTP。
-- 浏览器真实闭环、打包后干净 home 的 CLI 执行、Node 20/24 矩阵和 GitHub live 均未由本次分析执行。
+- 文档中的实现描述不能代替发布或部署记录。
+- 根 `.env.example` 与 `apps/api/.env.example` 已使用 v1 配置；两者默认是本地开发模式，生产配置按 [部署说明](../deployment.md) 设置 HTTPS、Cookie 与数据库连接。
+- 2026-11-03 验收记录覆盖隔离 PostgreSQL 迁移、备份恢复及部分并发约束；生产升级、回滚、容量和灾备仍需验证，详见 [阶段状态](../phase-status.md)。
+- 基础浏览器流程和打包后 CLI 已有验收记录；完整交付闭环、跨浏览器、Node 20/24 矩阵和获准真实仓库的 GitHub live 仍需补充证据。本轮文档整理未执行这些验证。
 - `packages/ui` 和 `packages/config` 当前职责较小；未来是否扩展为统一设计系统或配置运行时，需要产品/架构决策，不应从包名推断。
 
 ### 验证说明
 
-本 Wiki 的关系依据来自 package manifests、imports、AppModule、Vite 配置、Prisma schema、公开 API 文档、测试文件和运行脚本。未能由这些证据确认的关系已标注为待核实；没有把未使用的 Redis 或可选 GitHub live 验收画成必经运行路径。
+本 Wiki 的关系依据来自 package manifests、imports、AppModule、Vite 配置、Prisma schema、公开 API 文档、测试文件和运行脚本。未能由这些证据确认的关系已标注为待核实；GitHub live 验收尚未完成，不能从适配器存在推断线上链路已验证。
 
 ## 15. Suggested Architecture Improvements / 建议的架构改进
 
-| Category               | Recommendation                                                                                    | Evidence                                                                                | Senior developer rationale         | Manager rationale                | Effort | Risk | Priority |
-| ---------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------- | -------------------------------- | ------ | ---- | -------- |
-| Documentation/context  | 统一并清理根 `.env.example` 与 `apps/api/.env.example`，只保留 v1 配置并链接 `docs/deployment.md` | 两份示例仍含 JWT/`DATABASE_URL`，部署文档只认可 `WORKMESH_V1_DATABASE_URL`              | 降低错误配置和排障分支             | 缩短新成员上手时间，减少部署事故 | 小     | 低   | P0       |
-| Verification/guardrail | 在 CI 增加架构文档校验、契约测试和 `git diff --check` 门禁                                        | 已有 `scripts/test-contracts.mjs`、`scripts/verify.sh`，但工作树状态显示文档/代码易漂移 | 让协议与说明的偏差更早暴露         | 提高交付可预测性                 | 小     | 低   | P1       |
-| Contract/schema        | 为 API v1 生成或维护机器可检查的 OpenAPI/route contract snapshot                                  | `docs/api.md` 是手写清单，Swagger 在运行时生成                                          | 防止 controller、Web、CLI 契约漂移 | 降低跨端联调成本                 | 中     | 中   | P1       |
-| Verification/guardrail | 增加真实 PostgreSQL 的迁移、并发 CAS、不可变审计/发布触发器测试                                   | `phase-status.md` 明确真实 DB 并发与触发器仍 unverified                                 | 覆盖内存仓储无法发现的约束问题     | 降低数据损坏和回滚风险           | 中     | 中   | P0       |
-| Security/data safety   | 将 CLI 凭据文件存储接入系统钥匙串或明确部署基线                                                   | CLI 当前支持用户 home 下 0600 文件，并明确不宣称同用户隔离                              | 减少本地凭据泄露面                 | 降低终端失陷后的凭据处置成本     | 中     | 中   | P1       |
-| Boundary/modularity    | 为每个 API 领域补一份“controller/service/repository/事务边界”短 README 或目录索引                 | 领域文件数量多，入口关系目前主要靠命名和本文恢复                                        | 降低跨模块修改时的误读             | 减少新人和 AI Agent 的定位时间   | 小     | 低   | P2       |
-| Documentation/context  | 为图中低置信度关系补一份关系清单或 ADR，尤其是 Web 页面与 API resource 映射                       | 当前可由 imports 推断大部分边，但真实浏览器链路未验证                                   | 让架构边有可审计来源               | 减少维护中的“看起来应该如此”     | 小     | 低   | P2       |
+| Category               | Recommendation                                                                    | Evidence                                                                                | Senior developer rationale         | Manager rationale                | Effort | Risk | Priority |
+| ---------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------- | -------------------------------- | ------ | ---- | -------- |
+| Documentation/context  | 保持两份 `.env.example` 与部署说明同步，区分本地和生产配置                        | 两份样例已使用 v1 配置，但默认是本地开发模式                                            | 降低错误配置和排障分支             | 缩短新成员上手时间，减少部署事故 | 小     | 低   | P1       |
+| Verification/guardrail | 在 CI 增加架构文档校验、契约测试和 `git diff --check` 门禁                        | 已有 `scripts/test-contracts.mjs`、`scripts/verify.sh`，但工作树状态显示文档/代码易漂移 | 让协议与说明的偏差更早暴露         | 提高交付可预测性                 | 小     | 低   | P1       |
+| Contract/schema        | 为 API v1 生成或维护机器可检查的 OpenAPI/route contract snapshot                  | `docs/api.md` 是手写清单，Swagger 在运行时生成                                          | 防止 controller、Web、CLI 契约漂移 | 降低跨端联调成本                 | 中     | 中   | P1       |
+| Verification/guardrail | 补充生产 PostgreSQL 升级、回滚、容量与灾备验收                                    | 隔离数据库验证已有记录，生产与规模化运行证据仍待补充                                    | 检查真实运行环境的约束和恢复能力   | 降低数据损坏和回滚风险           | 中     | 中   | P0       |
+| Security/data safety   | 将 CLI 凭据文件存储接入系统钥匙串或明确部署基线                                   | CLI 当前支持用户 home 下 0600 文件，并明确不宣称同用户隔离                              | 减少本地凭据泄露面                 | 降低终端失陷后的凭据处置成本     | 中     | 中   | P1       |
+| Boundary/modularity    | 为每个 API 领域补一份“controller/service/repository/事务边界”短 README 或目录索引 | 领域文件数量多，入口关系目前主要靠命名和本文恢复                                        | 降低跨模块修改时的误读             | 减少新人和 AI Agent 的定位时间   | 小     | 低   | P2       |
+| Documentation/context  | 为图中低置信度关系补一份关系清单或 ADR，尤其是 Web 页面与 API resource 映射       | 当前可由 imports 推断大部分边，但真实浏览器链路未验证                                   | 让架构边有可审计来源               | 减少维护中的“看起来应该如此”     | 小     | 低   | P2       |
 
 ## 16. Glossary / 术语表
 
@@ -307,11 +306,5 @@ git diff --check
 | CLI        | `apps/cli/src/index.ts`、`apps/cli/src/client.ts`、`apps/cli/src/auth.ts`、`apps/cli/src/config.ts`             | 命令、设备授权、配置、重试和收据                                                  | 高     |
 | 跨端契约   | `packages/shared/src/index.ts`、`packages/shared/src/strict-json.ts`、`scripts/test-contracts.mjs`              | 严格 JSON、摘要、错误、角色包和流程校验                                           | 高     |
 | 运行部署   | `docs/deployment.md`、`scripts/test-integration.sh`、`scripts/verify.sh`、`package.json`                        | Node/pnpm/Postgres、迁移、构建、测试与部署步骤                                    | 高     |
-| 状态/缺口  | `docs/phase-status.md`                                                                                          | 真实 DB/浏览器/GitHub live 尚未验证                                               | 高     |
-| 工作树状态 | `git status --short --branch`                                                                                   | 当前分析基线不是 clean checkout                                                   | 高     |
-
-### 文档验证命令
-
-```bash
-python /Users/qiujianjun/.codex/skills/repo-architecture-walkthrough/scripts/verify_architecture_docs.py
-```
+| 状态/缺口  | `docs/phase-status.md`                                                                                          | 隔离数据库和基础浏览器已有记录，生产与 GitHub live 验收仍有缺口                   | 高     |
+| 工作树状态 | `git status --short --branch`                                                                                   | 修改前识别已有本地变更及当前分支                                                  | 高     |

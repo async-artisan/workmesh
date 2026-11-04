@@ -1,8 +1,8 @@
 # 02：领域模型、版本、状态与事务
 
-日期：2026-11-01。本文是目标技术规格，不是已完成的代码、迁移或验证。角色工作流在本地执行，平台只管理正式共享对象、版本、责任和批准，不运行任意角色步骤。
+规格初稿日期：2026-11-01。本文保留领域模型、状态与事务契约，包含已实现规则及后续目标；当前覆盖与验证边界见[交付状态](../../../phase-status.md)。文中旧迁移路径和实施步骤保留初稿语境，不作为当前操作清单。角色工作流在本地执行，平台只管理正式共享对象、版本、责任和批准，不运行任意角色步骤。
 
-身份与ACL字段以[01](01-identity-permissions.md)为准；流程与包schema以[03](03-local-workflows-clients.md)为准；代码来源与评审证据以[04](04-code-hosting-adapters.md)为准；公开请求响应以[05](05-api-contract.md)为准；迁移和开发任务以[06](06-development-tasks-and-verification.md)为准。本册权威定义领域实体、状态与事务。
+身份与ACL字段以[01](01-identity-permissions.md)为准；流程与包schema以[03](03-local-workflows-clients.md)为准；代码来源与评审证据以[04](04-code-hosting-adapters.md)为准；公开请求响应以[05](05-api-contract.md)为准；当前开发见[开发计划](../../../dev-plan.md)，历史迁移和任务验收要求见[归档矩阵](../../../archive/2026-11-01/development-tasks-and-verification.md)。本册权威定义领域实体、状态与事务。
 
 ## 1. 数据实现约定
 

@@ -1,5 +1,7 @@
 # WorkMesh architecture
 
+Current delivery and verification boundaries are maintained in [delivery status](phase-status.md). For source navigation and diagrams, see the [code map](code-wiki/ARCHITECTURE.md) and [architecture diagrams](code-wiki/ARCHITECTURE_DIAGRAMS.md). The [documentation index](README.md) separates current guidance, technical contracts and historical records.
+
 WorkMesh is a pnpm workspace. `apps/api` owns the NestJS HTTP boundary and Prisma persistence, `apps/web` is the React workbench, `apps/cli` provides local automation for agents, and `packages/shared` contains cross-app contracts.
 
 The request path is `controller → domain service → repository → Prisma`. Services never trust client-declared identity, roles, versions or approval state: the guard derives a `Principal` (HUMAN WebSession or AGENT bearer credential), then project membership and knowledge-base read access are re-checked per request.
