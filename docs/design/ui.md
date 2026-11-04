@@ -41,6 +41,8 @@ Web 入口按 `index.css → ui-v2.css → ui-v3.css → ui-v4.css` 的顺序加
 ## 后续维护
 
 - 新页面复用当前 token、按钮、卡片、表格和响应式规则。
+- 公共基础（`--wm-*` 设计令牌、`PageState`/`EmptyState`/`ErrorState`/`StaleDataBanner`、统一项目上下文与反馈语义）见 [ui-foundations.md](./ui-foundations.md)；新页面优先复用，不再复制临时状态与反馈样式。
+
 - 只有在代码实现并验证后，才把主题切换、夜间模式或新的视觉能力记录为现状。
 - 如规范文字与 CSS 不一致，以 CSS 和页面实际行为为准，并同步修订本文件。
 
