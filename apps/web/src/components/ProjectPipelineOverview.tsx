@@ -45,6 +45,11 @@ export interface ProjectPipelineOverviewProps {
   onSelectRequirement?: (requirement: PipelineRequirement) => void;
   /** Optional initial phase filter; defaults to all phases. */
   initialPhase?: PipelinePhase | 'ALL' | 'UNKNOWN';
+  /**
+   * 分页读取是否完整。false 时总需求统计改称“已读取需求（不完整）”，
+   * 不能把已读取数量当成项目总需求数。
+   */
+  requirementsComplete?: boolean;
   className?: string;
 }
 
@@ -133,6 +138,7 @@ export function ProjectPipelineOverview({
   requirements,
   onSelectRequirement,
   initialPhase = 'ALL',
+  requirementsComplete = true,
   className = '',
 }: ProjectPipelineOverviewProps) {
   const [query, setQuery] = useState('');
@@ -193,11 +199,15 @@ export function ProjectPipelineOverview({
           type="button"
           className="pipeline-overview__stat"
           aria-pressed={status === 'ALL'}
-          aria-label={`全部需求：${stats.total} 条${status === 'ALL' ? '，当前筛选' : ''}`}
+          aria-label={`${
+            requirementsComplete ? '全部需求' : '已读取需求'
+          }：${stats.total} 条${status === 'ALL' ? '，当前筛选' : ''}${
+            requirementsComplete ? '' : '，列表可能不完整，不代表项目总需求数'
+          }`}
           onClick={() => chooseStatus('ALL')}
         >
           <strong>{stats.total}</strong>
-          <span>全部需求</span>
+          <span>{requirementsComplete ? '全部需求' : '已读取需求（不完整）'}</span>
         </button>
         {PIPELINE_STAT_DEFINITIONS.map((definition) => {
           const count = stats.counts[definition.key];
@@ -224,7 +234,10 @@ export function ProjectPipelineOverview({
       <p className="pipeline-overview__stat-note">
         统计口径：执行状态按服务端 workStatus 分类；「已发布/已归档」按业务阶段 phase
         统计；缺少/未知状态计入「状态待确认」。未开始仅在服务端显式返回 executionStatus=OPEN
-        时计入（当前需求列表接口未返回该字段）。
+        时计入；显式 null/未知执行状态会进入「状态待确认」。
+        {requirementsComplete
+          ? ''
+          : ' 分页读取未完成：当前统计仅覆盖已读取需求，不代表项目总需求数。'}
       </p>
 
       <div className="pipeline-overview__toolbar">

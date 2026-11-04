@@ -73,8 +73,19 @@ export function phaseLabelOf(value: string | null | undefined): string {
 export interface PipelineRequirementSignals {
   phase?: string | null;
   workStatus?: string | null;
-  /** 列表接口当前不返回；仅在未来契约提供时使用，且只有 OPEN 被识别为“未开始”。 */
+  /**
+   * 列表接口当前不返回；仅在未来契约提供时使用。
+   * 显式值只支持 OPEN（未开始）；其它显式值一律视为未知，不能猜成进行中。
+   */
   executionStatus?: string | null;
+  /**
+   * executionStatus 字段的存在性。必须显式区分“字段缺失”和“字段存在但为 null/未知值”：
+   * - true：服务端显式提供了该字段（值可能是 null 或未知枚举）；
+   * - false：当前服务端契约没有该字段，workStatus=ACTIVE 可按“进行中”处理；
+   * - undefined：旧调用方未声明；非 undefined 的值视为已提供；显式 null 也按“已提供”
+   *   保守处理（API 适配层把缺失转成 null 时，调用方应显式传 false）。
+   */
+  executionStatusProvided?: boolean;
   /** 明确的阶段完成记录；当前列表接口不返回，缺失时绝不推断完成。 */
   stageCompletion?: { completedPhases?: string[] | null } | null;
 }
@@ -125,6 +136,19 @@ const UNKNOWN_EXECUTION: ExecutionStatusView = {
   reasonMissing: false,
 };
 
+/** executionStatus 字段的存在性与原始值。 */
+function executionStatusPresence(signals: PipelineRequirementSignals): {
+  provided: boolean;
+  raw: string | null;
+} {
+  const raw = signals.executionStatus ?? null;
+  const provided =
+    signals.executionStatusProvided ??
+    // 旧调用方：undefined 表示缺失；显式 null 按 provided=true 保守处理。
+    signals.executionStatus !== undefined;
+  return { provided, raw };
+}
+
 export function describeExecutionStatus(signals: PipelineRequirementSignals): ExecutionStatusView {
   const workStatus = signals.workStatus?.trim().toUpperCase() ?? '';
   if (workStatus === 'CANCELLED')
@@ -157,24 +181,52 @@ export function describeExecutionStatus(signals: PipelineRequirementSignals): Ex
     };
   if (workStatus !== 'ACTIVE') return UNKNOWN_EXECUTION;
 
-  const executionStatus = signals.executionStatus?.trim().toUpperCase() ?? '';
-  // 只识别显式 OPEN；当前列表契约不返回 executionStatus，未来返回时才会计入“未开始”。
+  const { provided, raw } = executionStatusPresence(signals);
+  const executionStatus = raw?.trim().toUpperCase() ?? '';
+
+  // 当前服务端契约没有 executionStatus：ACTIVE 仍然可按“进行中”展示。
+  if (!provided) {
+    return {
+      kind: 'IN_PROGRESS',
+      label: '进行中',
+      tone: 'active',
+      description:
+        '服务端返回 workStatus=ACTIVE，且当前列表契约不提供 executionStatus：需求处于活动状态；这不代表阶段工作已经完成。',
+      source: 'workStatus',
+      reasonMissing: false,
+    };
+  }
+
+  // 已知执行状态：只有 OPEN 在现有契约中具备明确语义（未来新增枚举须先更新映射）。
   if (executionStatus === 'OPEN')
     return {
       kind: 'NOT_STARTED',
       label: '未开始',
       tone: 'not-started',
-      description: '服务端显式返回 executionStatus=OPEN：尚未进入执行；该字段当前列表接口不返回。',
+      description: '服务端显式返回 executionStatus=OPEN：尚未进入执行。',
       source: 'executionStatus',
       reasonMissing: false,
     };
 
+  if (executionStatus === '') {
+    return {
+      kind: 'UNKNOWN',
+      label: '状态待确认',
+      tone: 'unknown',
+      description:
+        '服务端显式返回 executionStatus=null/空值，无法映射为已知执行状态；缺失与显式空值都被当作无法确认，不推断为进行中。',
+      source: 'executionStatus',
+      reasonMissing: false,
+    };
+  }
+
+  // 显式未知枚举：绝不猜测为新状态或归入进行中。
   return {
-    kind: 'IN_PROGRESS',
-    label: '进行中',
-    tone: 'active',
-    description: '服务端返回 workStatus=ACTIVE：需求处于活动状态；这不代表阶段工作已经完成。',
-    source: 'workStatus',
+    kind: 'UNKNOWN',
+    label: '状态待确认',
+    tone: 'unknown',
+    description: `服务端显式返回未知 executionStatus“${raw}”，前端不猜测服务端新增枚举，因此无法确认执行状态。`,
+    source: 'executionStatus',
     reasonMissing: false,
   };
 }
@@ -208,12 +260,14 @@ export const PIPELINE_STAT_DEFINITIONS: PipelineStatDefinition[] = [
   {
     key: 'NOT_STARTED',
     label: '未开始',
-    description: '仅在服务端显式返回 executionStatus=OPEN 时计入；当前列表接口不返回该字段。',
+    description:
+      '仅在服务端显式返回已知 executionStatus=OPEN 时计入；显式 null/未知枚举不会计入未开始，而是进入状态待确认。',
   },
   {
     key: 'IN_PROGRESS',
     label: '进行中',
-    description: 'workStatus=ACTIVE 且不属于已发布/已归档阶段。只表示需求处于活动状态。',
+    description:
+      'workStatus=ACTIVE，且当前契约未提供 executionStatus（或提供已知可执行状态），并且不属于已发布/已归档阶段。',
   },
   {
     key: 'BLOCKED',

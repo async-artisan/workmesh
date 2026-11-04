@@ -190,6 +190,11 @@ describe('ReviewDecision（证据 + 一次确认 + 回执）', () => {
     expect(await screen.findByText('PRD v2')).toBeInTheDocument();
     expect(screen.getAllByText(/新增记住登录/).length).toBeGreaterThan(0);
     expect(screen.getByText(/与已发布版本的差异/)).toBeInTheDocument();
+    expect(screen.getByText(/共 1 处修改 · 新增 \+1 · 删除 -1/)).toBeInTheDocument();
+    expect(screen.getByText('第 1 / 1 处修改')).toBeInTheDocument();
+    expect(
+      screen.getByRole('region', { name: '第 1 处修改：新增 1 行，删除 1 行' }),
+    ).toBeInTheDocument();
     expect(screen.getByText(/登录失败 3 次锁定/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '作出决定' }));

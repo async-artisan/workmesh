@@ -20,6 +20,7 @@ import {
   type TaskView,
 } from '../api/resources';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
+import { DiffViewer } from '../components/DiffViewer';
 import type { DecisionArtifactSummary, DecisionSummaryData } from '../components/DecisionSummary';
 import { EmptyState } from '../components/EmptyState';
 import { useAuthStore } from '../store/auth';
@@ -37,8 +38,7 @@ import {
   reviewRequiresCompleteEvidence,
   type ReviewDecisionValue,
 } from '../lib/labels';
-import { countDiff, diffLines } from '../lib/diff';
-
+import { diffLines, diffSummary } from '../lib/diff';
 type DecisionValue = ReviewDecisionValue;
 
 type DocumentSubject = {
@@ -441,11 +441,15 @@ export function ReviewDecision({
     return document.revisions.find((item) => item.id === review.documentRevisionId) ?? null;
   }, [document, review]);
 
-  const diff = useMemo(
-    () => (content && publishedText !== null ? diffLines(publishedText, content.text) : []),
-    [content, publishedText],
-  );
-  const diffCount = useMemo(() => countDiff(diff), [diff]);
+  const diffStats = useMemo(() => {
+    if (!content || publishedText === null) return null;
+    try {
+      return diffSummary(diffLines(publishedText, content.text));
+    } catch {
+      // 超长文档的差异由 DiffViewer 显示可见降级原因；摘要处不能伪造统计。
+      return null;
+    }
+  }, [content, publishedText]);
 
   const subjectLabel =
     revision?.title ||
@@ -617,7 +621,9 @@ export function ReviewDecision({
   if (revision && publishedText !== null) {
     summaryArtifacts.push({
       label: '与已发布版本的差异',
-      detail: `+${diffCount.added} / -${diffCount.removed}`,
+      detail: diffStats
+        ? `+${diffStats.added} / -${diffStats.removed}`
+        : '差异未计算（文档过长或正在读取）',
     });
   }
   const acceptanceCount = revision?.acceptance?.length ?? acceptance.length;
@@ -818,28 +824,15 @@ export function ReviewDecision({
               </div>
               <pre className="paper-content">{content.text}</pre>
               {publishedText !== null && (
-                <>
-                  <div className="detail-card-head" style={{ marginTop: 14 }}>
-                    <h3>
-                      与已发布版本的差异
-                      <small>
-                        +{diffCount.added} / -{diffCount.removed}
-                      </small>
-                    </h3>
-                  </div>
-                  <div className="diff-view">
-                    {diff.map((line, index) => (
-                      <div className={`diff-line is-${line.kind}`} key={`${index}-${line.kind}`}>
-                        <span className="diff-num">{line.oldNumber ?? ''}</span>
-                        <span className="diff-num">{line.newNumber ?? ''}</span>
-                        <span className="diff-text">
-                          {line.kind === 'add' ? '+ ' : line.kind === 'remove' ? '- ' : '  '}
-                          {line.text}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </>
+                <div style={{ marginTop: 14 }}>
+                  <h3 style={{ marginBottom: 8 }}>与已发布版本的差异</h3>
+                  <DiffViewer
+                    oldText={publishedText}
+                    newText={content.text}
+                    baseLabel="已发布版本"
+                    currentLabel={`修订 v${revision.seq}`}
+                  />
+                </div>
               )}
             </div>
           )}

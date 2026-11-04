@@ -69,6 +69,77 @@ describe('pipelineStatus（阶段与执行状态是两个维度）', () => {
     expect(released.execution.label).not.toBe('已发布');
   });
 
+  it('executionStatus 的存在性、null 与未知枚举要区分，未知值不能归入进行中', () => {
+    // 当前契约：字段缺失 -> ACTIVE 仍可显示进行中。
+    const missing = describeExecutionStatus({ workStatus: 'ACTIVE' });
+    expect(missing.kind).toBe('IN_PROGRESS');
+    expect(missing.source).toBe('workStatus');
+
+    // API 适配层显式声明“字段未提供”：即使值是 null 也按进行中。
+    const providedFalse = describeExecutionStatus({
+      workStatus: 'ACTIVE',
+      executionStatus: null,
+      executionStatusProvided: false,
+    });
+    expect(providedFalse.kind).toBe('IN_PROGRESS');
+
+    // 字段显式存在但为 null：无法确认，进入状态待确认。
+    const providedNull = describeExecutionStatus({
+      workStatus: 'ACTIVE',
+      executionStatus: null,
+      executionStatusProvided: true,
+    });
+    expect(providedNull.kind).toBe('UNKNOWN');
+    expect(providedNull.source).toBe('executionStatus');
+
+    // 旧调用方传 null 但未声明存在性：保守按已提供处理，不猜进行中。
+    const legacyNull = describeExecutionStatus({ workStatus: 'ACTIVE', executionStatus: null });
+    expect(legacyNull.kind).toBe('UNKNOWN');
+
+    // 显式未知枚举：前端不猜测新增枚举。
+    const unknownValue = describeExecutionStatus({
+      workStatus: 'ACTIVE',
+      executionStatus: 'SOMETHING_NEW',
+    });
+    expect(unknownValue.kind).toBe('UNKNOWN');
+    expect(unknownValue.label).toBe('状态待确认');
+    expect(unknownValue.description).toContain('SOMETHING_NEW');
+
+    // 当前契约唯一已知执行状态是 OPEN；其它“看起来已知”的显式值也不能猜。
+    expect(describeExecutionStatus({ workStatus: 'ACTIVE', executionStatus: 'OPEN' }).kind).toBe(
+      'NOT_STARTED',
+    );
+    expect(
+      describeExecutionStatus({ workStatus: 'ACTIVE', executionStatus: 'IN_PROGRESS' }).kind,
+    ).toBe('UNKNOWN');
+  });
+
+  it('显式未知 executionStatus 的统计进入状态待确认，不落入进行中', () => {
+    expect(
+      pipelineStatKeyOf({
+        phase: 'DELIVERY',
+        workStatus: 'ACTIVE',
+        executionStatus: 'SOMETHING_NEW',
+      }),
+    ).toBe('UNKNOWN');
+    expect(
+      pipelineStatKeyOf({
+        phase: 'DELIVERY',
+        workStatus: 'ACTIVE',
+        executionStatus: null,
+        executionStatusProvided: true,
+      }),
+    ).toBe('UNKNOWN');
+    expect(
+      pipelineStatKeyOf({
+        phase: 'DELIVERY',
+        workStatus: 'ACTIVE',
+        executionStatus: null,
+        executionStatusProvided: false,
+      }),
+    ).toBe('IN_PROGRESS');
+  });
+
   it('归档不等于已发布', () => {
     const archived = describeRequirementState({ phase: 'ARCHIVED', workStatus: 'ACTIVE' });
     expect(archived.isArchived).toBe(true);

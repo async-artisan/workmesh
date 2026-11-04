@@ -7,7 +7,10 @@ export function envelope(data: unknown): { data: unknown; meta: { requestId: str
 }
 
 export type StubReply = { status: number; body: unknown };
-export type StubHandler = (url: string, init: RequestInit) => StubReply | undefined;
+export type StubHandler = (
+  url: string,
+  init: RequestInit,
+) => StubReply | Promise<StubReply | undefined> | undefined;
 
 function stubResponse(status: number, body: unknown) {
   return {
@@ -25,7 +28,7 @@ export function mockFetch(handler: StubHandler) {
   const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
     const request = init ?? {};
-    const reply = handler(url, request);
+    const reply = await handler(url, request);
     if (!reply) {
       return stubResponse(404, {
         error: {

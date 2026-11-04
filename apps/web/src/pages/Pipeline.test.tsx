@@ -180,6 +180,142 @@ describe('Pipeline（需求流水线加载可信度）', () => {
     expect(screen.getByRole('button', { name: /阻塞：1 条/ })).toBeInTheDocument();
   });
 
+  it('达到 40 页仍有下一页时明确提示列表可能不完整，统计改称已读取需求', async () => {
+    let requirementCalls = 0;
+    stubFetch((path) => {
+      if (path === '/api/v1/projects') return reply(200, envelope([projectA]));
+      if (path === '/api/v1/projects/p1/requirements') {
+        requirementCalls += 1;
+        return reply(
+          200,
+          envelope({
+            items: [
+              requirement({
+                id: `req-${requirementCalls}`,
+                seq: requirementCalls,
+                title: `第 ${requirementCalls} 页需求`,
+              }),
+            ],
+            nextCursor: String(requirementCalls + 1),
+          }),
+        );
+      }
+      return undefined;
+    });
+
+    renderPipeline();
+
+    expect(await screen.findByText('需求列表可能未完整加载')).toBeInTheDocument();
+    expect(
+      screen.getByText(/已读取前 40 页（每页最多 50 条），服务端没有返回总数/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /已读取需求：40 条/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^全部需求：/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重新加载' })).toBeInTheDocument();
+    expect(requirementCalls).toBe(40);
+
+    // 截断状态下搜索仍可用，只过滤已读取数据。
+    fireEvent.change(screen.getByLabelText('搜索需求'), { target: { value: '第 40 页' } });
+    expect(screen.getByText('第 40 页需求')).toBeInTheDocument();
+    expect(screen.getByLabelText('当前显示 1 条')).toBeInTheDocument();
+  });
+
+  it('第 40 页返回 nextCursor=null 时视为完整，仍显示全部需求', async () => {
+    let requirementCalls = 0;
+    stubFetch((path) => {
+      if (path === '/api/v1/projects') return reply(200, envelope([projectA]));
+      if (path === '/api/v1/projects/p1/requirements') {
+        requirementCalls += 1;
+        return reply(
+          200,
+          envelope({
+            items: [
+              requirement({
+                id: `req-${requirementCalls}`,
+                seq: requirementCalls,
+                title: `完整分页需求 ${requirementCalls}`,
+              }),
+            ],
+            nextCursor: requirementCalls < 40 ? String(requirementCalls + 1) : null,
+          }),
+        );
+      }
+      return undefined;
+    });
+
+    renderPipeline();
+
+    expect(await screen.findByRole('button', { name: /全部需求：40 条/ })).toBeInTheDocument();
+    expect(screen.queryByText('需求列表可能未完整加载')).not.toBeInTheDocument();
+    expect(screen.getByText('完整分页需求 40')).toBeInTheDocument();
+    expect(requirementCalls).toBe(40);
+  });
+
+  it('服务端游标重复时停止读取并提示不完整，不静默声称完整', async () => {
+    let requirementCalls = 0;
+    stubFetch((path) => {
+      if (path === '/api/v1/projects') return reply(200, envelope([projectA]));
+      if (path === '/api/v1/projects/p1/requirements') {
+        requirementCalls += 1;
+        return reply(
+          200,
+          envelope({
+            items: [
+              requirement({
+                id: `req-${requirementCalls}`,
+                title: `游标需求 ${requirementCalls}`,
+              }),
+            ],
+            nextCursor: '2',
+          }),
+        );
+      }
+      return undefined;
+    });
+
+    renderPipeline();
+
+    expect(await screen.findByText('需求列表可能未完整加载')).toBeInTheDocument();
+    expect(screen.getByText(/服务端游标重复（已读取 2 页）/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /已读取需求：2 条/ })).toBeInTheDocument();
+    expect(requirementCalls).toBe(2);
+  });
+
+  it('截断快照刷新失败时保留旧数据与截断提示，stale 行为不回归', async () => {
+    let requirementCalls = 0;
+    stubFetch((path) => {
+      if (path === '/api/v1/projects') return reply(200, envelope([projectA]));
+      if (path === '/api/v1/projects/p1/requirements') {
+        requirementCalls += 1;
+        if (requirementCalls > 2) return errorReply('REQUIREMENTS_UNAVAILABLE', '刷新失败');
+        return reply(
+          200,
+          envelope({
+            items: [
+              requirement({
+                id: `req-${requirementCalls}`,
+                title: `截断需求 ${requirementCalls}`,
+              }),
+            ],
+            nextCursor: '2',
+          }),
+        );
+      }
+      return undefined;
+    });
+
+    renderPipeline();
+    expect(await screen.findByText('需求列表可能未完整加载')).toBeInTheDocument();
+    expect(screen.getByText('截断需求 1')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+
+    expect(await screen.findByText('本次刷新失败，数据可能已经过期。')).toBeInTheDocument();
+    expect(screen.getByText('需求列表可能未完整加载')).toBeInTheDocument();
+    expect(screen.getByText('截断需求 1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /已读取需求：2 条/ })).toBeInTheDocument();
+  });
+
   it('已有快照刷新失败时保留旧数据并显示 stale，搜索筛选仍可用', async () => {
     let requirementCalls = 0;
     stubFetch((path) => {

@@ -1,17 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   base64ToUtf8,
   documentApi,
-  requirementApi,
   type DocumentDetail,
   type RequirementView,
   type RevisionView,
 } from '../api/resources';
 import { formatApiError } from '../api/client';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
+import { DiffViewer } from '../components/DiffViewer';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
+import { REVISION_STATE_LABELS } from '../lib/labels';
+import { loadDocumentIndex } from '../lib/documentIndex';
+import { loadRequirementIndex } from '../lib/requirementIndex';
 
 type RevisionWithReview = RevisionView & { reviewRequestId?: string | null };
 
@@ -26,24 +29,6 @@ type ContentView = {
 function revisionReviewId(revision: RevisionView): string | null {
   const value = (revision as RevisionWithReview).reviewRequestId;
   return typeof value === 'string' && value.trim() ? value : null;
-}
-
-function diffLines(baseText: string, candidateText: string): string[] {
-  const base = baseText.split(/\r?\n/);
-  const candidate = candidateText.split(/\r?\n/);
-  const lines: string[] = [];
-  const max = Math.max(base.length, candidate.length);
-  for (let index = 0; index < max; index += 1) {
-    const before = base[index];
-    const after = candidate[index];
-    if (before === after) {
-      if (after !== undefined) lines.push(`  ${after}`);
-      continue;
-    }
-    if (before !== undefined) lines.push(`- ${before}`);
-    if (after !== undefined) lines.push(`+ ${after}`);
-  }
-  return lines;
 }
 
 /**
@@ -62,6 +47,15 @@ export function Prds() {
   const [content, setContent] = useState<ContentView | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [requirementIndexError, setRequirementIndexError] = useState('');
+  const [requirementIndexLoading, setRequirementIndexLoading] = useState(false);
+  const [documentIndexError, setDocumentIndexError] = useState('');
+  const [documentIndexFailed, setDocumentIndexFailed] = useState(false);
+  const [docsLoading, setDocsLoading] = useState(false);
+  /** 文档列表请求序号：项目切换/刷新失败时旧请求不得覆盖新页面。 */
+  const docsRequestRef = useRef(0);
+  /** 正文请求序号：慢的旧版本请求完成后不得覆盖当前版本。 */
+  const contentRequestRef = useRef(0);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawReason, setWithdrawReason] = useState('');
 
@@ -69,7 +63,8 @@ export function Prds() {
   const requirementLabel = (id: string | null | undefined): string => {
     if (!id) return '未绑定需求';
     const requirement = requirementsById.get(id);
-    return requirement ? `${requirement.code} · ${requirement.title}` : '未绑定需求';
+    if (requirement) return `${requirement.code} · ${requirement.title}`;
+    return requirementIndexError ? '关联需求暂时无法读取' : '未绑定需求';
   };
   const revisionLabel = (id: string | null | undefined): string => {
     if (!id) return '—';
@@ -86,54 +81,128 @@ export function Prds() {
         return false;
       if (statusFilter === 'published' && !item.publishedRevision) return false;
       if (!text) return true;
-      const latest = item.publishedRevision ?? item.revisions[0] ?? null;
-      return [latest?.title ?? '', requirementLabel(item.document.requirementId)]
+      const requirement = item.document.requirementId
+        ? requirementsById.get(item.document.requirementId)
+        : null;
+      const revisionText = item.revisions.flatMap((revision) => [
+        revision.title,
+        `v${revision.seq}`,
+        revision.state,
+        REVISION_STATE_LABELS[revision.state] ?? '',
+      ]);
+      const searchText = [
+        'PRD',
+        'prd',
+        item.document.kind,
+        requirement?.code ?? '',
+        requirement?.title ?? '',
+        requirement ? `${requirement.code} · ${requirement.title}` : '',
+        ...revisionText,
+      ]
         .join(' ')
-        .toLowerCase()
-        .includes(text);
+        .toLowerCase();
+      return searchText.includes(text);
     });
   }, [docs, query, statusFilter, requirementsById]);
 
   const candidateCount =
     selected?.revisions.filter((revision) => revision.state === 'CANDIDATE').length ?? 0;
-  const diff = useMemo(
-    () => (content?.baseText === undefined ? [] : diffLines(content.baseText, content.text)),
-    [content],
-  );
+
+  async function refreshRequirementIndex() {
+    if (!projectId) return;
+    setRequirementIndexLoading(true);
+    try {
+      const index = await loadRequirementIndex(projectId);
+      setRequirementsById(index.byId);
+      setRequirementIndexError(index.error);
+    } finally {
+      setRequirementIndexLoading(false);
+    }
+  }
 
   async function load() {
     if (!projectId) {
+      docsRequestRef.current += 1;
       setDocs([]);
       setSelectedId('');
       setContent(null);
+      setRequirementsById(new Map());
+      setRequirementIndexError('');
+      setDocumentIndexError('');
+      setDocumentIndexFailed(false);
+      setDocsLoading(false);
       return;
     }
+
+    const requestId = docsRequestRef.current + 1;
+    docsRequestRef.current = requestId;
+    setDocsLoading(true);
     try {
-      const [page, requirementPage] = await Promise.all([
-        documentApi.list(projectId, 'PRD'),
-        requirementApi.list(projectId).catch(() => null),
+      const [documents, requirementIndex] = await Promise.all([
+        loadDocumentIndex(projectId, 'PRD'),
+        loadRequirementIndex(projectId),
       ]);
-      setDocs(page.items);
-      setRequirementsById(new Map((requirementPage?.items ?? []).map((item) => [item.id, item])));
+      if (docsRequestRef.current !== requestId) return;
+      const documentsFailed = !documents.complete && documents.reason === null;
+      // 首次分页请求失败时 helper 返回空 items：已有快照必须保留，不能把旧文档清空。
+      const nextDocs = documentsFailed && docs.length > 0 ? docs : documents.items;
+      setDocs(nextDocs);
+      setDocumentIndexError(
+        documentsFailed && docs.length > 0
+          ? `${documents.error} 数据可能已过期，当前仍显示上次成功读取的 ${docs.length} 个文档。`
+          : documents.error,
+      );
+      setDocumentIndexFailed(documentsFailed);
+      setRequirementsById(requirementIndex.byId);
+      setRequirementIndexError(requirementIndex.error);
       setError('');
       setSelectedId((current) =>
-        page.items.some((item) => item.document.id === current)
+        nextDocs.some((item) => item.document.id === current)
           ? current
-          : (page.items[0]?.document.id ?? ''),
+          : (nextDocs[0]?.document.id ?? ''),
       );
+      // 文档列表重新读取后，旧正文/旧 diff 不再对应当前列表。
+      contentRequestRef.current += 1;
       setContent(null);
     } catch (caught) {
-      setError(formatApiError(caught));
+      if (docsRequestRef.current !== requestId) return;
+      setDocumentIndexFailed(true);
+      setDocumentIndexError(`文档列表读取失败：${formatApiError(caught)}`);
+    } finally {
+      if (docsRequestRef.current === requestId) setDocsLoading(false);
     }
   }
 
   useEffect(() => {
+    // 项目切换：立即清空旧项目文档与正文，并让在途的文档/正文请求全部失效。
+    docsRequestRef.current += 1;
+    contentRequestRef.current += 1;
+    setDocs([]);
+    setSelectedId('');
+    setContent(null);
+    setError('');
+    setDocumentIndexError('');
+    setDocumentIndexFailed(false);
+    setDocsLoading(false);
+    if (!projectId) return;
     void load();
   }, [projectId]);
 
+  function selectDocument(documentId: string) {
+    contentRequestRef.current += 1;
+    setSelectedId(documentId);
+    setContent(null);
+    setError('');
+  }
+
   async function openContent(revision: RevisionView) {
+    const requestId = contentRequestRef.current + 1;
+    contentRequestRef.current = requestId;
+    setContent(null);
+    setError('');
     try {
       const body = await documentApi.content(revision.id);
+      if (contentRequestRef.current !== requestId) return;
       const next: ContentView = {
         revisionId: revision.id,
         text: base64ToUtf8(body.bodyBase64),
@@ -142,12 +211,14 @@ export function Prds() {
       const published = selected?.publishedRevision;
       if (published && published.id !== revision.id && revision.state === 'CANDIDATE') {
         const publishedBody = await documentApi.content(published.id);
+        if (contentRequestRef.current !== requestId) return;
         next.baseRevisionId = published.id;
         next.baseText = base64ToUtf8(publishedBody.bodyBase64);
       }
       setContent(next);
       setError('');
     } catch (caught) {
+      if (contentRequestRef.current !== requestId) return;
       setError(formatApiError(caught));
     }
   }
@@ -184,10 +255,19 @@ export function Prds() {
         <div className="page-actions">
           <ProjectSelect
             onChange={() => {
+              contentRequestRef.current += 1;
               setSelectedId('');
               setContent(null);
             }}
           />
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => void load()}
+            disabled={docsLoading}
+          >
+            {docsLoading ? '刷新中…' : '刷新文档'}
+          </button>
         </div>
       </header>
 
@@ -197,6 +277,42 @@ export function Prds() {
         </p>
       )}
       {notice && <p className="kb-notice">{notice}</p>}
+      {documentIndexError && (
+        <div
+          className={documentIndexFailed ? 'error' : 'kb-notice'}
+          role={documentIndexFailed ? 'alert' : 'status'}
+        >
+          {documentIndexError}
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => void load()}
+            disabled={docsLoading}
+          >
+            {docsLoading ? '读取中…' : '重新读取文档列表'}
+          </button>
+        </div>
+      )}
+      {requirementIndexError && (
+        <div className="kb-notice" role="status">
+          {requirementIndexError}
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => void refreshRequirementIndex()}
+            disabled={requirementIndexLoading}
+          >
+            {requirementIndexLoading ? '读取中…' : '重新读取需求索引'}
+          </button>
+        </div>
+      )}
+      {selected &&
+        (query.trim() !== '' || statusFilter !== 'all') &&
+        !filteredDocs.some((item) => item.document.id === selected.document.id) && (
+          <p className="page-sub" role="status">
+            当前查看的文档不在筛选结果中；详情仍保留，清除搜索或状态筛选可回到完整列表。
+          </p>
+        )}
 
       <div className="page-card muted">
         Agent 生成的候选会自动出现在这里。页面不提供手动新建或编辑 PRD
@@ -266,13 +382,7 @@ export function Prds() {
                       {item.revisions.filter((revision) => revision.state === 'CANDIDATE').length}
                     </td>
                     <td className="col-actions">
-                      <button
-                        className="ghost"
-                        onClick={() => {
-                          setSelectedId(item.document.id);
-                          setContent(null);
-                        }}
-                      >
+                      <button className="ghost" onClick={() => selectDocument(item.document.id)}>
                         {selectedId === item.document.id ? '当前' : '查看版本'}
                       </button>
                     </td>
@@ -284,9 +394,11 @@ export function Prds() {
                   <td colSpan={5}>
                     {!projectId
                       ? '先选择项目。'
-                      : docs.length === 0
-                        ? '该项目还没有 PRD 文档，等待 Product Agent 提交候选。'
-                        : '没有匹配的 PRD，清空搜索或状态筛选。'}
+                      : docs.length === 0 && documentIndexError
+                        ? '文档列表读取失败或未完整加载，暂时无法判断是否有 PRD 文档。'
+                        : docs.length === 0
+                          ? '该项目还没有 PRD 文档，等待 Product Agent 提交候选。'
+                          : '没有匹配的 PRD，清空搜索或状态筛选。'}
                   </td>
                 </tr>
               )}
@@ -387,16 +499,13 @@ export function Prds() {
           </div>
           <pre className="search-result">{content.text}</pre>
           {content.baseText !== undefined && (
-            <>
-              <div className="card-head">
-                <h3>
-                  与已发布版本的差异<small>{revisionLabel(content.baseRevisionId)}</small>
-                </h3>
-              </div>
-              <pre className="search-result" data-testid="prd-diff">
-                {diff.length > 0 ? diff.join('\n') : '与已发布版本内容相同。'}
-              </pre>
-            </>
+            <DiffViewer
+              oldText={content.baseText}
+              newText={content.text}
+              baseLabel={`已发布 ${revisionLabel(content.baseRevisionId)}`}
+              currentLabel={`候选 ${revisionLabel(content.revisionId)}`}
+              testId="prd-diff"
+            />
           )}
         </div>
       )}

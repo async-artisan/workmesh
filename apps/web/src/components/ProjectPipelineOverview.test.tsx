@@ -16,7 +16,10 @@ function req(overrides: Partial<PipelineRequirement> = {}): PipelineRequirement 
 
 function renderOverview(
   requirements: PipelineRequirement[],
-  props: { onSelectRequirement?: (requirement: PipelineRequirement) => void } = {},
+  props: {
+    onSelectRequirement?: (requirement: PipelineRequirement) => void;
+    requirementsComplete?: boolean;
+  } = {},
 ) {
   return render(<ProjectPipelineOverview requirements={requirements} {...props} />);
 }
@@ -165,5 +168,15 @@ describe('ProjectPipelineOverview（阶段时间线 / 状态拆分 / 统计口�
     const blockedStat = screen.getByRole('button', { name: /阻塞：1 条/ });
     expect(blockedStat.getAttribute('aria-label')).toContain('口径：');
     expect(screen.queryByText('暂无数据')).not.toBeInTheDocument();
+  });
+
+  it('分页不完整时总需求统计改称“已读取需求（不完整）”，不冒充项目总数', () => {
+    renderOverview([req({ id: 'a', title: '已读取需求' })], { requirementsComplete: false });
+
+    const total = screen.getByRole('button', { name: /已读取需求：1 条/ });
+    expect(total.getAttribute('aria-label')).toContain('列表可能不完整');
+    expect(screen.getByText('已读取需求（不完整）')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^全部需求：/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/分页读取未完成/)).toBeInTheDocument();
   });
 });
