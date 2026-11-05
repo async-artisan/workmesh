@@ -16,10 +16,10 @@ import {
 export type NavGroup = 'daily' | 'delivery' | 'admin' | 'account';
 
 export const NAV_GROUP_LABELS: Record<NavGroup, string> = {
-  daily: '日常',
+  daily: '工作',
   delivery: '交付',
-  admin: '管理',
-  account: '账号',
+  admin: '团队',
+  account: '设置',
 };
 
 export interface NavItem {
@@ -31,7 +31,13 @@ export interface NavItem {
 }
 
 export const navItems: NavItem[] = [
-  { key: '工作台', icon: LayoutDashboard, path: '/', desc: '跨项目待办与签字入口', group: 'daily' },
+  {
+    key: '我的待办',
+    icon: LayoutDashboard,
+    path: '/',
+    desc: '跨项目待办与签字入口',
+    group: 'daily',
+  },
   {
     key: '需求',
     icon: ClipboardList,
@@ -69,28 +75,35 @@ export const navItems: NavItem[] = [
     desc: '候选文档、修订与撤销发布',
     group: 'delivery',
   },
-  { key: 'PRD', icon: FileText, path: '/prd', desc: 'PRD 候选、返修与撤销发布', group: 'delivery' },
+  {
+    key: '项目文档',
+    icon: FileText,
+    path: '/prd',
+    desc: 'PRD 候选、返修与撤销发布',
+    group: 'delivery',
+  },
 
   {
-    key: '流程',
+    key: '流程配置',
     icon: GitBranch,
     path: '/workflows',
     desc: '流程定义校验、发布与版本基线',
     group: 'admin',
   },
   {
-    key: '角色/ACL',
+    key: '成员与角色',
     icon: Users,
     path: '/roles',
     desc: '成员、业务角色与知识库访问集合',
     group: 'admin',
   },
+
   {
     key: '设备授权',
     icon: KeyRound,
     path: '/authorization',
     desc: 'CLI 设备授权批准',
-    group: 'admin',
+    group: 'account',
   },
 
   {

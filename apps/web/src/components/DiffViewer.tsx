@@ -128,6 +128,7 @@ export function DiffViewer({
 
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const [activeChange, setActiveChange] = useState(0);
+  const [onlyChanges, setOnlyChanges] = useState(false);
   /** 独立于 activeChange 的导航请求序号：单修改块时 activeChange 不变也必须聚焦。 */
   const [navigationRequest, setNavigationRequest] = useState(0);
   const changeRefs = useRef(new Map<number, HTMLDivElement>());
@@ -137,6 +138,7 @@ export function DiffViewer({
   useEffect(() => {
     setExpanded(new Set());
     setActiveChange(0);
+    setOnlyChanges(false);
     setNavigationRequest(0);
     focusRequestRef.current = false;
   }, [oldText, newText]);
@@ -239,6 +241,14 @@ export function DiffViewer({
           共 {summary.changeBlocks} 处修改 · 新增 +{summary.added} · 删除 -{summary.removed}
         </span>
         <div className="wm-diff__nav" aria-label="修改点导航">
+          <button
+            type="button"
+            className="ghost"
+            aria-pressed={onlyChanges}
+            onClick={() => setOnlyChanges((value) => !value)}
+          >
+            {onlyChanges ? '显示完整上下文' : '仅看修改'}
+          </button>
           <span className="wm-diff__nav-label" role="status">
             第 {(activeChange % changeBlocks.length) + 1} / {changeBlocks.length} 处修改
           </span>
@@ -266,6 +276,7 @@ export function DiffViewer({
       <div className="wm-diff__blocks">
         {blocks.map((block, blockIndex) => {
           if (block.kind === 'context') {
+            if (onlyChanges) return null;
             const foldable = block.lines.length > CONTEXT_FOLD_THRESHOLD;
             const isExpanded = expanded.has(blockIndex);
             return (

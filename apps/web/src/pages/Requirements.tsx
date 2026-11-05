@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { formatApiError } from '../api/client';
 import {
@@ -17,6 +17,28 @@ import { useProjectContext } from '../hooks/useProjectContext';
 import { useAuthStore } from '../store/auth';
 import { describeRequirementState, phaseLabelOf } from '../lib/pipelineStatus';
 import { publishedWorkflowDefinitions } from '../lib/workflowInitState';
+
+/**
+ * 窄屏（≤720px）列表用卡片替代表格：断点与 mobile-lists.css 保持一致。
+ * jsdom 没有 matchMedia 时按桌面表格渲染，既有交互与读屏结构完全不变。
+ */
+const NARROW_LIST_QUERY = '(max-width: 720px)';
+
+function subscribeNarrowList(onChange: () => void): () => void {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => {};
+  const mediaQuery = window.matchMedia(NARROW_LIST_QUERY);
+  mediaQuery.addEventListener?.('change', onChange);
+  return () => mediaQuery.removeEventListener?.('change', onChange);
+}
+
+function getNarrowListSnapshot(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia(NARROW_LIST_QUERY).matches;
+}
+
+function useNarrowList(): boolean {
+  return useSyncExternalStore(subscribeNarrowList, getNarrowListSnapshot, () => false);
+}
 
 /**
  * 需求页只收集最小产品意图并展示服务端状态；PRD、知识和实现产物由本地 Agent 生成。
@@ -41,6 +63,8 @@ export function Requirements() {
   const [query, setQuery] = useState('');
   const [phaseFilter, setPhaseFilter] = useState('');
   const [page, setPage] = useState(1);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const PAGE_SIZE = 12;
 
   useEffect(() => {
@@ -56,6 +80,52 @@ export function Requirements() {
     .filter((member) => member.role === 'OWNER' || member.role === 'ADMIN')
     .map((member) => member.name?.trim() || member.email);
   const publishedDefinitions = publishedWorkflowDefinitions(definitions);
+  const narrowList = useNarrowList();
+
+  const emptyListText = projectId
+    ? items.length === 0
+      ? '还没有需求，先在上方创建。'
+      : '没有匹配的需求，清空搜索或阶段筛选。'
+    : '先选择项目。';
+
+  /** 表格与卡片共用同一套行内操作，避免窄屏丢失「详情 / 初始化流程」入口。 */
+  function requirementActions(item: RequirementView) {
+    return (
+      <>
+        <button
+          className="ghost"
+          onClick={() => navigate(`/requirements/${encodeURIComponent(item.code)}`)}
+        >
+          详情
+        </button>
+        {isAdmin && item.phase === 'DISCOVERY' && (
+          <>
+            {publishedDefinitions.length > 0 ? (
+              <button className="ghost" onClick={() => setWorkflowTarget(item)}>
+                初始化流程
+              </button>
+            ) : (
+              <button className="ghost" disabled title="流程定义尚未发布：先到「流程」页发布">
+                流程定义未发布
+              </button>
+            )}
+          </>
+        )}
+        {!isAdmin && item.phase === 'DISCOVERY' && (
+          <span
+            className="status-tag"
+            title={
+              adminNames.length > 0
+                ? `项目管理员：${adminNames.join('、')}`
+                : '请联系项目管理员初始化流程实例'
+            }
+          >
+            等待管理员初始化
+          </span>
+        )}
+      </>
+    );
+  }
 
   const phaseOptions = useMemo(() => [...new Set(items.map((item) => item.phase))].sort(), [items]);
 
@@ -85,6 +155,7 @@ export function Requirements() {
       setRoles([]);
       setMembers([]);
       setDefinitions([]);
+      setNextCursor(null);
       return;
     }
     try {
@@ -95,12 +166,33 @@ export function Requirements() {
         workflowApi.listDefinitions(projectId),
       ]);
       setItems(requirementPage.items);
+      setNextCursor(requirementPage.nextCursor ?? null);
       setMembers(memberList);
       setRoles(roleList);
       setDefinitions(definitionPage.items);
       setError('');
     } catch (caught) {
       setError(formatApiError(caught));
+    }
+  }
+
+  /** 服务端游标分页：首屏只取第一页，列表底部明确提供「加载更多」，不静默丢掉 >limit 的需求。 */
+  async function loadMore() {
+    if (!projectId || !nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await requirementApi.list(projectId, nextCursor);
+      setItems((previous) => {
+        const byId = new Map(previous.map((item) => [item.id, item]));
+        for (const item of page.items) byId.set(item.id, item);
+        return [...byId.values()];
+      });
+      setNextCursor(page.nextCursor ?? null);
+      setError('');
+    } catch (caught) {
+      setError(formatApiError(caught));
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -133,7 +225,7 @@ export function Requirements() {
   }
 
   return (
-    <section>
+    <section className="requirements-page">
       <header className="page-head">
         <div>
           <h2>需求</h2>
@@ -146,7 +238,10 @@ export function Requirements() {
           )}
         </div>
         <div className="page-actions">
-          <ProjectSelect onChange={() => setItems([])} />
+          <ProjectSelect
+            onChange={() => setItems([])}
+            onCreateProject={() => navigate('/projects')}
+          />
         </div>
       </header>
 
@@ -219,96 +314,82 @@ export function Requirements() {
             </select>
           </div>
         </div>
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>编号</th>
-                <th>标题</th>
-                <th>描述</th>
-                <th>版本</th>
-                <th>阶段</th>
-                <th>执行状态</th>
-                <th className="col-actions">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleRequirements.map((item) => {
-                const state = describeRequirementState(item);
-                return (
-                  <tr key={item.id}>
-                    <td>
-                      <span className="status-tag">{item.code}</span>
-                    </td>
-                    <td>{item.title}</td>
-                    <td>
-                      <span className="cell-truncate" title={item.description ?? ''}>
-                        {item.description || '—'}
-                      </span>
-                    </td>
-                    <td className="cell-num">v{item.version}</td>
-                    <td>{state.phase.label}</td>
-                    <td>
+        {narrowList ? (
+          <ul className="wm-mobile-card-list" data-testid="requirements-card-list">
+            {visibleRequirements.map((item) => {
+              const state = describeRequirementState(item);
+              return (
+                <li key={item.id} className="wm-mobile-card" data-testid="requirement-card">
+                  <div className="wm-mobile-card-head">
+                    <span className="status-tag wm-mobile-card-code">{item.code}</span>
+                    <span className="wm-mobile-card-tags">
+                      <span className="status-tag">{state.phase.label}</span>
                       <span className={`status-tag is-${state.execution.tone}`}>
                         {state.execution.label}
                       </span>
-                    </td>
-                    <td className="col-actions">
-                      <div className="cell-actions row-actions">
-                        <button
-                          className="ghost"
-                          onClick={() => navigate(`/requirements/${encodeURIComponent(item.code)}`)}
-                        >
-                          详情
-                        </button>
-                        {isAdmin && item.phase === 'DISCOVERY' && (
-                          <>
-                            {publishedDefinitions.length > 0 ? (
-                              <button className="ghost" onClick={() => setWorkflowTarget(item)}>
-                                初始化流程
-                              </button>
-                            ) : (
-                              <button
-                                className="ghost"
-                                disabled
-                                title="流程定义尚未发布：先到「流程」页发布"
-                              >
-                                流程定义未发布
-                              </button>
-                            )}
-                          </>
-                        )}
-                        {!isAdmin && item.phase === 'DISCOVERY' && (
-                          <span
-                            className="status-tag"
-                            title={
-                              adminNames.length > 0
-                                ? `项目管理员：${adminNames.join('、')}`
-                                : '请联系项目管理员初始化流程实例'
-                            }
-                          >
-                            等待管理员初始化
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {visibleRequirements.length === 0 && (
-                <tr className="table-empty">
-                  <td colSpan={7}>
-                    {projectId
-                      ? items.length === 0
-                        ? '还没有需求，先在上方创建。'
-                        : '没有匹配的需求，清空搜索或阶段筛选。'
-                      : '先选择项目。'}
-                  </td>
+                    </span>
+                  </div>
+                  <p className="wm-mobile-card-title" title={item.title}>
+                    {item.title}
+                  </p>
+                  <div className="wm-mobile-card-actions">{requirementActions(item)}</div>
+                </li>
+              );
+            })}
+            {visibleRequirements.length === 0 && (
+              <li className="wm-mobile-empty">{emptyListText}</li>
+            )}
+          </ul>
+        ) : (
+          <div className="table-scroll" data-testid="requirements-table">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>编号</th>
+                  <th>标题</th>
+                  <th>描述</th>
+                  <th>版本</th>
+                  <th>阶段</th>
+                  <th>执行状态</th>
+                  <th className="col-actions">操作</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {visibleRequirements.map((item) => {
+                  const state = describeRequirementState(item);
+                  return (
+                    <tr key={item.id}>
+                      <td>
+                        <span className="status-tag">{item.code}</span>
+                      </td>
+                      <td>{item.title}</td>
+                      <td>
+                        <span className="cell-truncate" title={item.description ?? ''}>
+                          {item.description || '—'}
+                        </span>
+                      </td>
+                      <td className="cell-num">v{item.version}</td>
+                      <td>{state.phase.label}</td>
+                      <td>
+                        <span className={`status-tag is-${state.execution.tone}`}>
+                          {state.execution.label}
+                        </span>
+                      </td>
+                      <td className="col-actions">
+                        <div className="cell-actions row-actions">{requirementActions(item)}</div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {visibleRequirements.length === 0 && (
+                  <tr className="table-empty">
+                    <td colSpan={7}>{emptyListText}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
         {filteredRequirements.length > PAGE_SIZE && (
           <div className="table-pagination">
             <span>
@@ -330,6 +411,14 @@ export function Requirements() {
                 下一页
               </button>
             </div>
+          </div>
+        )}
+        {nextCursor && (
+          <div className="table-pagination">
+            <span>已加载 {items.length} 条，服务端还有更多需求</span>
+            <button className="ghost" disabled={loadingMore} onClick={() => void loadMore()}>
+              {loadingMore ? '加载中…' : '加载更多'}
+            </button>
           </div>
         )}
       </div>

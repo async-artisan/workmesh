@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "workmesh-api-agent-http-evidence/1",
+  "date": "2026-11-04",
+  "status": "failed",
+  "setup": {
+    "isolatedDatabaseVerified": true,
+    "appServer": "ephemeral-loopback"
+  },
+  "failure": {
+    "name": "WorkmeshHttpError",
+    "code": "RUN_NOT_DELIVERABLE",
+    "status": null
+  },
+  "modelTrace": {
+    "provider": "ollama",
+    "model": "qwen2.5:14b",
+    "runId": "api-agent-968d75f1-5a94-41b7-88bd-67235e5d5512",
+    "turns": null,
+    "toolCalls": 1,
+    "elapsedMs": 53762,
+    "testExitCodes": [],
+    "events": [
+      {
+        "tool": "read_file",
+        "args": {
+          "path": "src/format-task.mjs"
+        },
+        "result": {
+          "ok": true,
+          "path": "src/format-task.mjs",
+          "content": "export const CANARY = \"acc4ba3b0522c8c2a659857f\";\nexport function formatTask(value) { return String(value); }\n"
+        },
+        "startedAt": "2026-11-04T14:08:37.431Z",
+        "durationMs": 3
+      }
+    ],
+    "finalSourceSha256": "2bcfa9175c6fe5189acbe766e2d8a2734c072e18c15dc40465e47c642faaca7c",
+    "trustedTestSha256": "7721930695166361b8d6131da1419ac9750f6b50d981eba7a295a275a2a95db0"
+  }
+}

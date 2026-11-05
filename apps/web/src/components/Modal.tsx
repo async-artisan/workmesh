@@ -72,6 +72,7 @@ export function Modal({
   const cardRef = useRef<HTMLDivElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
+  const descriptionId = useId();
   const onCloseRef = useRef(onClose);
   const isHighestLayer = useIsHighestLayer(open);
 
@@ -86,8 +87,13 @@ export function Modal({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
-    const first = cardRef.current?.querySelector<HTMLElement>(FOCUSABLE);
-    (first ?? cardRef.current)?.focus();
+    // 初始焦点优先落在第一个可编辑控件（输入/下拉/文本域），没有表单字段时再退回第一个可聚焦元素。
+    const card = cardRef.current;
+    const firstEditable = card?.querySelector<HTMLElement>(
+      'input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+    );
+    const firstFocusable = card?.querySelector<HTMLElement>(FOCUSABLE);
+    (firstEditable ?? firstFocusable ?? card)?.focus();
 
     return () => {
       document.body.style.overflow = previousOverflow;
@@ -143,13 +149,18 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         ref={cardRef}
       >
         <header className="modal-head">
           <div>
             <h3 id={titleId}>{title}</h3>
-            {description && <p className="modal-desc">{description}</p>}
+            {description && (
+              <p className="modal-desc" id={descriptionId}>
+                {description}
+              </p>
+            )}
           </div>
           <button type="button" className="modal-close" aria-label="关闭弹窗" onClick={onClose}>
             <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">

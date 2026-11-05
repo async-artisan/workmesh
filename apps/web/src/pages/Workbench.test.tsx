@@ -212,6 +212,9 @@ describe('Workbench（跨项目待办聚合）', () => {
     expect(screen.getByText(/证据 2 件 · 含 PR/)).toBeInTheDocument();
     expect(screen.queryByText('review-1')).not.toBeInTheDocument();
     expect(screen.queryByText('evt-1')).not.toBeInTheDocument();
+    expect(screen.getByText('待处理事项')).toBeInTheDocument();
+    expect(screen.getByText('Agent 操作提示')).toBeInTheDocument();
+    expect(screen.queryByText(/SYS\.STATE/)).not.toBeInTheDocument();
   });
 
   it('记住角色筛选，下次打开继续生效', async () => {
@@ -269,9 +272,9 @@ describe('Workbench（跨项目待办聚合）', () => {
     const railStatus = screen.getByText(/^已同步 · \d{2}:\d{2}$/);
     const clock = (railStatus.textContent ?? '').replace('已同步 · ', '');
 
-    // 工具栏“更新于”、rail 主状态、UPDATED 元数据使用同一 HH:mm 来源。
+    // 工具栏“更新于”、rail 主状态、更新时间元数据使用同一 HH:mm 来源。
     expect(updated).toHaveTextContent(`更新于 ${clock}`);
-    expect(screen.getByText('UPDATED').nextElementSibling).toHaveTextContent(clock);
+    expect(screen.getByText('更新时间').nextElementSibling).toHaveTextContent(clock);
   });
 
   it('已有数据时刷新失败进入 stale：保留旧数据、给出上次成功时间并可重试', async () => {
@@ -468,5 +471,40 @@ describe('Workbench（跨项目待办聚合）', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText(/已确认 1 条/)).toBeInTheDocument();
     expect(screen.getByText(/订单取消规则/)).toBeInTheDocument();
+  });
+
+  it('勾选可决定的评审后出现批量批准入口，并打开批量弹窗', async () => {
+    mockFetch(handler());
+    renderWorkbench();
+
+    const checkbox = await screen.findByRole('checkbox', { name: /选择批量批准/ });
+    fireEvent.click(checkbox);
+
+    const batchButton = await screen.findByRole('button', { name: '批量批准 1 条' });
+    fireEvent.click(batchButton);
+
+    const dialog = await screen.findByRole('dialog', { name: '批量批准' });
+    expect(dialog).toHaveTextContent(/将对 1 条评审提交「批准」/);
+    expect(within(dialog).getByLabelText(/登录密码/)).toBeInTheDocument();
+  });
+
+  it('待办页签支持方向键切换，并与 tabpanel 建立关联', async () => {
+    mockFetch(handler());
+    renderWorkbench();
+    expect(await screen.findByText(/登录页改版/)).toBeInTheDocument();
+
+    const allTab = screen.getByRole('tab', { name: /^全部/ });
+    expect(allTab).toHaveAttribute('aria-selected', 'true');
+    expect(allTab).toHaveAttribute('aria-controls', 'wb-tabpanel');
+    expect(allTab).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'wb-tab-all');
+    expect(screen.getByRole('tab', { name: /待签字/ })).toHaveAttribute('tabindex', '-1');
+
+    allTab.focus();
+    fireEvent.keyDown(allTab, { key: 'ArrowRight' });
+    const signOffTab = screen.getByRole('tab', { name: /待签字/ });
+    await waitFor(() => expect(signOffTab).toHaveAttribute('aria-selected', 'true'));
+    await waitFor(() => expect(document.activeElement).toBe(signOffTab));
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'wb-tab-signOffs');
   });
 });

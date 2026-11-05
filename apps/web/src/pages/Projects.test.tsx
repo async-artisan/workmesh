@@ -72,7 +72,7 @@ describe('Projects（项目列表 / 创建 / 归档）', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '归档' }));
     const dialog = await screen.findByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: '归档' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '归档项目' }));
 
     await waitFor(() => {
       const call = mock.mock.calls.find(
@@ -106,5 +106,38 @@ describe('Projects（项目列表 / 创建 / 归档）', () => {
       '[FORBIDDEN] 无权访问项目 · requestId req-403',
     );
     expect(screen.queryByText('Demo')).not.toBeInTheDocument();
+  });
+
+  it('加载失败时显示可重试错误态，重试成功后恢复列表，而不是伪装成空数据', async () => {
+    let reads = 0;
+    mockFetch((url, init) => {
+      if (pathOf(url) === '/api/v1/projects' && methodOf(init ?? {}) === 'GET') {
+        reads += 1;
+        if (reads === 1) return { status: 500, body: { error: { code: 'INTERNAL', message: 'db down' } } };
+        return { status: 200, body: envelope([project]) };
+      }
+      return undefined;
+    });
+
+    renderProjects();
+    expect(await screen.findByText('项目列表加载失败')).toBeInTheDocument();
+    expect(screen.getByText(/本次刷新失败|暂时无法读取项目列表/)).toBeInTheDocument();
+    expect(screen.queryByText('还没有可访问的项目')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '重试加载项目列表' }));
+    expect(await screen.findByText('Demo')).toBeInTheDocument();
+    expect(screen.queryByText('项目列表加载失败')).not.toBeInTheDocument();
+  });
+
+  it('成功加载但没有项目时显示带创建入口的空态', async () => {
+    mockFetch((url, init) => {
+      if (pathOf(url) === '/api/v1/projects' && methodOf(init ?? {}) === 'GET')
+        return { status: 200, body: envelope([]) };
+      return undefined;
+    });
+
+    renderProjects();
+    expect(await screen.findByText('还没有可访问的项目')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '新建项目' }).length).toBeGreaterThanOrEqual(2);
   });
 });

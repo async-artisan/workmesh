@@ -8,7 +8,7 @@ import {
   type V1BoardSnapshot,
 } from './v1-board.repository';
 
-const COLUMN_ORDER = ['BACKLOG', 'ACTIVE', 'BLOCKED', 'PAUSED', 'DELIVERED'] as const;
+const COLUMN_ORDER = ['BACKLOG', 'ACTIVE', 'BLOCKED', 'PAUSED', 'CANCELLED', 'DELIVERED'] as const;
 
 @Injectable()
 export class V1BoardService {
@@ -45,6 +45,9 @@ export class V1BoardService {
         return 'BLOCKED';
       case 'PAUSED':
         return 'PAUSED';
+      case 'CANCELLED':
+        // 已取消是终止态：不能继续落在“进行中”，否则看板会把已取消任务当成在办。
+        return 'CANCELLED';
       case 'ACTIVE':
       default:
         return 'ACTIVE';

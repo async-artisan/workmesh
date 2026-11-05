@@ -27,6 +27,8 @@
 - [协作规范](../spec/SPEC.md)：角色交付与正式人工决定的共同约定。
 - [角色包设计](role-packages.md)、[知识与变更架构](knowledge-architecture.md)。
 - [审批工位](design/approval-workstation.md)、[当前 UI 与样式层次](design/ui.md)。
+- [项目接入、本地工作区与任务上下文设计](design/project-workspace-onboarding.md)：通用开源项目的共享项目身份、多仓库接入、本机路径映射、Agent 上下文、知识来源与实施验收方案（设计稿，尚未实施）。
+- [托管 Agent 模式可行性分析](design/api-driven-agent-feasibility.md)：新分支「不依赖本地 Agent」的四种切法与 go/no-go（分析稿，非承诺）。
 - [流程度量口径](metrics.md)。
 
 ## 验收记录

@@ -82,9 +82,11 @@
   --wm-text-xl: 20px;
 
   /* ---------- 字体 ---------- */
+  /* 只用系统字体：不依赖外网字体，避免内网/断网首屏阻塞与中英字体回退不一致。 */
   --wm-font-body:
-    Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
-  --wm-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC',
+    'Noto Sans SC', ui-sans-serif, system-ui, sans-serif;
+  --wm-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   /* ---------- 阴影 ---------- */
   --wm-shadow-sm:
@@ -93,6 +95,26 @@
   --wm-shadow-md:
     0 0 0 1px rgba(8, 145, 178, 0.1),
     0 18px 50px rgba(15, 23, 42, 0.09);
+
+  /* ---------- 层级（z-index 唯一来源） ----------
+   * 顺序：内容 < 抽屉 < 导航 < 下拉/菜单 < 通知 < 弹窗 < toast < skip link。
+   * 新样式必须使用这些令牌；旧样式用脚本替换为同名令牌，数值保持不变以避免视觉回归。
+   */
+  --wm-z-behind: -2;
+  --wm-z-underlay: -1;
+  --wm-z-flat: 0;
+  --wm-z-raised: 1;
+  --wm-z-raised-strong: 2;
+  --wm-z-local: 6;
+  --wm-z-drawer-backdrop: 90;
+  --wm-z-drawer: 95;
+  --wm-z-navbar: 100;
+  --wm-z-dropdown: 120;
+  --wm-z-menu: 130;
+  --wm-z-notification: 160;
+  --wm-z-modal: 300;
+  --wm-z-toast: 400;
+  --wm-z-skip-link: 500;
 
   /* ---------- 其他 ---------- */
   --wm-line-height: 1.6;

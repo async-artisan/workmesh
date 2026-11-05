@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Copy, Link2, MoreHorizontal, Terminal } from 'lucide-react';
 import { ApiError, formatApiError } from '../api/client';
+import { formatDateTime } from '../lib/datetime';
 import {
   documentApi,
   projectApi,
@@ -99,7 +100,7 @@ type GateNode = {
 };
 
 function dateTime(value: string): string {
-  return new Date(value).toLocaleString('zh-CN');
+  return formatDateTime(value);
 }
 
 function shortDigest(value: string): string {
@@ -347,6 +348,24 @@ export function RequirementDetail({
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState('');
   const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+
+  // 「更多」菜单：点击外部或按 Esc 关闭，避免浮层挡住页头按钮。
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!moreRef.current?.contains(event.target as Node)) setMoreOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMoreOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [moreOpen]);
   const [notice, setNotice] = useState('');
   const [editDiscardOpen, setEditDiscardOpen] = useState(false);
   const [traceKind, setTraceKind] = useState('all');
@@ -374,6 +393,7 @@ export function RequirementDetail({
     {},
   );
   const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
 
   useEffect(() => {
     if (routeProject && routeProject.id !== selectedProjectId) setProjectId(routeProject.id);
@@ -564,6 +584,10 @@ export function RequirementDetail({
   useEffect(() => {
     if (focusedTaskId && tab !== 'tasks') setTab('tasks');
   }, [focusedTaskId, tab]);
+
+  useEffect(() => {
+    if (focusedTaskId) setExpandedTaskId(focusedTaskId);
+  }, [focusedTaskId]);
 
   /**
    * 流程图/链接定位任务：校验存在性 → 滚动到可视区 → 临时高亮 → 聚焦。
@@ -801,6 +825,16 @@ export function RequirementDetail({
     createFailure,
   ]);
 
+  const adminContacts =
+    membersStatus === 'ready'
+      ? members
+          .filter((member) => member.role === 'OWNER' || member.role === 'ADMIN')
+          .map((member) => ({
+            name: member.name?.trim() || member.email,
+            email: member.email,
+          }))
+      : [];
+
   const pipelineTasks = useMemo<RequirementPipelineTask[]>(
     () =>
       (detail?.tasks ?? []).map((task) => {
@@ -829,44 +863,124 @@ export function RequirementDetail({
     [detail, stepDepsByInstance, doneStepKeysByInstance, taskStates],
   );
 
+  /**
+   * 阶段分配：同一个任务只允许出现一次。先按 stepKey 归位（prd / design / impl-* / verify / release），
+   * 未识别的步骤再按角色兜底，最后把剩余任务并入「需求发现」。
+   * 这样概览统计（Pipeline 的「完成数 / 任务总数」）与页签「任务 N」同一数据源，
+   * 不会因为 discovery/definition 都取 product 任务而出现 7 张卡 / 6 个任务。
+   */
   const pipelinePhases = useMemo<RequirementPipelinePhase[]>(() => {
-    const roleTasks = (roles: string[]) =>
-      pipelineTasks.filter((task) => roles.includes(task.role ?? ''));
-    const phase = (
-      id: string,
-      label: string,
-      shortLabel: string,
-      role: string,
-      roles: string[],
-    ): RequirementPipelinePhase => ({
-      id,
-      label,
-      shortLabel,
-      role,
+    type PhaseDef = {
+      id: string;
+      label: string;
+      shortLabel: string;
+      role: string;
+      roles: string[];
+      stepKeys: string[];
+      nextAction: string;
+    };
+    const phaseDefs: PhaseDef[] = [
+      {
+        id: 'discovery',
+        label: '需求发现',
+        shortLabel: '发现',
+        role: 'product',
+        roles: ['product'],
+        stepKeys: ['prd', 'requirement', 'discovery', 'analysis'],
+        nextAction: '确认需求与验收标准',
+      },
+      {
+        id: 'definition',
+        label: '方案定义',
+        shortLabel: '定义',
+        role: 'product',
+        roles: ['product'],
+        stepKeys: ['definition', 'solution', 'spec', 'proposal'],
+        nextAction: '完成方案与边界定义',
+      },
+      {
+        id: 'design',
+        label: '体验设计',
+        shortLabel: '设计',
+        role: 'ui',
+        roles: ['ui'],
+        stepKeys: ['design', 'ui', 'prototype'],
+        nextAction: '完成设计交付',
+      },
+      {
+        id: 'build',
+        label: '开发实现',
+        shortLabel: '开发',
+        role: 'engineering',
+        roles: ['frontend', 'backend', 'engineering'],
+        stepKeys: ['impl', 'implement', 'frontend', 'backend', 'develop'],
+        nextAction: '提交实现工件',
+      },
+      {
+        id: 'verify',
+        label: '测试验证',
+        shortLabel: '验证',
+        role: 'qa',
+        roles: ['qa'],
+        stepKeys: ['verify', 'test', 'qa', 'case', 'acceptance'],
+        nextAction: '完成验收测试',
+      },
+      {
+        id: 'release',
+        label: '发布上线',
+        shortLabel: '发布',
+        role: 'ops',
+        roles: ['ops'],
+        stepKeys: ['release', 'deploy', 'ops', 'publish'],
+        nextAction: '完成发布验收',
+      },
+    ];
+
+    const tasksByPhase = new Map<string, RequirementPipelineTask[]>();
+    const claimed = new Set<string>();
+    const take = (predicate: (task: RequirementPipelineTask) => boolean) =>
+      pipelineTasks.filter((task) => {
+        if (claimed.has(task.id) || !predicate(task)) return false;
+        claimed.add(task.id);
+        return true;
+      });
+
+    // 1) stepKey 归位：精确匹配或 `impl-*` 这类前缀匹配。
+    for (const def of phaseDefs) {
+      tasksByPhase.set(
+        def.id,
+        take((task) => {
+          const step = (task.stepKey ?? '').toLowerCase();
+          if (!step) return false;
+          return def.stepKeys.some((key) => step === key || step.startsWith(key));
+        }),
+      );
+    }
+    // 2) 未识别的步骤按角色兜底，避免任务从视图中消失。
+    for (const def of phaseDefs) {
+      const fallback = take((task) => def.roles.includes(task.role ?? ''));
+      if (fallback.length) {
+        tasksByPhase.set(def.id, [...(tasksByPhase.get(def.id) ?? []), ...fallback]);
+      }
+    }
+    // 3) 仍无归属（例如 lead 任务）并入需求发现，保证总数与页签计数一致。
+    const leftovers = take(() => true);
+    if (leftovers.length) {
+      tasksByPhase.set('discovery', [...(tasksByPhase.get('discovery') ?? []), ...leftovers]);
+    }
+
+    return phaseDefs.map((def) => ({
+      id: def.id,
+      label: def.label,
+      shortLabel: def.shortLabel,
+      role: def.role,
       roleLabel: labelFor(
         { product: '产品', ui: '设计', engineering: '前端 / 后端', qa: '测试', ops: '运维' },
-        role,
+        def.role,
       ),
-      tasks: roleTasks(roles),
-      nextAction:
-        role === 'product'
-          ? '确认需求与验收标准'
-          : role === 'ui'
-            ? '完成设计交付'
-            : role === 'engineering'
-              ? '提交实现工件'
-              : role === 'qa'
-                ? '完成验收测试'
-                : '完成发布验收',
-    });
-    return [
-      phase('discovery', '需求发现', '发现', 'product', ['product']),
-      phase('definition', '方案定义', '定义', 'product', ['product']),
-      phase('design', '体验设计', '设计', 'ui', ['ui']),
-      phase('build', '开发实现', '开发', 'engineering', ['frontend', 'backend']),
-      phase('verify', '测试验证', '验证', 'qa', ['qa']),
-      phase('release', '发布上线', '发布', 'ops', ['ops']),
-    ];
+      tasks: tasksByPhase.get(def.id) ?? [],
+      nextAction: def.nextAction,
+    }));
   }, [pipelineTasks]);
 
   const trace = useMemo(() => {
@@ -998,6 +1112,24 @@ export function RequirementDetail({
   /** 流程图任务点击：切到任务页签并记录目标 taskId（可刷新/复制恢复）。 */
   function focusTask(taskId: string) {
     changeTab('tasks', taskId);
+  }
+
+  /** 页签键盘操作：左右方向键切换、Home/End 跳首尾，焦点跟随当前页签（roving tabindex）。 */
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  function onTabKeyDown(event: { key: string; preventDefault: () => void }) {
+    const keys = DETAIL_STAGES.map((stage) => stage.key);
+    const index = keys.indexOf(tab);
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowRight') nextIndex = (index + 1) % keys.length;
+    else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + keys.length) % keys.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = keys.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const nextTab = keys[nextIndex];
+    changeTab(nextTab);
+    window.requestAnimationFrame(() => tabRefs.current[nextIndex!]?.focus());
   }
 
   async function reloadDetail() {
@@ -1272,7 +1404,7 @@ export function RequirementDetail({
               编辑需求
             </button>
           )}
-          <div className="page-more">
+          <div className="page-more" ref={moreRef}>
             <button
               className="ghost"
               aria-haspopup="menu"
@@ -1297,7 +1429,7 @@ export function RequirementDetail({
                 <button
                   role="menuitem"
                   onClick={() => {
-                    void copyText(`workmesh context ${requirement.code}`, 'CLI 命令');
+                    void copyText('workmesh claim --task <taskId>', 'CLI 命令');
                     setMoreOpen(false);
                   }}
                 >
@@ -1324,6 +1456,7 @@ export function RequirementDetail({
       <RequirementPipeline
         phases={pipelinePhases}
         tasks={pipelineTasks}
+        collapsible
         nextAction={next?.title}
         onPhaseClick={(phase) => {
           changeTab('tasks');
@@ -1342,9 +1475,35 @@ export function RequirementDetail({
           <strong>{initState.title}</strong>
           <p>{initState.description}</p>
           {initContextStatusLine()}
-          {initState.adminNames.length > 0 && (
-            <p className="task-row-meta">项目管理员：{initState.adminNames.join('、')}</p>
-          )}
+          {membersStatus === 'ready' && adminContacts.length > 0 ? (
+            <div className="task-row-meta">
+              <p>
+                项目管理员：
+                {adminContacts.map((contact) => `${contact.name}（${contact.email}）`).join('、')}
+              </p>
+              <div className="next-step-actions">
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() =>
+                    void copyText(
+                      adminContacts.map((contact) => contact.email).join('; '),
+                      '管理员联系方式',
+                    )
+                  }
+                >
+                  复制管理员联系方式
+                </button>
+                {adminContacts[0]?.email && (
+                  <a className="ghost" href={`mailto:${adminContacts[0].email}`}>
+                    邮件联系管理员
+                  </a>
+                )}
+              </div>
+            </div>
+          ) : membersStatus === 'ready' ? (
+            <p className="task-row-meta">当前无法读取管理员联系方式。</p>
+          ) : null}
           {initContextAlerts()}
           <div className="next-step-actions">
             {initState.canInitialize && (
@@ -1370,8 +1529,8 @@ export function RequirementDetail({
           </div>
         </div>
       )}
-      <ol className="req-tabs" role="tablist" aria-label="需求详情">
-        {DETAIL_STAGES.map((item) => {
+      <ol className="req-tabs" role="tablist" aria-label="需求详情" onKeyDown={onTabKeyDown}>
+        {DETAIL_STAGES.map((item, index) => {
           const count = stageCountOf(item.key, detail, prdDocs.length, trace.length);
           const active = tab === item.key;
           return (
@@ -1379,7 +1538,13 @@ export function RequirementDetail({
               <button
                 type="button"
                 role="tab"
+                id={`req-tab-${item.key}`}
                 aria-selected={active}
+                aria-controls="req-tabpanel"
+                tabIndex={active ? 0 : -1}
+                ref={(node) => {
+                  tabRefs.current[index] = node;
+                }}
                 className={`req-tab${active ? ' is-active' : ''}`}
                 onClick={() => changeTab(item.key)}
               >
@@ -1392,7 +1557,7 @@ export function RequirementDetail({
       </ol>
 
       <div className="req-layout">
-        <div className="req-main">
+        <div className="req-main" role="tabpanel" id="req-tabpanel" aria-labelledby={`req-tab-${tab}`} tabIndex={0}>
           {tab === 'overview' && (
             <div className="detail-card">
               <h3>需求描述</h3>
@@ -1496,6 +1661,42 @@ export function RequirementDetail({
                               <div className="task-row-meta wm-task-state-desc">
                                 {display.description}
                               </div>
+                              <details
+                                className="wm-task-detail"
+                                open={expandedTaskId === task.id}
+                                onToggle={(event) => {
+                                  if (!event.currentTarget.open && expandedTaskId === task.id)
+                                    setExpandedTaskId(null);
+                                }}
+                              >
+                                <summary>查看任务状态与证据详情</summary>
+                                <div className="task-row-meta">
+                                  <p>当前状态：{display.label}</p>
+                                  <p>
+                                    任务 ID：{task.id} · v{task.version} · 工件 {task.artifactCount}{' '}
+                                    件
+                                  </p>
+                                  {task.currentClaimId && (
+                                    <p>已认领，claim {task.currentClaimId}</p>
+                                  )}
+                                  {task.review ? (
+                                    <p>
+                                      评审：{labelFor(REVIEW_STATUS_LABELS, task.review.status)}
+                                      {task.review.decisions?.[0]
+                                        ? ` · ${labelFor(
+                                            DECISION_LABELS,
+                                            task.review.decisions[0].decision,
+                                          )}`
+                                        : ''}
+                                      {task.review.decisions?.[0]?.actor
+                                        ? ` · ${task.review.decisions[0].actor.email}`
+                                        : ''}
+                                    </p>
+                                  ) : (
+                                    <p>当前没有关联评审。</p>
+                                  )}
+                                </div>
+                              </details>
                             </div>
                             <div className="task-row-actions">
                               {!readOnly && task.review?.status === 'OPEN' ? (

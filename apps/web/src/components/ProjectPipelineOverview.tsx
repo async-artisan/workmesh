@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNarrowViewport } from '../hooks/useNarrowViewport';
 import {
   PIPELINE_PHASE_DEFINITIONS,
   PIPELINE_STAT_DEFINITIONS,
@@ -51,6 +52,8 @@ export interface ProjectPipelineOverviewProps {
    */
   requirementsComplete?: boolean;
   className?: string;
+  /** 项目 ID：用于按项目记住筛选条件，从详情返回后不丢 triage 上下文。 */
+  projectId?: string;
 }
 
 /** 兼容旧引用；阶段定义现由 lib/pipelineStatus 统一提供。 */
@@ -58,6 +61,43 @@ export const PIPELINE_STAGES: PipelineStageDefinition[] = PIPELINE_PHASE_DEFINIT
 
 type PhaseFilter = PipelinePhase | 'ALL' | 'UNKNOWN';
 type StatusFilter = Exclude<PipelineStatKey, 'ALL'> | 'ALL';
+
+const FILTER_STORAGE_PREFIX = 'workmesh.pipelineFilters.';
+
+interface PersistedFilters {
+  query: string;
+  phase: PhaseFilter;
+  status: StatusFilter;
+}
+
+/** 只恢复合法值：本地存储可能被旧版本/手改污染，不能拿它直接决定渲染。 */
+function readPersistedFilters(key: string): Partial<PersistedFilters> {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Partial<PersistedFilters>;
+    const phaseKeys = new Set<string>([
+      ...PIPELINE_PHASE_DEFINITIONS.map((stage) => stage.key),
+      'ALL',
+      'UNKNOWN',
+    ]);
+    const statusKeys = new Set<string>(PIPELINE_STAT_DEFINITIONS.map((item) => item.key));
+    statusKeys.add('ALL');
+    return {
+      query: typeof parsed.query === 'string' ? parsed.query : '',
+      phase:
+        typeof parsed.phase === 'string' && phaseKeys.has(parsed.phase)
+          ? (parsed.phase as PhaseFilter)
+          : undefined,
+      status:
+        typeof parsed.status === 'string' && statusKeys.has(parsed.status)
+          ? (parsed.status as StatusFilter)
+          : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
 
 function formatUpdated(value?: string | null) {
   if (!value) return '更新时间未知';
@@ -124,7 +164,15 @@ const css = `
 .pipeline-overview__progress i[data-state='unknown'] { background:repeating-linear-gradient(90deg,var(--border,#e2e8f0),var(--border,#e2e8f0) 4px,transparent 4px,transparent 8px); }
 .pipeline-overview__empty { padding:28px; text-align:center; color:var(--text-muted,#7b8aa0); border:1px dashed var(--border-strong,#cbd5e1); border-radius:10px; }
 .pipeline-overview__sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
-@media (max-width:620px) { .pipeline-overview__stage { min-width:108px; } .pipeline-overview__row-head { align-items:flex-start; flex-direction:column; gap:6px; } }
+@media (max-width:620px) {
+  /* 窄屏时间线改为两列网格：阶段按钮不再横向滚出视口，连接线隐藏。 */
+  .pipeline-overview__timeline { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px 10px; overflow:visible; }
+  .pipeline-overview__stage { min-width:0; }
+  .pipeline-overview__connector { display:none; }
+  .pipeline-overview__stage-button { min-width:0; width:100%; }
+  .pipeline-overview__stage-label, .pipeline-overview__stage-count { white-space:normal; }
+  .pipeline-overview__row-head { align-items:flex-start; flex-direction:column; gap:6px; }
+}
 `;
 
 function progressSummary(requirement: PipelineRequirement): string {
@@ -140,11 +188,27 @@ export function ProjectPipelineOverview({
   initialPhase = 'ALL',
   requirementsComplete = true,
   className = '',
+  projectId,
 }: ProjectPipelineOverviewProps) {
-  const [query, setQuery] = useState('');
-  const [phase, setPhase] = useState<PhaseFilter>(initialPhase);
-  const [status, setStatus] = useState<StatusFilter>('ALL');
+  const storageKey = projectId ? `${FILTER_STORAGE_PREFIX}${projectId}` : '';
+  const [restored] = useState<Partial<PersistedFilters> | null>(() =>
+    storageKey ? readPersistedFilters(storageKey) : null,
+  );
+  const [query, setQuery] = useState(restored?.query ?? '');
+  const [phase, setPhase] = useState<PhaseFilter>(restored?.phase ?? initialPhase);
+  const [status, setStatus] = useState<StatusFilter>(restored?.status ?? 'ALL');
+  const narrow = useNarrowViewport();
   const normalizedQuery = query.trim().toLowerCase();
+
+  // 筛选条件写入 sessionStorage：列表→需求详情→返回、刷新页面都不丢；关掉标签页即清理。
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify({ query, phase, status }));
+    } catch {
+      // 存储不可用时只失去记忆能力，不影响筛选本身。
+    }
+  }, [storageKey, query, phase, status]);
 
   const stats = useMemo(() => computePipelineStats(requirements), [requirements]);
   const timeline = useMemo(() => stageCounts(requirements), [requirements]);
@@ -190,9 +254,38 @@ export function ProjectPipelineOverview({
     }
   }
 
+  // 窄屏把搜索/筛选提到统计与时间线之前，triage 时不必先滚过概览。
+  const toolbar = (
+    <div className="pipeline-overview__toolbar">
+      <input
+        className="pipeline-overview__search"
+        aria-label="搜索需求"
+        placeholder="搜索编号或标题"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+      />
+      <select
+        className="pipeline-overview__filter"
+        aria-label="按阶段筛选"
+        value={phase}
+        onChange={(event) => setPhase(event.target.value as PhaseFilter)}
+      >
+        <option value="ALL">全部阶段</option>
+        {PIPELINE_PHASE_DEFINITIONS.map((stage) => (
+          <option key={stage.key} value={stage.key}>
+            {stage.label}
+          </option>
+        ))}
+        <option value="UNKNOWN">阶段待确认</option>
+      </select>
+    </div>
+  );
+
   return (
     <section className={`pipeline-overview ${className}`.trim()} aria-label="项目需求流水线">
       <style>{css}</style>
+
+      {narrow && toolbar}
 
       <div className="pipeline-overview__stats" aria-label="需求执行状态统计">
         <button
@@ -211,6 +304,8 @@ export function ProjectPipelineOverview({
         </button>
         {PIPELINE_STAT_DEFINITIONS.map((definition) => {
           const count = stats.counts[definition.key];
+          // 窄屏只保留有数字的状态，避免 10 个统计块把首条需求推到 3 屏之后。
+          if (narrow && count === 0) return null;
           const active = status === definition.key;
           return (
             <button
@@ -226,43 +321,36 @@ export function ProjectPipelineOverview({
             </button>
           );
         })}
-        <div className="pipeline-overview__stat" aria-label={`当前显示 ${filtered.length} 条`}>
-          <strong>{filtered.length}</strong>
-          <span>当前显示</span>
-        </div>
+        {!narrow && (
+          <div className="pipeline-overview__stat" aria-label={`当前显示 ${filtered.length} 条`}>
+            <strong>{filtered.length}</strong>
+            <span>当前显示</span>
+          </div>
+        )}
       </div>
-      <p className="pipeline-overview__stat-note">
-        统计口径：执行状态按服务端 workStatus 分类；「已发布/已归档」按业务阶段 phase
-        统计；缺少/未知状态计入「状态待确认」。未开始仅在服务端显式返回 executionStatus=OPEN
-        时计入；显式 null/未知执行状态会进入「状态待确认」。
-        {requirementsComplete
-          ? ''
-          : ' 分页读取未完成：当前统计仅覆盖已读取需求，不代表项目总需求数。'}
-      </p>
+      {narrow ? (
+        <details className="pipeline-overview__explain">
+          <summary>统计口径说明</summary>
+          <p className="pipeline-overview__stat-note">
+            执行状态按服务端 workStatus 分类；「已发布/已归档」按业务阶段 phase
+            统计；缺少/未知状态计入「状态待确认」。
+            {requirementsComplete
+              ? ''
+              : ' 分页读取未完成：当前统计仅覆盖已读取需求，不代表项目总需求数。'}
+          </p>
+        </details>
+      ) : (
+        <p className="pipeline-overview__stat-note">
+          统计口径：执行状态按服务端 workStatus 分类；「已发布/已归档」按业务阶段 phase
+          统计；缺少/未知状态计入「状态待确认」。未开始仅在服务端显式返回 executionStatus=OPEN
+          时计入；显式 null/未知执行状态会进入「状态待确认」。
+          {requirementsComplete
+            ? ''
+            : ' 分页读取未完成：当前统计仅覆盖已读取需求，不代表项目总需求数。'}
+        </p>
+      )}
 
-      <div className="pipeline-overview__toolbar">
-        <input
-          className="pipeline-overview__search"
-          aria-label="搜索需求"
-          placeholder="搜索编号或标题"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <select
-          className="pipeline-overview__filter"
-          aria-label="按阶段筛选"
-          value={phase}
-          onChange={(event) => setPhase(event.target.value as PhaseFilter)}
-        >
-          <option value="ALL">全部阶段</option>
-          {PIPELINE_PHASE_DEFINITIONS.map((stage) => (
-            <option key={stage.key} value={stage.key}>
-              {stage.label}
-            </option>
-          ))}
-          <option value="UNKNOWN">阶段待确认</option>
-        </select>
-      </div>
+      {!narrow && toolbar}
 
       <div className="pipeline-overview__timeline" aria-label="需求阶段时间线">
         {timeline.map((stage, index) => {
@@ -308,15 +396,27 @@ export function ProjectPipelineOverview({
           );
         })}
       </div>
-      <p className="pipeline-overview__timeline-note">
-        阶段节点数字是「当前阶段需求数」，不是完成数。连接线只表示阶段顺序；
-        {hasCompletionEvidence
-          ? '当前数据提供了阶段完成记录，只有全部相关需求都有该阶段完成记录时连接线才显示完成。'
-          : '当前接口没有阶段完成记录，完成状态待确认，连接线保持中性。'}
-        {unknownPhaseCount > 0
-          ? ` 另有 ${unknownPhaseCount} 条需求阶段未知，未计入时间线，统计计入状态待确认。`
-          : ''}
-      </p>
+      {narrow ? (
+        <details className="pipeline-overview__explain">
+          <summary>时间线口径说明</summary>
+          <p className="pipeline-overview__timeline-note">
+            阶段节点数字是「当前阶段需求数」，不是完成数。
+            {unknownPhaseCount > 0
+              ? ` 另有 ${unknownPhaseCount} 条需求阶段未知，未计入时间线。`
+              : ''}
+          </p>
+        </details>
+      ) : (
+        <p className="pipeline-overview__timeline-note">
+          阶段节点数字是「当前阶段需求数」，不是完成数。连接线只表示阶段顺序；
+          {hasCompletionEvidence
+            ? '当前数据提供了阶段完成记录，只有全部相关需求都有该阶段完成记录时连接线才显示完成。'
+            : '当前接口没有阶段完成记录，完成状态待确认，连接线保持中性。'}
+          {unknownPhaseCount > 0
+            ? ` 另有 ${unknownPhaseCount} 条需求阶段未知，未计入时间线，统计计入状态待确认。`
+            : ''}
+        </p>
+      )}
 
       <div className="pipeline-overview__list">
         {requirements.length === 0 ? (

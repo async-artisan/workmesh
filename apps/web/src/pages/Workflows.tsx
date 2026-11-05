@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { buildStandardWorkflowTemplate, usedWorkflowRoleKeys } from '@workmesh/shared';
 import { formatApiError } from '../api/client';
+import { formatDateTime } from '../lib/datetime';
 import type { ActionBindingInput } from '../api/auth';
 import {
   projectApi,
@@ -19,6 +21,48 @@ import { useProjectContext } from '../hooks/useProjectContext';
 
 export const WORKFLOW_PUBLISH_ACTION = 'WORKFLOW_CONFIG_PUBLISH';
 export const WORKFLOW_DEFINITION_TARGET = 'WORKFLOW_DEFINITION';
+
+/** 未发布草稿按项目保存在本地；只作"防丢失"记忆，不作为发布内容的事实来源。 */
+const DRAFT_KEY_PREFIX = 'workmesh.workflowDraft.';
+
+interface WorkflowDraft {
+  text: string;
+  expectedCurrentRevision: number;
+  savedAt: number;
+}
+
+function readDraft(projectId: string): WorkflowDraft | null {
+  try {
+    const raw = localStorage.getItem(`${DRAFT_KEY_PREFIX}${projectId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<WorkflowDraft>;
+    if (typeof parsed.text !== 'string' || !parsed.text.trim()) return null;
+    return {
+      text: parsed.text,
+      expectedCurrentRevision:
+        typeof parsed.expectedCurrentRevision === 'number' ? parsed.expectedCurrentRevision : 0,
+      savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(projectId: string, draft: WorkflowDraft): void {
+  try {
+    localStorage.setItem(`${DRAFT_KEY_PREFIX}${projectId}`, JSON.stringify(draft));
+  } catch {
+    // localStorage 不可写时只失去草稿恢复能力，不影响编辑与发布。
+  }
+}
+
+function clearDraft(projectId: string): void {
+  try {
+    localStorage.removeItem(`${DRAFT_KEY_PREFIX}${projectId}`);
+  } catch {
+    // 同上：清理失败不影响主流程。
+  }
+}
 
 type PublishTarget = {
   workflowKey: string;
@@ -96,11 +140,16 @@ function parseDefinition(text: string): Record<string, unknown> {
  */
 export function Workflows() {
   const { projects, projectId } = useProjectContext();
+  const navigate = useNavigate();
   const [definitions, setDefinitions] = useState<WorkflowDefinitionView[]>([]);
   const [packages, setPackages] = useState<RolePackageListItem[]>([]);
   const [roles, setRoles] = useState<RoleView[]>([]);
   const [projectVersion, setProjectVersion] = useState<number | null>(null);
   const [editorText, setEditorText] = useState('');
+  /** 服务端基线内容：用于判断"是否有未发布改动"，以及 beforeunload 提示。 */
+  const [baselineText, setBaselineText] = useState('');
+  const [editorError, setEditorError] = useState('');
+  const [draftRestored, setDraftRestored] = useState(false);
   const [expectedCurrentRevision, setExpectedCurrentRevision] = useState(0);
   const [validation, setValidation] = useState<WorkflowCompileResult | null>(null);
   const [missingLocks, setMissingLocks] = useState<string[]>([]);
@@ -109,6 +158,8 @@ export function Workflows() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const editorErrorRef = useRef<HTMLParagraphElement>(null);
 
   const roleTitles = useMemo(() => new Map(roles.map((role) => [role.key, role.title])), [roles]);
 
@@ -134,12 +185,14 @@ export function Workflows() {
       setPackages(packagePage.items);
       setRoles(roleList);
       setError('');
+      let serverBaseline = baselineText;
       // 首次进入且编辑器为空时，直接把已发布定义载入编辑器，避免页面只剩一个空 JSON 框。
       const published = definitionPage.items.find((item) => item.currentPublishedRevisionId);
       if (!editorText.trim() && published?.currentPublishedRevisionId) {
         try {
           const revision = await workflowApi.revision(published.currentPublishedRevisionId);
-          setEditorText(JSON.stringify(revision.definition, null, 2));
+          serverBaseline = JSON.stringify(revision.definition, null, 2);
+          setEditorText(serverBaseline);
           setExpectedCurrentRevision(published.currentRevision);
           setNotice(
             `已载入 ${published.workflowKey} 已发布修订 v${revision.revision}；可在此基础上编辑下一版。`,
@@ -148,6 +201,17 @@ export function Workflows() {
           // 读取修订失败不影响页面，用户仍可手动载入模板。
         }
       }
+      // 有本地草稿时优先恢复，避免切页面/刷新后静默丢失编辑内容。
+      const draft = readDraft(projectId);
+      if (draft) {
+        setEditorText(draft.text);
+        setExpectedCurrentRevision(draft.expectedCurrentRevision);
+        setDraftRestored(true);
+        setNotice(
+          `已恢复上次未发布的草稿（保存于 ${formatDateTime(draft.savedAt)}）；发布成功或点「放弃草稿」后清除。`,
+        );
+      }
+      setBaselineText(serverBaseline);
     } catch (caught) {
       setError(formatApiError(caught));
     }
@@ -159,12 +223,64 @@ export function Workflows() {
 
   function resetDraft(text: string, currentRevision = 0) {
     setEditorText(text);
+    setBaselineText(text);
+    setDraftRestored(false);
+    setEditorError('');
     setExpectedCurrentRevision(currentRevision);
     setValidation(null);
     setMissingLocks([]);
     setPending(null);
     setNotice('');
     setError('');
+  }
+
+  /** 有未发布改动时提示浏览器；草稿同时已落本地，刷新/切页不会丢内容。 */
+  const editorDirty = editorText.trim() !== baselineText.trim();
+
+  useEffect(() => {
+    if (!projectId || !editorDirty) return;
+    const timer = window.setTimeout(() => {
+      writeDraft(projectId, {
+        text: editorText,
+        expectedCurrentRevision,
+        savedAt: Date.now(),
+      });
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [projectId, editorText, expectedCurrentRevision, editorDirty]);
+
+  useEffect(() => {
+    if (!editorDirty) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [editorDirty]);
+
+  function revealEditorError() {
+    window.setTimeout(() => {
+      const node = editorErrorRef.current;
+      if (!node) return;
+      // jsdom 未实现 scrollIntoView；真实浏览器里把错误滚到视口中间。
+      if (typeof node.scrollIntoView === 'function') {
+        node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+      node.focus({ preventScroll: true });
+    }, 0);
+  }
+
+  function discardDraft() {
+    if (!projectId) return;
+    clearDraft(projectId);
+    setDraftRestored(false);
+    setEditorError('');
+    setValidation(null);
+    setPending(null);
+    const published = definitions.find((definition) => definition.currentPublishedRevisionId);
+    if (published) void loadPublishedRevision(published);
+    else resetDraft('', 0);
   }
 
   function loadTemplate() {
@@ -200,6 +316,7 @@ export function Workflows() {
     if (!projectId) return;
     setBusy(true);
     setError('');
+    setEditorError('');
     setNotice('');
     setValidation(null);
     setPending(null);
@@ -210,10 +327,19 @@ export function Workflows() {
       setMissingLocks(missing);
       const result = await workflowApi.validate(projectId, { definition, packageLocks: locks });
       setValidation(result);
-      if (!result.valid) return;
+      if (!result.valid) {
+        setEditorError(
+          result.issues.length > 0
+            ? `校验未通过：${result.issues.length} 项问题，详见下方“校验结果”。`
+            : '校验未通过：服务端未返回具体问题，请检查定义内容。',
+        );
+        revealEditorError();
+        return;
+      }
       if (missing.length > 0) return;
       if (!result.digest) {
-        setError('服务端未返回编译摘要，无法签发发布票据。');
+        setEditorError('服务端未返回编译摘要，无法签发发布票据。');
+        revealEditorError();
         return;
       }
       setPending({
@@ -225,7 +351,8 @@ export function Workflows() {
       });
       setNotice('校验通过：可以发布。发布前会要求二次验证并签发一次性票据。');
     } catch (caught) {
-      setError(formatApiError(caught));
+      setEditorError(formatApiError(caught));
+      revealEditorError();
     } finally {
       setBusy(false);
     }
@@ -250,6 +377,8 @@ export function Workflows() {
     setValidation(null);
     setPending(null);
     await load();
+    clearDraft(projectId);
+    setDraftRestored(false);
   }
 
   const binding: ActionBindingInput | null =
@@ -287,7 +416,10 @@ export function Workflows() {
           </p>
         </div>
         <div className="page-actions">
-          <ProjectSelect onChange={() => setDefinitions([])} />
+          <ProjectSelect
+            onChange={() => setDefinitions([])}
+            onCreateProject={() => navigate('/projects')}
+          />
           <button className="ghost" disabled={!projectId || busy} onClick={() => void load()}>
             刷新
           </button>
@@ -316,6 +448,11 @@ export function Workflows() {
           <button className="ghost" disabled={!projectId || busy} onClick={loadTemplate}>
             载入标准模板
           </button>
+          {draftRestored && (
+            <button className="ghost" disabled={busy} onClick={discardDraft}>
+              放弃草稿
+            </button>
+          )}
           <button
             className="primary"
             disabled={!projectId || busy || !editorText.trim()}
@@ -326,21 +463,42 @@ export function Workflows() {
           <span className="page-sub">
             期望当前修订 {expectedCurrentRevision} · 项目版本 {projectVersion ?? '—'}
           </span>
+          {editorDirty && (
+            <span className="status-tag" title="草稿已自动保存在本机，发布成功或放弃后清除">
+              未发布草稿
+            </span>
+          )}
         </div>
         <div className="field">
           <span>流程定义（JSON）</span>
           <textarea
+            ref={editorRef}
+            id="workflow-editor"
             className="cell-mono"
             aria-label="流程定义 JSON"
+            aria-invalid={Boolean(editorError)}
+            aria-describedby={editorError ? 'workflow-editor-error' : undefined}
             rows={16}
             value={editorText}
             onChange={(event) => {
               setEditorText(event.target.value);
+              setEditorError('');
               setValidation(null);
               setPending(null);
             }}
             placeholder="点击「载入标准模板」开始，或粘贴已有的流程定义。"
           />
+          {editorError && (
+            <p
+              className="error"
+              id="workflow-editor-error"
+              role="alert"
+              tabIndex={-1}
+              ref={editorErrorRef}
+            >
+              {editorError}
+            </p>
+          )}
         </div>
       </div>
 
@@ -426,7 +584,7 @@ export function Workflows() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>workflowKey</th>
+                <th>流程 Key</th>
                 <th>标题</th>
                 <th>当前修订</th>
                 <th>已发布修订</th>
@@ -471,6 +629,16 @@ export function Workflows() {
             ? `将发布 ${publishTarget.workflowKey}，绑定 ${publishTarget.locks.length} 个角色包锁。摘要变化或版本变化都会被服务端拒绝。`
             : ''
         }
+        targetLabel={
+          publishTarget
+            ? `${definitions.find((item) => item.workflowKey === publishTarget.workflowKey)?.title ?? '流程定义'} · ${publishTarget.workflowKey}`
+            : ''
+        }
+        impact={[
+          '发布后新的流程修订对项目生效，新的需求实例会按它编译。',
+          '已经初始化的流程实例保持原修订执行，不会被追溯修改。',
+          '角色包锁或定义内容与预览摘要不一致时，服务端会拒绝发布。',
+        ]}
         binding={binding}
         submitLabel="确认发布流程"
         onClose={() => setPublishTarget(null)}

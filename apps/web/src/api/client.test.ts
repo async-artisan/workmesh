@@ -13,17 +13,23 @@ interface StubResponse {
   ok: boolean;
   status: number;
   text: () => Promise<string>;
+  headers?: { get: (name: string) => string | null };
 }
 
 function envelope(data: unknown) {
   return { data, meta: { requestId: 'req-1' } };
 }
 
-function json(status: number, body: unknown): StubResponse {
+function json(status: number, body: unknown, retryAfter?: string): StubResponse {
   return {
     ok: status >= 200 && status < 300,
     status,
     text: async () => JSON.stringify(body),
+    headers: retryAfter
+      ? {
+          get: (name) => (name.toLowerCase() === 'retry-after' ? retryAfter : null),
+        }
+      : undefined,
   };
 }
 
@@ -105,6 +111,36 @@ describe('apiRequest（/api/v1 + cookie + CSRF）', () => {
     }).catch((value: unknown) => value);
     expect((expired as ApiError).status).toBe(410);
     expect((expired as ApiError).code).toBe('CONFIRMATION_EXPIRED');
+  });
+
+  it('429 保留 Retry-After 秒数；缺失或非法值不编造等待时间', async () => {
+    fetchMock.mockResolvedValueOnce(
+      json(
+        429,
+        { error: { code: 'RATE_LIMITED', message: '请求过于频繁', requestId: 'req-429' } },
+        '7',
+      ),
+    );
+    const limited = await apiRequest('/auth/session').catch((value: unknown) => value);
+    expect(limited).toBeInstanceOf(ApiError);
+    expect((limited as ApiError).status).toBe(429);
+    expect((limited as ApiError).retryAfterSeconds).toBe(7);
+
+    fetchMock.mockResolvedValueOnce(
+      json(
+        429,
+        { error: { code: 'RATE_LIMITED', message: '请求过于频繁', requestId: 'req-429' } },
+        'later',
+      ),
+    );
+    const invalid = await apiRequest('/auth/session').catch((value: unknown) => value);
+    expect((invalid as ApiError).retryAfterSeconds).toBeNull();
+
+    fetchMock.mockResolvedValueOnce(
+      json(429, { error: { code: 'RATE_LIMITED', message: '请求过于频繁' } }),
+    );
+    const missing = await apiRequest('/auth/session').catch((value: unknown) => value);
+    expect((missing as ApiError).retryAfterSeconds).toBeNull();
   });
 
   it('401 结束会话并触发 session-expired，不尝试刷新', async () => {

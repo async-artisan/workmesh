@@ -87,6 +87,23 @@ function pageReply(items: unknown[], nextCursor: string | null) {
   return { status: 200, body: envelope({ items, nextCursor }) };
 }
 
+function requirementView(id: string, code: string, title: string) {
+  return {
+    id,
+    projectId: 'p1',
+    seq: 1,
+    code,
+    title,
+    description: null,
+    version: 1,
+    generation: 1,
+    phase: 'DELIVERY',
+    workStatus: 'ACTIVE',
+    createdAt: '2026-11-01T00:00:00.000Z',
+    updatedAt: '2026-11-01T00:00:00.000Z',
+  };
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;
@@ -523,6 +540,206 @@ describe('Prds（Agent 候选查看、差异与评审）', () => {
     fireEvent.change(screen.getByLabelText('选择项目'), { target: { value: 'p2' } });
     expect((await screen.findAllByText('P2 文档')).length).toBeGreaterThan(0);
     await waitFor(() => expect(screen.queryByText('P1 文档')).not.toBeInTheDocument());
+  });
+
+  it('P1 文档列表请求延迟到 P2 加载后才返回，也不能覆盖 P2', async () => {
+    const projectTwo = { ...project, id: 'p2', key: 'OPS', name: 'Ops' };
+    const p1Documents = deferred<StubReply>();
+    let p1Started = false;
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project, projectTwo]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET') {
+        p1Started = true;
+        return p1Documents.promise;
+      }
+      if (path === '/api/v1/projects/p2/documents' && method === 'GET')
+        return pageReply([prdDocumentFor('doc-p2', 'P2 文档')], null);
+      if (path.endsWith('/requirements') && method === 'GET') return pageReply([], null);
+      return undefined;
+    });
+
+    renderPrds();
+    await waitFor(() => expect(p1Started).toBe(true));
+    fireEvent.change(screen.getByLabelText('选择项目'), { target: { value: 'p2' } });
+    expect((await screen.findAllByText('P2 文档')).length).toBeGreaterThan(0);
+
+    p1Documents.resolve(pageReply([prdDocumentFor('doc-p1', '迟到的 P1 文档')], null));
+    await waitFor(() => expect(screen.queryByText('迟到的 P1 文档')).not.toBeInTheDocument());
+    expect(screen.getAllByText('P2 文档').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/文档列表读取失败/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '刷新文档' })).toBeInTheDocument();
+  });
+
+  it('P1 手动重读需求索引成功结果不会覆盖 P2 的关联需求', async () => {
+    const projectTwo = { ...project, id: 'p2', key: 'OPS', name: 'Ops' };
+    const p1Refresh = deferred<StubReply>();
+    let p1RequirementCalls = 0;
+    let p1RefreshStarted = false;
+    const p1Requirement = requirementView('req-p1', 'P1-REQ', 'P1 需求');
+    const p2Requirement = { ...requirementView('req-p2', 'P2-REQ', 'P2 需求'), projectId: 'p2' };
+
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project, projectTwo]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET')
+        return pageReply([prdDocumentFor('doc-p1', 'P1 文档', 'req-p1')], null);
+      if (path === '/api/v1/projects/p2/documents' && method === 'GET')
+        return pageReply([prdDocumentFor('doc-p2', 'P2 文档', 'req-p2')], null);
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET') {
+        p1RequirementCalls += 1;
+        if (p1RequirementCalls === 1)
+          return {
+            status: 500,
+            body: {
+              error: { code: 'P1_INDEX_FAILED', message: 'P1 索引失败', requestId: 'req-p1' },
+            },
+          };
+        p1RefreshStarted = true;
+        return p1Refresh.promise;
+      }
+      if (path === '/api/v1/projects/p2/requirements' && method === 'GET')
+        return pageReply([p2Requirement], null);
+      return undefined;
+    });
+
+    renderPrds();
+    expect((await screen.findAllByText('P1 文档')).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/关联需求索引读取失败/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重新读取需求索引' }));
+    await waitFor(() => expect(p1RefreshStarted).toBe(true));
+
+    fireEvent.change(screen.getByLabelText('选择项目'), { target: { value: 'p2' } });
+    await waitFor(() => expect(screen.getAllByText(/P2-REQ · P2 需求/).length).toBeGreaterThan(0));
+
+    p1Refresh.resolve(pageReply([p1Requirement], null));
+    await waitFor(() => expect(screen.queryByText(/P1-REQ/)).not.toBeInTheDocument());
+    expect(screen.getAllByText(/P2-REQ · P2 需求/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/关联需求索引读取失败/)).not.toBeInTheDocument();
+    expect(screen.queryByText('读取中…')).not.toBeInTheDocument();
+  });
+
+  it('P1 手动重读需求索引失败结果不会污染 P2', async () => {
+    const projectTwo = { ...project, id: 'p2', key: 'OPS', name: 'Ops' };
+    const p1Refresh = deferred<StubReply>();
+    let p1RequirementCalls = 0;
+    let p1RefreshStarted = false;
+    const p2Requirement = { ...requirementView('req-p2', 'P2-REQ', 'P2 需求'), projectId: 'p2' };
+
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project, projectTwo]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET')
+        return pageReply([prdDocumentFor('doc-p1', 'P1 文档', 'req-p1')], null);
+      if (path === '/api/v1/projects/p2/documents' && method === 'GET')
+        return pageReply([prdDocumentFor('doc-p2', 'P2 文档', 'req-p2')], null);
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET') {
+        p1RequirementCalls += 1;
+        if (p1RequirementCalls === 1)
+          return {
+            status: 500,
+            body: {
+              error: { code: 'P1_INDEX_FAILED', message: 'P1 索引失败', requestId: 'req-p1' },
+            },
+          };
+        p1RefreshStarted = true;
+        return p1Refresh.promise;
+      }
+      if (path === '/api/v1/projects/p2/requirements' && method === 'GET')
+        return pageReply([p2Requirement], null);
+      return undefined;
+    });
+
+    renderPrds();
+    expect((await screen.findAllByText('P1 文档')).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/关联需求索引读取失败/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重新读取需求索引' }));
+    await waitFor(() => expect(p1RefreshStarted).toBe(true));
+
+    fireEvent.change(screen.getByLabelText('选择项目'), { target: { value: 'p2' } });
+    await waitFor(() => expect(screen.getAllByText(/P2-REQ · P2 需求/).length).toBeGreaterThan(0));
+
+    p1Refresh.resolve({
+      status: 500,
+      body: {
+        error: { code: 'P1_LATE_FAILED', message: 'P1 迟到失败', requestId: 'req-p1-late' },
+      },
+    });
+    await waitFor(() => expect(screen.queryByText(/P1 迟到失败/)).not.toBeInTheDocument());
+    expect(screen.getAllByText(/P2-REQ · P2 需求/).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText('读取中…')).not.toBeInTheDocument();
+  });
+
+  it('刷新文档接管需求索引 loading，旧手动重读完成后不能覆盖', async () => {
+    const manualRefresh = deferred<StubReply>();
+    let requirementCalls = 0;
+    let manualStarted = false;
+    let documentCalls = 0;
+
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET') {
+        documentCalls += 1;
+        return pageReply(
+          [prdDocumentFor('doc-p1', documentCalls === 1 ? '刷新前文档' : '刷新后的文档', 'req-p1')],
+          null,
+        );
+      }
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET') {
+        requirementCalls += 1;
+        if (requirementCalls === 1)
+          return {
+            status: 500,
+            body: {
+              error: { code: 'INDEX_FAILED', message: '初始索引失败', requestId: 'req-idx-1' },
+            },
+          };
+        if (requirementCalls === 2) {
+          manualStarted = true;
+          return manualRefresh.promise;
+        }
+        return {
+          status: 500,
+          body: {
+            error: { code: 'INDEX_FAILED', message: '刷新后索引失败', requestId: 'req-idx-2' },
+          },
+        };
+      }
+      return undefined;
+    });
+
+    renderPrds();
+    expect((await screen.findAllByText('刷新前文档')).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/关联需求索引读取失败/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '重新读取需求索引' }));
+    await waitFor(() => expect(manualStarted).toBe(true));
+    expect(screen.getByRole('button', { name: '读取中…' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新文档' }));
+    expect((await screen.findAllByText('刷新后的文档')).length).toBeGreaterThan(0);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '重新读取需求索引' })).toBeEnabled(),
+    );
+    expect(screen.queryByText('读取中…')).not.toBeInTheDocument();
+    expect(screen.getByText(/刷新后索引失败/)).toBeInTheDocument();
+
+    manualRefresh.resolve(pageReply([requirementView('req-p1', 'P1-REQ', 'P1 需求')], null));
+    await waitFor(() => expect(screen.queryByText(/P1-REQ/)).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: '重新读取需求索引' })).toBeEnabled();
+    expect(screen.getByText(/刷新后索引失败/)).toBeInTheDocument();
+    expect(screen.queryByText('读取中…')).not.toBeInTheDocument();
+    expect((await screen.findAllByText('刷新后的文档')).length).toBeGreaterThan(0);
   });
 
   it('A 慢 B 快时只显示 B 的正文，A 完成后不得覆盖', async () => {

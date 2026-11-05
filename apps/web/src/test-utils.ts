@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import { invalidateProjects, useProjectStore } from './store/project';
+import { resetWorkbenchSnapshotCacheForTests } from './lib/workbenchSnapshot';
 
 /** 成功 envelope：页面只读取 data，meta 仅用于追踪。 */
 export function envelope(data: unknown): { data: unknown; meta: { requestId: string } } {
@@ -25,6 +26,8 @@ function stubResponse(status: number, body: unknown) {
  * 让测试覆盖真实请求路径、头与请求体，而不是替换页面 API 模块。
  */
 export function mockFetch(handler: StubHandler) {
+  // 模块级快照缓存不能跨用例复用，否则后一个用例会读到前一个用例的工作台数据。
+  resetWorkbenchSnapshotCacheForTests();
   const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
     const request = init ?? {};

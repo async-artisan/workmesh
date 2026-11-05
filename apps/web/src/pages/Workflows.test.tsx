@@ -210,4 +210,59 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
     expect(publishBody.confirmation).toEqual({ ticketId: 'ticket-1', ticketSecret: 'secret-1' });
     expect(headersOf(publishCall?.[1] ?? {})['Idempotency-Key']).toBeTruthy();
   });
+
+  it('校验失败时把错误放在编辑器旁，并用 aria 关联到 JSON 输入框', async () => {
+    mockFetch(
+      baseHandler({
+        validate: {
+          status: 200,
+          body: envelope({
+            valid: false,
+            issues: [{ path: 'steps[0].key', code: 'E_STEP_KEY', message: '步骤 key 不能为空' }],
+            digest: null,
+          }),
+        },
+      }),
+    );
+    render(
+      <MemoryRouter>
+        <Workflows />
+      </MemoryRouter>,
+    );
+
+    await loadTemplateAndValidate();
+
+    const editor = await screen.findByLabelText('流程定义 JSON');
+    expect(editor).toHaveAttribute('aria-invalid', 'true');
+    expect(editor).toHaveAttribute('aria-describedby', 'workflow-editor-error');
+    const inlineError = await screen.findByText(/校验未通过：1 项问题/);
+    expect(inlineError).toHaveAttribute('id', 'workflow-editor-error');
+    expect(inlineError).toHaveAttribute('role', 'alert');
+  });
+
+  it('刷新后恢复本地未发布草稿，并可以主动放弃', async () => {
+    localStorage.setItem(
+      'workmesh.workflowDraft.p1',
+      JSON.stringify({
+        text: '{"workflowKey":"draft-only","steps":[]}',
+        expectedCurrentRevision: 2,
+        savedAt: Date.now(),
+      }),
+    );
+    mockFetch(baseHandler());
+    render(
+      <MemoryRouter>
+        <Workflows />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText(/已恢复上次未发布的草稿/)).toBeInTheDocument();
+    const editor = screen.getByLabelText('流程定义 JSON');
+    expect(editor).toHaveValue('{"workflowKey":"draft-only","steps":[]}');
+    expect(screen.getByText('未发布草稿')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '放弃草稿' }));
+    expect(localStorage.getItem('workmesh.workflowDraft.p1')).toBeNull();
+    expect(screen.queryByText(/已恢复上次未发布的草稿/)).not.toBeInTheDocument();
+  });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
+import { V1_ERROR_CODES, WorkmeshError, sha256Bytes } from '@workmesh/shared';
 import {
   V1ArtifactService,
   type V1DeliverBody,
@@ -10,6 +10,7 @@ import {
 import { mapCodeReviewEvidence } from './v1-artifact.prisma-repository';
 import {
   type V1ArtifactRepository,
+  type V1ArtifactBody,
   type V1ArtifactSetSnapshot,
   type V1ArtifactCheck,
   type V1CodeReviewEvidenceSnapshot,
@@ -124,6 +125,7 @@ function deliverContext(key = 'idem-1'): V1DeliverContext {
 class InMemoryArtifactRepo implements V1ArtifactRepository {
   sets = new Map<string, V1ArtifactSetSnapshot>();
   evidence = new Map<string, V1CodeReviewEvidenceSnapshot[]>();
+  bodies = new Map<string, V1ArtifactBody>();
   deliverCalls: V1DeliverInput[] = [];
   async deliver(input: V1DeliverInput): Promise<V1DeliverResultRow> {
     this.deliverCalls.push(input);
@@ -166,6 +168,9 @@ class InMemoryArtifactRepo implements V1ArtifactRepository {
   }
   async findArtifactSet(id: string) {
     return this.sets.get(id) ?? null;
+  }
+  async findArtifactBody(artifactId: string) {
+    return this.bodies.get(artifactId) ?? null;
   }
   async findCodeReviewEvidence(_projectId: string, artifactSetId: string) {
     return this.evidence.get(artifactSetId) ?? [];
@@ -743,5 +748,117 @@ describe('V1ArtifactService.deliver', () => {
       status: 409,
       code: V1_ERROR_CODES.IDEMPOTENCY_CONFLICT,
     });
+  });
+});
+
+describe('V1ArtifactService.getArtifactContent 完整证据边界', () => {
+  async function hostedSet() {
+    const sha = await sha256Bytes(new Uint8Array(HOSTED_BYTES));
+    const set: V1ArtifactSetSnapshot = {
+      id: 'set-content',
+      taskId: 'task-1',
+      taskGeneration: 1,
+      snapshotId: SNAPSHOT_ID,
+      manifestDigest: 'a'.repeat(64),
+      workflowDefinitionRevisionId: WORKFLOW_REVISION_ID,
+      localRunId: 'run-1',
+      candidateRevisionIds: [],
+      artifacts: [
+        {
+          id: 'artifact-content',
+          kind: 'IMPL',
+          schemaVersion: '1.0',
+          storage: 'HOSTED',
+          mediaType: 'text/plain',
+          byteLength: HOSTED_BYTES.byteLength,
+          sha256: sha,
+          projectRepositoryId: null,
+          commitSha: null,
+          repoPath: 'src/index.ts',
+          summary: 'hosted evidence',
+          checks: [],
+          contentPreview: contentPreviewOf('HOSTED', 'text/plain', HOSTED_BYTES),
+        },
+      ],
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    };
+    return { set, sha };
+  }
+
+  it('返回真实 MIME、长度、摘要、文本和 base64，而不是截断预览', async () => {
+    const repo = new InMemoryArtifactRepo();
+    const { set, sha } = await hostedSet();
+    repo.sets.set(set.id, set);
+    repo.bodies.set('artifact-content', {
+      artifactId: 'artifact-content',
+      mediaType: 'text/plain',
+      byteLength: HOSTED_BYTES.byteLength,
+      sha256: sha,
+      storage: 'HOSTED',
+      bytes: HOSTED_BYTES,
+    });
+    const { service } = build(repo, new InMemoryTaskRepo(), new InMemoryAuthz());
+
+    await expect(
+      service.getArtifactContent(humanPrincipal(), set.id, 'artifact-content'),
+    ).resolves.toEqual({
+      artifactId: 'artifact-content',
+      mediaType: 'text/plain',
+      byteLength: HOSTED_BYTES.byteLength,
+      sha256: sha,
+      storage: 'HOSTED',
+      text: HOSTED_BYTES.toString('utf8'),
+      bodyBase64: HOSTED_BYTES.toString('base64'),
+    });
+  });
+
+  it('工件的正文必须属于当前 artifact-set，不能按任意 id 越权读取', async () => {
+    const repo = new InMemoryArtifactRepo();
+    const { set } = await hostedSet();
+    repo.sets.set(set.id, set);
+    const { service } = build(repo, new InMemoryTaskRepo(), new InMemoryAuthz());
+
+    await expect(
+      service.getArtifactContent(humanPrincipal(), set.id, 'other-artifact'),
+    ).rejects.toMatchObject({ status: 404, message: 'ARTIFACT_NOT_FOUND' });
+  });
+
+  it('无正文/GIT_REF/完整性不符都返回 CONTENT_UNAVAILABLE', async () => {
+    const repo = new InMemoryArtifactRepo();
+    const { set, sha } = await hostedSet();
+    repo.sets.set(set.id, set);
+    const { service } = build(repo, new InMemoryTaskRepo(), new InMemoryAuthz());
+
+    await expect(
+      service.getArtifactContent(humanPrincipal(), set.id, 'artifact-content'),
+    ).rejects.toMatchObject({ status: 422, code: V1_ERROR_CODES.CONTENT_UNAVAILABLE });
+
+    repo.bodies.set('artifact-content', {
+      artifactId: 'artifact-content',
+      mediaType: 'text/plain',
+      byteLength: HOSTED_BYTES.byteLength,
+      sha256: 'b'.repeat(64),
+      storage: 'HOSTED',
+      bytes: HOSTED_BYTES,
+    });
+    await expect(
+      service.getArtifactContent(humanPrincipal(), set.id, 'artifact-content'),
+    ).rejects.toMatchObject({ status: 422, code: V1_ERROR_CODES.CONTENT_UNAVAILABLE });
+  });
+
+  it('项目读权限失败时不返回正文', async () => {
+    const repo = new InMemoryArtifactRepo();
+    const { set } = await hostedSet();
+    repo.sets.set(set.id, set);
+    const authz = {
+      resolveProjectContext: async () => {
+        throw new WorkmeshError(V1_ERROR_CODES.FORBIDDEN, 'FORBIDDEN', undefined, 403);
+      },
+    } as any;
+    const { service } = build(repo, new InMemoryTaskRepo(), authz);
+
+    await expect(
+      service.getArtifactContent(humanPrincipal(), set.id, 'artifact-content'),
+    ).rejects.toMatchObject({ status: 403, code: V1_ERROR_CODES.FORBIDDEN });
   });
 });

@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { projectApi, workbenchApi, type ProjectView } from '../api/resources';
+import { projectApi, type ProjectView } from '../api/resources';
+import { getWorkbenchSnapshot } from '../lib/workbenchSnapshot';
 import { formatApiError } from '../api/client';
 import { ConfirmDialog, Modal } from '../components/Modal';
-import { invalidateProjects } from '../store/project';
+import { EmptyState } from '../components/EmptyState';
+import { ErrorState } from '../components/ErrorState';
+import { PageState } from '../components/PageState';
+import { StaleDataBanner } from '../components/StaleDataBanner';
+import { invalidateProjects, useProjectStore } from '../store/project';
 import { toast } from '../store/toast';
 
 const emptyForm = { name: '', key: '', description: '' };
@@ -11,22 +16,37 @@ const KEY_PATTERN = /^[A-Z]{2,6}$/;
 
 export function Projects() {
   const navigate = useNavigate();
+  // 行内跳转先切换项目上下文，避免多项目时串项目。
+  function openWithProject(projectId: string, path: string) {
+    useProjectStore.getState().setProjectId(projectId);
+    navigate(path);
+  }
   const [projects, setProjects] = useState<ProjectView[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [createOpen, setCreateOpen] = useState(false);
   const [pendingArchive, setPendingArchive] = useState<ProjectView | null>(null);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
   const [modalError, setModalError] = useState('');
   const [busy, setBusy] = useState(false);
   const [todoCounts, setTodoCounts] = useState<Record<string, number>>({});
 
   async function load() {
+    setLoading(true);
     try {
       setProjects(await projectApi.list());
       setError('');
     } catch (caught) {
       setError(formatApiError(caught));
+    } finally {
+      setLoading(false);
     }
+  }
+
+  function openCreate() {
+    setForm(emptyForm);
+    setModalError('');
+    setCreateOpen(true);
   }
 
   useEffect(() => {
@@ -34,8 +54,7 @@ export function Projects() {
   }, []);
 
   useEffect(() => {
-    workbenchApi
-      .get()
+    getWorkbenchSnapshot()
       .then((snapshot) => {
         const counts: Record<string, number> = {};
         const add = (projectId: string) => {
@@ -97,25 +116,40 @@ export function Projects() {
           <p className="page-sub">项目 key 创建后不可修改；成员、角色与知识库访问由服务端授权。</p>
         </div>
         <div className="page-actions">
-          <button
-            className="primary"
-            onClick={() => {
-              setForm(emptyForm);
-              setModalError('');
-              setCreateOpen(true);
-            }}
-          >
+          <button className="primary" onClick={openCreate}>
             新建项目
           </button>
         </div>
       </header>
 
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-
+      {loading && projects.length === 0 ? (
+        <PageState state={{ kind: 'loading' }} title="正在加载项目…" />
+      ) : error && projects.length === 0 ? (
+        <ErrorState
+          title="项目列表加载失败"
+          message="暂时无法读取项目列表，请稍后重试。"
+          detail={error}
+          onRetry={() => void load()}
+          retryAriaLabel="重试加载项目列表"
+        />
+      ) : (
+        <>
+          {error && (
+            <StaleDataBanner
+              message="本次刷新失败，显示的是上次成功加载的项目。"
+              onRetry={() => void load()}
+              retryAriaLabel="重新加载项目列表"
+            />
+          )}
+          {projects.length === 0 ? (
+            <EmptyState
+              title="还没有可访问的项目"
+              description="创建第一个项目后，需求、看板、知识与文档都会挂在这个项目下。"
+              hint="如果你应该能访问某个项目，请联系项目管理员把你加入成员。"
+              actionLabel="新建项目"
+              onAction={openCreate}
+            />
+          ) : (
       <div className="table-card">
         <div className="table-scroll">
           <table className="data-table">
@@ -133,7 +167,14 @@ export function Projects() {
               {projects.map((project) => (
                 <tr key={project.id}>
                   <td>
-                    <strong>{project.name}</strong>
+                    <button
+                      type="button"
+                      className="link-btn"
+                      aria-label={`进入项目 ${project.name}`}
+                      onClick={() => openWithProject(project.id, `/projects/${project.id}`)}
+                    >
+                      {project.name}
+                    </button>
                   </td>
                   <td>
                     <span className="status-tag">{project.key}</span>
@@ -155,10 +196,19 @@ export function Projects() {
                   </td>
                   <td className="col-actions">
                     <div className="cell-actions row-actions">
-                      <button className="ghost" onClick={() => navigate('/roles')}>
+                      <button
+                        className="ghost"
+                        onClick={() => openWithProject(project.id, `/projects/${project.id}`)}
+                      >
+                        进入项目
+                      </button>
+                      <button
+                        className="ghost"
+                        onClick={() => openWithProject(project.id, '/roles')}
+                      >
                         角色 / ACL
                       </button>
-                      <button className="ghost" onClick={() => navigate('/prd')}>
+                      <button className="ghost" onClick={() => openWithProject(project.id, '/prd')}>
                         文档
                       </button>
                       <button className="danger" onClick={() => setPendingArchive(project)}>
@@ -168,15 +218,13 @@ export function Projects() {
                   </td>
                 </tr>
               ))}
-              {projects.length === 0 && (
-                <tr className="table-empty">
-                  <td colSpan={6}>还没有可访问的项目，点右上角「新建项目」创建。</td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
       </div>
+          )}
+        </>
+      )}
 
       <Modal
         open={createOpen}
@@ -234,9 +282,12 @@ export function Projects() {
         open={Boolean(pendingArchive)}
         title="归档项目"
         description={
-          pendingArchive ? `「${pendingArchive.name}」归档后停止新业务写入，历史仍可读取。` : ''
+          pendingArchive
+            ? `「${pendingArchive.name}」归档后将停止新建需求与任务，项目会从项目列表与项目选择器隐藏。`
+            : ''
         }
-        confirmLabel="归档"
+        note="历史需求、工件、评审与审计记录都会保留，不会删除；归档不可在页面内撤销。"
+        confirmLabel="归档项目"
         busy={busy}
         onCancel={() => setPendingArchive(null)}
         onConfirm={() => void archive()}

@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Requirements } from './Requirements';
 import { setCsrfToken } from '../api/client';
 import { useAuthStore } from '../store/auth';
@@ -42,6 +42,7 @@ function handler(input: {
   definition?: Record<string, unknown>;
   repositories?: unknown[];
   acceptanceKeys?: string[];
+  requirements?: unknown[];
 }) {
   return (url: string, init: RequestInit) => {
     const path = pathOf(url);
@@ -49,7 +50,10 @@ function handler(input: {
     if (path === '/api/v1/projects' && method === 'GET')
       return { status: 200, body: envelope([project]) };
     if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
-      return { status: 200, body: envelope({ items: [requirement], nextCursor: null }) };
+      return {
+        status: 200,
+        body: envelope({ items: input.requirements ?? [requirement], nextCursor: null }),
+      };
     if (path === '/api/v1/projects/p1/members' && method === 'GET')
       return { status: 200, body: envelope(members) };
     if (path === '/api/v1/projects/p1/roles' && method === 'GET')
@@ -108,6 +112,47 @@ describe('Requirements（流程实例只由管理员显式绑定）', () => {
     setCsrfToken(null);
     useAuthStore.getState().clearAuth();
     localStorage.clear();
+  });
+
+  it('没有可访问项目时显示创建项目入口并导航到真实项目列表', async () => {
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      if (path === '/api/v1/projects' && methodOf(init) === 'GET')
+        return { status: 200, body: envelope([]) };
+      return undefined;
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/requirements']}>
+        <Routes>
+          <Route path="/requirements" element={<Requirements />} />
+          <Route path="/projects" element={<div>项目列表页</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const create = await screen.findByRole('button', { name: '创建项目' });
+    expect(create).toBeInTheDocument();
+    expect(screen.getByText('还没有可访问的项目')).toBeInTheDocument();
+    fireEvent.click(create);
+    expect(await screen.findByText('项目列表页')).toBeInTheDocument();
+  });
+
+  it('项目列表读取失败不会伪装成空项目', async () => {
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      if (path === '/api/v1/projects' && methodOf(init) === 'GET')
+        return {
+          status: 500,
+          body: { error: { code: 'INTERNAL_ERROR', message: '项目列表读取失败' } },
+        };
+      return undefined;
+    });
+    renderPage();
+
+    expect(await screen.findByText('项目列表加载失败')).toBeInTheDocument();
+    expect(screen.queryByText('还没有可访问的项目')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '创建项目' })).not.toBeInTheDocument();
   });
 
   it('普通成员看不到初始化入口，只提交需求意图', async () => {
@@ -285,5 +330,137 @@ describe('Requirements（流程实例只由管理员显式绑定）', () => {
         acceptanceKeys: ['A1'],
       },
     ]);
+  });
+
+  it('服务端还有下一页时提供「加载更多」，不静默截断超过一页的需求', async () => {
+    const page1 = Array.from({ length: 12 }, (_, index) => ({
+      ...requirement,
+      id: `req-a${index}`,
+      code: `DEMO-A${index}`,
+      title: `一页需求 ${index}`,
+    }));
+    const page2 = [{ ...requirement, id: 'req-b1', code: 'DEMO-B1', title: '第二页需求 B1' }];
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init);
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET') {
+        const cursor = new URL(String(url), 'http://localhost').searchParams.get('cursor');
+        return {
+          status: 200,
+          body: envelope({
+            items: cursor ? page2 : page1,
+            nextCursor: cursor ? null : 'cursor-page-2',
+          }),
+        };
+      }
+      if (path === '/api/v1/projects/p1/members' && method === 'GET')
+        return { status: 200, body: envelope(members) };
+      if (path === '/api/v1/projects/p1/roles' && method === 'GET')
+        return { status: 200, body: envelope(roles) };
+      if (path === '/api/v1/projects/p1/workflow-definitions' && method === 'GET')
+        return { status: 200, body: envelope({ items: [], nextCursor: null }) };
+      return undefined;
+    });
+
+    renderPage();
+    expect(await screen.findByText('一页需求 0')).toBeInTheDocument();
+    expect(screen.queryByText('第二页需求 B1')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '加载更多' }));
+
+    expect(await screen.findByText('13 / 13')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '加载更多' })).not.toBeInTheDocument();
+    // 追加后的第 13 条落在本页第 2 页；翻页后应能看到第二页返回的需求。
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    expect(await screen.findByText('第二页需求 B1')).toBeInTheDocument();
+  });
+});
+
+/** 模拟窄屏 matchMedia：真实浏览器里由 CSS 断点切换，jsdom 里需要手动注入。 */
+function stubNarrowViewport(matches: boolean) {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
+
+const manyRequirements = Array.from({ length: 13 }, (_, index) => ({
+  ...requirement,
+  id: `req-${index + 1}`,
+  seq: index + 1,
+  code: `DEMO-REQ-${index + 1}`,
+  title: `需求 ${index + 1}`,
+}));
+
+describe('Requirements（≤720px 卡片列表）', () => {
+  beforeEach(() => {
+    setCsrfToken('csrf-1');
+    useProject('p1');
+    useAuthStore.getState().setSession({ id: 'u-1', email: 'alice@example.com' });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setCsrfToken(null);
+    useAuthStore.getState().clearAuth();
+    localStorage.clear();
+  });
+
+  it('窄屏渲染卡片列表、不渲染表格；搜索/阶段筛选/分页/详情入口仍可用', async () => {
+    stubNarrowViewport(true);
+    mockFetch(handler({ definitions: [publishedDefinition], requirements: manyRequirements }));
+
+    renderPage();
+
+    expect(await screen.findByTestId('requirements-card-list')).toBeInTheDocument();
+    expect(screen.queryByTestId('requirements-table')).not.toBeInTheDocument();
+
+    const cards = screen.getAllByTestId('requirement-card');
+    expect(cards).toHaveLength(12); // 每页 12 条与桌面一致
+    const firstCard = cards[0]!;
+    expect(within(firstCard).getByText('DEMO-REQ-1')).toBeInTheDocument();
+    expect(within(firstCard).getByText('需求 1')).toBeInTheDocument();
+    // 阶段 / 执行状态 tag 与桌面表格同一口径
+    expect(within(firstCard).getByText('需求发现')).toBeInTheDocument();
+    expect(within(firstCard).getByText('进行中')).toBeInTheDocument();
+    // 核心入口在卡片内可点，不再位于横向滚动区外
+    expect(within(firstCard).getByRole('button', { name: '详情' })).toBeEnabled();
+    expect(within(firstCard).getByRole('button', { name: '初始化流程' })).toBeEnabled();
+
+    // 搜索在卡片模式下仍然生效
+    fireEvent.change(screen.getByLabelText('搜索需求'), { target: { value: '需求 13' } });
+    expect(await screen.findByText('需求 13')).toBeInTheDocument();
+    expect(screen.getAllByTestId('requirement-card')).toHaveLength(1);
+
+    fireEvent.change(screen.getByLabelText('搜索需求'), { target: { value: '' } });
+    expect(await screen.findByText('第 1 / 2 页 · 共 13 条')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    expect(await screen.findByText('需求 13')).toBeInTheDocument();
+    expect(screen.getAllByTestId('requirement-card')).toHaveLength(1);
+
+    // 阶段筛选在卡片模式下仍然生效
+    fireEvent.change(screen.getByLabelText('阶段筛选'), { target: { value: 'DISCOVERY' } });
+    expect(screen.getByText('第 1 / 2 页 · 共 13 条')).toBeInTheDocument();
+  });
+
+  it('桌面（无窄屏媒体查询）仍渲染 7 列表格，不渲染卡片列表', async () => {
+    mockFetch(handler({ definitions: [publishedDefinition] }));
+
+    renderPage();
+
+    expect(await screen.findByTestId('requirements-table')).toBeInTheDocument();
+    expect(screen.queryByTestId('requirements-card-list')).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '编号' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '描述' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '操作' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '详情' })).toBeEnabled();
   });
 });

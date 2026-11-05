@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { ApiError, formatApiError } from '../api/client';
+import { formatDateTime } from '../lib/datetime';
 import {
   artifactApi,
   base64ToUtf8,
@@ -11,6 +12,7 @@ import {
   reviewApi,
   taskApi,
   workflowApi,
+  type ArtifactContentView,
   type ArtifactSetView,
   type DocumentDetail,
   type RequirementView,
@@ -100,7 +102,7 @@ function shortDigest(value: string): string {
 }
 
 function shortDate(value: string): string {
-  return new Date(value).toLocaleString('zh-CN');
+  return formatDateTime(value);
 }
 
 function formatBytes(value: number): string {
@@ -215,15 +217,18 @@ function ContextEmptyCard({
  * 决定页：左侧证据（正文 / 差异 / 验收 / 工件 / 上次决定），右侧决定。
  * 所有写操作仍由 ConfirmPrompt 签发一次性票据；页面不自行推断权限。
  *
- * 证据完整性边界：服务端只提供 artifact.contentPreview（上限 4 KiB、truncated 标记），
- * 没有完整正文读取或下载接口；页面如实展示预览范围与“打开原工件”，不伪造完整正文。
+ * 证据完整性边界：artifact-set 只内联 4 KiB contentPreview；页面可经受限内容接口读取完整
+ * HOSTED 正文/下载，失败时保留阻断，不把预览伪造为全文。GIT_REF 只提供仓库/提交入口。
  */
 export function ReviewDecision({
   reviewId: reviewIdProp,
   embedded = false,
+  onDecisionCommitted,
 }: {
   reviewId?: string;
   embedded?: boolean;
+  /** 决定提交成功后的回调：工作台抽屉用它关闭抽屉并刷新待办列表。 */
+  onDecisionCommitted?: () => void;
 } = {}) {
   const navigate = useNavigate();
   const params = useParams<{ reviewId: string }>();
@@ -239,6 +244,16 @@ export function ReviewDecision({
   } | null>(null);
   const [publishedText, setPublishedText] = useState<string | null>(null);
   const [artifactSet, setArtifactSet] = useState<ArtifactSetView | null>(null);
+  const [artifactContents, setArtifactContents] = useState<
+    Record<
+      string,
+      {
+        status: 'idle' | 'loading' | 'loaded' | 'error';
+        data?: ArtifactContentView;
+        error?: string;
+      }
+    >
+  >({});
   const [requirement, setRequirement] = useState<RequirementView | null>(null);
   const [task, setTask] = useState<TaskView | null>(null);
   const [taskStepKey, setTaskStepKey] = useState('');
@@ -267,6 +282,65 @@ export function ReviewDecision({
     setContexts((prev) => ({ ...prev, [kind]: next }));
   }
 
+  async function fetchArtifactContent(
+    artifact: ArtifactSetView['artifacts'][number],
+  ): Promise<ArtifactContentView | null> {
+    if (!artifactSet) return null;
+    const current = artifactContents[artifact.id];
+    if (current?.status === 'loaded' && current.data) return current.data;
+    setArtifactContents((prev) => ({
+      ...prev,
+      [artifact.id]: { ...prev[artifact.id], status: 'loading', error: undefined },
+    }));
+    try {
+      const value = await artifactApi.content(artifactSet.id, artifact.id);
+      setArtifactContents((prev) => ({
+        ...prev,
+        [artifact.id]: { status: 'loaded', data: value },
+      }));
+      return value;
+    } catch (caught) {
+      setArtifactContents((prev) => ({
+        ...prev,
+        [artifact.id]: { status: 'error', error: formatApiError(caught) },
+      }));
+      return null;
+    }
+  }
+
+  async function loadFullArtifact(artifact: ArtifactSetView['artifacts'][number]) {
+    await fetchArtifactContent(artifact);
+  }
+
+  async function downloadArtifact(artifact: ArtifactSetView['artifacts'][number]) {
+    const value = await fetchArtifactContent(artifact);
+    if (!value) return;
+    const bytes =
+      value.text !== null
+        ? new TextEncoder().encode(value.text)
+        : Uint8Array.from(atob(value.bodyBase64), (char) => char.charCodeAt(0));
+    const blob = new Blob([bytes], { type: value.mediaType });
+    if (typeof URL.createObjectURL !== 'function') return;
+    const url = URL.createObjectURL(blob);
+    const anchor = window.document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${artifact.kind}-${artifact.id.slice(0, 8)}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function openArtifact(artifact: ArtifactSetView['artifacts'][number]) {
+    const value = await fetchArtifactContent(artifact);
+    if (!value || typeof URL.createObjectURL !== 'function') return;
+    const bytes =
+      value.text !== null
+        ? new TextEncoder().encode(value.text)
+        : Uint8Array.from(atob(value.bodyBase64), (char) => char.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: value.mediaType }));
+    window.open(url, '_blank', 'noopener,noreferrer');
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
   /** 交付物上下文：artifactSet 是任务验收的关键证据，失败时保留失败状态而不是空数组。 */
   async function loadArtifactSetContext(
     reviewValue: ReviewView,
@@ -281,6 +355,7 @@ export function ReviewDecision({
       const value = await artifactApi.get(reviewValue.artifactSetId);
       if (!alive()) return;
       setArtifactSet(value);
+      setArtifactContents({});
       setContext('artifactSet', { status: 'loaded' });
     } catch (caught) {
       if (!alive()) return;
@@ -370,6 +445,7 @@ export function ReviewDecision({
     setContent(null);
     setPublishedText(null);
     setArtifactSet(null);
+    setArtifactContents({});
     setRequirement(null);
     setTask(null);
     setTaskStepKey('');
@@ -499,7 +575,7 @@ export function ReviewDecision({
       slotKey: pending.slot.slotKey,
       version: review.version,
       subjectDigest: review.subjectDigest,
-      at: new Date().toLocaleString('zh-CN'),
+      at: formatDateTime(new Date()),
       actor: user?.email ?? '当前用户',
     });
     setPending(null);
@@ -507,6 +583,8 @@ export function ReviewDecision({
     setComment('');
     setError('');
     if (review.taskId) await refreshTaskContext(review.taskId, review.projectId);
+    // 抽屉场景：提交成功后通知工作台关闭抽屉并刷新待办，避免用户再手动刷新。
+    onDecisionCommitted?.();
   }
 
   async function copyReceipt() {
@@ -575,6 +653,9 @@ export function ReviewDecision({
   const truncatedArtifacts = (artifactSet?.artifacts ?? []).filter(
     (artifact) => artifact.contentPreview?.truncated,
   );
+  const unresolvedTruncatedArtifacts = truncatedArtifacts.filter(
+    (artifact) => artifactContents[artifact.id]?.status !== 'loaded',
+  );
   const criticalContextStates = CRITICAL_CONTEXTS.map((kind) => ({
     kind,
     status: contexts[kind].status,
@@ -584,19 +665,27 @@ export function ReviewDecision({
     (item) => item.status === 'error' || item.status === 'forbidden',
   );
   const evidenceIssues: string[] = [];
-  if (truncatedArtifacts.length > 0)
-    evidenceIssues.push(`${truncatedArtifacts.length} 条工件正文只有截断预览`);
+  if (unresolvedTruncatedArtifacts.length > 0)
+    evidenceIssues.push(`${unresolvedTruncatedArtifacts.length} 条工件正文只有截断预览`);
   for (const failure of criticalFailures) {
     evidenceIssues.push(
       `${CONTEXT_KIND_LABELS[failure.kind]}${failure.status === 'forbidden' ? '无权查看' : '读取失败'}`,
     );
   }
   const evidenceIncomplete = evidenceIssues.length > 0;
+  // 服务端已知的硬性拒收条件：代码交付缺人类代码评审证据时批准必然被拒。
+  // 不并入 evidenceIssues 的“勾选确认后仍可批准”通道——这里批准直接不可用。
+  const codeReviewMissing = Boolean(
+    artifactSet?.codeReview?.required && !artifactSet.codeReview.acceptable,
+  );
   const hasDocumentEvidence = Boolean(content);
   const hasArtifactEvidence = Boolean(artifactSet && artifactSet.artifacts.length > 0);
   const evidenceAbsent =
     !hasDocumentEvidence && !hasArtifactEvidence && !criticalLoading && !evidenceIncomplete;
-  const requiresEvidenceAck = reviewRequiresCompleteEvidence(review.kind) && evidenceIncomplete;
+  const evidenceLoadBlocked =
+    reviewRequiresCompleteEvidence(review.kind) && unresolvedTruncatedArtifacts.length > 0;
+  const requiresEvidenceAck =
+    reviewRequiresCompleteEvidence(review.kind) && evidenceIncomplete && !evidenceLoadBlocked;
 
   // ---- 确认摘要数据（全部来自真实已加载数据）----
   const allChecks = (artifactSet?.artifacts ?? []).flatMap((artifact) => artifact.checks);
@@ -726,8 +815,108 @@ export function ReviewDecision({
     (decision === 'CHANGES_REQUESTED' || decision === 'REJECT') && !comment.trim();
   const nextStepBlockedByEvidence =
     decision === 'APPROVE' && requiresEvidenceAck && !evidenceAcknowledged;
+  const nextStepBlockedByEvidenceLoad = decision === 'APPROVE' && evidenceLoadBlocked;
   const nextStepBlockedByEvidenceLoading =
     decision === 'APPROVE' && reviewRequiresCompleteEvidence(review.kind) && criticalLoading;
+  const nextStepBlockedByCodeReview = decision === 'APPROVE' && codeReviewMissing;
+
+  function startDecision(slot: ReviewSlot) {
+    setActiveSlot(slot);
+    setDecision('APPROVE');
+    setComment('');
+    setEvidenceAcknowledged(false);
+  }
+
+  /** 决定表单：桌面侧栏与抽屉 sticky 底栏共用，避免两套提交逻辑。 */
+  function renderDecisionForm() {
+    return (
+      <>
+        <div className="form-grid">
+          <div className="field">
+            <span>决定</span>
+            <select
+              aria-label="评审决定"
+              value={decision}
+              onChange={(event) => setDecision(event.target.value as DecisionValue)}
+            >
+              <option value="APPROVE">批准</option>
+              <option value="CHANGES_REQUESTED">要求修改</option>
+              <option value="REJECT">驳回</option>
+            </select>
+          </div>
+          <div className="field">
+            <span>
+              说明
+              {decision === 'CHANGES_REQUESTED' || decision === 'REJECT' ? '（必填）' : ''}
+            </span>
+            <textarea
+              aria-label="评审说明"
+              rows={3}
+              value={comment}
+              onChange={(event) => setComment(event.target.value)}
+            />
+          </div>
+        </div>
+        {requiresEvidenceAck && (
+          <div className="review-evidence-ack">
+            <p className="review-warning">
+              证据不完整：{evidenceIssues.join('；')}。批准前必须明确确认你已知晓。
+            </p>
+            <label className="review-evidence-ack-label">
+              <input
+                type="checkbox"
+                checked={evidenceAcknowledged}
+                onChange={(event) => setEvidenceAcknowledged(event.target.checked)}
+              />
+              我已知晓证据不完整，仍继续批准
+            </label>
+          </div>
+        )}
+        <div className="next-step-actions">
+          <button
+            className="primary"
+            disabled={
+              nextStepBlockedByComment ||
+              nextStepBlockedByEvidence ||
+              nextStepBlockedByEvidenceLoad ||
+              nextStepBlockedByEvidenceLoading ||
+              nextStepBlockedByCodeReview
+            }
+            aria-describedby={
+              nextStepBlockedByComment ||
+              nextStepBlockedByEvidence ||
+              nextStepBlockedByEvidenceLoad ||
+              nextStepBlockedByEvidenceLoading ||
+              nextStepBlockedByCodeReview
+                ? 'review-next-step-blocked'
+                : undefined
+            }
+            onClick={() => setPending({ slot: activeSlot!, decision, comment })}
+          >
+            下一步：预览并验证
+            <ArrowRight size={14} />
+          </button>
+        </div>
+        {(nextStepBlockedByComment ||
+          nextStepBlockedByEvidence ||
+          nextStepBlockedByEvidenceLoad ||
+          nextStepBlockedByEvidenceLoading ||
+          nextStepBlockedByCodeReview) && (
+          <p className="task-row-meta" id="review-next-step-blocked">
+            {nextStepBlockedByCodeReview
+              ? '代码评审证据缺失：批准会被服务端拒绝，请改为“要求修改”，或先补充代码评审证据。'
+              : nextStepBlockedByEvidenceLoad
+                ? '完整正文尚未加载：请先加载完整正文或重试；加载成功前不能批准。'
+                : nextStepBlockedByEvidenceLoading
+                  ? '正在读取证据完整性，请稍候再进入确认。'
+                  : nextStepBlockedByEvidence
+                    ? '证据不完整：请先勾选“我已知晓证据不完整，仍继续批准”。'
+                    : '要求修改或驳回时必须填写说明。'}
+          </p>
+        )}
+      </>
+    );
+  }
 
   return (
     <section>
@@ -756,7 +945,7 @@ export function ReviewDecision({
       <div className={`req-layout${embedded ? ' is-embedded' : ''}`}>
         <div className="req-main">
           <div
-            className={`detail-card review-evidence-status${evidenceIncomplete ? ' is-warning' : ''}`}
+            className={`detail-card review-evidence-status${evidenceIncomplete || codeReviewMissing ? ' is-warning' : ''}`}
             role="status"
           >
             <div className="detail-card-head">
@@ -765,50 +954,77 @@ export function ReviewDecision({
                 className={
                   criticalLoading || evidenceAbsent
                     ? 'task-row-meta'
-                    : evidenceIncomplete
+                    : evidenceIncomplete || codeReviewMissing
                       ? 'cell-danger'
                       : 'task-signed'
                 }
               >
                 {criticalLoading
                   ? '读取中'
-                  : evidenceIncomplete
-                    ? '不完整'
-                    : evidenceAbsent
-                      ? '无证据'
-                      : '完整'}
+                  : codeReviewMissing
+                    ? '缺少代码评审证据'
+                    : evidenceIncomplete
+                      ? '不完整'
+                      : evidenceAbsent
+                        ? '无证据'
+                        : '完整'}
               </span>
             </div>
             {criticalLoading ? (
               <p className="task-row-meta">
                 正在读取交付物与需求上下文，读取完成后才能判断证据是否完整。
               </p>
-            ) : evidenceIncomplete ? (
+            ) : (
               <>
-                <p className="review-warning">证据不完整：{evidenceIssues.join('；')}。</p>
-                {truncatedArtifacts.length > 0 && (
-                  <p className="task-row-meta">
-                    服务端只提供 4 KiB
-                    以内的正文预览，没有完整正文读取或下载接口；请在确认前对照原始工件核对全文。
-                  </p>
+                {codeReviewMissing && (
+                  <>
+                    <p className="review-warning">
+                      代码评审证据缺失：该代码交付尚未获得有效的人类代码评审，服务端会以
+                      CODE_REVIEW_EVIDENCE_MISSING 拒绝批准。
+                    </p>
+                    <p className="task-row-meta">
+                      请先要求交付方补充代码评审证据，或改为“要求修改”。
+                      <a href="#review-code-evidence">查看代码评审证据</a>
+                    </p>
+                  </>
                 )}
-                {criticalFailures.length > 0 && (
+                {evidenceIncomplete ? (
+                  <>
+                    <p className="review-warning">证据不完整：{evidenceIssues.join('；')}。</p>
+                    {unresolvedTruncatedArtifacts.length > 0 && (
+                      <p className="task-row-meta">
+                        有工件正文超过 4 KiB
+                        预览范围；请先加载完整正文或对照原工件核对全文，未完成前不能把预览当成完整证据。
+                      </p>
+                    )}
+                    {evidenceLoadBlocked && (
+                      <p className="review-warning">
+                        完整正文尚未加载，批准入口保持阻止；请加载成功或重试，不能用预览替代完整证据。
+                      </p>
+                    )}
+                    {criticalFailures.length > 0 && (
+                      <p className="task-row-meta">
+                        建议先重试读取失败的关键上下文；在无法确认证据完整性前，建议暂缓作出批准决定。
+                      </p>
+                    )}
+                    {requiresEvidenceAck && (
+                      <p className="task-row-meta">
+                        批准前必须勾选“我已知晓证据不完整，仍继续批准”。
+                      </p>
+                    )}
+                  </>
+                ) : evidenceAbsent ? (
                   <p className="task-row-meta">
-                    建议先重试读取失败的关键上下文；在无法确认证据完整性前，建议暂缓作出批准决定。
+                    该评审没有附带正文或工件证据；决定仅依据评审对象本身，请自行确认依据是否充分。
                   </p>
-                )}
-                {requiresEvidenceAck && (
-                  <p className="task-row-meta">批准前必须勾选“我已知晓证据不完整，仍继续批准”。</p>
+                ) : (
+                  !codeReviewMissing && (
+                    <p className="task-row-meta">
+                      证据完整：关键上下文均已成功读取；被截断的预览已按需加载完整正文。
+                    </p>
+                  )
                 )}
               </>
-            ) : evidenceAbsent ? (
-              <p className="task-row-meta">
-                该评审没有附带正文或工件证据；决定仅依据评审对象本身，请自行确认依据是否充分。
-              </p>
-            ) : (
-              <p className="task-row-meta">
-                证据完整：正文/工件预览未被截断，关键上下文均已成功读取。
-              </p>
             )}
           </div>
 
@@ -889,6 +1105,7 @@ export function ReviewDecision({
                           ? `${repoUrl}/commit/${artifact.commitSha}`
                           : null;
                       const preview = artifact.contentPreview ?? null;
+                      const fullContent = artifactContents[artifact.id];
                       const truncationReasonId = `artifact-truncation-${artifact.id}`;
                       return (
                         <div className="task-row review-artifact-row" key={artifact.id}>
@@ -952,13 +1169,14 @@ export function ReviewDecision({
                                   <div
                                     className="review-warning"
                                     id={truncationReasonId}
-                                    title="正文预览已截断：服务端只提供预览，没有完整正文读取或下载接口"
+                                    title="正文预览已截断：需要读取完整正文后才能作为完整证据"
                                   >
                                     <p>
                                       <strong>正文预览已截断。</strong>
-                                      当前服务只提供预览，未提供完整正文读取或下载接口，因此这里无法展示完整正文。
+                                      服务端预览上限为 4
+                                      KiB；请加载完整正文或核对原工件后再作出需要完整证据的决定。
                                     </p>
-                                    {commitUrl ? (
+                                    {commitUrl && (
                                       <p>
                                         <a href={commitUrl} target="_blank" rel="noreferrer">
                                           打开原工件
@@ -967,38 +1185,81 @@ export function ReviewDecision({
                                         {artifact.commitSha ? artifact.commitSha.slice(0, 8) : ''}
                                         ）可在仓库中查看完整内容。
                                       </p>
-                                    ) : (
+                                    )}
+                                    {!commitUrl && (
                                       <p>
                                         无可用原工件链接：该工件没有关联可访问的 GitHub
-                                        仓库或提交记录，无法跳转查看完整内容。
+                                        仓库或提交记录，可加载完整正文或下载证据核对全文。
                                       </p>
                                     )}
-                                    <p>
-                                      <button
-                                        type="button"
-                                        className="ghost"
-                                        disabled
-                                        title="不可用：服务端没有提供完整正文读取或下载接口。"
-                                        aria-describedby={`${truncationReasonId}-disabled`}
-                                      >
-                                        读取完整正文
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="ghost"
-                                        disabled
-                                        title="不可用：服务端没有提供证据下载接口。"
-                                        aria-describedby={`${truncationReasonId}-disabled`}
-                                      >
-                                        下载证据
-                                      </button>
-                                      <span
-                                        id={`${truncationReasonId}-disabled`}
-                                        className="task-row-meta"
-                                      >
-                                        不可用：服务端没有提供完整正文读取或下载接口。
-                                      </span>
-                                    </p>
+                                    {fullContent?.status === 'loading' && (
+                                      <p className="task-row-meta">正在读取完整正文…</p>
+                                    )}
+                                    {fullContent?.status === 'error' && (
+                                      <div className="review-warning">
+                                        <p>完整正文加载失败：{fullContent.error}</p>
+                                        <button
+                                          type="button"
+                                          className="ghost"
+                                          onClick={() => void loadFullArtifact(artifact)}
+                                        >
+                                          重试加载完整正文
+                                        </button>
+                                      </div>
+                                    )}
+                                    {fullContent?.status === 'loaded' && fullContent.data && (
+                                      <div>
+                                        <p className="task-row-meta">
+                                          已加载完整正文 ·{' '}
+                                          {formatBytes(fullContent.data.byteLength)} ·{' '}
+                                          {fullContent.data.mediaType}
+                                        </p>
+                                        {fullContent.data.text !== null ? (
+                                          <pre className="paper-content artifact-preview">
+                                            {fullContent.data.text}
+                                          </pre>
+                                        ) : (
+                                          <p className="task-row-meta">
+                                            完整证据为非文本内容，已保存真实 MIME
+                                            与完整字节，请下载查看。
+                                          </p>
+                                        )}
+                                        <p>
+                                          <button
+                                            type="button"
+                                            className="ghost"
+                                            onClick={() => void openArtifact(artifact)}
+                                          >
+                                            在新标签打开完整正文
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="ghost"
+                                            onClick={() => void downloadArtifact(artifact)}
+                                          >
+                                            下载证据
+                                          </button>
+                                        </p>
+                                      </div>
+                                    )}
+                                    {(!fullContent || fullContent.status === 'idle') && (
+                                      <p>
+                                        <button
+                                          type="button"
+                                          className="ghost"
+                                          onClick={() => void loadFullArtifact(artifact)}
+                                        >
+                                          加载完整正文
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="ghost"
+                                          onClick={() => void downloadArtifact(artifact)}
+                                        >
+                                          下载证据
+                                        </button>
+                                      </p>
+                                    )}
                                   </div>
                                 )}
                               </>
@@ -1051,6 +1312,7 @@ export function ReviewDecision({
 
           {artifactSet?.codeReview?.required && (
             <div
+              id="review-code-evidence"
               className={`detail-card review-code-evidence${artifactSet.codeReview.acceptable ? '' : ' is-warning'}`}
             >
               <div className="detail-card-head">
@@ -1322,15 +1584,7 @@ export function ReviewDecision({
                         </div>
                       </div>
                       {!decided && open && slot.viewerCanDecide && (
-                        <button
-                          className="primary"
-                          onClick={() => {
-                            setActiveSlot(slot);
-                            setDecision('APPROVE');
-                            setComment('');
-                            setEvidenceAcknowledged(false);
-                          }}
-                        >
+                        <button className="primary" onClick={() => startDecision(slot)}>
                           作出决定
                         </button>
                       )}
@@ -1341,82 +1595,10 @@ export function ReviewDecision({
             )}
           </div>
 
-          {open && activeSlot && (
+          {!embedded && open && activeSlot && (
             <div className="detail-card">
               <h3>作出决定 · {activeSlot.slotKey}</h3>
-              <div className="form-grid">
-                <div className="field">
-                  <span>决定</span>
-                  <select
-                    aria-label="评审决定"
-                    value={decision}
-                    onChange={(event) => setDecision(event.target.value as DecisionValue)}
-                  >
-                    <option value="APPROVE">批准</option>
-                    <option value="CHANGES_REQUESTED">要求修改</option>
-                    <option value="REJECT">驳回</option>
-                  </select>
-                </div>
-                <div className="field">
-                  <span>
-                    说明
-                    {decision === 'CHANGES_REQUESTED' || decision === 'REJECT' ? '（必填）' : ''}
-                  </span>
-                  <textarea
-                    aria-label="评审说明"
-                    rows={3}
-                    value={comment}
-                    onChange={(event) => setComment(event.target.value)}
-                  />
-                </div>
-              </div>
-              {requiresEvidenceAck && (
-                <div className="review-evidence-ack">
-                  <p className="review-warning">
-                    证据不完整：{evidenceIssues.join('；')}。批准前必须明确确认你已知晓。
-                  </p>
-                  <label className="review-evidence-ack-label">
-                    <input
-                      type="checkbox"
-                      checked={evidenceAcknowledged}
-                      onChange={(event) => setEvidenceAcknowledged(event.target.checked)}
-                    />
-                    我已知晓证据不完整，仍继续批准
-                  </label>
-                </div>
-              )}
-              <div className="next-step-actions">
-                <button
-                  className="primary"
-                  disabled={
-                    nextStepBlockedByComment ||
-                    nextStepBlockedByEvidence ||
-                    nextStepBlockedByEvidenceLoading
-                  }
-                  aria-describedby={
-                    nextStepBlockedByComment ||
-                    nextStepBlockedByEvidence ||
-                    nextStepBlockedByEvidenceLoading
-                      ? 'review-next-step-blocked'
-                      : undefined
-                  }
-                  onClick={() => setPending({ slot: activeSlot, decision, comment })}
-                >
-                  下一步：预览并验证
-                  <ArrowRight size={14} />
-                </button>
-              </div>
-              {(nextStepBlockedByComment ||
-                nextStepBlockedByEvidence ||
-                nextStepBlockedByEvidenceLoading) && (
-                <p className="task-row-meta" id="review-next-step-blocked">
-                  {nextStepBlockedByEvidenceLoading
-                    ? '正在读取证据完整性，请稍候再进入确认。'
-                    : nextStepBlockedByEvidence
-                      ? '证据不完整：请先勾选“我已知晓证据不完整，仍继续批准”。'
-                      : '要求修改或驳回时必须填写说明。'}
-                </p>
-              )}
+              {renderDecisionForm()}
             </div>
           )}
 
@@ -1436,7 +1618,12 @@ export function ReviewDecision({
                     角色：{review.role.title}（{review.role.key}）
                   </li>
                 )}
-                <li>责任人：{task.responsibleUserId}</li>
+                <li title={task.responsibleUserId}>
+                  责任人：
+                  {task.responsibleUserId.includes('@')
+                    ? task.responsibleUserId
+                    : `${task.responsibleUserId.slice(0, 8)}…（用户 ID 前 8 位）`}
+                </li>
                 <li>状态：{labelFor(EXECUTION_STATUS_LABELS, task.executionStatus)}</li>
                 <li>
                   版本：v{task.version} · 代次 {task.generation}
@@ -1446,6 +1633,36 @@ export function ReviewDecision({
           )}
         </aside>
       </div>
+
+      {embedded && open && (
+        <div className="decision-sticky-footer" aria-label="作出决定">
+          {activeSlot ? (
+            <>
+              <div className="decision-sticky-head">
+                <strong>作出决定 · {activeSlot.slotKey}</strong>
+                <span className="task-row-meta">
+                  {codeReviewMissing ? '代码评审证据缺失，批准不可用' : `评审 v${review.version}`}
+                </span>
+                <button type="button" className="ghost" onClick={() => setActiveSlot(null)}>
+                  收起
+                </button>
+              </div>
+              {renderDecisionForm()}
+            </>
+          ) : actionableSlots.length > 0 ? (
+            <div className="decision-sticky-collapsed">
+              <span className="task-row-meta">证据与验收标准在上方；确认后在此作出决定。</span>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => startDecision(actionableSlots[0])}
+              >
+                作出决定 · {actionableSlots[0].slotKey}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      )}
 
       {error && (
         <p className="error" role="alert">

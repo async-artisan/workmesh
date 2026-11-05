@@ -26,6 +26,16 @@ enum GrantSubjectKind {
   ROLE
   @@schema("workmesh_v1")
 }
+enum RepositoryIdentityMode {
+  DECLARED
+  PROVIDER
+  @@schema("workmesh_v1")
+}
+enum RepositoryLocatorSource {
+  HTTPS
+  SSH
+  @@schema("workmesh_v1")
+}
 enum PublicationKind {
   PUBLISH
   WITHDRAW
@@ -110,6 +120,11 @@ model User {
   cliApprovals  CliAuthorizationRequest[] @relation("CliApprovedUser")
   invitationsSent ProjectInvitation[] @relation("InvitationInviter")
   invitationsAccepted ProjectInvitation[] @relation("InvitationAccepter")
+  repositoryLocatorsDeclared ProjectRepositoryLocator[] @relation("LocatorDeclaredBy")
+  repositoryLocatorsRevoked ProjectRepositoryLocator[] @relation("LocatorRevokedBy")
+  workspaceDefinitionsUpdated ProjectWorkspaceDefinition[] @relation("DefinitionUpdatedBy")
+  workspaceRevisionsPublished ProjectWorkspaceDefinitionRevision[] @relation("RevisionPublishedBy")
+  workspaceEnrollmentsCreated ProjectWorkspaceEnrollment[] @relation("EnrollmentCreatedBy")
 
   @@schema("workmesh_v1")
 }
@@ -140,6 +155,10 @@ model Project {
   rolePackages          RolePackageVersion[]
   knowledgeBindings     ProjectKnowledgeBinding[]
   repositories          ProjectRepository[]
+  workspaceDefinition   ProjectWorkspaceDefinition?
+  definitionRevisions   ProjectWorkspaceDefinitionRevision[]
+  repositoryLocators    ProjectRepositoryLocator[]
+  workspaceEnrollments  ProjectWorkspaceEnrollment[]
   units                 Unit[]
   unitDependencies      UnitDependency[]
   invitations           ProjectInvitation[]
@@ -1164,20 +1183,141 @@ model RolePackageResource {
   @@schema("workmesh_v1")
 }
 
-/// 项目代码仓库稳定身份：外部 id 由厂商提供且不随重命名变化，任务交付只引用这里登记的仓库。
+/// 项目代码仓库稳定身份：PROVIDER 使用厂商稳定 ID；DECLARED 由 HUMAN 声明 locator。
+/// owner/name 仅作展示，不参与身份匹配；adapter/externalId 仅 PROVIDER 可非空。
 model ProjectRepository {
-  id            String   @id @default(uuid()) @db.Uuid
-  projectId     String   @db.Uuid
-  adapter       String   @db.VarChar(16)
-  externalId    String   @db.VarChar(120)
-  owner         String   @db.VarChar(120)
-  name          String   @db.VarChar(120)
-  defaultBranch String?  @db.VarChar(200)
-  archivedAt    DateTime? @db.Timestamptz(3)
-  createdAt     DateTime @default(now()) @db.Timestamptz(3)
-  project       Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  id                   String                                       @id @default(uuid()) @db.Uuid
+  projectId            String                                       @db.Uuid
+  identityMode         RepositoryIdentityMode                       @default(PROVIDER)
+  adapter              String?                                      @db.VarChar(16)
+  externalId           String?                                      @db.VarChar(120)
+  owner                String                                       @db.VarChar(120)
+  name                 String                                       @db.VarChar(120)
+  defaultBranch        String?                                      @db.VarChar(200)
+  archivedAt           DateTime?                                    @db.Timestamptz(3)
+  lastVerifiedStatus   String?                                      @db.VarChar(32)
+  lastVerifiedAt       DateTime?                                    @db.Timestamptz(3)
+  lastVerifiedDigest   String?                                      @db.Char(64)
+  createdAt            DateTime                                     @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime                                     @default(now()) @updatedAt @db.Timestamptz(3)
+  project              Project                                      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  locators             ProjectRepositoryLocator[]
+  revisionRepositories ProjectWorkspaceDefinitionRevisionRepository[]
 
   @@unique([projectId, adapter, externalId])
+  @@index([projectId, archivedAt])
+  @@schema("workmesh_v1")
+}
+
+/// 同一项目内活跃 canonical locator 唯一；撤销历史保留。部分唯一索引由手写 SQL 建立。
+/// repositoryId 必须属于同一 projectId；跨表一致性由应用层保证，并由迁移 postcheck 查询检测。
+model ProjectRepositoryLocator {
+  id               String                 @id @default(uuid()) @db.Uuid
+  projectId        String                 @db.Uuid
+  repositoryId     String                 @db.Uuid
+  canonicalLocator String                 @db.VarChar(500)
+  source           RepositoryLocatorSource
+  declaredByUserId String?                @db.Uuid
+  declaredAt       DateTime               @default(now()) @db.Timestamptz(3)
+  revokedAt        DateTime?              @db.Timestamptz(3)
+  revokedByUserId  String?                @db.Uuid
+  createdAt        DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime               @default(now()) @updatedAt @db.Timestamptz(3)
+  project          Project                @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  repository       ProjectRepository      @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+  declaredBy       User?                  @relation("LocatorDeclaredBy", fields: [declaredByUserId], references: [id], onDelete: Restrict)
+  revokedBy        User?                  @relation("LocatorRevokedBy", fields: [revokedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([projectId, canonicalLocator])
+  @@index([repositoryId, revokedAt])
+  @@schema("workmesh_v1")
+}
+
+/// 每个项目一条定义头；version 是草稿代数/旧编辑器失效令牌，发布也必须递增。
+/// currentRevisionId 必须属于同一 definition 且同 project；一致性由发布事务在应用层保证。
+model ProjectWorkspaceDefinition {
+  id                String                               @id @default(uuid()) @db.Uuid
+  projectId         String                               @unique @db.Uuid
+  version           Int                                  @default(1)
+  draftPayload      Json?
+  draftDigest       String?                              @db.Char(64)
+  currentRevisionId String?                              @unique @db.Uuid
+  currentRevisionNo Int?
+  updatedByUserId   String?                              @db.Uuid
+  createdAt         DateTime                             @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime                             @default(now()) @updatedAt @db.Timestamptz(3)
+  project           Project                              @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  updatedBy         User?                                @relation("DefinitionUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict)
+  currentRevision   ProjectWorkspaceDefinitionRevision?  @relation("DefinitionCurrentRevision", fields: [currentRevisionId], references: [id], onDelete: Restrict)
+  revisions         ProjectWorkspaceDefinitionRevision[] @relation("DefinitionRevisions")
+
+  @@schema("workmesh_v1")
+}
+
+/// 已发布定义不可变 revision；payload/digest 由服务端规范化后写入。
+/// projectId 必须等于 definition.projectId；发布服务在事务内保证。
+model ProjectWorkspaceDefinitionRevision {
+  id                String                                         @id @default(uuid()) @db.Uuid
+  definitionId      String                                         @db.Uuid
+  projectId         String                                         @db.Uuid
+  revisionNo        Int
+  digest            String                                         @db.Char(64)
+  payload           Json
+  publishedByUserId String?                                        @db.Uuid
+  publishedAt       DateTime                                       @default(now()) @db.Timestamptz(3)
+  createdAt         DateTime                                       @default(now()) @db.Timestamptz(3)
+  definition        ProjectWorkspaceDefinition                     @relation("DefinitionRevisions", fields: [definitionId], references: [id], onDelete: Restrict)
+  currentFor        ProjectWorkspaceDefinition?                    @relation("DefinitionCurrentRevision")
+  project           Project                                        @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  publishedBy       User?                                          @relation("RevisionPublishedBy", fields: [publishedByUserId], references: [id], onDelete: Restrict)
+  repositories      ProjectWorkspaceDefinitionRevisionRepository[]
+  enrollments       ProjectWorkspaceEnrollment[]
+
+  @@unique([definitionId, revisionNo])
+  @@index([projectId, publishedAt])
+  @@schema("workmesh_v1")
+}
+
+/// revision 与仓库的关联；logicalKey/suggestedPath 等冗余字段用于约束和查询，权威仍是 payload。
+/// revision 与 repository 必须属于同一 project；文档引用只存 payload，不建文档关系表。
+model ProjectWorkspaceDefinitionRevisionRepository {
+  id            String                             @id @default(uuid()) @db.Uuid
+  revisionId    String                             @db.Uuid
+  repositoryId  String                             @db.Uuid
+  logicalKey    String                             @db.VarChar(80)
+  suggestedPath String?                            @db.VarChar(500)
+  defaultRef    String?                            @db.VarChar(200)
+  description   String?                            @db.VarChar(1000)
+  createdAt     DateTime                           @default(now()) @db.Timestamptz(3)
+  revision      ProjectWorkspaceDefinitionRevision @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  repository    ProjectRepository                  @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+
+  @@unique([revisionId, logicalKey])
+  @@unique([revisionId, repositoryId])
+  @@index([repositoryId])
+  @@schema("workmesh_v1")
+}
+
+/// CLI 一次性接入码：只存 codeHash；绑定签发时的已发布 revision，消费后不可复用。
+/// definitionRevision 必须属于同一 project；接入码不授予任何成员或权限。
+model ProjectWorkspaceEnrollment {
+  id                   String                             @id @default(uuid()) @db.Uuid
+  projectId            String                             @db.Uuid
+  createdByUserId      String                             @db.Uuid
+  definitionRevisionId String                             @db.Uuid
+  definitionDigest     String                             @db.Char(64)
+  codeHash             String                             @unique @db.Char(64)
+  version              Int                                @default(1)
+  expiresAt            DateTime                           @db.Timestamptz(3)
+  consumedAt           DateTime?                          @db.Timestamptz(3)
+  revokedAt            DateTime?                          @db.Timestamptz(3)
+  createdAt            DateTime                           @default(now()) @db.Timestamptz(3)
+  project              Project                            @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  createdBy            User                               @relation("EnrollmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  definitionRevision   ProjectWorkspaceDefinitionRevision @relation(fields: [definitionRevisionId], references: [id], onDelete: Restrict)
+
+  @@index([projectId, createdAt])
+  @@index([expiresAt])
   @@schema("workmesh_v1")
 }
 

@@ -17,6 +17,7 @@ import { acceptanceReviewKindOf, acceptanceSlotBindings } from '../reviews/v1-re
 import { boundEvidenceIds } from '../reviews/v1-review-code-evidence';
 import {
   type V1ArtifactRepository,
+  type V1ArtifactBody,
   type V1ArtifactSetSnapshot,
   type V1ArtifactCheck,
   type V1CodeReviewEvidenceSnapshot,
@@ -107,6 +108,29 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
     return this.toSetSnapshot(set);
   }
 
+  async findArtifactBody(artifactId: string): Promise<V1ArtifactBody | null> {
+    const artifact = await this.prisma.artifact.findUnique({
+      where: { id: artifactId },
+      select: {
+        id: true,
+        mediaType: true,
+        byteLength: true,
+        sha256: true,
+        storage: true,
+        bodyBytes: true,
+      },
+    });
+    if (!artifact || !artifact.bodyBytes || artifact.storage !== 'HOSTED') return null;
+    return {
+      artifactId: artifact.id,
+      mediaType: artifact.mediaType,
+      byteLength: artifact.byteLength,
+      sha256: artifact.sha256,
+      storage: 'HOSTED',
+      bytes: Buffer.from(artifact.bodyBytes),
+    };
+  }
+
   async findCodeReviewEvidence(
     projectId: string,
     artifactSetId: string,
@@ -142,10 +166,13 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
     });
     const repositoryIds = [...new Set(evidence.map((item) => item.repositoryId))];
     const repositories = await this.prisma.projectRepository.findMany({
-      where: { projectId, externalId: { in: repositoryIds } },
+      where: { projectId, identityMode: 'PROVIDER', externalId: { in: repositoryIds } },
       select: { externalId: true, owner: true, name: true, adapter: true },
     });
-    return mapCodeReviewEvidence(evidence, repositories);
+    const providerRepositories = repositories.filter(
+      (item): item is ProjectRepositoryRow => item.externalId !== null && item.adapter !== null,
+    );
+    return mapCodeReviewEvidence(evidence, providerRepositories);
   }
 
   async deliver(input: V1DeliverInput): Promise<V1DeliverResultRow> {

@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { formatApiError } from '../api/client';
+import { formatDateTime } from '../lib/datetime';
 import { reviewApi, type ReviewDecision, type ReviewSlot, type ReviewView } from '../api/resources';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
+import { DelegationsPanel } from '../components/DelegationsPanel';
 import type { DecisionSummaryData } from '../components/DecisionSummary';
 import { Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
@@ -19,9 +21,47 @@ import {
 
 type DecisionValue = ReviewDecisionValue;
 
+/**
+ * 窄屏（≤720px）收件箱用卡片替代表格：断点与 mobile-lists.css 保持一致。
+ * jsdom 没有 matchMedia 时按桌面表格渲染，既有交互与读屏结构完全不变。
+ */
+const NARROW_LIST_QUERY = '(max-width: 720px)';
+
+function subscribeNarrowList(onChange: () => void): () => void {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => {};
+  const mediaQuery = window.matchMedia(NARROW_LIST_QUERY);
+  mediaQuery.addEventListener?.('change', onChange);
+  return () => mediaQuery.removeEventListener?.('change', onChange);
+}
+
+function getNarrowListSnapshot(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia(NARROW_LIST_QUERY).matches;
+}
+
+function useNarrowList(): boolean {
+  return useSyncExternalStore(subscribeNarrowList, getNarrowListSnapshot, () => false);
+}
+
 /** 收件箱分页请求的序号：切项目 / 刷新 / 返回收件箱时淘汰仍在途的旧响应。 */
 function nextListRequestId(current: number): number {
   return current + 1;
+}
+
+/** 「已决定」历史需要覆盖三种终态；服务端按单一状态过滤，前端合并去重。 */
+const DECIDED_STATUSES = ['APPROVED', 'CHANGES_REQUESTED', 'REJECTED'] as const;
+
+function lastDecisionAt(review: ReviewView): number {
+  const times = review.decisions
+    .map((decision) => new Date(decision.createdAt).getTime())
+    .filter((time) => Number.isFinite(time));
+  return times.length > 0 ? Math.max(...times) : 0;
+}
+
+/** 合并三种终态并按最近一次决定时间倒序，回看时先看到刚处理过的。 */
+function mergeDecidedReviews(items: ReviewView[]): ReviewView[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  return [...byId.values()].sort((a, b) => lastDecisionAt(b) - lastDecisionAt(a));
 }
 
 /**
@@ -84,6 +124,7 @@ function buildDecisionSummary(sourceReview: ReviewView, target: DecideTarget): D
  */
 export function Reviews() {
   const { projectId } = useProjectContext();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const reviewId = params.get('id') ?? '';
   const [review, setReview] = useState<ReviewView | null>(null);
@@ -92,6 +133,7 @@ export function Reviews() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
+  const [scope, setScope] = useState<'open' | 'decided' | 'delegations'>('open');
   const [loadMoreError, setLoadMoreError] = useState('');
   const [reloadToken, setReloadToken] = useState(0);
   const [error, setError] = useState('');
@@ -102,6 +144,14 @@ export function Reviews() {
   const [pendingRevoke, setPendingRevoke] = useState<RevokeTarget | null>(null);
   // 所有收件箱列表请求共享的代号；只有代号最新的响应允许写回列表状态。
   const listRequestRef = useRef(0);
+  const narrowList = useNarrowList();
+  const inboxEmptyText = listLoading
+    ? '加载中…'
+    : error
+      ? '加载失败，请重试。'
+      : scope === 'decided'
+        ? '最近没有已决定的评审。'
+        : '当前没有待评审请求。';
 
   useEffect(() => {
     let alive = true;
@@ -128,8 +178,29 @@ export function Reviews() {
       setHasMore(false);
       setListLoading(true);
       setLoadingMore(false);
-      reviewApi
-        .list(projectId, { assignedToMe: true, status: 'OPEN' })
+      if (scope === 'delegations') {
+        // 委托/超时面板自己加载数据；复用收件箱游标会误导“加载全部”。
+        setReviews([]);
+        setNextCursor(null);
+        setHasMore(false);
+        setListLoading(false);
+        return () => {
+          alive = false;
+        };
+      }
+      const request =
+        scope === 'decided'
+          ? Promise.all(
+              DECIDED_STATUSES.map((status) =>
+                reviewApi.list(projectId, { assignedToMe: true, status }),
+              ),
+            ).then((pages) => ({
+              items: mergeDecidedReviews(pages.flatMap((page) => page.items)),
+              nextCursor: null,
+              hasMore: false,
+            }))
+          : reviewApi.list(projectId, { assignedToMe: true, status: 'OPEN' });
+      request
         .then((page) => {
           if (!alive || requestId !== listRequestRef.current) return;
           setReviews(page.items);
@@ -170,7 +241,7 @@ export function Reviews() {
     return () => {
       alive = false;
     };
-  }, [reviewId, projectId, reloadToken]);
+  }, [reviewId, projectId, reloadToken, scope]);
 
   /**
    * 刷新 / 切项目：先清空列表与游标，再触发首屏重新加载（effect 统一负责请求与竞态）。
@@ -190,7 +261,8 @@ export function Reviews() {
    * 加载更多：只追加下一页里此前没有出现过的 review；失败时保留已有列表与游标，可重试。
    */
   async function loadMore() {
-    if (!projectId || !nextCursor || loadingMore) return;
+    // 已决定历史按三种终态各取一页合并；委托视图不列表分页。
+    if (scope !== 'open' || !projectId || !nextCursor || loadingMore) return;
     const requestId = listRequestRef.current;
     setLoadingMore(true);
     setLoadMoreError('');
@@ -285,16 +357,16 @@ export function Reviews() {
     review && pendingDecision ? buildDecisionSummary(review, pendingDecision) : undefined;
 
   return (
-    <section>
+    <section className="reviews-page">
       <header className="page-head">
         <div>
           <h2>评审</h2>
           <p className="page-sub">
-            槽位、摘要与版本均来自服务端。每个决定都要求准确槽位、最新版本与一次性票据。
+            先看待我评审，再看已决定历史；提交决定需要确认密码并签发一次性票据，服务端会校验版本与槽位。
           </p>
         </div>
         <div className="page-actions">
-          <ProjectSelect onChange={resetInbox} />
+          <ProjectSelect onChange={resetInbox} onCreateProject={() => navigate('/projects')} />
           {reviewId ? (
             <button className="ghost" onClick={backToInbox}>
               返回待评审
@@ -320,104 +392,166 @@ export function Reviews() {
         <div className="table-card">
           <div className="card-head">
             <h3>
-              待评审收件箱<small>{reviews.length}</small>
+              {scope === 'delegations'
+                ? '审批委托与超时'
+                : scope === 'decided'
+                  ? '已决定历史'
+                  : '待评审收件箱'}
+              <small>{scope === 'delegations' ? '' : reviews.length}</small>
             </h3>
             <span className="card-head-actions">
-              <small>当前用户 · OPEN</small>
+              <button
+                type="button"
+                className={scope === 'open' ? 'primary' : 'ghost'}
+                aria-pressed={scope === 'open'}
+                onClick={() => setScope('open')}
+              >
+                待我评审
+              </button>
+              <button
+                type="button"
+                className={scope === 'decided' ? 'primary' : 'ghost'}
+                aria-pressed={scope === 'decided'}
+                onClick={() => setScope('decided')}
+              >
+                已决定
+              </button>
+              <button
+                type="button"
+                className={scope === 'delegations' ? 'primary' : 'ghost'}
+                aria-pressed={scope === 'delegations'}
+                onClick={() => setScope('delegations')}
+              >
+                委托 / 超时
+              </button>
             </span>
           </div>
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>类型</th>
-                  <th>评审对象</th>
-                  <th>角色 / 版本</th>
-                  <th>状态</th>
-                  <th className="col-actions">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reviews.map((item) => {
-                  return (
-                    <tr key={item.id}>
-                      <td>{labelFor(REVIEW_KIND_LABELS, item.kind)}</td>
-                      <td>
-                        <strong>
-                          {item.requirement
-                            ? `${item.requirement.code} · ${item.requirement.title}`
-                            : item.id.slice(0, 8)}
-                        </strong>
-                        <div className="task-row-meta">
-                          {item.subjectLabel
-                            ? labelFor(STEP_LABELS, item.subjectLabel)
-                            : `摘要 ${item.subjectDigest.slice(0, 10)}`}
-                        </div>
-                      </td>
-                      <td>
-                        {item.role?.title ?? '—'}
-                        <span className="cell-mono"> · v{item.version}</span>
-                      </td>
-                      <td>
-                        <span className="status-tag">
-                          {labelFor(REVIEW_STATUS_LABELS, item.status)}
-                        </span>
-                      </td>
-                      <td className="col-actions">
-                        <button className="ghost" onClick={() => openReview(item)}>
-                          打开评审
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {reviews.length === 0 && (
-                  <tr className="table-empty">
-                    <td colSpan={5}>
-                      {listLoading
-                        ? '加载中…'
-                        : error
-                          ? '加载失败，请重试。'
-                          : '当前没有待评审请求。'}
-                    </td>
+          {scope === 'delegations' ? (
+            <DelegationsPanel projectId={projectId} />
+          ) : narrowList ? (
+            <ul className="wm-mobile-card-list" data-testid="reviews-card-list">
+              {reviews.map((item) => (
+                <li key={item.id} className="wm-mobile-card" data-testid="review-card">
+                  <div className="wm-mobile-card-head">
+                    <span className="status-tag">{labelFor(REVIEW_KIND_LABELS, item.kind)}</span>
+                    <span className="status-tag">
+                      {labelFor(REVIEW_STATUS_LABELS, item.status)}
+                    </span>
+                  </div>
+                  <p className="wm-mobile-card-title">
+                    {item.requirement
+                      ? `${item.requirement.code} · ${item.requirement.title}`
+                      : item.id.slice(0, 8)}
+                  </p>
+                  <p className="wm-mobile-card-meta">
+                    {item.subjectLabel
+                      ? labelFor(STEP_LABELS, item.subjectLabel)
+                      : `摘要 ${item.subjectDigest.slice(0, 10)}`}
+                  </p>
+                  <p className="wm-mobile-card-meta">
+                    {item.role?.title ?? '—'} · v{item.version}
+                  </p>
+                  <div className="wm-mobile-card-actions">
+                    <button className="ghost" onClick={() => openReview(item)}>
+                      打开评审
+                    </button>
+                  </div>
+                </li>
+              ))}
+              {reviews.length === 0 && <li className="wm-mobile-empty">{inboxEmptyText}</li>}
+            </ul>
+          ) : (
+            <div className="table-scroll" data-testid="reviews-table">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>类型</th>
+                    <th>评审对象</th>
+                    <th>角色 / 版本</th>
+                    <th>状态</th>
+                    <th className="col-actions">操作</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          <div className="table-foot">
-            <small>已显示 {reviews.length} 条</small>
-            {loadMoreError ? (
-              <div className="pager">
-                <span className="error" role="alert">
-                  {loadMoreError}
-                </span>
-                <button
-                  className="ghost"
-                  type="button"
-                  disabled={loadingMore}
-                  onClick={() => void loadMore()}
-                >
-                  重试
-                </button>
-              </div>
-            ) : (
-              <div className="pager">
-                {hasMore && nextCursor ? (
+                </thead>
+                <tbody>
+                  {reviews.map((item) => {
+                    return (
+                      <tr key={item.id}>
+                        <td>{labelFor(REVIEW_KIND_LABELS, item.kind)}</td>
+                        <td>
+                          <strong>
+                            {item.requirement
+                              ? `${item.requirement.code} · ${item.requirement.title}`
+                              : item.id.slice(0, 8)}
+                          </strong>
+                          <div className="task-row-meta">
+                            {item.subjectLabel
+                              ? labelFor(STEP_LABELS, item.subjectLabel)
+                              : `摘要 ${item.subjectDigest.slice(0, 10)}`}
+                          </div>
+                        </td>
+                        <td>
+                          {item.role?.title ?? '—'}
+                          <span className="cell-mono"> · v{item.version}</span>
+                        </td>
+                        <td>
+                          <span className="status-tag">
+                            {labelFor(REVIEW_STATUS_LABELS, item.status)}
+                          </span>
+                        </td>
+                        <td className="col-actions">
+                          <button className="ghost" onClick={() => openReview(item)}>
+                            打开评审
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {reviews.length === 0 && (
+                    <tr className="table-empty">
+                      <td colSpan={5}>{inboxEmptyText}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {scope !== 'delegations' && (
+            <div className="table-foot">
+              <small>已显示 {reviews.length} 条</small>
+              {scope === 'decided' ? (
+                <small>已通过 / 要求修改 / 已驳回各取最近一页，按决定时间倒序</small>
+              ) : loadMoreError ? (
+                <div className="pager">
+                  <span className="error" role="alert">
+                    {loadMoreError}
+                  </span>
                   <button
                     className="ghost"
                     type="button"
                     disabled={loadingMore}
                     onClick={() => void loadMore()}
                   >
-                    {loadingMore ? '加载中…' : '加载更多'}
+                    重试
                   </button>
-                ) : (
-                  !listLoading && !error && <small>已加载全部</small>
-                )}
-              </div>
-            )}
-          </div>
+                </div>
+              ) : (
+                <div className="pager">
+                  {hasMore && nextCursor ? (
+                    <button
+                      className="ghost"
+                      type="button"
+                      disabled={loadingMore}
+                      onClick={() => void loadMore()}
+                    >
+                      {loadingMore ? '加载中…' : '加载更多'}
+                    </button>
+                  ) : (
+                    !listLoading && !error && <small>已加载全部</small>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -578,7 +712,7 @@ export function Reviews() {
                         <span className="cell-mono cell-truncate">{decision.subjectDigest}</span>
                       </td>
                       <td>{decision.comment || '—'}</td>
-                      <td>{new Date(decision.createdAt).toLocaleString('zh-CN')}</td>
+                      <td>{formatDateTime(decision.createdAt)}</td>
                     </tr>
                   ))}
                   {review.decisions.length === 0 && (

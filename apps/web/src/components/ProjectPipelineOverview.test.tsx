@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { ProjectPipelineOverview, type PipelineRequirement } from './ProjectPipelineOverview';
 
 function req(overrides: Partial<PipelineRequirement> = {}): PipelineRequirement {
@@ -25,6 +25,10 @@ function renderOverview(
 }
 
 describe('ProjectPipelineOverview（阶段时间线 / 状态拆分 / 统计口径）', () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
+
   it('阶段节点显示「当前阶段需求数」，没有完成证据时连接线保持中性', () => {
     const { container } = renderOverview([
       req({ id: 'a', phase: 'DELIVERY', workStatus: 'ACTIVE' }),
@@ -178,5 +182,35 @@ describe('ProjectPipelineOverview（阶段时间线 / 状态拆分 / 统计口�
     expect(screen.getByText('已读取需求（不完整）')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^全部需求：/ })).not.toBeInTheDocument();
     expect(screen.getByText(/分页读取未完成/)).toBeInTheDocument();
+  });
+
+  it('按项目记住搜索与阶段筛选，重新挂载后恢复 triage 上下文', () => {
+    const requirements = [
+      req({ id: 'a', phase: 'DELIVERY', title: '客户询价单' }),
+      req({ id: 'b', phase: 'DISCOVERY', title: '内部合同' }),
+    ];
+    const { unmount } = render(
+      <ProjectPipelineOverview projectId="p-persist" requirements={requirements} />,
+    );
+    fireEvent.change(screen.getByLabelText('搜索需求'), { target: { value: '客户' } });
+    fireEvent.change(screen.getByLabelText('按阶段筛选'), { target: { value: 'DELIVERY' } });
+    unmount();
+
+    render(<ProjectPipelineOverview projectId="p-persist" requirements={requirements} />);
+    expect((screen.getByLabelText('搜索需求') as HTMLInputElement).value).toBe('客户');
+    expect((screen.getByLabelText('按阶段筛选') as HTMLSelectElement).value).toBe('DELIVERY');
+    expect(screen.getByText('客户询价单')).toBeInTheDocument();
+    expect(screen.queryByText('内部合同')).not.toBeInTheDocument();
+  });
+
+  it('损坏的本地筛选不会让页面崩溃，按默认全部显示', () => {
+    sessionStorage.setItem(
+      'workmesh.pipelineFilters.p-broken',
+      JSON.stringify({ query: '', phase: 'NOT_A_PHASE', status: 'NOT_A_STATUS' }),
+    );
+    render(<ProjectPipelineOverview projectId="p-broken" requirements={[req({ id: 'a' })]} />);
+    expect(screen.getByText('需求 a')).toBeInTheDocument();
+    expect((screen.getByLabelText('按阶段筛选') as HTMLSelectElement).value).toBe('ALL');
+    expect((screen.getByLabelText('搜索需求') as HTMLInputElement).value).toBe('');
   });
 });

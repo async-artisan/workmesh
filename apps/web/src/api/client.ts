@@ -15,6 +15,8 @@ export class ApiError extends Error {
     message: string,
     readonly details?: Record<string, unknown>,
     readonly requestId?: string,
+    /** HTTP Retry-After 的秒数；缺失或不可解析时为 null，不猜测等待时间。 */
+    readonly retryAfterSeconds: number | null = null,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -85,7 +87,21 @@ function randomKey(): string {
   throw new ApiError(0, 'CRYPTO_UNAVAILABLE', '当前浏览器无法生成幂等键');
 }
 
-function parseError(status: number, payload: unknown, fallback: string): ApiError {
+/** Retry-After 只接受秒数形式；HTTP-date 或非法值返回 null，由 UI 走人工重试。 */
+export function parseRetryAfter(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const seconds = Number(trimmed);
+  return Number.isSafeInteger(seconds) && seconds >= 0 ? seconds : null;
+}
+
+function parseError(
+  status: number,
+  payload: unknown,
+  fallback: string,
+  retryAfterSeconds: number | null = null,
+): ApiError {
   const envelope = (payload as ErrorEnvelope | null)?.error;
   const code = typeof envelope?.code === 'string' ? envelope.code : `HTTP_${status}`;
   const message =
@@ -95,7 +111,7 @@ function parseError(status: number, payload: unknown, fallback: string): ApiErro
       ? (envelope.details as Record<string, unknown>)
       : undefined;
   const requestId = typeof envelope?.requestId === 'string' ? envelope.requestId : undefined;
-  return new ApiError(status, code, message, details, requestId);
+  return new ApiError(status, code, message, details, requestId, retryAfterSeconds);
 }
 
 function endSession(): void {
@@ -143,7 +159,13 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (!response.ok) {
-    const error = parseError(response.status, payload, `请求失败（HTTP ${response.status}）`);
+    const retryAfterSeconds = parseRetryAfter(response.headers?.get?.('Retry-After') ?? null);
+    const error = parseError(
+      response.status,
+      payload,
+      `请求失败（HTTP ${response.status}）`,
+      retryAfterSeconds,
+    );
     if (response.status === 401) endSession();
     throw error;
   }

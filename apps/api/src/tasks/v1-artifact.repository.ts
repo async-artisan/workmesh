@@ -29,6 +29,16 @@ export type V1ArtifactContentPreview = {
   truncated: boolean;
 };
 
+/** 评审证据的完整正文读取结果；只有 HOSTED 工件才可能有正文。 */
+export type V1ArtifactBody = {
+  artifactId: string;
+  mediaType: string;
+  byteLength: number;
+  sha256: string;
+  storage: V1ArtifactStorage;
+  bytes: Buffer;
+};
+
 export type V1CodeReviewEvidenceSnapshot = {
   id: string;
   repositoryId: string;
@@ -161,6 +171,8 @@ export type V1DeliverResultRow = {
 export interface V1ArtifactRepository {
   deliver(input: V1DeliverInput): Promise<V1DeliverResultRow>;
   findArtifactSet(id: string): Promise<V1ArtifactSetSnapshot | null>;
+  /** 当前评审工件的完整 HOSTED 正文；GIT_REF/无字节工件返回 null。 */
+  findArtifactBody?(artifactId: string): Promise<V1ArtifactBody | null>;
   /** Read-only external code-review evidence for an artifact set. */
   findCodeReviewEvidence?(
     projectId: string,

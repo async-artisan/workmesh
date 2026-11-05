@@ -262,4 +262,17 @@ export class V1ArtifactSetController {
   get(@Req() request: V1Request, @Param('id') id: string) {
     return this.artifacts.getArtifactSet(principalOf(request), id);
   }
+
+  /**
+   * 完整证据正文：只允许当前项目读权限，且工件必须属于路径中的 artifact-set。
+   * HOSTED 返回真实 mediaType/byteLength/sha256 + text/base64；GIT_REF 不伪造正文。
+   */
+  @Get(':setId/artifacts/:artifactId/content')
+  content(
+    @Req() request: V1Request,
+    @Param('setId') setId: string,
+    @Param('artifactId') artifactId: string,
+  ) {
+    return this.artifacts.getArtifactContent(principalOf(request), setId, artifactId);
+  }
 }

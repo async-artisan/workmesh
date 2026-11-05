@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { formatApiError } from '../api/client';
 import {
   aclApi,
@@ -12,6 +13,7 @@ import { InviteMemberDialog } from '../components/InviteMemberDialog';
 import { Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { useProjectContext } from '../hooks/useProjectContext';
+import { useNarrowViewport } from '../hooks/useNarrowViewport';
 import { toast } from '../store/toast';
 
 const PERMISSIONS: Array<'READ' | 'PROPOSE' | 'PUBLISH' | 'REVOKE'> = [
@@ -27,6 +29,43 @@ const PERMISSION_LABELS: Record<(typeof PERMISSIONS)[number], string> = {
   PUBLISH: '发布',
   REVOKE: '撤销',
 };
+
+type AclPermission = (typeof PERMISSIONS)[number];
+
+interface AclGrantDraft {
+  subjectKind: 'USER' | 'ROLE';
+  subjectUserId: string | null;
+  subjectRoleId: string | null;
+  permissions: AclPermission[];
+}
+
+const aclStyles = `
+.acl-subject-builder { display:flex; flex-wrap:wrap; gap:10px; align-items:end; padding:10px; border:1px dashed var(--border-strong,#cbd5e1); border-radius:8px; }
+.acl-form-span { grid-column:1 / -1; }
+.acl-subject-builder .field { flex:1 1 180px; min-width:0; }
+.acl-subject-builder .field > span { margin-bottom:4px; }
+.acl-grant-edit-list { display:grid; gap:10px; }
+.acl-grant-edit-row { border:1px solid var(--border,#e2e8f0); border-radius:8px; padding:10px; display:grid; gap:8px; min-width:0; }
+.acl-grant-edit-head { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; }
+.acl-grant-edit-head strong { overflow-wrap:anywhere; }
+.acl-permission-options { display:flex; flex-wrap:wrap; gap:6px 14px; }
+.acl-permission-option { display:inline-flex; gap:6px; align-items:center; min-height:30px; font-size:12px; white-space:nowrap; }
+.acl-permission-option input { margin:0; flex:none; }
+.acl-grant-empty { color:var(--danger,#cf2d33); font-size:12px; }
+.acl-form-error { margin:0; }
+.acl-detail-subject { display:grid; gap:2px; }
+.acl-detail-subject small { color:var(--text-muted,#7b8aa0); font-size:11px; }
+.acl-overview-table th, .acl-overview-table td { white-space:nowrap; }
+.acl-detail-table th, .acl-detail-table td { vertical-align:top; }
+@media (max-width: 720px) {
+  .acl-subject-builder { align-items:stretch; flex-direction:column; }
+  .acl-subject-builder .field, .acl-subject-builder .ghost { width:100%; }
+  .acl-overview-table th, .acl-overview-table td { white-space:normal; padding:8px 10px; }
+  .acl-detail-table th, .acl-detail-table td { padding:8px 10px; }
+  .acl-grant-edit-head { align-items:flex-start; }
+  .acl-grant-edit-head .danger { width:100%; }
+}
+`;
 
 interface RoleGrantTarget {
   member: MemberView;
@@ -56,6 +95,8 @@ function explainRoleError(caught: unknown): never {
 
 export function Roles() {
   const { projectId, projects } = useProjectContext();
+  const navigate = useNavigate();
+  const narrow = useNarrowViewport();
   const [members, setMembers] = useState<MemberView[]>([]);
   const [roles, setRoles] = useState<RoleView[]>([]);
   const [error, setError] = useState('');
@@ -84,6 +125,11 @@ export function Roles() {
     expectedVersion: number;
     expectedAuthzVersion: number;
   } | null>(null);
+  const [aclSubjectKind, setAclSubjectKind] = useState<'USER' | 'ROLE'>('USER');
+  const [aclSubjectId, setAclSubjectId] = useState('');
+  const [aclFormError, setAclFormError] = useState('');
+  const [aclSubjectQuery, setAclSubjectQuery] = useState('');
+  const [aclOriginalGrants, setAclOriginalGrants] = useState<AclGrantDraft[]>([]);
 
   async function load() {
     if (!projectId) {
@@ -116,7 +162,113 @@ export function Roles() {
   }, [projectId, selectedProject?.defaultKnowledgeBaseId]);
 
   const memberEmailById = new Map(members.map((member) => [member.id, member.email]));
+  const memberLabelById = new Map(
+    members.map((member) => [member.id, member.name?.trim() || member.email]),
+  );
   const roleTitleById = new Map(roles.map((role) => [role.id, role.title]));
+  const roleLabelById = new Map(
+    roles.map((role) => [role.id, role.key ? `${role.title}（${role.key}）` : role.title]),
+  );
+
+  function grantSubjectLabel(grant: AclGrantDraft): string {
+    return grant.subjectKind === 'USER'
+      ? (memberLabelById.get(grant.subjectUserId ?? '') ?? '未知成员')
+      : (roleLabelById.get(grant.subjectRoleId ?? '') ?? '未知角色');
+  }
+
+  function aclPayloadGrants(): AclGrantDraft[] {
+    return aclForm.grants.map((grant) => ({
+      subjectKind: grant.subjectKind,
+      subjectUserId: grant.subjectKind === 'USER' ? grant.subjectUserId : null,
+      subjectRoleId: grant.subjectKind === 'ROLE' ? grant.subjectRoleId : null,
+      permissions: [...grant.permissions],
+    }));
+  }
+
+  function hasAclGrant(kind: 'USER' | 'ROLE', id: string): boolean {
+    return aclForm.grants.some((grant) =>
+      kind === 'USER'
+        ? grant.subjectKind === 'USER' && grant.subjectUserId === id
+        : grant.subjectKind === 'ROLE' && grant.subjectRoleId === id,
+    );
+  }
+
+  function aclGrantKey(grant: AclGrantDraft): string {
+    return `${grant.subjectKind}:${
+      grant.subjectKind === 'USER' ? grant.subjectUserId : grant.subjectRoleId
+    }`;
+  }
+
+  function aclDiff() {
+    const original = new Map(aclOriginalGrants.map((grant) => [aclGrantKey(grant), grant]));
+    const current = new Map(aclForm.grants.map((grant) => [aclGrantKey(grant), grant]));
+    const lines: string[] = [];
+    for (const [key, grant] of current) {
+      const before = original.get(key);
+      const label = grantSubjectLabel(grant);
+      if (!before) {
+        lines.push(`新增主体：${label}（${grant.subjectKind === 'USER' ? '成员' : '角色'}）`);
+        continue;
+      }
+      const added = grant.permissions.filter(
+        (permission) => !before.permissions.includes(permission),
+      );
+      const removed = before.permissions.filter(
+        (permission) => !grant.permissions.includes(permission),
+      );
+      if (added.length > 0)
+        lines.push(
+          `${label}：增加权限 ${added.map((permission) => PERMISSION_LABELS[permission]).join('、')}`,
+        );
+      if (removed.length > 0)
+        lines.push(
+          `${label}：移除权限 ${removed
+            .map((permission) => PERMISSION_LABELS[permission])
+            .join('、')}`,
+        );
+    }
+    for (const [key, grant] of original) {
+      if (!current.has(key)) lines.push(`删除主体：${grantSubjectLabel(grant)}`);
+    }
+    return { changed: lines.length > 0, lines };
+  }
+
+  const currentAclDiff = aclDiff();
+  const aclSubjectQueryLower = aclSubjectQuery.trim().toLowerCase();
+  const filteredAclMembers = members.filter((member) => {
+    if (!aclSubjectQueryLower) return true;
+    return [member.name ?? '', member.email].some((value) =>
+      value.toLowerCase().includes(aclSubjectQueryLower),
+    );
+  });
+  const filteredAclRoles = roles.filter((role) => {
+    if (!aclSubjectQueryLower) return true;
+    return [role.title, role.key].some((value) =>
+      value.toLowerCase().includes(aclSubjectQueryLower),
+    );
+  });
+
+  function validateAclDraft(): string {
+    if (aclForm.reason.trim().length === 0) return '原因不能为空';
+    const seen = new Set<string>();
+    for (const grant of aclForm.grants) {
+      if (grant.permissions.length === 0)
+        return `授权主体「${grantSubjectLabel(grant)}」至少需要一个权限。`;
+      const subjectId = grant.subjectKind === 'USER' ? grant.subjectUserId : grant.subjectRoleId;
+      if (!subjectId) return '每个 grant 必须包含有效的主体 ID。';
+      if (
+        (grant.subjectKind === 'USER' && grant.subjectRoleId !== null) ||
+        (grant.subjectKind === 'ROLE' && grant.subjectUserId !== null)
+      )
+        return 'USER 与 ROLE 主体字段不能同时设置。';
+      const key = `${grant.subjectKind}:${subjectId}`;
+      if (seen.has(key)) return `主体「${grantSubjectLabel(grant)}」不能重复添加。`;
+      seen.add(key);
+      if (grant.permissions.some((permission) => !PERMISSIONS.includes(permission)))
+        return '包含不支持的权限。';
+    }
+    return '';
+  }
 
   async function submitGrant(confirmation: { ticketId: string; ticketSecret: string }) {
     if (!projectId || !grantTarget) throw new Error('缺少角色授予目标');
@@ -168,34 +320,83 @@ export function Roles() {
 
   function openAcl() {
     if (!access) return;
+    const activeGrants: AclGrantDraft[] = access.grants
+      .filter((grant) => !grant.revokedAt)
+      .map((grant) => ({
+        subjectKind: grant.subjectKind,
+        subjectUserId: grant.subjectKind === 'USER' ? grant.subjectUserId : null,
+        subjectRoleId: grant.subjectKind === 'ROLE' ? grant.subjectRoleId : null,
+        permissions: [...grant.permissions],
+      }));
+    setAclOriginalGrants(activeGrants);
     setAclForm({
       visibility: access.visibility === 'RESTRICTED' ? 'RESTRICTED' : 'PROJECT',
       publicationApproverUserId: access.publicationApproverUserId ?? '',
       publicationApproverRoleId: access.publicationApproverRoleId ?? '',
-      grants: access.grants
-        .filter((grant) => !grant.revokedAt)
-        .map((grant) => ({
-          subjectKind: grant.subjectKind,
-          subjectUserId: grant.subjectUserId,
-          subjectRoleId: grant.subjectRoleId,
-          permissions: [...grant.permissions],
-        })),
+      grants: activeGrants,
       reason: '',
     });
     setAclBinding({ expectedVersion: access.version, expectedAuthzVersion: access.authzVersion });
+    setAclSubjectKind('USER');
+    setAclSubjectId('');
+    setAclSubjectQuery('');
+    setAclFormError('');
     setAclOpen(true);
+  }
+
+  function addAclGrant() {
+    const id = aclSubjectId;
+    if (!id) {
+      setAclFormError('请先选择要添加的成员或角色。');
+      return;
+    }
+    if (hasAclGrant(aclSubjectKind, id)) {
+      setAclFormError('同一主体只能添加一次。');
+      return;
+    }
+    setAclForm({
+      ...aclForm,
+      grants: [
+        ...aclForm.grants,
+        {
+          subjectKind: aclSubjectKind,
+          subjectUserId: aclSubjectKind === 'USER' ? id : null,
+          subjectRoleId: aclSubjectKind === 'ROLE' ? id : null,
+          permissions: ['READ'],
+        },
+      ],
+    });
+    setAclSubjectId('');
+    setAclFormError('');
+  }
+
+  function updateAclGrantPermissions(index: number, permission: AclPermission) {
+    setAclForm({
+      ...aclForm,
+      grants: aclForm.grants.map((grant, grantIndex) => {
+        if (grantIndex !== index) return grant;
+        const permissions = grant.permissions.includes(permission)
+          ? grant.permissions.filter((item) => item !== permission)
+          : [...grant.permissions, permission];
+        return { ...grant, permissions };
+      }),
+    });
+    setAclFormError('');
   }
 
   async function submitAcl(confirmation: { ticketId: string; ticketSecret: string }) {
     if (!access || !aclBinding) throw new Error('缺少 ACL 目标');
-    if (aclForm.reason.trim().length === 0) throw new Error('原因不能为空');
+    const validation = validateAclDraft();
+    if (validation) throw new Error(validation);
+    if (!currentAclDiff.changed) throw new Error('当前没有权限变化，无需提交替换。');
+    const grants = aclPayloadGrants();
     await aclApi.replaceAccess(access.knowledgeBaseId, {
       expectedVersion: aclBinding.expectedVersion,
       expectedAuthzVersion: aclBinding.expectedAuthzVersion,
       visibility: aclForm.visibility,
       publicationApproverUserId: aclForm.publicationApproverUserId.trim(),
       publicationApproverRoleId: aclForm.publicationApproverRoleId.trim() || null,
-      grants: aclForm.grants,
+      grants,
       reason: aclForm.reason.trim(),
       confirmation,
     });
@@ -205,6 +406,7 @@ export function Roles() {
 
   return (
     <section>
+      <style>{aclStyles}</style>
       <header className="page-head">
         <div>
           <h2>角色 / ACL</h2>
@@ -213,7 +415,10 @@ export function Roles() {
           </p>
         </div>
         <div className="page-actions">
-          <ProjectSelect onChange={() => setAccess(null)} />
+          <ProjectSelect
+            onChange={() => setAccess(null)}
+            onCreateProject={() => navigate('/projects')}
+          />
         </div>
       </header>
 
@@ -239,57 +444,95 @@ export function Roles() {
             </button>
           </span>
         </div>
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>成员</th>
-                <th>管理身份</th>
-                <th>成员版本</th>
-                <th className="col-actions">业务角色</th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((member) => (
-                <tr key={member.id}>
-                  <td>
-                    <strong>{member.name || member.email}</strong>
-                    {member.name && member.name !== member.email && (
-                      <div className="cell-mono cell-truncate">{member.email}</div>
-                    )}
-                  </td>
-                  <td>
-                    <span className="status-tag">{member.role}</span>
-                  </td>
-                  <td className="cell-num">v{member.version}</td>
-                  <td className="col-actions">
-                    <div className="role-summary">
-                      <div className="role-tags">
-                        {(member.roles ?? []).length === 0 ? (
-                          <span className="muted">未授予业务角色</span>
-                        ) : (
-                          member.roles?.map((role) => (
-                            <span className="status-tag" key={role.id}>
-                              {role.title}
-                            </span>
-                          ))
-                        )}
+        {narrow ? (
+          <ul className="wm-mobile-card-list" data-testid="roles-member-card-list">
+            {members.map((member) => (
+              <li className="wm-mobile-card" key={member.id} data-testid="roles-member-card">
+                <div className="wm-mobile-card-head">
+                  <strong>{member.name || member.email}</strong>
+                  <span className="status-tag">{member.role}</span>
+                </div>
+                {member.name && member.name !== member.email && (
+                  <span className="wm-mobile-card-meta cell-mono cell-truncate">
+                    {member.email}
+                  </span>
+                )}
+                <div className="wm-mobile-card-tags">
+                  {(member.roles ?? []).length === 0 ? (
+                    <span className="muted">未授予业务角色</span>
+                  ) : (
+                    member.roles?.map((role) => (
+                      <span className="status-tag" key={role.id}>
+                        {role.title}
+                      </span>
+                    ))
+                  )}
+                </div>
+                <div className="wm-mobile-card-meta">成员版本 v{member.version}</div>
+                <div className="wm-mobile-card-actions">
+                  <button className="ghost" onClick={() => setRoleMember(member)}>
+                    管理角色
+                  </button>
+                </div>
+              </li>
+            ))}
+            {members.length === 0 && (
+              <li className="wm-mobile-empty">{projectId ? '没有活动成员。' : '先选择项目。'}</li>
+            )}
+          </ul>
+        ) : (
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>成员</th>
+                  <th>管理身份</th>
+                  <th>成员版本</th>
+                  <th className="col-actions">业务角色</th>
+                </tr>
+              </thead>
+              <tbody>
+                {members.map((member) => (
+                  <tr key={member.id}>
+                    <td>
+                      <strong>{member.name || member.email}</strong>
+                      {member.name && member.name !== member.email && (
+                        <div className="cell-mono cell-truncate">{member.email}</div>
+                      )}
+                    </td>
+                    <td>
+                      <span className="status-tag">{member.role}</span>
+                    </td>
+                    <td className="cell-num">v{member.version}</td>
+                    <td className="col-actions">
+                      <div className="role-summary">
+                        <div className="role-tags">
+                          {(member.roles ?? []).length === 0 ? (
+                            <span className="muted">未授予业务角色</span>
+                          ) : (
+                            member.roles?.map((role) => (
+                              <span className="status-tag" key={role.id}>
+                                {role.title}
+                              </span>
+                            ))
+                          )}
+                        </div>
+                        <button className="ghost" onClick={() => setRoleMember(member)}>
+                          管理角色
+                        </button>
                       </div>
-                      <button className="ghost" onClick={() => setRoleMember(member)}>
-                        管理角色
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {members.length === 0 && (
-                <tr className="table-empty">
-                  <td colSpan={4}>{projectId ? '没有活动成员。' : '先选择项目。'}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                    </td>
+                  </tr>
+                ))}
+                {members.length === 0 && (
+                  <tr className="table-empty">
+                    <td colSpan={4}>{projectId ? '没有活动成员。' : '先选择项目。'}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <Modal
@@ -354,48 +597,100 @@ export function Roles() {
           </p>
         )}
         {access && (
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>可见性</th>
-                  <th>版本</th>
-                  <th>授权版本</th>
-                  <th>审批人</th>
-                  <th>Grant</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>{access.visibility}</td>
-                  <td className="cell-num">v{access.version}</td>
-                  <td className="cell-num">v{access.authzVersion}</td>
-                  <td>
-                    {access.publicationApproverUserId
-                      ? (memberEmailById.get(access.publicationApproverUserId) ?? '—')
-                      : '—'}
-                    {access.publicationApproverRoleId
-                      ? ` / ${roleTitleById.get(access.publicationApproverRoleId) ?? '角色'}`
-                      : ''}
-                  </td>
-                  <td>{access.grants.length} 条</td>
-                </tr>
-                {access.grants.map((grant) => (
-                  <tr key={grant.id}>
-                    <td>
-                      {grant.subjectKind === 'USER'
-                        ? (memberEmailById.get(grant.subjectUserId ?? '') ?? '—')
-                        : (roleTitleById.get(grant.subjectRoleId ?? '') ?? '—')}
-                    </td>
-                    <td>{grant.permissions.join('、')}</td>
-                    <td className="cell-num">v{grant.version}</td>
-                    <td className="cell-mono">{grant.revokedAt ? '已撤销' : '有效'}</td>
-                    <td />
+          <>
+            <div className="card-head">
+              <h3>访问集合概览</h3>
+            </div>
+            <div className="table-scroll">
+              <table className="data-table acl-overview-table" data-testid="acl-overview-table">
+                <thead>
+                  <tr>
+                    <th>可见性</th>
+                    <th>集合版本</th>
+                    <th>授权版本</th>
+                    <th>出版审批人</th>
+                    <th>Grant 数量</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>{access.visibility === 'RESTRICTED' ? '受限' : '项目可见'}</td>
+                    <td className="cell-num">v{access.version}</td>
+                    <td className="cell-num">v{access.authzVersion}</td>
+                    <td>
+                      {access.publicationApproverUserId
+                        ? (memberLabelById.get(access.publicationApproverUserId) ??
+                          memberEmailById.get(access.publicationApproverUserId) ??
+                          '—')
+                        : '—'}
+                      {access.publicationApproverRoleId
+                        ? ` / ${roleTitleById.get(access.publicationApproverRoleId) ?? '角色'}`
+                        : ''}
+                    </td>
+                    <td>
+                      有效 {access.grants.filter((grant) => !grant.revokedAt).length} 条 / 共{' '}
+                      {access.grants.length} 条
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="card-head">
+              <h3>Grant 明细</h3>
+              <small className="muted">有效与已撤销历史均保留展示；编辑只针对有效 grant。</small>
+            </div>
+            <div className="table-scroll">
+              <table className="data-table acl-detail-table" data-testid="acl-detail-table">
+                <thead>
+                  <tr>
+                    <th>主体</th>
+                    <th>权限</th>
+                    <th>版本</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {access.grants.map((grant) => (
+                    <tr key={grant.id}>
+                      <td>
+                        <div className="acl-detail-subject">
+                          <strong>
+                            {grant.subjectKind === 'USER'
+                              ? (memberLabelById.get(grant.subjectUserId ?? '') ??
+                                memberEmailById.get(grant.subjectUserId ?? '') ??
+                                '未知成员')
+                              : (roleLabelById.get(grant.subjectRoleId ?? '') ??
+                                roleTitleById.get(grant.subjectRoleId ?? '') ??
+                                '未知角色')}
+                          </strong>
+                          <small>{grant.subjectKind === 'USER' ? '成员' : '角色'}</small>
+                        </div>
+                      </td>
+                      <td>
+                        {grant.permissions
+                          .map((permission) => PERMISSION_LABELS[permission] ?? permission)
+                          .join('、') || '—'}
+                      </td>
+                      <td className="cell-num">v{grant.version}</td>
+                      <td>
+                        <span
+                          className={`status-tag${grant.revokedAt ? ' is-danger' : ' is-done'}`}
+                        >
+                          {grant.revokedAt ? '已撤销' : '有效'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {access.grants.length === 0 && (
+                    <tr className="table-empty">
+                      <td colSpan={4}>当前访问集合没有 grant。</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
@@ -406,6 +701,20 @@ export function Roles() {
           grantTarget
             ? `${grantTarget.member.email} · ${grantTarget.role.title} · 成员 v${grantTarget.member.version}`
             : ''
+        }
+        targetLabel={
+          grantTarget ? `${grantTarget.member.email} · ${grantTarget.role.title}` : undefined
+        }
+        impact={
+          grantTarget?.revoke
+            ? [
+                '该成员立即失去这个业务角色；已领取的任务与已作出的决定会保留。',
+                '如需恢复，需要重新授予并留下新的审计记录。',
+              ]
+            : [
+                '该成员立即获得该业务角色对应的任务与审批权限。',
+                '角色权限由服务端按项目重新校验，越权操作仍会被拒绝。',
+              ]
         }
         binding={
           grantTarget && projectId
@@ -445,8 +754,22 @@ export function Roles() {
         open={aclOpen}
         title="替换知识库访问集合（需二次验证）"
         description={
-          access ? `${selectedProject?.name ?? '默认知识库'} · 访问集合 v${access.version}` : ''
+          access
+            ? `${selectedProject?.name ?? '默认知识库'} · 访问集合 v${access.version} · ${
+                currentAclDiff.changed ? currentAclDiff.lines.join('；') : '无权限变化'
+              }`
+            : ''
         }
+        targetLabel={
+          access
+            ? `${selectedProject?.name ?? '默认知识库'} · 访问集合 v${access.version}`
+            : undefined
+        }
+        impact={[
+          '替换会整体覆盖当前访问集合，不是增量修改。',
+          '被移除的成员/角色立即失去该知识库的读取权限。',
+          '历史发布与审计记录会保留。',
+        ]}
         binding={
           access && aclBinding
             ? {
@@ -461,7 +784,7 @@ export function Roles() {
                   visibility: aclForm.visibility,
                   publicationApproverUserId: aclForm.publicationApproverUserId.trim(),
                   publicationApproverRoleId: aclForm.publicationApproverRoleId.trim() || null,
-                  grants: aclForm.grants,
+                  grants: aclPayloadGrants(),
                   reason: aclForm.reason.trim(),
                 },
               }
@@ -523,56 +846,168 @@ export function Roles() {
                 ))}
               </select>
             </div>
-            <div className="field">
-              <span>保留 Grant（按当前有效集合整组替换）</span>
-              {aclForm.grants.map((grant, index) => (
-                <div
-                  className="cell-actions row-actions acl-grant-row"
-                  key={`${grant.subjectKind}-${index}`}
-                >
-                  <strong>
-                    {grant.subjectKind === 'USER'
-                      ? (memberEmailById.get(grant.subjectUserId ?? '') ?? '未知成员')
-                      : (roleTitleById.get(grant.subjectRoleId ?? '') ?? '未知角色')}
-                  </strong>
-                  {PERMISSIONS.map((permission) => (
-                    <label key={permission} className="inline-check">
-                      <input
-                        type="checkbox"
-                        checked={grant.permissions.includes(permission)}
-                        onChange={(event) => {
-                          const next = event.target.checked
-                            ? [...grant.permissions, permission]
-                            : grant.permissions.filter((item) => item !== permission);
-                          setAclForm({
-                            ...aclForm,
-                            grants: aclForm.grants.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, permissions: next } : item,
-                            ),
-                          });
-                        }}
-                      />
-                      {PERMISSION_LABELS[permission]}
-                    </label>
-                  ))}
-                  <button
-                    className="danger"
-                    onClick={() =>
-                      setAclForm({
-                        ...aclForm,
-                        grants: aclForm.grants.filter((_, itemIndex) => itemIndex !== index),
-                      })
-                    }
+            <div className="field acl-form-span">
+              <span>添加授权主体</span>
+              <div className="acl-subject-builder">
+                <div className="field">
+                  <span>主体类型</span>
+                  <select
+                    aria-label="ACL 主体类型"
+                    value={aclSubjectKind}
+                    onChange={(event) => {
+                      setAclSubjectKind(event.target.value as 'USER' | 'ROLE');
+                      setAclSubjectId('');
+                      setAclFormError('');
+                    }}
                   >
-                    移除
-                  </button>
+                    <option value="USER">成员</option>
+                    <option value="ROLE">角色</option>
+                  </select>
                 </div>
-              ))}
-              {aclForm.grants.length === 0 && (
-                <small>当前集合为空；授权将整体移除既有 grant。</small>
+                <div className="field">
+                  <span>搜索主体</span>
+                  <input
+                    aria-label="搜索 ACL 主体"
+                    value={aclSubjectQuery}
+                    placeholder="姓名、邮箱、角色标题或 key"
+                    onChange={(event) => {
+                      setAclSubjectQuery(event.target.value);
+                      setAclSubjectId('');
+                    }}
+                  />
+                </div>
+                <div className="field">
+                  <span>{aclSubjectKind === 'USER' ? '项目成员' : '项目角色'}</span>
+                  <select
+                    aria-label={aclSubjectKind === 'USER' ? 'ACL 成员' : 'ACL 角色'}
+                    value={aclSubjectId}
+                    onChange={(event) => {
+                      setAclSubjectId(event.target.value);
+                      setAclFormError('');
+                    }}
+                  >
+                    <option value="">
+                      {aclSubjectKind === 'USER' ? '选择项目成员' : '选择项目角色'}
+                    </option>
+                    {aclSubjectKind === 'USER'
+                      ? filteredAclMembers.map((member) => (
+                          <option key={member.id} value={member.id}>
+                            {member.name?.trim() && member.name !== member.email
+                              ? `${member.name}（${member.email}）`
+                              : member.email}
+                          </option>
+                        ))
+                      : filteredAclRoles.map((role) => (
+                          <option key={role.id} value={role.id}>
+                            {role.title}
+                            {role.key ? `（${role.key}）` : ''}
+                          </option>
+                        ))}
+                  </select>
+                  {aclSubjectQuery.trim() &&
+                    (aclSubjectKind === 'USER'
+                      ? filteredAclMembers.length === 0
+                      : filteredAclRoles.length === 0) && (
+                      <small className="muted">
+                        没有匹配的{aclSubjectKind === 'USER' ? '成员' : '角色'}。
+                      </small>
+                    )}
+                </div>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={addAclGrant}
+                  disabled={!aclSubjectId || hasAclGrant(aclSubjectKind, aclSubjectId)}
+                >
+                  添加授权主体
+                </button>
+              </div>
+              {aclSubjectId && hasAclGrant(aclSubjectKind, aclSubjectId) && (
+                <small className="error">该主体已在授权列表中，不能重复添加。</small>
+              )}
+              {aclSubjectKind === 'USER' && members.length === 0 && (
+                <small className="muted">项目没有已加载成员，无法添加成员 grant。</small>
+              )}
+              {aclSubjectKind === 'ROLE' && roles.length === 0 && (
+                <small className="muted">项目没有已加载角色，无法添加角色 grant。</small>
               )}
             </div>
-            <div className="field">
+            <div className="field acl-form-span">
+              <span>有效 Grant（按当前有效集合整组替换）</span>
+              <div className="acl-grant-edit-list">
+                {aclForm.grants.map((grant, index) => (
+                  <div
+                    className="acl-grant-edit-row"
+                    data-testid="acl-grant-edit"
+                    key={`${grant.subjectKind}-${grant.subjectUserId ?? grant.subjectRoleId}`}
+                  >
+                    <div className="acl-grant-edit-head">
+                      <strong>{grantSubjectLabel(grant)}</strong>
+                      <span className="status-tag">
+                        {grant.subjectKind === 'USER' ? '成员' : '角色'}
+                      </span>
+                      <button
+                        type="button"
+                        className="danger"
+                        aria-label={`移除授权：${grantSubjectLabel(grant)}`}
+                        onClick={() => {
+                          setAclForm({
+                            ...aclForm,
+                            grants: aclForm.grants.filter((_, itemIndex) => itemIndex !== index),
+                          });
+                          setAclFormError('');
+                        }}
+                      >
+                        移除
+                      </button>
+                    </div>
+                    <div
+                      className="acl-permission-options"
+                      role="group"
+                      aria-label={`${grantSubjectLabel(grant)} 的权限`}
+                    >
+                      {PERMISSIONS.map((permission) => (
+                        <label key={permission} className="acl-permission-option">
+                          <input
+                            type="checkbox"
+                            checked={grant.permissions.includes(permission)}
+                            aria-label={`${grantSubjectLabel(grant)}：${PERMISSION_LABELS[permission]}`}
+                            onChange={() => updateAclGrantPermissions(index, permission)}
+                          />
+                          {PERMISSION_LABELS[permission]}
+                        </label>
+                      ))}
+                    </div>
+                    {grant.permissions.length === 0 && (
+                      <p className="acl-grant-empty" role="alert">
+                        每个 grant 至少需要一个权限；空权限不会提交。
+                      </p>
+                    )}
+                  </div>
+                ))}
+                {aclForm.grants.length === 0 && (
+                  <small>当前有效集合为空；提交会整体移除既有 grant，但仍会保留历史记录。</small>
+                )}
+              </div>
+            </div>
+            {aclFormError && (
+              <p className="error acl-form-error acl-form-span" role="alert">
+                {aclFormError}
+              </p>
+            )}
+            <div className="field acl-form-span" data-testid="acl-diff-summary">
+              <span>提交前权限变化</span>
+              {currentAclDiff.changed ? (
+                <ul>
+                  {currentAclDiff.lines.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              ) : (
+                <small className="muted">当前没有权限变化；不会提交无意义替换。</small>
+              )}
+            </div>
+            <div className="field acl-form-span">
               <span>原因（必填）</span>
               <textarea
                 value={aclForm.reason}

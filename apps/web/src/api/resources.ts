@@ -730,6 +730,50 @@ export const reviewApi = {
     }),
 };
 
+/** 槽位临时委托：原 requiredUserId 不变，到期/撤销即失效；写操作仅 OWNER/ADMIN。 */
+export interface ApprovalSlotDelegationView {
+  id: string;
+  projectId: string;
+  slotId: string;
+  delegatorUserId: string;
+  delegateUserId: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+/** 到期且未决定的审批槽：只读视图，升级只标记 escalatedAt，不自动批准。 */
+export interface OverdueApprovalSlotView {
+  id: string;
+  slotKey: string;
+  kind: string;
+  reviewRequestId: string;
+  requiredUserId: string;
+  requiredRoleId: string | null;
+  dueAt: string;
+}
+
+export const delegationApi = {
+  list: (projectId: string) =>
+    apiRequest<ApprovalSlotDelegationView[]>(`${projectPath(projectId)}/delegations`),
+  create: (projectId: string, input: { slotId: string; delegateUserId: string; expiresAt: string }) =>
+    apiRequest<ApprovalSlotDelegationView>(`${projectPath(projectId)}/delegations`, {
+      method: 'POST',
+      body: input,
+    }),
+  revoke: (projectId: string, delegationId: string) =>
+    apiRequest<{ revoked: boolean }>(
+      `${projectPath(projectId)}/delegations/${enc(delegationId)}`,
+      { method: 'DELETE' },
+    ),
+  overdue: (projectId: string) =>
+    apiRequest<OverdueApprovalSlotView[]>(`${projectPath(projectId)}/approvals/overdue`),
+  escalate: (projectId: string) =>
+    apiRequest<{ escalated: number }>(`${projectPath(projectId)}/approvals/escalate`, {
+      method: 'POST',
+    }),
+};
+
 export const boardApi = {
   get: (projectId: string) => apiRequest<BoardSnapshot>(`${projectPath(projectId)}/board`),
 };
@@ -799,8 +843,22 @@ export interface ArtifactSetView {
   createdAt: string;
 }
 
+export interface ArtifactContentView {
+  artifactId: string;
+  mediaType: string;
+  byteLength: number;
+  sha256: string;
+  storage: string;
+  text: string | null;
+  bodyBase64: string;
+}
+
 export const artifactApi = {
   get: (artifactId: string) => apiRequest<ArtifactSetView>(`/artifact-sets/${enc(artifactId)}`),
+  content: (artifactId: string, evidenceId: string) =>
+    apiRequest<ArtifactContentView>(
+      `/artifact-sets/${enc(artifactId)}/artifacts/${enc(evidenceId)}/content`,
+    ),
 };
 
 export const changeApi = {

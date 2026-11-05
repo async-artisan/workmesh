@@ -15,10 +15,22 @@ interface ToastState {
 }
 
 let nextId = 1;
+/** 上一条提示：1.5 秒内相同文案+语气不重复堆叠（并发 429 常见）。 */
+let lastPush: { message: string; tone: ToastTone; at: number } | null = null;
 
 export const useToastStore = create<ToastState>((set) => ({
   items: [],
   push: (message, tone) => {
+    const now = Date.now();
+    if (
+      lastPush &&
+      lastPush.message === message &&
+      lastPush.tone === tone &&
+      now - lastPush.at < 1500
+    ) {
+      return;
+    }
+    lastPush = { message, tone, at: now };
     const id = nextId++;
     set((state) => ({ items: [...state.items, { id, message, tone }] }));
     window.setTimeout(() => {

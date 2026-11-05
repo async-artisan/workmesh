@@ -80,6 +80,16 @@ export type V1DeliverResult = {
   replayed: boolean;
 };
 
+export type V1ArtifactContentResult = {
+  artifactId: string;
+  mediaType: string;
+  byteLength: number;
+  sha256: string;
+  storage: V1ArtifactStorage;
+  text: string | null;
+  bodyBase64: string;
+};
+
 const DIGEST = /^[0-9a-f]{64}$/;
 const COMMIT_SHA = /^[0-9a-f]{40}$/;
 const KINDS = new Set<V1ArtifactKind>(['PRD', 'DESIGN', 'IMPL', 'CASES', 'RELEASE']);
@@ -124,6 +134,85 @@ export class V1ArtifactService {
         acceptable: !required || isCodeEvidenceAcceptable(evidence),
         evidence,
       },
+    };
+  }
+
+  async getArtifactContent(
+    principal: Principal,
+    artifactSetId: string,
+    artifactId: string,
+  ): Promise<V1ArtifactContentResult> {
+    const set = await this.artifacts.findArtifactSet(artifactSetId);
+    if (!set)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'ARTIFACT_SET_NOT_FOUND',
+        { id: artifactSetId },
+        404,
+      );
+    const task = await this.tasks.findTask(set.taskId);
+    if (!task)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'TASK_NOT_FOUND',
+        { taskId: set.taskId },
+        404,
+      );
+    // 项目读权限是边界；工件还必须属于当前评审的 artifact-set，不能按任意 artifactId 越权读取。
+    await this.authorization.resolveProjectContext(principal, task.projectId, 'read');
+    const artifact = set.artifacts.find((item) => item.id === artifactId);
+    if (!artifact)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+        'ARTIFACT_NOT_FOUND',
+        { artifactSetId, artifactId },
+        404,
+      );
+    if (artifact.storage !== 'HOSTED')
+      throw new WorkmeshError(
+        V1_ERROR_CODES.CONTENT_UNAVAILABLE,
+        'ARTIFACT_CONTENT_NOT_HOSTED',
+        { artifactId, storage: artifact.storage },
+        422,
+      );
+    const body = (await this.artifacts.findArtifactBody?.(artifactId)) ?? null;
+    if (!body)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.CONTENT_UNAVAILABLE,
+        'ARTIFACT_CONTENT_UNAVAILABLE',
+        { artifactId },
+        422,
+      );
+    if (body.byteLength !== artifact.byteLength || body.sha256 !== artifact.sha256)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.CONTENT_UNAVAILABLE,
+        'ARTIFACT_CONTENT_INTEGRITY_MISMATCH',
+        { artifactId },
+        422,
+      );
+    const actualDigest = await sha256Bytes(new Uint8Array(body.bytes));
+    if (actualDigest !== artifact.sha256)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.CONTENT_UNAVAILABLE,
+        'ARTIFACT_CONTENT_INTEGRITY_MISMATCH',
+        { artifactId },
+        422,
+      );
+    const mediaType = artifact.mediaType.toLowerCase();
+    const textual =
+      mediaType.startsWith('text/') ||
+      mediaType === 'application/json' ||
+      mediaType.endsWith('+json') ||
+      mediaType === 'application/xml' ||
+      mediaType.endsWith('+xml');
+    return {
+      artifactId,
+      mediaType: artifact.mediaType,
+      byteLength: body.byteLength,
+      sha256: body.sha256,
+      storage: artifact.storage,
+      text: textual ? body.bytes.toString('utf8') : null,
+      bodyBase64: body.bytes.toString('base64'),
     };
   }
 

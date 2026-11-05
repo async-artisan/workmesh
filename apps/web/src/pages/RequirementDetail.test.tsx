@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useSearchParams } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RequirementDetail } from './RequirementDetail';
 import { setCsrfToken } from '../api/client';
 import { useAuthStore } from '../store/auth';
@@ -228,6 +228,8 @@ describe('RequirementDetail（需求详情读模型）', () => {
 
     renderDetail('/requirements/DEMO-001');
 
+    // 协作流程图默认折叠，先展开团队视图才能点击任务卡。
+    fireEvent.click(await screen.findByRole('button', { name: '展开团队视图' }));
     const card = await screen.findByRole('button', { name: /后端实现，状态：可立即领取/ });
     expect(card.tagName).toBe('BUTTON');
     fireEvent.click(card);
@@ -240,6 +242,10 @@ describe('RequirementDetail（需求详情读模型）', () => {
     const labelledBy = row.getAttribute('aria-labelledby') ?? '';
     const titleId = labelledBy.split(' ')[0];
     expect(document.getElementById(titleId)?.textContent).toContain('后端实现');
+    const taskDetails = row.querySelector('details');
+    expect(taskDetails).toBeTruthy();
+    expect(taskDetails?.open).toBe(true);
+    expect(within(row).getByText(/任务 ID：/)).toBeInTheDocument();
     // 任务行本身可被程序化聚焦（流程图/链接定位依赖这一点）。
     (row as HTMLElement).focus();
     expect(row).toHaveFocus();
@@ -247,6 +253,38 @@ describe('RequirementDetail（需求详情读模型）', () => {
     await waitFor(() => expect(row).toHaveFocus());
     expect(screen.getByTestId('location')).toHaveTextContent('tasks|task-1');
     expect(screen.getByRole('tab', { name: /任务/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('连续定位只展开并聚焦最后一个目标任务', async () => {
+    mockFetch(
+      handler({
+        body: detail({
+          tasks: [
+            task(),
+            task({ id: 'task-2', stepKey: 'verify', role: { key: 'qa', title: '测试' } }),
+          ],
+        }),
+        withDefinitions: true,
+      }),
+    );
+    renderDetail('/requirements/DEMO-001');
+    fireEvent.click(await screen.findByRole('button', { name: '展开团队视图' }));
+    await screen.findByRole('button', { name: /后端实现，状态：可立即领取/ });
+
+    const cards = document.querySelectorAll<HTMLButtonElement>('.pipeline-task-card');
+    expect(cards.length).toBeGreaterThanOrEqual(2);
+    fireEvent.click(cards[0]);
+    const firstRow = await screen.findByRole('group', { name: /后端实现/ });
+    await waitFor(() => expect(firstRow).toHaveFocus());
+
+    fireEvent.click(cards[1]);
+    const secondRow = await screen.findByRole('group', { name: /测试/ });
+    await waitFor(() => expect(secondRow).toHaveFocus());
+    expect(secondRow).toHaveClass('is-task-focus');
+    expect(secondRow.querySelector('details')?.open).toBe(true);
+    await waitFor(() => expect(firstRow).not.toHaveClass('is-task-focus'));
+    expect(firstRow.querySelector('details')?.open).toBe(false);
+    expect(screen.getByTestId('location')).toHaveTextContent('tasks|task-2');
   });
 
   it('带 taskId 的链接刷新后仍能恢复页签与定位；无效 taskId 会被清理并提示', async () => {
@@ -740,6 +778,40 @@ describe('RequirementDetail（返修：依赖完整性 / workStatus / 初始化�
     expect(screen.queryByRole('button', { name: '初始化流程' })).not.toBeInTheDocument();
   });
 
+  it('普通成员看到真实管理员姓名/邮箱、mailto 和复制入口，且没有初始化按钮', async () => {
+    useAuthStore.getState().setSession({ id: 'u-2', email: 'bob@example.com' });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    mockFetch(initHandler());
+
+    renderDetail('/requirements/DEMO-001');
+
+    expect((await screen.findAllByText(/项目管理员/)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Alice/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/alice@example\.com/).length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: '邮件联系管理员' })).toHaveAttribute(
+      'href',
+      'mailto:alice@example.com',
+    );
+    fireEvent.click(screen.getByRole('button', { name: '复制管理员联系方式' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('alice@example.com'));
+    expect(screen.queryByRole('button', { name: '初始化流程' })).not.toBeInTheDocument();
+  });
+
+  it('没有管理员联系信息时不编造姓名或邮箱', async () => {
+    useAuthStore.getState().setSession({ id: 'u-2', email: 'bob@example.com' });
+    mockFetch(initHandler({ members: [ordinaryMember] }));
+
+    renderDetail('/requirements/DEMO-001');
+
+    expect(await screen.findByText('当前无法读取管理员联系方式。')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '复制管理员联系方式' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '邮件联系管理员' })).not.toBeInTheDocument();
+  });
+
   it('流程定义读取失败后仍保留上次成功的定义数据，但不能判断未发布或初始化', async () => {
     useAuthStore.getState().setSession({ id: 'u-1', email: 'alice@example.com' });
     const options: InitHandlerOptions = { definitionsCalls: { count: 0 } };
@@ -791,5 +863,144 @@ describe('RequirementDetail（返修：依赖完整性 / workStatus / 初始化�
     fireEvent.click(screen.getByRole('button', { name: '确认创建' }));
     expect(await screen.findByText('需求 DEMO-001 的流程实例已创建。')).toBeInTheDocument();
     expect(screen.queryByText('流程初始化失败')).not.toBeInTheDocument();
+  });
+});
+
+const sixStepDefinition = {
+  steps: [
+    { key: 'prd', roleKey: 'product', deps: [] },
+    { key: 'design', roleKey: 'ui', deps: ['prd'] },
+    { key: 'impl-fe', roleKey: 'frontend', deps: ['design'] },
+    { key: 'impl-be', roleKey: 'backend', deps: ['design'] },
+    { key: 'verify', roleKey: 'qa', deps: ['impl-fe', 'impl-be'] },
+    { key: 'release', roleKey: 'ops', deps: ['verify'] },
+  ],
+  roleSlots: [],
+};
+
+/** 与演示数据同构的 6 任务需求：prd/design/impl-fe/impl-be/verify/release 各一个。 */
+const sixTasks = [
+  task({
+    id: 'task-prd',
+    stepKey: 'prd',
+    role: { key: 'product', title: '产品' },
+    workStatus: 'PAUSED',
+  }),
+  task({ id: 'task-design', stepKey: 'design', role: { key: 'ui', title: '设计' } }),
+  task({
+    id: 'task-impl-fe',
+    stepKey: 'impl-fe',
+    role: { key: 'frontend', title: '前端' },
+    executionStatus: 'DONE',
+  }),
+  task({ id: 'task-impl-be', stepKey: 'impl-be', role: { key: 'backend', title: '后端' } }),
+  task({ id: 'task-verify', stepKey: 'verify', role: { key: 'qa', title: '测试' } }),
+  task({ id: 'task-release', stepKey: 'release', role: { key: 'ops', title: '运维' } }),
+];
+
+describe('RequirementDetail（首屏折叠 / 本地头像 / 任务去重）', () => {
+  beforeEach(() => {
+    setCsrfToken('csrf-1');
+    useProject('p1');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    setCsrfToken(null);
+    useAuthStore.getState().clearAuth();
+    localStorage.clear();
+  });
+
+  it('协作流程图默认折叠为一行动摘要，扩展后 6 张任务卡与统计/页签同源，且无 duplicate key', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockFetch(
+      handler({
+        body: detail({
+          tasks: sixTasks,
+          counts: { tasks: sixTasks.length, artifacts: 0, reviews: 0, changes: 0 },
+        }),
+        withDefinitions: true,
+        definition: sixStepDefinition,
+      }),
+    );
+
+    renderDetail('/requirements/DEMO-001');
+
+    expect(await screen.findByText('登录页改版')).toBeInTheDocument();
+    const pipeline = document.querySelector('.requirement-pipeline');
+    expect(pipeline).toHaveClass('is-collapsed');
+
+    const toggle = screen.getByRole('button', { name: '展开团队视图' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    const detailId = toggle.getAttribute('aria-controls');
+    expect(detailId).toBeTruthy();
+    expect(document.getElementById(detailId!)).toHaveAttribute('hidden');
+    // 折叠时任务卡不渲染，页面高度不被流程图撑开。
+    expect(document.querySelectorAll('.pipeline-task-card')).toHaveLength(0);
+    // 页签「任务 6」与折叠摘要的分母一致。
+    expect(screen.getByRole('tab', { name: /任务\s*6/ })).toBeInTheDocument();
+    expect(screen.getByText('阶段进度')).toBeInTheDocument();
+    expect(screen.getByText('0/6')).toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById(detailId!)).not.toHaveAttribute('hidden');
+    expect(document.querySelectorAll('.pipeline-task-card')).toHaveLength(6);
+    // 流程统计的完成数/分母与页签「任务 6」同源，不会出现重复任务导致的 1/7。
+    expect(screen.getByText('1/6')).toBeInTheDocument();
+    expect(screen.queryByText('1/7')).not.toBeInTheDocument();
+
+    const duplicateKeyWarnings = consoleError.mock.calls
+      .map((call) => String(call[0]))
+      .filter((text) => text.includes('same key'));
+    expect(duplicateKeyWarnings).toHaveLength(0);
+    // 头像已本地化：页面没有第三方图片外链。
+    expect(document.querySelectorAll('img[src^="http"]')).toHaveLength(0);
+    expect(document.querySelectorAll('img[src*="trae-api"]')).toHaveLength(0);
+    expect(document.querySelectorAll('.wm-role-avatar').length).toBeGreaterThan(0);
+  });
+
+  it('「更多」菜单支持 Escape 与点击外部关闭', async () => {
+    mockFetch(handler({ body: detail() }));
+    renderDetail('/requirements/DEMO-001');
+
+    const moreButton = await screen.findByRole('button', { name: '更多' });
+    fireEvent.click(moreButton);
+    expect(await screen.findByRole('menu')).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+
+    fireEvent.click(moreButton);
+    expect(await screen.findByRole('menu')).toBeInTheDocument();
+    fireEvent.mouseDown(document.body);
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+  });
+
+  it('需求页签支持方向键切换，并与 tabpanel 建立关联', async () => {
+    mockFetch(handler({ body: detail() }));
+    renderDetail('/requirements/DEMO-001');
+
+    const overview = await screen.findByRole('tab', { name: /概览/ });
+    expect(overview).toHaveAttribute('aria-selected', 'true');
+    expect(overview).toHaveAttribute('aria-controls', 'req-tabpanel');
+    expect(overview).toHaveAttribute('tabindex', '0');
+    const panel = screen.getByRole('tabpanel');
+    expect(panel).toHaveAttribute('id', 'req-tabpanel');
+    expect(panel).toHaveAttribute('aria-labelledby', 'req-tab-overview');
+    expect(screen.getByRole('tab', { name: /交付物/ })).toHaveAttribute('tabindex', '-1');
+
+    overview.focus();
+    fireEvent.keyDown(overview, { key: 'ArrowRight' });
+    const artifacts = screen.getByRole('tab', { name: /交付物/ });
+    await waitFor(() => expect(artifacts).toHaveAttribute('aria-selected', 'true'));
+    await waitFor(() => expect(document.activeElement).toBe(artifacts));
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'req-tab-artifacts');
+
+    // End 跳到最后一项（追溯），Home 回到概览。
+    fireEvent.keyDown(artifacts, { key: 'End' });
+    expect(screen.getByRole('tab', { name: /追溯/ })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(screen.getByRole('tab', { name: /追溯/ }), { key: 'Home' });
+    expect(screen.getByRole('tab', { name: /概览/ })).toHaveAttribute('aria-selected', 'true');
   });
 });

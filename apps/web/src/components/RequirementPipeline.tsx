@@ -1,5 +1,7 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { resolveTaskDisplayState, type TaskDisplayState } from '../lib/taskDisplayState';
+import { RoleAvatar } from './RoleAvatar';
 
 export type PipelineStatus = 'done' | 'active' | 'blocked' | 'pending' | 'skipped';
 export interface RequirementPipelineTask {
@@ -45,6 +47,11 @@ export interface RequirementPipelineProps {
   onTaskClick?: (task: RequirementPipelineTask) => void;
   className?: string;
   nextAction?: string;
+  /**
+   * 首屏折叠：默认只渲染一行「阶段进度 + 下一步」摘要，展开后才渲染完整团队视图。
+   * 独立使用（如流程总览页）时可保持默认展开，避免隐藏已有内容。
+   */
+  collapsible?: boolean;
 }
 
 const DEFAULT_PHASES: Array<
@@ -57,22 +64,6 @@ const DEFAULT_PHASES: Array<
   { id: 'verify', label: '测试验证', shortLabel: '验证', role: 'qa' },
   { id: 'release', label: '发布上线', shortLabel: '发布', role: 'ops' },
 ];
-const ROBOT_STYLE =
-  ', standing pose, plain white background, soft studio lighting, full body, 3d render, toy style, high detail';
-const ROBOT_PROMPTS: Record<string, string> = {
-  lead: 'cute retro toy robot team leader wearing an orange jacket and holding a smartphone',
-  product: 'cute retro toy robot product manager holding a clipboard and wearing a blue tie',
-  ui: 'cute retro toy robot designer holding a paint palette and wearing a purple beret',
-  frontend: 'cute retro toy robot engineer holding a laptop and wearing a gray hoodie',
-  backend: 'cute retro toy robot engineer holding a wrench and wearing a gray hoodie',
-  engineering: 'cute retro toy robot engineer holding a laptop and wearing a gray hoodie',
-  qa: 'cute retro toy robot detective tester holding a magnifying glass and wearing a green vest',
-  ops: 'cute retro toy robot operator with a small rocket backpack holding a checklist',
-};
-function robotAvatar(role?: string): string {
-  const prompt = `${ROBOT_PROMPTS[role ?? ''] ?? 'cute retro toy robot assistant'}${ROBOT_STYLE}`;
-  return `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=${encodeURIComponent(prompt)}&image_size=square`;
-}
 const ROLE_LABELS: Record<string, string> = {
   product: '产品',
   ui: '设计',
@@ -96,6 +87,8 @@ const WIRE_COLORS: Record<PipelineStatus, string> = {
   pending: '#b6c2d2',
   skipped: '#10b981',
 };
+/** 稳定的空数组：默认参数不能每次渲染都新建，否则 memo/布局效应会反复重算。 */
+const NO_TASKS: RequirementPipelineTask[] = [];
 
 function normalizeStatus(task: RequirementPipelineTask): PipelineStatus {
   // ACTIVE describes availability, not execution progress. It must not hide DONE or OPEN.
@@ -170,31 +163,43 @@ function taskHint(task: RequirementPipelineTask, state: TaskDisplayState): strin
 
 export function RequirementPipeline({
   phases = DEFAULT_PHASES,
-  tasks = [],
+  tasks = NO_TASKS,
   onPhaseClick,
   onTaskClick,
   className = '',
   nextAction,
+  collapsible = false,
 }: RequirementPipelineProps) {
-  const phaseModels = useMemo(
-    () =>
-      phases.map((phase) => {
-        const phaseTasks =
-          phase.tasks ??
-          tasks.filter((task) => {
-            const key = `${task.stepKey ?? ''} ${task.title ?? ''}`.toLowerCase();
-            return phase.id === 'build'
-              ? /impl|front|back|develop|build/.test(key)
-              : phase.id === 'verify'
-                ? /test|verify|qa|case/.test(key)
-                : phase.id === 'release'
-                  ? /release|deploy|ops/.test(key)
-                  : phase.id === task.stepKey;
-          });
-        return { phase, tasks: phaseTasks, status: phaseStatus(phase, phaseTasks) };
-      }),
-    [phases, tasks],
-  );
+  const detailId = useId();
+  const [expanded, setExpanded] = useState(false);
+  const showDetail = !collapsible || expanded;
+  /**
+   * 同一任务只归属一个阶段：调用方按角色/步骤重复分配（例如 discovery 与 definition
+   * 都取 product 任务）时先到先得，保证任务卡、统计与 React key 都只有一份。
+   */
+  const phaseModels = useMemo(() => {
+    const claimed = new Set<string>();
+    return phases.map((phase) => {
+      const candidates =
+        phase.tasks ??
+        tasks.filter((task) => {
+          const key = `${task.stepKey ?? ''} ${task.title ?? ''}`.toLowerCase();
+          return phase.id === 'build'
+            ? /impl|front|back|develop|build/.test(key)
+            : phase.id === 'verify'
+              ? /test|verify|qa|case/.test(key)
+              : phase.id === 'release'
+                ? /release|deploy|ops/.test(key)
+                : phase.id === task.stepKey;
+        });
+      const phaseTasks = candidates.filter((task) => {
+        if (claimed.has(task.id)) return false;
+        claimed.add(task.id);
+        return true;
+      });
+      return { phase, tasks: phaseTasks, status: phaseStatus(phase, phaseTasks) };
+    });
+  }, [phases, tasks]);
   const allTasks = useMemo(() => phaseModels.flatMap((model) => model.tasks), [phaseModels]);
   const members = useMemo(() => {
     const map = new Map<
@@ -301,7 +306,7 @@ export function RequirementPipeline({
       observer.disconnect();
       window.removeEventListener('resize', compute);
     };
-  }, [members, allTasks]);
+  }, [members, allTasks, expanded, collapsible]);
   const renderTask = (task: RequirementPipelineTask) => {
     const state = displayStateOf(task);
     const status = normalizeStatus(task);
@@ -332,7 +337,11 @@ export function RequirementPipeline({
         </span>
         <strong>{stepLabel}</strong>
         <span className="pipeline-task-card-owner">
-          <img src={robotAvatar(task.role)} alt="" loading="lazy" />
+          <RoleAvatar
+            role={task.role}
+            label={roleLabel(task.role, task.roleLabel)}
+            decorative
+          />
           <span>
             {roleLabel(task.role, task.roleLabel)}
             {task.artifactCount !== undefined ? ` · ${task.artifactCount} 件证据` : ''}
@@ -345,196 +354,249 @@ export function RequirementPipeline({
       </button>
     );
   };
+  const donePhases = phaseModels.filter((model) => model.status === 'done').length;
   return (
     <section
       ref={sectionRef}
-      className={`requirement-pipeline ${className}`.trim()}
+      className={`requirement-pipeline${collapsible ? ' is-collapsible' : ''}${collapsible && !expanded ? ' is-collapsed' : ''} ${className}`.trim()}
       aria-label="需求团队协作流程"
     >
-      <div className="requirement-pipeline-head">
-        <div>
-          <span className="eyebrow">AGENT TEAM · READ ONLY</span>
-          <h3>需求协作团队</h3>
-        </div>
-        <div className="pipeline-next-action">
-          <span>下一步</span>
-          <strong>{derivedNextAction}</strong>
-        </div>
-      </div>
-      <div className="pipeline-team-stats" aria-label="任务状态统计">
-        <span>
-          <b>
-            {doneCount}/{allTasks.length}
-          </b>{' '}
-          完成
-        </span>
-        <span>
-          <b>{claimableCount}</b> 可领取
-        </span>
-        <span>
-          <b>{waitingCount}</b> 等待中
-        </span>
-        <span className={blockedCount ? 'is-alert' : ''}>
-          <b>{blockedCount}</b> 阻塞
-        </span>
-      </div>
-      <div className="pipeline-stage-rail" aria-label="阶段进度">
-        {phaseModels.map(({ phase, status }, index) => (
+      {collapsible && (
+        <div className="pipeline-summary">
+          <div className="pipeline-summary-main">
+            <span className="pipeline-summary-label">阶段进度</span>
+            <span
+              className="pipeline-segments"
+              role="img"
+              aria-label={`阶段进度：${donePhases}/${phaseModels.length} 个阶段已完成`}
+            >
+              {phaseModels.map(({ phase, status }) => (
+                <i
+                  key={phase.id}
+                  className={`is-${status}`}
+                  title={`${phase.label} · ${STATUS_LABELS[status]}`}
+                />
+              ))}
+            </span>
+            <strong className="pipeline-summary-count">
+              {donePhases}/{phaseModels.length}
+            </strong>
+            <span className="pipeline-summary-next">
+              <span>下一步</span>
+              <strong>{derivedNextAction}</strong>
+            </span>
+          </div>
           <button
             type="button"
-            key={phase.id}
-            className={`pipeline-stage-step is-${status}`}
-            onClick={() => onPhaseClick?.(phase)}
-            disabled={!onPhaseClick}
+            className="pipeline-toggle"
+            aria-expanded={expanded}
+            aria-controls={detailId}
+            onClick={() => setExpanded((value) => !value)}
           >
-            <i>{index + 1}</i>
-            <span>{phase.shortLabel ?? phase.label}</span>
+            <span>{expanded ? '收起团队视图' : '展开团队视图'}</span>
+            <ChevronDown size={14} aria-hidden="true" />
           </button>
-        ))}
-      </div>
-      <div className="pipeline-stage-scene">
-        <div className="pipeline-leader">
-          <span className="pipeline-robot is-leader">
-            <img src={robotAvatar('lead')} alt={leader?.label ?? '需求负责人'} />
-          </span>
-          <span className="pipeline-chips">
-            <span className="pipeline-chip is-name">{leader?.label ?? '需求负责人'}</span>
-            <span className="pipeline-chip">{leader?.role ?? 'lead'}</span>
-            <span className="pipeline-chip is-lead">长</span>
-          </span>
-          <span className="pipeline-leader-status">
-            {leader
-              ? `协调 · ${STATUS_LABELS[leader.status]} · 任务 ${leader.tasks.length}`
-              : '等待团队'}
-          </span>
         </div>
-        <div className="pipeline-team-members">
-          {members.map((member, index) => {
-            const currentTask =
-              member.tasks.find((task) => normalizeStatus(task) === 'active') ??
-              member.tasks.find((task) => normalizeStatus(task) === 'blocked');
-            const statusText =
-              member.status === 'active'
-                ? `执行 #${currentTask?.stepKey ?? currentTask?.id.slice(0, 6) ?? ''}`
-                : member.status === 'blocked'
-                  ? '阻塞 · 等待处理'
-                  : member.status === 'done'
-                    ? '已完成'
-                    : '空闲 · 等待';
-            return (
-              <div
-                className={`pipeline-member is-${member.status}${selectedRole && selectedRole !== member.role ? ' is-dim' : ''}`}
-                key={member.role}
-              >
+      )}
+      <div className="pipeline-detail" id={detailId} hidden={!showDetail}>
+        {showDetail && (
+          <>
+            <div className="requirement-pipeline-head">
+              <div>
+                <span className="eyebrow">协作团队 · 只读</span>
+                <h3>需求协作团队</h3>
+              </div>
+              {/* 折叠模式下「下一步」已在摘要行展示，展开后不再重复。 */}
+              {!collapsible && (
+                <div className="pipeline-next-action">
+                  <span>下一步</span>
+                  <strong>{derivedNextAction}</strong>
+                </div>
+              )}
+            </div>
+            <div className="pipeline-team-stats" aria-label="任务状态统计">
+              <span>
+                <b>
+                  {doneCount}/{allTasks.length}
+                </b>{' '}
+                完成
+              </span>
+              <span>
+                <b>{claimableCount}</b> 可领取
+              </span>
+              <span>
+                <b>{waitingCount}</b> 等待中
+              </span>
+              <span className={blockedCount ? 'is-alert' : ''}>
+                <b>{blockedCount}</b> 阻塞
+              </span>
+            </div>
+            <div className="pipeline-stage-rail" aria-label="阶段进度">
+              {phaseModels.map(({ phase, status }, index) => (
                 <button
                   type="button"
-                  className="pipeline-person-card"
-                  aria-pressed={selectedRole === member.role}
-                  onClick={() =>
-                    setSelectedRole((role) => (role === member.role ? null : member.role))
-                  }
+                  key={phase.id}
+                  className={`pipeline-stage-step is-${status}`}
+                  onClick={() => onPhaseClick?.(phase)}
+                  disabled={!onPhaseClick}
                 >
-                  <span className="pipeline-robot">
-                    {member.status === 'pending' && (
-                      <i className="pipeline-robot-zzz" aria-hidden="true">
-                        zZ
-                      </i>
-                    )}
-                    <img src={robotAvatar(member.role)} alt={member.label} loading="lazy" />
-                  </span>
-                  <span className="pipeline-robot-base" aria-hidden="true" />
-                  <span className="pipeline-chips">
-                    <span className="pipeline-chip is-name">{member.label}</span>
-                    <span className="pipeline-chip">{member.role}</span>
-                  </span>
-                  <span className="pipeline-member-status">
-                    <i aria-hidden="true" />
-                    {statusText}
-                  </span>
+                  <i>{index + 1}</i>
+                  <span>{phase.shortLabel ?? phase.label}</span>
                 </button>
-                <span className="pipeline-member-no" data-member-no={member.role}>
-                  #{index + 1}
+              ))}
+            </div>
+            <div className="pipeline-stage-scene">
+              <div className="pipeline-leader">
+                <span className="pipeline-robot is-leader">
+                  <RoleAvatar role="lead" label={leader?.label ?? '需求负责人'} />
+                </span>
+                <span className="pipeline-chips">
+                  <span className="pipeline-chip is-name">{leader?.label ?? '需求负责人'}</span>
+                  <span className="pipeline-chip">{leader?.role ?? 'lead'}</span>
+                  <span className="pipeline-chip is-lead">长</span>
+                </span>
+                <span className="pipeline-leader-status">
+                  {leader
+                    ? `协调 · ${STATUS_LABELS[leader.status]} · 任务 ${leader.tasks.length}`
+                    : '等待团队'}
                 </span>
               </div>
-            );
-          })}
-        </div>
-      </div>
-      <div className="pipeline-task-lanes" aria-label="任务分栏">
-        <div className="pipeline-task-lane">
-          <h4>
-            可立即领取 <small>{claimableCount}</small>
-          </h4>
-          {buckets.claimable.length ? (
-            buckets.claimable.map(renderTask)
-          ) : (
-            <p>当前没有可立即领取的任务；只有直接前置步骤全部完成的任务才会计入这里。</p>
-          )}
-        </div>
-        <div className="pipeline-task-lane">
-          <h4>
-            等待中（前置 / 审批 / 待确认） <small>{waitingCount}</small>
-          </h4>
-          {buckets.waiting.length ? (
-            buckets.waiting.map(renderTask)
-          ) : (
-            <p>没有等待中的任务。</p>
-          )}
-        </div>
-        <div className="pipeline-task-lane">
-          <h4>
-            执行中 / 阻塞 <small>{activeCount + blockedCount}</small>
-          </h4>
-          {[...buckets.active, ...buckets.blocked].length ? (
-            [...buckets.active, ...buckets.blocked].map(renderTask)
-          ) : (
-            <p>暂无进行中的任务</p>
-          )}
-        </div>
-        <div className="pipeline-task-lane">
-          <h4>
-            已完成 <small>{doneCount}</small>
-          </h4>
-          {buckets.completed.length ? buckets.completed.map(renderTask) : <p>暂无已完成任务</p>}
-        </div>
-      </div>
-      <svg className="pipeline-wires" aria-hidden="true">
-        {wires.map((wire) => (
-          <path
-            key={wire.id}
-            className={selectedRole && selectedRole !== wire.role ? 'is-dim' : undefined}
-            d={wire.d}
-            stroke={wire.color}
-          />
-        ))}
-        {wires.map((wire) => (
-          <circle
-            key={`${wire.id}-dot`}
-            className={selectedRole && selectedRole !== wire.role ? 'is-dim' : undefined}
-            cx={wire.x}
-            cy={wire.y}
-            r={2.5}
-            fill={wire.color}
-          />
-        ))}
-      </svg>
-      <div className="pipeline-legend" aria-label="流程图例">
-        <span>
-          <i className="is-done" />
-          完成
-        </span>
-        <span>
-          <i className="is-active" />
-          工作中
-        </span>
-        <span>
-          <i className="is-blocked" />
-          阻塞
-        </span>
-        <span>
-          <i className="is-pending" />
-          等待（含待确认）
-        </span>
+              <div className="pipeline-team-members">
+                {members.map((member, index) => {
+                  const currentTask =
+                    member.tasks.find((task) => normalizeStatus(task) === 'active') ??
+                    member.tasks.find((task) => normalizeStatus(task) === 'blocked');
+                  const statusText =
+                    member.status === 'active'
+                      ? `执行 #${currentTask?.stepKey ?? currentTask?.id.slice(0, 6) ?? ''}`
+                      : member.status === 'blocked'
+                        ? '阻塞 · 等待处理'
+                        : member.status === 'done'
+                          ? '已完成'
+                          : '空闲 · 等待';
+                  return (
+                    <div
+                      className={`pipeline-member is-${member.status}${selectedRole && selectedRole !== member.role ? ' is-dim' : ''}`}
+                      key={member.role}
+                    >
+                      <button
+                        type="button"
+                        className="pipeline-person-card"
+                        aria-pressed={selectedRole === member.role}
+                        onClick={() =>
+                          setSelectedRole((role) =>
+                            role === member.role ? null : member.role,
+                          )
+                        }
+                      >
+                        <span className="pipeline-robot">
+                          {member.status === 'pending' && (
+                            <i className="pipeline-robot-zzz" aria-hidden="true">
+                              zZ
+                            </i>
+                          )}
+                          <RoleAvatar role={member.role} label={member.label} />
+                        </span>
+                        <span className="pipeline-robot-base" aria-hidden="true" />
+                        <span className="pipeline-chips">
+                          <span className="pipeline-chip is-name">{member.label}</span>
+                          <span className="pipeline-chip">{member.role}</span>
+                        </span>
+                        <span className="pipeline-member-status">
+                          <i aria-hidden="true" />
+                          {statusText}
+                        </span>
+                      </button>
+                      <span className="pipeline-member-no" data-member-no={member.role}>
+                        #{index + 1}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="pipeline-task-lanes" aria-label="任务分栏">
+              <div className="pipeline-task-lane">
+                <h4>
+                  可立即领取 <small>{claimableCount}</small>
+                </h4>
+                {buckets.claimable.length ? (
+                  buckets.claimable.map(renderTask)
+                ) : (
+                  <p>当前没有可立即领取的任务；只有直接前置步骤全部完成的任务才会计入这里。</p>
+                )}
+              </div>
+              <div className="pipeline-task-lane">
+                <h4>
+                  等待中（前置 / 审批 / 待确认） <small>{waitingCount}</small>
+                </h4>
+                {buckets.waiting.length ? (
+                  buckets.waiting.map(renderTask)
+                ) : (
+                  <p>没有等待中的任务。</p>
+                )}
+              </div>
+              <div className="pipeline-task-lane">
+                <h4>
+                  执行中 / 阻塞 <small>{activeCount + blockedCount}</small>
+                </h4>
+                {[...buckets.active, ...buckets.blocked].length ? (
+                  [...buckets.active, ...buckets.blocked].map(renderTask)
+                ) : (
+                  <p>暂无进行中的任务</p>
+                )}
+              </div>
+              <div className="pipeline-task-lane">
+                <h4>
+                  已完成 <small>{doneCount}</small>
+                </h4>
+                {buckets.completed.length ? (
+                  buckets.completed.map(renderTask)
+                ) : (
+                  <p>暂无已完成任务</p>
+                )}
+              </div>
+            </div>
+            <svg className="pipeline-wires" aria-hidden="true">
+              {wires.map((wire) => (
+                <path
+                  key={wire.id}
+                  className={selectedRole && selectedRole !== wire.role ? 'is-dim' : undefined}
+                  d={wire.d}
+                  stroke={wire.color}
+                />
+              ))}
+              {wires.map((wire) => (
+                <circle
+                  key={`${wire.id}-dot`}
+                  className={selectedRole && selectedRole !== wire.role ? 'is-dim' : undefined}
+                  cx={wire.x}
+                  cy={wire.y}
+                  r={2.5}
+                  fill={wire.color}
+                />
+              ))}
+            </svg>
+            <div className="pipeline-legend" aria-label="流程图例">
+              <span>
+                <i className="is-done" />
+                完成
+              </span>
+              <span>
+                <i className="is-active" />
+                工作中
+              </span>
+              <span>
+                <i className="is-blocked" />
+                阻塞
+              </span>
+              <span>
+                <i className="is-pending" />
+                等待（含待确认）
+              </span>
+            </div>
+          </>
+        )}
       </div>
     </section>
   );

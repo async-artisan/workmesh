@@ -12,6 +12,7 @@ const COLUMN_LABELS: Record<string, string> = {
   ACTIVE: '进行中',
   BLOCKED: '阻塞',
   PAUSED: '暂停',
+  CANCELLED: '已取消',
   DELIVERED: '已交付',
 };
 
@@ -115,6 +116,17 @@ export function Board() {
 
   const visibleTotal = filteredColumns.reduce((sum, column) => sum + column.cards.length, 0);
 
+  /**
+   * 窄屏看板只显示一列：用列切换页签代替横向滚动。
+   * 默认选中第一个有卡片的列；筛选后当前列消失时自动回退。
+   */
+  const [mobileColumn, setMobileColumn] = useState('');
+  const activeMobileColumn = filteredColumns.some((column) => column.key === mobileColumn)
+    ? mobileColumn
+    : (filteredColumns.find((column) => column.cards.length > 0)?.key ??
+      filteredColumns[0]?.key ??
+      '');
+
   const requirementGroups = useMemo(() => {
     const groups = new Map<
       string,
@@ -168,7 +180,10 @@ export function Board() {
               按需求
             </button>
           </div>
-          <ProjectSelect onChange={() => setSnapshot(null)} />
+          <ProjectSelect
+            onChange={() => setSnapshot(null)}
+            onCreateProject={() => navigate('/projects')}
+          />
           <button className="ghost" disabled={!projectId || loading} onClick={() => void load()}>
             {loading ? '加载中…' : '刷新'}
           </button>
@@ -227,64 +242,88 @@ export function Board() {
       )}
 
       {snapshot && viewMode === 'columns' && (
-        <div className="board-grid">
-          {filteredColumns.map((column) => (
-            <div className="board-col" key={column.key}>
-              <div className="board-col-head">
-                <span className="board-col-title">{COLUMN_LABELS[column.key] ?? column.key}</span>
-                <span className="board-count">{column.cards.length}</span>
-              </div>
-              {column.cards.length === 0 ? (
-                <p className="board-empty">暂无任务</p>
-              ) : (
-                column.cards.map((card) => {
-                  const requirementLabel = card.requirementCode
-                    ? `${card.requirementCode} · ${card.requirementTitle ?? ''}`
-                    : card.taskId.slice(0, 8);
-                  const display = cardDisplayState(card);
-                  return (
-                    <article
-                      className="board-card"
-                      key={card.taskId}
-                      title={card.taskId}
-                      tabIndex={card.requirementCode ? 0 : undefined}
-                      data-task-state={display.kind}
-                      aria-label={`${labelFor(STEP_LABELS, card.stepKey)}，状态：${display.label}`}
-                      onClick={() => {
-                        if (card.requirementCode)
-                          navigate(`/requirements/${encodeURIComponent(card.requirementCode)}`);
-                      }}
-                      onKeyDown={(event) => {
-                        if (!card.requirementCode) return;
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          navigate(`/requirements/${encodeURIComponent(card.requirementCode)}`);
-                        }
-                      }}
-                    >
-                      <div className="board-card-top">
-                        <span className="board-code">{labelFor(STEP_LABELS, card.stepKey)}</span>
-                        <span className={`status-tag is-${display.tone}`}>{display.label}</span>
-                        {card.claimedUserId && (
-                          <span className="status-tag">
-                            {WORK_STATUS_LABELS[card.workStatus ?? ''] ?? card.workStatus}
+        <>
+          <div className="board-mobile-tabs" role="tablist" aria-label="看板列">
+            {filteredColumns.map((column) => (
+              <button
+                key={column.key}
+                type="button"
+                role="tab"
+                aria-selected={column.key === activeMobileColumn}
+                className={`board-mobile-tab${column.key === activeMobileColumn ? ' is-active' : ''}`}
+                onClick={() => setMobileColumn(column.key)}
+              >
+                {COLUMN_LABELS[column.key] ?? column.key}
+                <span>{column.cards.length}</span>
+              </button>
+            ))}
+          </div>
+          <div className="board-grid">
+            {filteredColumns.map((column) => (
+              <div
+                className={`board-col${column.key === activeMobileColumn ? ' is-mobile-active' : ''}`}
+                key={column.key}
+              >
+                <div className="board-col-head">
+                  <span className="board-col-title">{COLUMN_LABELS[column.key] ?? column.key}</span>
+                  <span className="board-count">{column.cards.length}</span>
+                </div>
+                {column.cards.length === 0 ? (
+                  <p className="board-empty">暂无任务</p>
+                ) : (
+                  column.cards.map((card) => {
+                    const requirementLabel = card.requirementCode
+                      ? `${card.requirementCode} · ${card.requirementTitle ?? ''}`
+                      : card.taskId.slice(0, 8);
+                    const display = cardDisplayState(card);
+                    const workStatusLabel = card.workStatus
+                      ? (WORK_STATUS_LABELS[card.workStatus] ?? card.workStatus)
+                      : '';
+                    // 第三个标签只在“工作态”与主状态不同的时候显示，避免「已取消 / 已取消」重复两遍。
+                    const showWorkStatus =
+                      Boolean(card.claimedUserId) &&
+                      Boolean(workStatusLabel) &&
+                      workStatusLabel !== display.label;
+                    return (
+                      <article
+                        className="board-card"
+                        key={card.taskId}
+                        title={card.taskId}
+                        tabIndex={card.requirementCode ? 0 : undefined}
+                        data-task-state={display.kind}
+                        aria-label={`${labelFor(STEP_LABELS, card.stepKey)}，状态：${display.label}`}
+                        onClick={() => {
+                          if (card.requirementCode)
+                            navigate(`/requirements/${encodeURIComponent(card.requirementCode)}`);
+                        }}
+                        onKeyDown={(event) => {
+                          if (!card.requirementCode) return;
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            navigate(`/requirements/${encodeURIComponent(card.requirementCode)}`);
+                          }
+                        }}
+                      >
+                        <div className="board-card-top">
+                          <span className="board-code">{labelFor(STEP_LABELS, card.stepKey)}</span>
+                          <span className={`status-tag is-${display.tone}`}>{display.label}</span>
+                          {showWorkStatus && <span className="status-tag">{workStatusLabel}</span>}
+                        </div>
+                        <h4 className="board-title">{requirementLabel}</h4>
+                        <div className="board-foot">
+                          <span className="board-meta">
+                            角色 {card.roleTitle ?? '—'}
+                            {card.claimedUserEmail ? ` · ${card.claimedUserEmail}` : ''}
                           </span>
-                        )}
-                      </div>
-                      <h4 className="board-title">{requirementLabel}</h4>
-                      <div className="board-foot">
-                        <span className="board-meta">
-                          角色 {card.roleTitle ?? '—'}
-                          {card.claimedUserEmail ? ` · ${card.claimedUserEmail}` : ''}
-                        </span>
-                      </div>
-                    </article>
-                  );
-                })
-              )}
-            </div>
-          ))}
-        </div>
+                        </div>
+                      </article>
+                    );
+                  })
+                )}
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {snapshot && viewMode === 'requirements' && (

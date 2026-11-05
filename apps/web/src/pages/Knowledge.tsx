@@ -3,9 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import {
   base64ToUtf8,
   documentApi,
+  projectApi,
+  workbenchApi,
   type DocumentDetail,
   type RequirementView,
   type RevisionView,
+  type RoleView,
 } from '../api/resources';
 import { formatApiError } from '../api/client';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
@@ -53,15 +56,26 @@ export function Knowledge() {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
   const [content, setContent] = useState<ContentView | null>(null);
+  const [compareOldId, setCompareOldId] = useState('');
+  const [compareNewId, setCompareNewId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [requirementIndexError, setRequirementIndexError] = useState('');
   const [requirementIndexLoading, setRequirementIndexLoading] = useState(false);
   const [documentIndexError, setDocumentIndexError] = useState('');
+  const [roles, setRoles] = useState<RoleView[]>([]);
+  const [rolesState, setRolesState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [readyTasks, setReadyTasks] = useState<
+    Awaited<ReturnType<typeof workbenchApi.get>>['readyTasks']
+  >([]);
+  const [readyState, setReadyState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [commandCopied, setCommandCopied] = useState(false);
   const [documentIndexFailed, setDocumentIndexFailed] = useState(false);
   const [docsLoading, setDocsLoading] = useState(false);
   /** 文档列表请求序号：项目切换/刷新失败时旧请求不得覆盖新页面。 */
   const docsRequestRef = useRef(0);
+  /** 需求索引请求序号：首次加载和手动重读都受保护，旧项目结果不得回写。 */
+  const requirementIndexRequestRef = useRef(0);
   /** 正文请求序号：慢的旧版本请求完成后不得覆盖当前版本。 */
   const contentRequestRef = useRef(0);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
@@ -123,24 +137,29 @@ export function Knowledge() {
 
   async function refreshRequirementIndex() {
     if (!projectId) return;
+    const requestId = requirementIndexRequestRef.current + 1;
+    requirementIndexRequestRef.current = requestId;
     setRequirementIndexLoading(true);
     try {
       const index = await loadRequirementIndex(projectId);
+      if (requirementIndexRequestRef.current !== requestId) return;
       setRequirementsById(index.byId);
       setRequirementIndexError(index.error);
     } finally {
-      setRequirementIndexLoading(false);
+      if (requirementIndexRequestRef.current === requestId) setRequirementIndexLoading(false);
     }
   }
 
   async function load() {
     if (!projectId) {
       docsRequestRef.current += 1;
+      requirementIndexRequestRef.current += 1;
       setDocs([]);
       setSelectedId('');
       setContent(null);
       setRequirementsById(new Map());
       setRequirementIndexError('');
+      setRequirementIndexLoading(false);
       setDocumentIndexError('');
       setDocumentIndexFailed(false);
       setDocsLoading(false);
@@ -149,13 +168,25 @@ export function Knowledge() {
 
     const requestId = docsRequestRef.current + 1;
     docsRequestRef.current = requestId;
+    const requirementRequestId = requirementIndexRequestRef.current + 1;
+    requirementIndexRequestRef.current = requirementRequestId;
+    // 文档刷新会启动新的需求索引请求；它必须接管 loading 并在自身结束后清理。
+    setRequirementIndexLoading(true);
     setDocsLoading(true);
     try {
       const [documents, requirementIndex] = await Promise.all([
         loadDocumentIndex(projectId),
         loadRequirementIndex(projectId),
       ]);
-      if (docsRequestRef.current !== requestId) return;
+      const documentsCurrent = docsRequestRef.current === requestId;
+      const requirementCurrent = requirementIndexRequestRef.current === requirementRequestId;
+      if (!documentsCurrent && !requirementCurrent) return;
+      if (requirementCurrent) {
+        setRequirementsById(requirementIndex.byId);
+        setRequirementIndexError(requirementIndex.error);
+      }
+      // 需求索引请求过期时，不能连带丢弃仍然有效的当前项目文档列表结果。
+      if (!documentsCurrent) return;
       const documentsFailed = !documents.complete && documents.reason === null;
       // 首次分页请求失败时 helper 返回空 items：已有快照必须保留，不能把旧文档清空。
       const nextDocs = documentsFailed && docs.length > 0 ? docs : documents.items;
@@ -166,8 +197,6 @@ export function Knowledge() {
           : documents.error,
       );
       setDocumentIndexFailed(documentsFailed);
-      setRequirementsById(requirementIndex.byId);
-      setRequirementIndexError(requirementIndex.error);
       setError('');
       setSelectedId((current) =>
         nextDocs.some((item) => item.document.id === current)
@@ -183,12 +212,16 @@ export function Knowledge() {
       setDocumentIndexError(`文档列表读取失败：${formatApiError(caught)}`);
     } finally {
       if (docsRequestRef.current === requestId) setDocsLoading(false);
+      // 只有当前有效的索引请求才能结束 loading；过期请求不能干扰新请求。
+      if (requirementIndexRequestRef.current === requirementRequestId)
+        setRequirementIndexLoading(false);
     }
   }
 
   useEffect(() => {
-    // 项目切换：立即清空旧项目文档与正文，并让在途的文档/正文请求全部失效。
+    // 项目切换：立即清空旧项目文档与正文，并让在途的文档/正文/需求索引请求全部失效。
     docsRequestRef.current += 1;
+    requirementIndexRequestRef.current += 1;
     contentRequestRef.current += 1;
     setDocs([]);
     setSelectedId('');
@@ -197,14 +230,61 @@ export function Knowledge() {
     setDocumentIndexError('');
     setDocumentIndexFailed(false);
     setDocsLoading(false);
+    setRequirementsById(new Map());
+    setRequirementIndexError('');
+    setRequirementIndexLoading(false);
     if (!projectId) return;
     void load();
+  }, [projectId]);
+
+  useEffect(() => {
+    let alive = true;
+    if (!projectId) {
+      setRoles([]);
+      setRolesState('ready');
+      setReadyTasks([]);
+      setReadyState('ready');
+      return () => {
+        alive = false;
+      };
+    }
+    setRolesState('loading');
+    setReadyState('loading');
+    projectApi
+      .roles(projectId)
+      .then((list) => {
+        if (!alive) return;
+        setRoles(list);
+        setRolesState('ready');
+      })
+      .catch(() => {
+        if (!alive) return;
+        setRoles([]);
+        setRolesState('error');
+      });
+    workbenchApi
+      .get(projectId)
+      .then((snapshot) => {
+        if (!alive) return;
+        setReadyTasks(snapshot.readyTasks ?? []);
+        setReadyState('ready');
+      })
+      .catch(() => {
+        if (!alive) return;
+        setReadyTasks([]);
+        setReadyState('error');
+      });
+    return () => {
+      alive = false;
+    };
   }, [projectId]);
 
   function selectDocument(documentId: string) {
     contentRequestRef.current += 1;
     setSelectedId(documentId);
     setContent(null);
+    setCompareOldId('');
+    setCompareNewId('');
     setError('');
   }
 
@@ -229,7 +309,39 @@ export function Knowledge() {
         next.baseText = base64ToUtf8(publishedBody.bodyBase64);
       }
       setContent(next);
+      setCompareOldId(next.baseRevisionId ?? '');
+      setCompareNewId(revision.id);
       setError('');
+    } catch (caught) {
+      if (contentRequestRef.current !== requestId) return;
+      setError(formatApiError(caught));
+    }
+  }
+
+  async function compareRevisions(oldId: string, newId: string) {
+    if (!selected || !oldId || !newId || oldId === newId) {
+      setError('请选择两个不同且可读取的修订版本。');
+      return;
+    }
+    const requestId = contentRequestRef.current + 1;
+    contentRequestRef.current = requestId;
+    setContent(null);
+    setError('');
+    try {
+      const [oldBody, newBody] = await Promise.all([
+        documentApi.content(oldId),
+        documentApi.content(newId),
+      ]);
+      if (contentRequestRef.current !== requestId) return;
+      setContent({
+        revisionId: newId,
+        text: base64ToUtf8(newBody.bodyBase64),
+        sha256: newBody.sha256,
+        baseRevisionId: oldId,
+        baseText: base64ToUtf8(oldBody.bodyBase64),
+      });
+      setCompareOldId(oldId);
+      setCompareNewId(newId);
     } catch (caught) {
       if (contentRequestRef.current !== requestId) return;
       setError(formatApiError(caught));
@@ -272,6 +384,7 @@ export function Knowledge() {
               setSelectedId('');
               setContent(null);
             }}
+            onCreateProject={() => navigate('/projects')}
           />
           <button
             type="button"
@@ -332,6 +445,79 @@ export function Knowledge() {
         生成的候选会自动出现在这里。页面不提供手动新建文档、手写正文或追加修订入口；需要返修时，请在评审中提出意见，由本地
         Agent 生成下一版。
       </div>
+
+      {!docsLoading && docs.length === 0 && !documentIndexFailed && (
+        <div className="table-card knowledge-agent-guide" data-testid="knowledge-agent-guide">
+          <div className="card-head">
+            <h3>如何让 Agent 产出第一份文档</h3>
+          </div>
+          <div className="page-card muted">
+            <p>
+              <strong>当前项目可用角色：</strong>
+              {rolesState === 'loading'
+                ? '正在读取角色…'
+                : rolesState === 'error'
+                  ? '角色读取失败，暂时无法判断可用角色。'
+                  : roles.length === 0
+                    ? '当前项目没有可用业务角色。'
+                    : roles.map((role) => (
+                        <span className="status-tag" key={role.id}>
+                          {role.title}
+                          {role.key ? `（${role.key}）` : ''}
+                        </span>
+                      ))}
+            </p>
+            <p>
+              <strong>可开工任务：</strong>
+              {readyState === 'loading' ? (
+                '正在读取可开工任务…'
+              ) : readyState === 'error' ? (
+                '可开工任务读取失败，请稍后重试或打开工作台。'
+              ) : readyTasks.length === 0 ? (
+                '当前项目没有可开工任务。'
+              ) : (
+                <>
+                  {readyTasks.length} 项可开工任务。{' '}
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() =>
+                      navigate(`/?type=ready&project=${encodeURIComponent(projectId)}`)
+                    }
+                  >
+                    查看可开工任务
+                  </button>
+                </>
+              )}
+            </p>
+            <p>
+              <strong>CLI 初始化与任务流程：</strong>
+              <code>workmesh auth login</code>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  void navigator.clipboard
+                    ?.writeText('workmesh auth login')
+                    .then(() => setCommandCopied(true))
+                    .catch(() => setCommandCopied(false));
+                }}
+              >
+                {commandCopied ? '已复制' : '复制初始化命令'}
+              </button>
+            </p>
+            <p className="page-sub">
+              认领：<code>workmesh claim --task &lt;taskId&gt; --json</code>；读取上下文：
+              <code>
+                workmesh context --task &lt;taskId&gt; --claim &lt;claimId&gt; --expected-version
+                &lt;n&gt; --materialize --json
+              </code>
+              ；交付：<code>workmesh deliver ...</code>（参数见 CLI 帮助）。文档仍由 Agent
+              生成和提交，本页不提供手工创建文档入口。
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="table-card">
         <div className="card-head">
@@ -484,7 +670,9 @@ export function Knowledge() {
                         </div>
                       </td>
                       <td>
-                        <span className="status-tag">{revision.state}</span>
+                        <span className="status-tag">
+                          {REVISION_STATE_LABELS[revision.state] ?? revision.state}
+                        </span>
                       </td>
                       <td>
                         <span>{revisionLabel(revision.basisUnderstandingRevisionId)}</span>
@@ -540,6 +728,50 @@ export function Knowledge() {
             </span>
           </div>
           <pre className="search-result">{content.text}</pre>
+          {selected && selected.revisions.length >= 2 && (
+            <div className="card-head-actions" aria-label="选择对比版本">
+              <label>
+                旧版本
+                <select
+                  aria-label="对比旧版本"
+                  value={compareOldId}
+                  onChange={(event) => setCompareOldId(event.target.value)}
+                >
+                  <option value="">选择旧版本</option>
+                  {selected.revisions.map((revision) => (
+                    <option key={revision.id} value={revision.id}>
+                      v{revision.seq} · {revision.title} ·{' '}
+                      {REVISION_STATE_LABELS[revision.state] ?? revision.state}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                新版本
+                <select
+                  aria-label="对比新版本"
+                  value={compareNewId}
+                  onChange={(event) => setCompareNewId(event.target.value)}
+                >
+                  <option value="">选择新版本</option>
+                  {selected.revisions.map((revision) => (
+                    <option key={revision.id} value={revision.id}>
+                      v{revision.seq} · {revision.title} ·{' '}
+                      {REVISION_STATE_LABELS[revision.state] ?? revision.state}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="ghost"
+                disabled={!compareOldId || !compareNewId || compareOldId === compareNewId}
+                onClick={() => void compareRevisions(compareOldId, compareNewId)}
+              >
+                对比所选版本
+              </button>
+            </div>
+          )}
           {content.baseText !== undefined && (
             <DiffViewer
               oldText={content.baseText}
@@ -555,7 +787,24 @@ export function Knowledge() {
       <ConfirmationPrompt
         open={withdrawOpen}
         title="撤销发布（需二次验证）"
-        description={selected ? `文档 ${selected.document.id} v${selected.document.version}` : ''}
+        description={selected ? `当前发布 v${selected.document.version}` : ''}
+        targetLabel={
+          selected
+            ? `${(selected.publishedRevision ?? selected.revisions[0])?.title ?? '未命名文档'}${
+                selected.document.requirementId
+                  ? ` · ${
+                      requirementsById.get(selected.document.requirementId)?.code ??
+                      requirementLabel(selected.document.requirementId)
+                    }`
+                  : ''
+              }`
+            : ''
+        }
+        impact={[
+          '撤销后该文档的“当前发布”指针会置空，读者将看不到这一版。',
+          '历史修订、评审与审计记录会保留，不会删除。',
+          '恢复发布需要重新发起并完成评审。',
+        ]}
         binding={
           selected
             ? {

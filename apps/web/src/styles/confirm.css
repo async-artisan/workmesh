@@ -1,0 +1,28 @@
+/* 高风险确认弹窗：业务后果说明与技术详情折叠。 */
+
+.confirm-impact {
+  padding: 10px 12px;
+  border: 1px solid var(--wm-color-warning-border, rgba(217, 119, 6, 0.38));
+  border-radius: 10px;
+  background: var(--wm-color-warning-soft, #fffbeb);
+}
+
+.confirm-impact p {
+  margin: 0 0 6px;
+  color: #92400e;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.confirm-impact ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #78350f;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* 长枚举 / UUID 在窄屏不再挤压相邻列。 */
+.signoff-meta dd {
+  overflow-wrap: anywhere;
+}

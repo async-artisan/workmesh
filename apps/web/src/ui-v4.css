@@ -703,13 +703,13 @@ input[type='radio'] {
 .board-code {
   color: #0e7490;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.04em;
 }
 
 .board-meta {
   color: #64748b;
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .board-col-title {
@@ -1254,7 +1254,7 @@ input[type='radio'] {
 
 .pipeline-room-back {
   position: absolute;
-  z-index: -2;
+  z-index: var(--wm-z-behind);
   inset: 18px 9% 16px;
   border: 1px solid #b8c5d4;
   background: linear-gradient(135deg, rgba(255,255,255,.88), rgba(226,232,240,.82));
@@ -1290,7 +1290,7 @@ input[type='radio'] {
 }
 .pipeline-sidewall {
   position: absolute;
-  z-index: -1;
+  z-index: var(--wm-z-underlay);
   top: 50px;
   bottom: 24px;
   width: 10%;
@@ -1303,7 +1303,7 @@ input[type='radio'] {
 
 .pipeline-roof {
   position: relative;
-  z-index: 1;
+  z-index: var(--wm-z-raised);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1334,7 +1334,7 @@ input[type='radio'] {
 
 .pipeline-wall {
   position: relative;
-  z-index: 0;
+  z-index: var(--wm-z-flat);
   padding: 16px 12px 12px;
   border: 1px solid #cbd5e1;
   border-top: 4px solid #475569;
@@ -1417,7 +1417,7 @@ input[type='radio'] {
 
 .pipeline-phase {
   position: relative;
-  z-index: 1;
+  z-index: var(--wm-z-raised);
   min-width: 140px;
   transform: translateZ(18px);
   transform-style: preserve-3d;
@@ -1711,7 +1711,7 @@ button.pipeline-task:not(:disabled):hover { border-color: #67e8f9; }
 .pipeline-stage-step.is-blocked { background:#ffe4e6; color:#be123c; }
 .pipeline-stage-step:disabled { cursor:default; }
 .pipeline-stage-scene { position:relative; margin:4px 0 8px; padding:8px 4px 12px; }
-.pipeline-leader { position:relative; z-index:2; display:grid; justify-items:center; margin:0 auto 34px; text-align:center; }
+.pipeline-leader { position:relative; z-index:var(--wm-z-raised-strong); display:grid; justify-items:center; margin:0 auto 34px; text-align:center; }
 .pipeline-leader::after { content:''; position:absolute; left:50%; top:100%; height:18px; border-left:1px dashed #b6c2d2; }
 .pipeline-leader-status { margin-top:6px; color:#64748b; font-size:10px; }
 .pipeline-robot { position:relative; display:block; }
@@ -1726,7 +1726,7 @@ button.pipeline-task:not(:disabled):hover { border-color: #67e8f9; }
 .pipeline-chip { max-width:88px; padding:3px 8px; overflow:hidden; border:1px solid #e2e8f0; border-radius:999px; background:#fff; color:#334155; font-family:ui-monospace,monospace; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
 .pipeline-chip.is-name { font-family:inherit; font-weight:600; }
 .pipeline-chip.is-lead { padding:3px 7px; border-color:#0f172a; background:#0f172a; color:#fff; }
-.pipeline-team-members { position:relative; z-index:1; display:flex; justify-content:center; gap:18px; flex-wrap:wrap; }
+.pipeline-team-members { position:relative; z-index:var(--wm-z-raised); display:flex; justify-content:center; gap:18px; flex-wrap:wrap; }
 .pipeline-team-members::before { content:''; position:absolute; left:10%; right:10%; top:-16px; border-top:1px dashed #b6c2d2; }
 .pipeline-member { position:relative; min-width:110px; flex:1 1 110px; max-width:160px; }
 .pipeline-member::before { content:''; position:absolute; left:50%; top:-16px; height:16px; border-left:1px dashed #b6c2d2; }
@@ -1746,7 +1746,7 @@ button.pipeline-task:not(:disabled):hover { border-color: #67e8f9; }
 .pipeline-member.is-dim,.pipeline-task-card.is-dim { opacity:.32; }
 .pipeline-wires .is-dim { opacity:.12; }
 .pipeline-person-card[aria-pressed="true"] .pipeline-chip.is-name { border-color:#3b82f6; background:#eff6ff; color:#1d4ed8; }
-.pipeline-wires { position:absolute; inset:0; z-index:1; width:100%; height:100%; pointer-events:none; }
+.pipeline-wires { position:absolute; inset:0; z-index:var(--wm-z-raised); width:100%; height:100%; pointer-events:none; }
 .pipeline-wires path { fill:none; stroke-width:1.5; stroke-dasharray:4 4; opacity:.85; }
 .pipeline-task-lanes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
 .pipeline-task-lane { min-width:0; padding:10px; border:1px solid #dbe4ef; border-radius:9px; background:#f8fafc; }

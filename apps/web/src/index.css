@@ -4,12 +4,15 @@
    视觉：白底 + 浅灰分层 + 单一蓝色强调，不用发光/渐变文字/装饰动画
    ======================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap');
-
 :root {
+  /* 系统字体栈：不依赖 Google Fonts，内网/断网首屏不阻塞、中文不走西文字体回退。 */
   font-family:
-    'Inter',
     -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    'Microsoft YaHei',
+    'PingFang SC',
+    'Noto Sans SC',
     ui-sans-serif,
     system-ui,
     sans-serif;
@@ -69,7 +72,17 @@
 }
 
 body {
-  font-family: var(--font-body, 'Inter', -apple-system, sans-serif);
+  font-family: var(
+    --font-body,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    'Microsoft YaHei',
+    'PingFang SC',
+    ui-sans-serif,
+    system-ui,
+    sans-serif
+  );
   background: var(--bg-app);
   color: var(--text-primary);
   line-height: 1.6;
@@ -102,7 +115,7 @@ button {
   justify-content: space-between;
   align-items: center;
   padding: 0 20px;
-  z-index: 100;
+  z-index: var(--wm-z-navbar);
   box-shadow: var(--shadow-sm);
 }
 
@@ -2086,7 +2099,7 @@ a:focus:not(:focus-visible) {
 
 .runs-composer {
   position: relative;
-  z-index: 1;
+  z-index: var(--wm-z-raised);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
@@ -2324,7 +2337,7 @@ a:focus:not(:focus-visible) {
 }
 
 .data-table .cell-mono {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   color: var(--text-secondary);
 }
@@ -2395,7 +2408,7 @@ a:focus:not(:focus-visible) {
 .modal-layer {
   position: fixed;
   inset: 0;
-  z-index: 300;
+  z-index: var(--wm-z-modal);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -2504,7 +2517,8 @@ a:focus:not(:focus-visible) {
   gap: 6px;
 }
 
-.form-grid .field > span {
+.form-grid .field > span,
+.form-grid .field > label {
   color: var(--text-secondary);
   font-size: 12.5px;
   font-weight: 500;
@@ -2792,7 +2806,7 @@ button:disabled:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
-  z-index: 130;
+  z-index: var(--wm-z-menu);
 }
 
 .user-menu-meta {
@@ -2854,7 +2868,7 @@ button:disabled:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
-  z-index: 130;
+  z-index: var(--wm-z-menu);
 }
 
 .search-group {
@@ -2921,7 +2935,7 @@ button:disabled:hover {
   position: fixed;
   inset: 56px 0 0;
   background: rgba(16, 24, 40, 0.32);
-  z-index: 90;
+  z-index: var(--wm-z-drawer-backdrop);
 }
 
 .drawer {
@@ -2937,7 +2951,7 @@ button:disabled:hover {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  z-index: 95;
+  z-index: var(--wm-z-drawer);
   animation: drawer-in 0.18s ease;
 }
 
@@ -3263,7 +3277,7 @@ button.logo {
   position: fixed;
   right: 20px;
   bottom: 20px;
-  z-index: 400;
+  z-index: var(--wm-z-toast);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -3471,7 +3485,7 @@ button.logo {
   text-align: center;
   border-radius: 999px;
   padding: 0 7px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 18px;
   color: var(--text-secondary);
   background: var(--surface);
@@ -3522,7 +3536,7 @@ button.logo {
 
 .board-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--accent);
   background: var(--accent-soft);
   border-radius: 4px;
@@ -3600,7 +3614,7 @@ button.logo {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
@@ -4230,7 +4244,7 @@ button.logo {
 }
 
 .evidence-uri {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
 }
 
@@ -4340,7 +4354,7 @@ button.logo {
   border-radius: var(--radius-sm);
   background: #1a1d23;
   color: #e6e9ee;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11.5px;
   overflow-x: auto;
 }
@@ -4854,7 +4868,7 @@ button.logo {
   border-radius: var(--radius-sm);
   background: #fbfaf6;
   color: #1a1d23;
-  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12.5px;
   line-height: 1.75;
   white-space: pre-wrap;
@@ -4876,7 +4890,7 @@ button.logo {
   grid-template-columns: 38px 38px minmax(0, 1fr);
   gap: 8px;
   padding: 2px 10px;
-  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -4945,7 +4959,7 @@ button.logo {
   position: absolute;
   top: 40px;
   right: 0;
-  z-index: 160;
+  z-index: var(--wm-z-notification);
   display: grid;
   gap: 8px;
   width: 330px;

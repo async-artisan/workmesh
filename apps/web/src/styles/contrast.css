@@ -1,0 +1,55 @@
+/* P1-7 可读性修正：把承载"事实/状态"的文字拉到 WCAG AA 与 12px 以上。
+   放在所有主题之后加载，只覆盖颜色与关键小字号，不改布局结构。 */
+
+:root {
+  /* 旧主题令牌（ui-v4）*/
+  --text-muted: #5f6f82; /* 页面底 #f3f6fb 上 4.75:1，白底 5.14:1 */
+  --accent: #0e7490;
+  --accent-hover: #155e75;
+  --success: #047857;
+  --warning: #b45309;
+
+  /* 新组件令牌（tokens.css）——与旧令牌同值，避免"新组件仍不达标" */
+  --wm-color-text-muted: #5f6f82;
+  --wm-color-accent: #0e7490;
+  --wm-color-accent-hover: #155e75;
+  --wm-color-accent-text: #0e7490;
+}
+
+/* 主按钮：原渐变 #06b6d4→#2563eb 上的白字只有 2.4:1；改为同色系深色渐变（白字 ≥5.3:1）。 */
+.primary,
+.primary:hover:not(:disabled) {
+  border-color: #0e7490;
+  background: linear-gradient(135deg, #0e7490, #155e75);
+}
+
+.primary:hover:not(:disabled) {
+  border-color: #155e75;
+  background: linear-gradient(135deg, #0f5f75, #124a63);
+}
+
+/* 壳层与工作台里承载"数据新鲜度/谁在何时做了什么"的文字：字号与对比度一起修。 */
+.rail-meta dt,
+.rail-feed-time,
+.command-date {
+  color: #5f6f82;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.wb-updated {
+  color: #5f6f82;
+  font-size: 12px;
+}
+
+.wb-row-context,
+.rail-feed-body small,
+.wb-stat-hint,
+.wb-type {
+  color: #5f6f82;
+  font-size: 12px;
+}
+
+.page-sub {
+  color: #475569;
+}

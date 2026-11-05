@@ -1,9 +1,18 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ApiError, formatApiError, getCsrfToken } from '../api/client';
+import { getCsrfToken } from '../api/client';
 import { bootstrapSession } from '../api/auth';
 import { invitationApi, type InvitationView } from '../api/resources';
 import { useAuthStore } from '../store/auth';
+import {
+  describeAccountError,
+  isEmailAlreadyRegistered,
+  type AccountErrorView,
+} from '../lib/accountErrors';
+
+function inputError(message: string): AccountErrorView {
+  return { kind: 'invalid-input', message };
+}
 
 /**
  * 邀请接受页：公开路由，不需要登录。
@@ -18,8 +27,8 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
   const user = useAuthStore((state) => state.user);
   const [view, setView] = useState<InvitationView | null>(null);
   const [joined, setJoined] = useState<{ projectId: string; roleKeys: string[] } | null>(null);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError] = useState<AccountErrorView | null>(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -27,7 +36,7 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    setError('');
+    setError(null);
     // 先建立匿名会话拿 CSRF；已登录时也不会清掉现有会话。
     bootstrapSession()
       .catch(() => undefined)
@@ -36,7 +45,7 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
         if (alive) setView(value);
       })
       .catch((caught: unknown) => {
-        if (alive) setError(formatApiError(caught));
+        if (alive) setError(describeAccountError(caught, 'invite'));
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -47,6 +56,8 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
   }, [token]);
 
   async function joinAsCurrentUser() {
+    setError(null);
+    setNeedsLogin(false);
     if (!getCsrfToken()) await bootstrapSession();
     const result = await invitationApi.join(token);
     await bootstrapSession();
@@ -56,14 +67,25 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
   async function accept(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const name = String(form.get('name') ?? '').trim();
+    const password = String(form.get('password') ?? '');
+
+    if (password.length < 8 || password.length > 200) {
+      setError(inputError('密码长度必须为 8–200 个字符。'));
+      return;
+    }
+    if (name.length > 80) {
+      setError(inputError('姓名长度不能超过 80 个字符。'));
+      return;
+    }
+
     setBusy(true);
-    setError('');
-    setNotice('');
+    setError(null);
+    setNeedsLogin(false);
     try {
       if (!getCsrfToken()) await bootstrapSession();
-      const name = String(form.get('name') || '').trim();
       const result = await invitationApi.accept(token, {
-        password: String(form.get('password')),
+        password,
         ...(name ? { name } : {}),
         // 邀请没绑定邮箱时由接受人填写；绑定了就由服务端决定，前端不再传。
         ...(view?.email ? {} : { email: String(form.get('email') || '').trim() }),
@@ -71,12 +93,8 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
       await bootstrapSession();
       setJoined({ projectId: result.invitation.projectId, roleKeys: result.invitation.roleKeys });
     } catch (caught) {
-      if (caught instanceof ApiError && caught.code === 'EMAIL_ALREADY_REGISTERED') {
-        setError('这个邮箱已经有账号，请先登录再接受邀请。');
-        setNotice('login');
-      } else {
-        setError(formatApiError(caught));
-      }
+      setError(describeAccountError(caught, 'invite'));
+      setNeedsLogin(isEmailAlreadyRegistered(caught));
     } finally {
       setBusy(false);
     }
@@ -84,6 +102,21 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
 
   function goLogin() {
     navigate('/login', { state: { from: `${location.pathname}${location.search}` } });
+  }
+
+  function renderError() {
+    if (!error) return null;
+    return (
+      <div className="error" role="alert">
+        <p>{error.message}</p>
+        {error.detail && (
+          <details className="wm-error-state__details">
+            <summary className="wm-error-state__summary">查看详细信息</summary>
+            <pre className="wm-error-state__detail">{error.detail}</pre>
+          </details>
+        )}
+      </div>
+    );
   }
 
   if (loading) {
@@ -97,11 +130,15 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
   if (!view) {
     return (
       <section className="auth-card">
-        <span className="eyebrow">WORKMESH INVITATION</span>
+        <span className="eyebrow">邀请链接</span>
         <h1>邀请不可用</h1>
-        <p className="error" role="alert">
-          {error || '链接无效或已失效。'}
-        </p>
+        {error ? (
+          renderError()
+        ) : (
+          <p className="error" role="alert">
+            链接无效或已失效。
+          </p>
+        )}
         <button className="ghost" type="button" onClick={goLogin}>
           去登录
         </button>
@@ -114,7 +151,7 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
     const setupCommand = `workmesh setup --role ${role} --api ${window.location.origin}/api/v1 --project ${joined.projectId}`;
     return (
       <section className="auth-card">
-        <span className="eyebrow">WORKMESH ONBOARDED</span>
+        <span className="eyebrow">邀请已接受</span>
         <h1>已加入「{view.project.name}」</h1>
         <p className="muted">
           角色：{joined.roleKeys.join('、') || '（无）'}。工作台已经可以打开。
@@ -151,7 +188,7 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
           : '这个邀请已被撤回。';
     return (
       <section className="auth-card">
-        <span className="eyebrow">WORKMESH INVITATION</span>
+        <span className="eyebrow">邀请链接</span>
         <h1>{view.project.name}</h1>
         <p className="muted">{text}</p>
         <button className="primary" type="button" onClick={() => navigate('/', { replace: true })}>
@@ -163,12 +200,14 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
 
   return (
     <section className="auth-card">
-      <span className="eyebrow">WORKMESH INVITATION</span>
+      <span className="eyebrow">邀请链接</span>
       <h1>加入「{view.project.name}」</h1>
       <p className="muted">
-        项目编号 {view.project.key} · 角色：{view.roles.map((role) => role.title).join('、') || '—'}{' '}
-        · 邀请有效期至 {new Date(view.expiresAt).toLocaleString()}
+        项目编号 {view.project.key} · 角色：
+        {view.roles.map((role) => role.title).join('、') || '—'} · 邀请有效期至{' '}
+        {new Date(view.expiresAt).toLocaleString()}
       </p>
+      <p className="muted">邀请状态：待接受</p>
 
       {user ? (
         <>
@@ -180,18 +219,21 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
             onClick={() => {
               setBusy(true);
               joinAsCurrentUser()
-                .catch((caught: unknown) => setError(formatApiError(caught)))
+                .catch((caught: unknown) => {
+                  setError(describeAccountError(caught, 'invite'));
+                })
                 .finally(() => setBusy(false));
             }}
           >
             {busy ? '加入中…' : '接受邀请'}
           </button>
+          {renderError()}
         </>
       ) : (
         <form onSubmit={accept}>
           <label>
-            姓名
-            <input name="name" autoComplete="name" />
+            姓名（可选）
+            <input name="name" autoComplete="name" maxLength={80} />
           </label>
           {view.email ? (
             <label>
@@ -210,31 +252,25 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
               name="password"
               type="password"
               minLength={8}
+              maxLength={200}
               required
               autoComplete="new-password"
+              aria-describedby="invite-password-hint"
             />
           </label>
-          {error && (
-            <p className="error" role="alert">
-              {error}
-            </p>
-          )}
+          <p className="muted" id="invite-password-hint">
+            密码长度必须为 8–200 个字符。
+          </p>
+          {renderError()}
           <button className="primary" type="submit" disabled={busy}>
             {busy ? '加入中…' : '创建账号并加入'}
           </button>
-          {notice === 'login' && (
+          {needsLogin && (
             <button className="ghost" type="button" onClick={goLogin}>
               先登录再接受
             </button>
           )}
-          {notice !== 'login' && notice && <p className="muted">{notice}</p>}
         </form>
-      )}
-
-      {user && error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
       )}
     </section>
   );

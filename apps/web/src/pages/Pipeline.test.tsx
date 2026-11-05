@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pipeline } from './Pipeline';
 import { setCsrfToken } from '../api/client';
 import { useProjectStore } from '../store/project';
-import { useProject } from '../test-utils';
+import { methodOf, mockFetch, pathOf, useProject } from '../test-utils';
 
 const projectA = { id: 'p1', key: 'DEMO', name: 'Demo', version: 1 };
 const projectB = { id: 'p2', key: 'OPS', name: 'Ops', version: 1 };
@@ -79,7 +79,26 @@ describe('Pipeline（需求流水线加载可信度）', () => {
   afterEach(() => {
     setCsrfToken(null);
     localStorage.clear();
+    sessionStorage.clear();
     vi.unstubAllGlobals();
+  });
+
+  it('无项目时从流水线创建项目并导航到 /projects', async () => {
+    mockFetch((url, init) => {
+      if (pathOf(url) === '/api/v1/projects' && methodOf(init) === 'GET')
+        return { status: 200, body: envelope([]) };
+      return undefined;
+    });
+    render(
+      <MemoryRouter initialEntries={['/pipeline']}>
+        <Routes>
+          <Route path="/pipeline" element={<Pipeline />} />
+          <Route path="/projects" element={<div>项目列表页</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: '创建项目' }));
+    expect(await screen.findByText('项目列表页')).toBeInTheDocument();
   });
 
   it('首次加载显示页面级加载态，不提前显示空态', async () => {

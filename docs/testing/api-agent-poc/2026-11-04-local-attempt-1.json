@@ -1,0 +1,90 @@
+{
+  "ok": false,
+  "provider": "ollama",
+  "model": "qwen2.5:14b",
+  "turns": null,
+  "toolCalls": 5,
+  "elapsedMs": 22691,
+  "testExitCodes": [
+    1,
+    0
+  ],
+  "events": [
+    {
+      "tool": "read_file",
+      "args": {
+        "path": "src/format-task.mjs"
+      },
+      "result": {
+        "ok": true,
+        "path": "src/format-task.mjs",
+        "content": "export const CANARY = \"1bcdce8d8b971629a5252b20\";\nexport function formatTask(value) { return String(value); }\n"
+      },
+      "startedAt": "2026-11-04T13:05:46.194Z",
+      "durationMs": 4
+    },
+    {
+      "tool": "run_tests",
+      "args": {},
+      "result": {
+        "ok": false,
+        "error": {
+          "code": "TESTS_FAILED",
+          "message": "The trusted tests failed."
+        },
+        "exitCode": 1,
+        "stdout": "TAP version 13\n# Subtest: formatTask normalizes representative task names in a restricted VM context\nnot ok 1 - formatTask normalizes representative task names in a restricted VM context\n  ---\n  duration_ms: 2.2752\n  location: 'file:///C:/Users/Windows11/AppData/Local/Temp/workmesh-api-agent-poc-XXXXXXtnRUWd/format-task.test.mjs:17:1'\n  failureType: 'testCodeFailure'\n  error: 'CASE_FAILED:\"  Build\\\\tAgent Runtime  \"'\n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected: 'build-agent-runtime'\n  actual: '  Build\\tAgent Runtime  '\n  operator: 'strictEqual'\n  stack: |-\n    TestContext.<anonymous> (file:///C:/Users/Windows11/AppData/Local/Temp/workmesh-api-agent-poc-XXXXXXtnRUWd/format-task.test.mjs:31:12)\n    Test.runInAsyncScope (node:async_hooks:206:9)\n    Test.run (node:internal/test_runner/test:656:25)\n    Test.start (node:internal/test_runner/test:565:17)\n    startSubtest (node:internal/test_runner/harness:235:17)\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 7.5184\n",
+        "stderr": "(node:34472) ExperimentalWarning: Permission is an experimental feature\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      },
+      "startedAt": "2026-11-04T13:05:49.038Z",
+      "durationMs": 102
+    },
+    {
+      "tool": "write_file",
+      "args": {
+        "path": "src/format-task.mjs",
+        "content": "export const CANARY = \"1bcdce8d8b971629a5252b20\";\nexport function formatTask(value) {\n  return String(value).trim().toLowerCase().replace(/\\s+/g, '-');\n}\n"
+      },
+      "result": {
+        "ok": true,
+        "path": "src/format-task.mjs",
+        "bytesWritten": 154
+      },
+      "startedAt": "2026-11-04T13:05:54.464Z",
+      "durationMs": 3
+    },
+    {
+      "tool": "run_tests",
+      "args": {},
+      "result": {
+        "ok": true,
+        "exitCode": 0,
+        "stdout": "TAP version 13\n# Subtest: formatTask normalizes representative task names in a restricted VM context\nok 1 - formatTask normalizes representative task names in a restricted VM context\n  ---\n  duration_ms: 2.4177\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 7.2153\n",
+        "stderr": "(node:36116) ExperimentalWarning: Permission is an experimental feature\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      },
+      "startedAt": "2026-11-04T13:05:55.833Z",
+      "durationMs": 97
+    },
+    {
+      "tool": "write_file",
+      "args": {},
+      "result": {
+        "ok": false,
+        "error": {
+          "code": "MISSING_ARGUMENT",
+          "message": "A required tool argument is missing."
+        }
+      },
+      "startedAt": "2026-11-04T13:06:00.340Z",
+      "durationMs": 0
+    }
+  ],
+  "canary": "1bcdce8d8b971629a5252b20",
+  "sourceCanaryPreserved": true,
+  "trustedTestSha256": "582f233f8f419ef5161161b69a91aa2eb7055648d74ac7393cd2eddc69fb9ca0",
+  "initialSourceSha256": "8adecaa0d897830966c9272e7833f09c0bd19a5a063316a80647b9eb1453020a",
+  "finalSourceSha256": "bbef1ef0bcf06063596620ee6df2ca5bc445649501000eb31c37fa51bedc0877",
+  "finalSource": "export const CANARY = \"1bcdce8d8b971629a5252b20\";\nexport function formatTask(value) {\n  return String(value).trim().toLowerCase().replace(/\\s+/g, '-');\n}\n",
+  "error": "TOOL_CALL_LIMIT",
+  "limitation": "The tool allowlist is process-local; Node test permissions restrict filesystem reads and child processes, but do not deny network access."
+}

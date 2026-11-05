@@ -1,0 +1,170 @@
+/* 窄屏列表降级样式：≤720px 时数据列表切换为卡片列表（需求列表 / 评审收件箱）。
+ *
+ * 卡片只在 `(max-width: 720px)` 命中的视口下渲染（页面用 matchMedia 条件渲染，
+ * 与这里媒体查询使用同一条断点），桌面端继续渲染原来的 .data-table。
+ * 因此不需要删除或覆写全局 `.data-table { min-width: 640px }`；其他页面不受影响。
+ */
+
+@media (max-width: 720px) {
+  .wm-mobile-card-list {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    padding: 12px;
+    list-style: none;
+  }
+
+  .wm-mobile-card {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .wm-mobile-card-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .wm-mobile-card-tags {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-left: auto;
+  }
+
+  .wm-mobile-card-code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  /* 标题最多两行：窄屏下不再出现一字一行。 */
+  .wm-mobile-card-title {
+    display: -webkit-box;
+    margin: 0;
+    overflow: hidden;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .wm-mobile-card-meta {
+    margin: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    line-height: 1.5;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 卡片内的操作是窄屏下唯一的入口，给足点击面积并允许换行。 */
+  .wm-mobile-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 2px;
+  }
+
+  .wm-mobile-card-actions > button {
+    flex: 1 1 120px;
+    min-height: 40px;
+    font-size: 13px;
+  }
+
+  .wm-mobile-card-actions > .status-tag {
+    align-self: center;
+    margin-right: auto;
+  }
+
+  .wm-mobile-empty {
+    padding: 32px 12px;
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+  }
+}
+
+/* 看板窄屏：列切换页签 + 单列展示，避免只能看到第一列。 */
+.board-mobile-tabs {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .board-mobile-tabs {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 2px 1px 8px;
+  }
+
+  .board-mobile-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 4px 10px;
+    border: 1px solid var(--wm-border, #d7e0ea);
+    border-radius: 999px;
+    background: var(--wm-surface, #ffffff);
+    color: var(--wm-text, #1f2a37);
+    font-size: 13px;
+  }
+
+  .board-mobile-tab.is-active {
+    border-color: var(--wm-accent, #0e7490);
+    background: var(--wm-accent-soft, #e6f7fa);
+    color: var(--wm-accent-strong, #0e7490);
+    font-weight: 600;
+  }
+
+  .board-mobile-tab span {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.75;
+  }
+
+  .board-grid {
+    display: block;
+    overflow: visible;
+  }
+
+  .board-col {
+    display: none;
+  }
+
+  .board-col.is-mobile-active {
+    display: flex;
+  }
+}
+
+/* 窄屏管理类表格：操作列固定在右侧，避免「查看版本 / 载入下一版」被横向滚出视口。 */
+@media (max-width: 720px) {
+  .table-scroll {
+    position: relative;
+  }
+
+  .table-scroll .data-table th.col-actions,
+  .table-scroll .data-table td.col-actions {
+    position: sticky;
+    right: 0;
+    z-index: var(--wm-z-raised);
+    background: var(--surface, #ffffff);
+    box-shadow: -10px 0 10px -10px rgba(15, 23, 42, 0.25);
+  }
+
+  .table-scroll .data-table thead th.col-actions {
+    z-index: var(--wm-z-raised-strong);
+  }
+}

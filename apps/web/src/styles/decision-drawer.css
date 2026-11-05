@@ -1,0 +1,55 @@
+/* 评审决定抽屉：sticky 操作栏与证据提示。 */
+
+/* 抽屉内把决定区钉在可视区底部：证据再长，主操作也始终可见。 */
+.decision-sticky-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--wm-z-local);
+  margin-top: 14px;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+  border: 1px solid var(--wm-color-border-strong, #cbd5e1);
+  border-radius: 12px;
+  background: var(--wm-color-surface, #fff);
+  box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.12);
+}
+
+.decision-sticky-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.decision-sticky-footer .form-grid {
+  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.decision-sticky-footer .next-step-actions {
+  margin-top: 10px;
+}
+
+.decision-sticky-collapsed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.decision-sticky-collapsed .task-row-meta {
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .decision-sticky-footer .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .decision-sticky-footer {
+    margin-top: 10px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+}

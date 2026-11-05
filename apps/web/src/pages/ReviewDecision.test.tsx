@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReviewDecision } from './ReviewDecision';
 import { setCsrfToken } from '../api/client';
 import { utf8ToBase64 } from '../api/resources';
@@ -837,6 +837,7 @@ interface TaskScenarioOptions {
   taskId?: string | null;
   /** 覆盖交付物响应，用于构造 500/403 与“首次失败、重试成功”。 */
   artifactSet?: () => StubReply;
+  artifactContent?: (artifactId: string) => StubReply;
   artifacts?: () => unknown[];
   repositories?: () => StubReply;
   documents?: () => StubReply;
@@ -861,6 +862,19 @@ function mockTaskScenario(options: TaskScenarioOptions = {}) {
     const method = methodOf(init);
     if (method === 'GET' && path === `/api/v1/review-requests/${reviewId}`) {
       return { status: 200, body: envelope(reviewValue) };
+    }
+    if (
+      artifactSetId &&
+      method === 'GET' &&
+      path.startsWith(`/api/v1/artifact-sets/${artifactSetId}/artifacts/`) &&
+      path.endsWith('/content')
+    ) {
+      const artifactId = path.split('/artifacts/')[1]?.replace('/content', '') ?? '';
+      if (options.artifactContent) return options.artifactContent(artifactId);
+      return {
+        status: 404,
+        body: { error: { code: 'STUB_NOT_FOUND', message: 'no content stub' } },
+      };
     }
     if (artifactSetId && method === 'GET' && path === `/api/v1/artifact-sets/${artifactSetId}`) {
       if (options.artifactSet) return options.artifactSet();
@@ -942,23 +956,91 @@ describe('ReviewDecision 证据完整性与上下文状态', () => {
     localStorage.clear();
   });
 
-  it('截断工件明确说明预览范围、完整正文不可用原因与打开原工件链接', async () => {
-    mockTaskScenario({ artifacts: () => [truncatedArtifact] });
+  it('截断工件允许加载完整正文、下载证据并保留打开原工件入口', async () => {
+    mockTaskScenario({
+      artifacts: () => [truncatedArtifact],
+      artifactContent: (artifactId) => ({
+        status: 200,
+        body: envelope({
+          artifactId,
+          mediaType: 'text/markdown',
+          byteLength: 8192,
+          sha256: 'f'.repeat(64),
+          storage: 'HOSTED',
+          text: '这是完整正文，不是 4 KiB 截断预览。',
+          bodyBase64: Buffer.from('这是完整正文，不是 4 KiB 截断预览。').toString('base64'),
+        }),
+      }),
+    });
     renderDecisionPage();
 
     expect(await screen.findByText('正文预览已截断。')).toBeInTheDocument();
     expect(screen.getByText(/预览 8 字符 · 工件 8\.0 KiB/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/当前服务只提供预览，未提供完整正文读取或下载接口/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/请加载完整正文或核对原工件后/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '打开原工件' })).toHaveAttribute(
       'href',
       `https://github.com/nz_erp/backend/commit/${'f'.repeat(40)}`,
     );
-    expect(screen.getByRole('button', { name: '读取完整正文' })).toBeDisabled();
-    expect(screen.getByText(/不可用：服务端没有提供完整正文读取或下载接口/)).toBeInTheDocument();
     expect(screen.getByText('证据完整性')).toBeInTheDocument();
     expect(screen.getByText('不完整')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '作出决定' }));
+    const nextStep = screen.getByRole('button', { name: /下一步：预览并验证/ });
+    expect(nextStep).toBeDisabled();
+    expect(screen.getByText(/完整正文尚未加载，批准入口保持阻止/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '加载完整正文' }));
+    expect(await screen.findByText('这是完整正文，不是 4 KiB 截断预览。')).toBeInTheDocument();
+    expect(screen.getByText(/已加载完整正文/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '下载证据' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '在新标签打开完整正文' })).toBeInTheDocument();
+    expect(screen.queryByText('不完整')).not.toBeInTheDocument();
+    expect(screen.getByText('完整')).toBeInTheDocument();
+    expect(nextStep).toBeEnabled();
+  });
+
+  it('完整正文读取失败明确展示错误并保留证据阻断，重试成功后恢复', async () => {
+    let reads = 0;
+    mockTaskScenario({
+      artifacts: () => [truncatedArtifact],
+      artifactContent: (artifactId) => {
+        reads += 1;
+        if (reads === 1)
+          return {
+            status: 500,
+            body: {
+              error: {
+                code: 'CONTENT_UNAVAILABLE',
+                message: '全文读取失败',
+                requestId: 'req-content-500',
+              },
+            },
+          };
+        return {
+          status: 200,
+          body: envelope({
+            artifactId,
+            mediaType: 'text/markdown',
+            byteLength: 8192,
+            sha256: 'f'.repeat(64),
+            storage: 'HOSTED',
+            text: '重试后的完整正文',
+            bodyBase64: Buffer.from('重试后的完整正文').toString('base64'),
+          }),
+        };
+      },
+    });
+    renderDecisionPage();
+
+    expect(await screen.findByText('正文预览已截断。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '加载完整正文' }));
+    expect(await screen.findByText(/完整正文加载失败/)).toBeInTheDocument();
+    expect(screen.getByText(/CONTENT_UNAVAILABLE/)).toBeInTheDocument();
+    expect(screen.getByText('不完整')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '重试加载完整正文' }));
+    expect(await screen.findByText('重试后的完整正文')).toBeInTheDocument();
+    expect(screen.getByText('完整')).toBeInTheDocument();
   });
 
   it('没有 GitHub 仓库或提交时说明原工件链接不可用', async () => {
@@ -1043,12 +1125,22 @@ describe('ReviewDecision 证据完整性与上下文状态', () => {
     expect(screen.getByText(/req-delivery-403/)).toBeInTheDocument();
   });
 
-  it('证据不完整时批准必须先勾选确认，确认弹窗展示摘要与证据说明', async () => {
-    mockTaskScenario({ artifacts: () => [truncatedArtifact] });
+  it('非正文截断的证据不完整仍要求勾选确认，确认弹窗展示摘要与证据说明', async () => {
+    mockTaskScenario({
+      requirement: () => ({
+        status: 500,
+        body: {
+          error: {
+            code: 'TEMPORARY_UNAVAILABLE',
+            message: '暂时无法读取需求上下文',
+            requestId: 'req-requirement-500',
+          },
+        },
+      }),
+    });
     renderDecisionPage();
-    expect(await screen.findByText('正文预览已截断。')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '作出决定' }));
+    fireEvent.click(await screen.findByRole('button', { name: '作出决定' }));
     const checkbox = screen.getByRole('checkbox', {
       name: '我已知晓证据不完整，仍继续批准',
     });
@@ -1077,9 +1169,8 @@ describe('ReviewDecision 证据完整性与上下文状态', () => {
       screen.getByText('该槽位记为验收通过；若全部槽位通过，任务进入已完成状态。'),
     ).toBeInTheDocument();
     expect(screen.getByText(/你已确认在不完整证据下继续批准/)).toBeInTheDocument();
-    expect(screen.getByText(/实现 · 截断正文工件/)).toBeInTheDocument();
+    expect(screen.getByText(/实现 · 实现说明工件/)).toBeInTheDocument();
     expect(screen.getByText('通过 1 / 2（1 项失败）')).toBeInTheDocument();
-    expect(screen.getAllByText('YFF-001 · 客户询价单').length).toBeGreaterThanOrEqual(2);
   });
 
   it('修改决定与说明后，确认弹窗摘要使用最新值', async () => {
@@ -1176,5 +1267,149 @@ describe('ReviewDecision 证据完整性与上下文状态', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '作出决定' }));
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('代码评审证据缺失时禁止批准，并给出服务端拒收原因', async () => {
+    mockTaskScenario({
+      artifactSet: () => ({
+        status: 200,
+        body: envelope({
+          ...artifactSetPayload([hostedArtifact]),
+          codeReview: { required: true, acceptable: false, evidence: [] },
+        }),
+      }),
+    });
+    renderDecisionPage();
+
+    expect(await screen.findByText('缺少代码评审证据')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '作出决定' }));
+    expect(screen.getByRole('button', { name: /下一步：预览并验证/ })).toBeDisabled();
+    expect(screen.getByText(/代码评审证据缺失：批准会被服务端拒绝/)).toBeInTheDocument();
+
+    // 改为“要求修改”并填写说明后可以继续；批准路径仍保持禁用。
+    fireEvent.change(screen.getByLabelText('评审决定'), { target: { value: 'CHANGES_REQUESTED' } });
+    fireEvent.change(screen.getByLabelText('评审说明'), {
+      target: { value: '请补充人类代码评审证据后重新交付' },
+    });
+    expect(screen.getByRole('button', { name: /下一步：预览并验证/ })).toBeEnabled();
+    fireEvent.change(screen.getByLabelText('评审决定'), { target: { value: 'APPROVE' } });
+    expect(screen.getByRole('button', { name: /下一步：预览并验证/ })).toBeDisabled();
+  });
+
+  it('抽屉模式把决定区固定在底部，并在提交成功后回调工作台刷新', async () => {
+    const onDecisionCommitted = vi.fn();
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = init?.method ?? 'GET';
+      const embeddedReview = {
+        ...review,
+        id: 'review-embedded',
+        documentRevisionId: 'rev-2',
+        artifactSetId: null,
+        taskId: null,
+      };
+      if (path === '/api/v1/review-requests/review-embedded' && method === 'GET')
+        return { status: 200, body: envelope(embeddedReview) };
+      if (path === '/api/v1/documents/doc-1' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope({
+            document: {
+              id: 'doc-1',
+              projectId: 'p1',
+              knowledgeBaseId: 'kb-1',
+              requirementId: null,
+              kind: 'PRD',
+              version: 2,
+              currentPublishedRevisionId: 'rev-1',
+              archivedAt: null,
+            },
+            revisions,
+            publishedRevision: revisions[0],
+          }),
+        };
+      if (path === '/api/v1/document-revisions/rev-2/content' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope(contentOf('rev-2', '# 登录页改版\n- 新增记住登录\n')),
+        };
+      if (path === '/api/v1/document-revisions/rev-1/content' && method === 'GET')
+        return { status: 200, body: envelope(contentOf('rev-1', '# 登录页改版\n- 旧行为\n')) };
+      if (path === '/api/v1/auth/action-previews' && method === 'POST')
+        return {
+          status: 201,
+          body: envelope({
+            binding: {},
+            actionDigest: 'digest-a',
+            display: {
+              action: 'REVIEW_DECIDE',
+              targetType: 'REVIEW_REQUEST',
+              targetId: 'review-embedded',
+              expectedVersion: 3,
+              projectId: 'p1',
+              roleSlot: { roleId: 'role-product', approvalSlotId: 'slot-1' },
+            },
+          }),
+        };
+      if (path === '/api/v1/auth/confirmation-tickets' && method === 'POST')
+        return {
+          status: 201,
+          body: envelope({
+            ticketId: 't1',
+            ticketSecret: 's1',
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            actionDigest: 'digest-a',
+          }),
+        };
+      if (path === '/api/v1/review-requests/review-embedded/decisions' && method === 'POST')
+        return {
+          status: 201,
+          body: envelope({
+            review: {
+              ...embeddedReview,
+              status: 'APPROVED',
+              decisions: [
+                {
+                  id: 'dec-1',
+                  approvalSlotId: 'slot-1',
+                  decision: 'APPROVE',
+                  subjectDigest: 'd'.repeat(64),
+                  comment: null,
+                  createdById: 'stamp-1',
+                  createdAt: '2026-11-02T00:00:00.000Z',
+                  actor: { id: 'u-1', email: 'alice@example.com' },
+                },
+              ],
+            },
+            decisionId: 'dec-1',
+            published: true,
+            publicationId: 'pub-1',
+            documentVersion: 3,
+            replayed: false,
+          }),
+        };
+      return undefined;
+    });
+
+    const { container } = render(
+      <MemoryRouter>
+        <ReviewDecision
+          reviewId="review-embedded"
+          embedded
+          onDecisionCommitted={onDecisionCommitted}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('证据完整性')).toBeInTheDocument();
+    expect(container.querySelector('.decision-sticky-footer')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /作出决定 · product/ }));
+    fireEvent.click(screen.getByRole('button', { name: /下一步：预览并验证/ }));
+    fireEvent.change(await screen.findByLabelText('确认密码'), { target: { value: 'secret' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证密码并签发票据' }));
+    fireEvent.click(await screen.findByRole('button', { name: '提交决定' }));
+
+    await waitFor(() => expect(onDecisionCommitted).toHaveBeenCalledTimes(1));
   });
 });

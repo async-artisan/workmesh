@@ -1,7 +1,10 @@
-import { render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RequirementPipeline } from './RequirementPipeline';
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 describe('RequirementPipeline execution progress', () => {
   it('shows completed tasks as done while their work status remains ACTIVE', () => {
     render(
@@ -175,5 +178,108 @@ describe('RequirementPipeline execution progress', () => {
     const card = screen.getByRole('button', { name: /缺少工作状态，状态：状态待确认/ });
     expect(within(card).getByText('状态待确认')).toBeInTheDocument();
     expect(within(card).queryByText('可立即领取')).not.toBeInTheDocument();
+  });
+});
+
+describe('RequirementPipeline 首屏折叠 / 本地头像 / 任务去重', () => {
+  const tasks = [
+    {
+      id: 't-1',
+      stepKey: 'impl-fe',
+      title: '前端实现',
+      role: 'frontend',
+      executionStatus: 'DONE',
+      workStatus: 'ACTIVE',
+    },
+    {
+      id: 't-2',
+      stepKey: 'verify',
+      title: '测试验证',
+      role: 'qa',
+      executionStatus: 'OPEN',
+      workStatus: 'ACTIVE',
+      dependsOnStepKeys: ['impl-fe'],
+      doneStepKeys: ['impl-fe'],
+    },
+  ];
+
+  it('collapsible 默认只渲染一行阶段进度 + 下一步，展开后才渲染团队视图', () => {
+    render(<RequirementPipeline collapsible tasks={tasks} nextAction="完成验收测试" />);
+
+    const toggle = screen.getByRole('button', { name: '展开团队视图' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    const detailId = toggle.getAttribute('aria-controls');
+    expect(detailId).toBeTruthy();
+    const detail = document.getElementById(detailId!);
+    expect(detail).not.toBeNull();
+    expect(detail).toHaveAttribute('hidden');
+
+    // 折叠时摘要行可见：阶段进度 + 下一步；任务卡不在 DOM 中。
+    expect(screen.getByText('阶段进度')).toBeInTheDocument();
+    expect(screen.getByText('下一步')).toBeInTheDocument();
+    expect(screen.getByText('完成验收测试')).toBeInTheDocument();
+    expect(document.querySelectorAll('.pipeline-task-card')).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: /前端实现，状态：已完成/ })).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle).toHaveTextContent('收起团队视图');
+    expect(document.getElementById(detailId!)).not.toHaveAttribute('hidden');
+    expect(document.querySelectorAll('.pipeline-task-card')).toHaveLength(2);
+    expect(
+      screen.getByRole('button', { name: /前端实现，状态：已完成/ }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelectorAll('.pipeline-task-card')).toHaveLength(0);
+  });
+
+  it('重复分配给两个阶段的任务只渲染一次，统计分母同源', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const shared = {
+      id: 'dup-1',
+      stepKey: 'prd',
+      title: '产品 PRD',
+      role: 'product',
+      executionStatus: 'DONE',
+      workStatus: 'ACTIVE',
+    };
+    render(
+      <RequirementPipeline
+        collapsible
+        phases={[
+          { id: 'discovery', label: '需求发现', shortLabel: '发现', role: 'product', tasks: [shared] },
+          { id: 'definition', label: '方案定义', shortLabel: '定义', role: 'product', tasks: [shared] },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '展开团队视图' }));
+
+    expect(document.querySelectorAll('.pipeline-task-card')).toHaveLength(1);
+    // 任务统计的分母来自去重后的任务列表（1/1），阶段摘要单独计数（1/2）。
+    expect(screen.getByText('1/1')).toBeInTheDocument();
+    expect(screen.getByText('1/2')).toBeInTheDocument();
+    const duplicateKeyWarnings = errorSpy.mock.calls
+      .map((call) => String(call[0]))
+      .filter((text) => text.includes('same key'));
+    expect(duplicateKeyWarnings).toHaveLength(0);
+  });
+
+  it('角色头像使用随仓库分发的本地机器人图片，不再产生第三方图片请求', () => {
+    const { container } = render(<RequirementPipeline collapsible tasks={tasks} />);
+    fireEvent.click(screen.getByRole('button', { name: '展开团队视图' }));
+
+    // 机器人图片保留，但必须来自同源 /robots/ 静态资源，而不是第三方 text_to_image 接口。
+    expect(container.querySelectorAll('img[src^="/robots/"]').length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('img[src^="http"]')).toHaveLength(0);
+    expect(container.querySelectorAll('img[src*="trae-api"]')).toHaveLength(0);
+    expect(container.querySelectorAll('.wm-role-avatar').length).toBeGreaterThan(0);
+    // 角色卡徽标保留可访问名称；任务卡徽标与文字重复，标记为装饰性。
+    expect(screen.getAllByRole('img', { name: '研发' }).length).toBeGreaterThan(0);
+    expect(
+      container.querySelectorAll('.pipeline-task-card-owner .wm-role-avatar[aria-hidden="true"]')
+        .length,
+    ).toBeGreaterThan(0);
   });
 });

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Reviews } from './Reviews';
 import { setCsrfToken } from '../api/client';
 import {
@@ -99,6 +99,29 @@ describe('Reviews（槽位 / digest / 版本，权限由服务端拒绝）', () 
   afterEach(() => {
     setCsrfToken(null);
     localStorage.clear();
+  });
+
+  it('没有可访问项目时显示创建项目入口并导航到真实项目列表', async () => {
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      if (path === '/api/v1/projects' && methodOf(init ?? {}) === 'GET')
+        return { status: 200, body: envelope([]) };
+      return undefined;
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/reviews']}>
+        <Routes>
+          <Route path="/reviews" element={<Reviews />} />
+          <Route path="/projects" element={<div>项目列表页</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const create = await screen.findByRole('button', { name: '创建项目' });
+    expect(screen.getByText('还没有可访问的项目')).toBeInTheDocument();
+    fireEvent.click(create);
+    expect(await screen.findByText('项目列表页')).toBeInTheDocument();
   });
 
   it('展示服务端槽位、摘要与版本；槽位未分配时即使按钮可点也被服务端 403 拒绝', async () => {
@@ -669,5 +692,192 @@ describe('Reviews（决定确认摘要）', () => {
       expectedVersion: 4,
       payload: { slotId: 'slot-1', decision: 'CHANGES_REQUESTED', comment: '请补充验收证据' },
     });
+  });
+});
+
+/** 模拟窄屏 matchMedia：真实浏览器里由 CSS 断点切换，jsdom 里需要手动注入。 */
+function stubNarrowViewport(matches: boolean) {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
+
+describe('Reviews（≤720px 收件箱卡片列表）', () => {
+  beforeEach(() => {
+    setCsrfToken('csrf-1');
+    useProject('p1');
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setCsrfToken(null);
+    localStorage.clear();
+  });
+
+  function mockInbox(items: unknown[], hasMore = false) {
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope(PROJECTS) };
+      if (path === '/api/v1/projects/p1/review-requests' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope({ items, nextCursor: hasMore ? 'cursor-2' : null, hasMore }),
+        };
+      if (path === '/api/v1/review-requests/review-1' && method === 'GET')
+        return { status: 200, body: envelope(review) };
+      return undefined;
+    });
+  }
+
+  it('窄屏渲染卡片：类型/对象/角色版本/状态与「打开评审」都在同一张卡内可点', async () => {
+    stubNarrowViewport(true);
+    mockInbox([review]);
+
+    renderReviewInbox();
+
+    expect(await screen.findByTestId('reviews-card-list')).toBeInTheDocument();
+    expect(screen.queryByTestId('reviews-table')).not.toBeInTheDocument();
+
+    const card = screen.getByTestId('review-card');
+    expect(within(card).getByText('PRD')).toBeInTheDocument();
+    expect(within(card).getByText('待评审')).toBeInTheDocument();
+    expect(within(card).getByText('review-1')).toBeInTheDocument();
+    expect(within(card).getByText('摘要 sha256-sub')).toBeInTheDocument();
+    expect(within(card).getByText('— · v4')).toBeInTheDocument();
+    // 收件箱视图切换与计数保持可用
+    expect(screen.getByRole('button', { name: '待我评审' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '已决定' })).toBeInTheDocument();
+    expect(screen.getByText('已显示 1 条')).toBeInTheDocument();
+    expect(screen.getByText('已加载全部')).toBeInTheDocument();
+
+    fireEvent.click(within(card).getByRole('button', { name: '打开评审' }));
+    expect(await screen.findByTestId('review-subject-digest')).toHaveTextContent('sha256-subject');
+  });
+
+  it('窄屏空收件箱提示与桌面一致，加载更多入口仍在列表下方', async () => {
+    stubNarrowViewport(true);
+    mockInbox([]);
+
+    const { unmount } = renderReviewInbox();
+    expect(await screen.findByText('当前没有待评审请求。')).toBeInTheDocument();
+    expect(screen.getByTestId('reviews-card-list')).toBeInTheDocument();
+    unmount();
+
+    mockInbox([review], true);
+    renderReviewInbox();
+    expect(await screen.findByTestId('reviews-card-list')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '加载更多' })).toBeEnabled();
+  });
+
+  it('桌面（无窄屏媒体查询）仍渲染 5 列表格而不渲染卡片列表', async () => {
+    mockInbox([review]);
+
+    renderReviewInbox();
+
+    expect(await screen.findByTestId('reviews-table')).toBeInTheDocument();
+    expect(screen.queryByTestId('reviews-card-list')).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '评审对象' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '操作' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '打开评审' })).toBeEnabled();
+  });
+});
+
+describe('Reviews（已决定历史）', () => {
+  beforeEach(() => {
+    setCsrfToken('csrf-1');
+    useProject('p1');
+  });
+
+  afterEach(() => {
+    setCsrfToken(null);
+    localStorage.clear();
+  });
+
+  it('切到「已决定」时分别拉取三种终态并合并展示', async () => {
+    const listUrls: string[] = [];
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([{ id: 'p1', key: 'DEMO', name: 'Demo', version: 1 }]) };
+      if (path === '/api/v1/projects/p1/review-requests' && method === 'GET') {
+        listUrls.push(String(url));
+        const status = new URL(String(url), 'http://localhost').searchParams.get('status');
+        const item =
+          status === 'APPROVED'
+            ? reviewWith('review-approved', {
+                status: 'APPROVED',
+                requirement: { id: 'req-a', code: 'DEMO-A', title: '已通过需求' },
+                decisions: [
+                  {
+                    id: 'd-approved',
+                    approvalSlotId: 'slot-1',
+                    decision: 'APPROVE',
+                    subjectDigest: 'sha256-subject',
+                    comment: null,
+                    createdById: 'user-1',
+                    createdAt: '2026-11-05T09:00:00.000Z',
+                  },
+                ],
+              })
+            : status === 'CHANGES_REQUESTED'
+              ? reviewWith('review-changes', {
+                  status: 'CHANGES_REQUESTED',
+                  requirement: { id: 'req-c', code: 'DEMO-C', title: '要求修改需求' },
+                  decisions: [
+                    {
+                      id: 'd-changes',
+                      approvalSlotId: 'slot-1',
+                      decision: 'CHANGES_REQUESTED',
+                      subjectDigest: 'sha256-subject',
+                      comment: '请补充证据',
+                      createdById: 'user-1',
+                      createdAt: '2026-11-05T10:00:00.000Z',
+                    },
+                  ],
+                })
+              : reviewWith('review-rejected', {
+                  status: 'REJECTED',
+                  requirement: { id: 'req-r', code: 'DEMO-R', title: '已驳回需求' },
+                  decisions: [
+                    {
+                      id: 'd-rejected',
+                      approvalSlotId: 'slot-1',
+                      decision: 'REJECT',
+                      subjectDigest: 'sha256-subject',
+                      comment: null,
+                      createdById: 'user-1',
+                      createdAt: '2026-11-05T08:00:00.000Z',
+                    },
+                  ],
+                });
+        return { status: 200, body: envelope(inboxPage([item], null, false)) };
+      }
+      return undefined;
+    });
+
+    renderReviewInbox();
+    expect(await screen.findByText('待评审收件箱')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '已决定' }));
+
+    expect(await screen.findByText('已决定历史')).toBeInTheDocument();
+    expect(screen.getByText('DEMO-A · 已通过需求')).toBeInTheDocument();
+    expect(screen.getByText('DEMO-C · 要求修改需求')).toBeInTheDocument();
+    expect(screen.getByText('DEMO-R · 已驳回需求')).toBeInTheDocument();
+    expect(screen.getByText(/按决定时间倒序/)).toBeInTheDocument();
+    // 三种终态各一次请求；「已决定」不走加载更多。
+    expect(listUrls.some((url) => url.includes('status=APPROVED'))).toBe(true);
+    expect(listUrls.some((url) => url.includes('status=CHANGES_REQUESTED'))).toBe(true);
+    expect(listUrls.some((url) => url.includes('status=REJECTED'))).toBe(true);
+    expect(screen.queryByRole('button', { name: '加载更多' })).not.toBeInTheDocument();
   });
 });

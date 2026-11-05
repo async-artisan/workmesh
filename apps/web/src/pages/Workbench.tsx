@@ -5,7 +5,6 @@ import { ApiError, formatApiError } from '../api/client';
 import {
   activityApi,
   changeApi,
-  workbenchApi,
   type ActivityItem,
   type WorkbenchChangeItem,
   type WorkbenchReadyTaskItem,
@@ -13,6 +12,7 @@ import {
   type WorkbenchSnapshot,
 } from '../api/resources';
 import { ChangeDrawer } from '../components/ChangeDrawer';
+import { BatchReviewApprove, type BatchReviewTarget } from '../components/BatchReviewApprove';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { Modal } from '../components/Modal';
@@ -20,6 +20,7 @@ import { ReviewDecisionDrawer } from '../components/ReviewDecisionDrawer';
 import { StaleDataBanner, formatUpdatedAtClock } from '../components/StaleDataBanner';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { ACTION_LABELS, STEP_LABELS, labelFor } from '../lib/labels';
+import { getWorkbenchSnapshot } from '../lib/workbenchSnapshot';
 
 type Tab = 'all' | 'signOffs' | 'approvals' | 'changes' | 'ready';
 type SortKey = 'oldest' | 'newest' | 'project' | 'type';
@@ -161,6 +162,8 @@ export function Workbench() {
   // 单条确认自己的错误：刷新失败等页面级错误不应冒充“这次确认失败”。
   const [changeError, setChangeError] = useState('');
   const [selectedChanges, setSelectedChanges] = useState<Set<string>>(new Set());
+  const [selectedReviews, setSelectedReviews] = useState<Set<string>>(new Set());
+  const [reviewBatchOpen, setReviewBatchOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
@@ -183,10 +186,12 @@ export function Workbench() {
    * 拉取工作台快照。返回是否成功，便于批量流程区分“刷新失败但保留结果”。
    * 失败时不清空旧数据：已有快照进入 stale，只有首次失败才是页面级 error。
    */
-  async function load(): Promise<boolean> {
+  async function load(options: { force?: boolean } = { force: true }): Promise<boolean> {
     setLoading(true);
     try {
-      const value = await workbenchApi.get(scope || null);
+      const value = await getWorkbenchSnapshot(scope || null, {
+        force: options.force ?? true,
+      });
       snapshotRef.current = value;
       setSnapshot(value);
       setUpdatedAt(new Date());
@@ -215,7 +220,8 @@ export function Workbench() {
     setSnapshot(null);
     setUpdatedAt(null);
     setDataState('loading');
-    void load();
+    // 首次进入允许复用顶部铃铛刚拉取的快照；用户后续刷新/操作会 force 拉新数据。
+    void load({ force: false });
     // load 依赖当前 scope；scope 变化本身就是触发条件。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope]);
@@ -236,6 +242,7 @@ export function Workbench() {
       updateSelection(new Set());
       setNotice(FILTER_CHANGED_NOTICE);
     }
+    setSelectedReviews(new Set());
     // updateSelection / setNotice 是稳定语义的状态写入，不需要作为依赖。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, query, roleFilter, scope]);
@@ -345,12 +352,30 @@ export function Workbench() {
     void runBatch(targets, 'retry');
   }
 
-  async function copyCli(code: string) {
-    const command = `workmesh context ${code}`;
+  /** 页签键盘操作：左右方向键切换、Home/End 跳首尾（roving tabindex）。 */
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const TAB_KEYS: Tab[] = ['all', 'signOffs', 'approvals', 'changes', 'ready'];
+
+  function onTabKeyDown(event: { key: string; preventDefault: () => void }) {
+    const index = TAB_KEYS.indexOf(tab);
+    let nextIndex: number | null = null;
+    if (event.key === 'ArrowRight') nextIndex = (index + 1) % TAB_KEYS.length;
+    else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + TAB_KEYS.length) % TAB_KEYS.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = TAB_KEYS.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    setTab(TAB_KEYS[nextIndex]);
+    window.requestAnimationFrame(() => tabRefs.current[nextIndex!]?.focus());
+  }
+
+  /** 复制可执行命令：claim 只接受 taskId，不能用需求编号替代。 */
+  async function copyCli(taskId: string) {
+    const command = `workmesh claim --task ${taskId}`;
     try {
       if (!navigator.clipboard) throw new Error('clipboard unavailable');
       await navigator.clipboard.writeText(command);
-      setNotice(`已复制：${command}`);
+      setNotice(`已复制：${command}（在业务项目仓库根目录执行）`);
       setError('');
     } catch {
       setNotice(`无法写入剪贴板，请手动复制：${command}`);
@@ -489,6 +514,36 @@ export function Workbench() {
     ).length;
   }, [batchResults, snapshot]);
 
+  /** 批量批准只包含“我可决定且未决定”的评审；每条仍按自己的版本与票据提交。 */
+  const reviewBatchTargets = useMemo<BatchReviewTarget[]>(() => {
+    if (!snapshot) return [];
+    return snapshot.reviews.flatMap((review) => {
+      if (!selectedReviews.has(review.reviewId)) return [];
+      const slot = review.slots.find(
+        (candidate) => candidate.viewerCanDecide && !candidate.decided,
+      );
+      if (!slot) return [];
+      return [
+        {
+          reviewId: review.reviewId,
+          projectId: review.projectId,
+          slotId: slot.id,
+          requiredRoleId: slot.requiredRoleId,
+          expectedVersion: review.version,
+          label: `${requirementLabel(review)} · ${review.role?.title ?? '未指定角色'} · v${review.version}`,
+        },
+      ];
+    });
+  }, [snapshot, selectedReviews]);
+
+  /** 批量批准完成后的收尾：清空选择、提示结果、强制刷新工作台。 */
+  function handleReviewBatchCompleted(summary: { approved: number; failed: number }) {
+    setSelectedReviews(new Set());
+    setReviewBatchOpen(false);
+    setNotice(`批量批准完成：已批准 ${summary.approved} 条 · 失败 ${summary.failed} 条。`);
+    void load();
+  }
+
   function renderReview(review: WorkbenchReviewItem) {
     const item: WorkbenchItem = { type: 'review', data: review };
     const path = itemRequirementPath(item);
@@ -496,25 +551,32 @@ export function Workbench() {
     const kinds = review.evidence.artifactKinds ?? [];
     const checks = review.evidence.checks ?? { total: 0, failed: 0 };
     const codeRefs = review.evidence.codeRefs ?? 0;
+    const decidableSlot = review.slots.find((slot) => slot.viewerCanDecide && !slot.decided);
     return (
       <article
         className="wb-row is-signOff"
         key={review.reviewId}
-        tabIndex={0}
-        aria-label={`打开需求：${requirementLabel(review)}`}
         onClick={(event) => {
           if ((event.target as HTMLElement).closest('button, input, a')) return;
           if (path) navigate(path);
         }}
-        onKeyDown={(event) => {
-          if (event.target !== event.currentTarget) return;
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            if (path) navigate(path);
-            else setReviewTarget(review.reviewId);
-          }
-        }}
       >
+        {decidableSlot && (
+          <input
+            type="checkbox"
+            aria-label={`选择批量批准 ${requirementLabel(review)}`}
+            checked={selectedReviews.has(review.reviewId)}
+            onChange={() =>
+              setSelectedReviews((current) => {
+                const next = new Set(current);
+                if (next.has(review.reviewId)) next.delete(review.reviewId);
+                else next.add(review.reviewId);
+                return next;
+              })
+            }
+            onClick={(event) => event.stopPropagation()}
+          />
+        )}
         <div className="wb-row-main">
           <div className="wb-row-top">
             <span className="wb-type">{isSignOffKind(review.kind) ? '签字' : '审批'}</span>
@@ -559,19 +621,9 @@ export function Workbench() {
       <article
         className="wb-row is-change"
         key={change.recipientId}
-        tabIndex={0}
-        aria-label={`打开需求：${requirementLabel(change)}`}
         onClick={(event) => {
           if ((event.target as HTMLElement).closest('button, input, a')) return;
           if (path) navigate(path);
-        }}
-        onKeyDown={(event) => {
-          if (event.target !== event.currentTarget) return;
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            if (path) navigate(path);
-            else openChange(change);
-          }
         }}
       >
         <input
@@ -609,24 +661,13 @@ export function Workbench() {
   function renderReady(task: WorkbenchReadyTaskItem) {
     const item: WorkbenchItem = { type: 'ready', data: task };
     const path = itemRequirementPath(item);
-    const code = task.requirement?.code;
     return (
       <article
         className="wb-row is-ready"
         key={task.taskId}
-        tabIndex={0}
-        aria-label={`打开需求：${requirementLabel(task)}`}
         onClick={(event) => {
           if ((event.target as HTMLElement).closest('button, input, a')) return;
           if (path) navigate(path);
-        }}
-        onKeyDown={(event) => {
-          if (event.target !== event.currentTarget) return;
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            if (path) navigate(path);
-            else navigate('/board');
-          }
         }}
       >
         <div className="wb-row-main">
@@ -635,7 +676,8 @@ export function Workbench() {
             <span className="wb-row-context">{requirementLabel(task)}</span>
           </div>
           <div className="wb-row-detail">
-            {task.role?.title ?? '未指定角色'} · {task.stepKey} · 可开工
+            {task.role?.title ?? '未指定角色'} · {task.stepKey} · 可开工 · 任务{' '}
+            {task.taskId.slice(0, 8)}
           </div>
         </div>
         <div className="wb-row-actions">
@@ -649,17 +691,15 @@ export function Workbench() {
           >
             查看上下文
           </button>
-          {code && (
-            <button
-              className="ghost"
-              onClick={(event) => {
-                event.stopPropagation();
-                void copyCli(code);
-              }}
-            >
-              复制命令
-            </button>
-          )}
+          <button
+            className="ghost"
+            onClick={(event) => {
+              event.stopPropagation();
+              void copyCli(task.taskId);
+            }}
+          >
+            复制命令
+          </button>
         </div>
       </article>
     );
@@ -678,16 +718,16 @@ export function Workbench() {
   const systemDate = new Date()
     .toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
     .replaceAll('/', '.');
-  // 数据新鲜度统一用 HH:mm；rail 主信息只说人话，SYS.* 仅作技术辅助码。
+  // 数据新鲜度统一用 HH:mm；状态码用业务文案，过期/失败绝不显示成已同步。
   const dataClock = formatUpdatedAtClock(updatedAt ?? undefined);
   const dataStateCode =
     dataState === 'ready'
-      ? 'SYS.STATE.READY'
+      ? '已更新'
       : dataState === 'stale'
-        ? 'SYS.STATE.STALE'
+        ? '数据可能已过期'
         : dataState === 'error'
-          ? 'SYS.STATE.ERROR'
-          : 'SYS.STATE.LOADING';
+          ? '加载失败'
+          : '加载中';
   const dataStateText =
     dataState === 'error'
       ? '数据加载失败'
@@ -714,9 +754,9 @@ export function Workbench() {
         <div className="command-topline">
           <span className="command-kicker">
             <i className="pulse-dot" />
-            WORKMESH / AUTHORITY CONSOLE
+            WORKMESH / 工作台
           </span>
-          <span className="command-date">SYS {systemDate}</span>
+          <span className="command-date">数据日期 {systemDate}</span>
         </div>
         <div className="command-row">
           <div>
@@ -747,7 +787,7 @@ export function Workbench() {
         </div>
         <div className="command-hero">
           <div className="hero-total">
-            <span className="hero-label">OPEN SIGNALS</span>
+            <span className="hero-label">待处理事项</span>
             <strong>{String(counts.total).padStart(2, '0')}</strong>
             <span className="hero-unit">件待办 · 当前范围</span>
           </div>
@@ -863,8 +903,24 @@ export function Workbench() {
             </div>
           )}
 
+          {reviewBatchTargets.length > 0 && (
+            <div className="toolbar">
+              <button className="primary" onClick={() => setReviewBatchOpen(true)}>
+                批量批准 {reviewBatchTargets.length} 条
+              </button>
+              <button className="ghost" onClick={() => setSelectedReviews(new Set())}>
+                清空选择
+              </button>
+            </div>
+          )}
+
           <div className="wb-workspace">
-            <div className="wb-stream">
+            <div
+              className="wb-stream"
+              role="tabpanel"
+              id="wb-tabpanel"
+              aria-labelledby={`wb-tab-${tab}`}
+            >
               <div className="wb-stats">
                 <button
                   className={`wb-stat${tab === 'signOffs' ? ' is-active' : ''}`}
@@ -929,29 +985,42 @@ export function Workbench() {
               </div>
 
               <div className="wb-toolbar">
-                <div className="wb-tabs" role="tablist" aria-label="待办类型">
-                  {(['all', 'signOffs', 'approvals', 'changes', 'ready'] as Tab[]).map((key) => (
-                    <button
-                      key={key}
-                      role="tab"
-                      aria-selected={tab === key}
-                      className={`wb-tab${tab === key ? ' is-active' : ''}`}
-                      onClick={() => setTab(key)}
-                    >
-                      {TAB_LABELS[key]}
-                      <span>
-                        {key === 'all'
-                          ? counts.total
-                          : key === 'signOffs'
-                            ? counts.signOffs
-                            : key === 'approvals'
-                              ? counts.approvals
-                              : key === 'changes'
-                                ? counts.changes
-                                : counts.readyTasks}
-                      </span>
-                    </button>
-                  ))}
+                <div
+                  className="wb-tabs"
+                  role="tablist"
+                  aria-label="待办类型"
+                  onKeyDown={onTabKeyDown}
+                >
+                  {(['all', 'signOffs', 'approvals', 'changes', 'ready'] as Tab[]).map(
+                    (key, index) => (
+                      <button
+                        key={key}
+                        role="tab"
+                        id={`wb-tab-${key}`}
+                        aria-selected={tab === key}
+                        aria-controls="wb-tabpanel"
+                        tabIndex={tab === key ? 0 : -1}
+                        ref={(node) => {
+                          tabRefs.current[index] = node;
+                        }}
+                        className={`wb-tab${tab === key ? ' is-active' : ''}`}
+                        onClick={() => setTab(key)}
+                      >
+                        {TAB_LABELS[key]}
+                        <span>
+                          {key === 'all'
+                            ? counts.total
+                            : key === 'signOffs'
+                              ? counts.signOffs
+                              : key === 'approvals'
+                                ? counts.approvals
+                                : key === 'changes'
+                                  ? counts.changes
+                                  : counts.readyTasks}
+                        </span>
+                      </button>
+                    ),
+                  )}
                 </div>
                 {updatedAt && (
                   <span className="wb-updated">
@@ -1053,15 +1122,15 @@ export function Workbench() {
                 </div>
                 <dl className="rail-meta">
                   <div>
-                    <dt>SCOPE</dt>
-                    <dd>{scope ? (scopeProjectName ?? 'SINGLE PROJECT') : 'ALL PROJECTS'}</dd>
+                    <dt>范围</dt>
+                    <dd>{scope ? (scopeProjectName ?? '单个项目') : '全部项目'}</dd>
                   </div>
                   <div>
-                    <dt>PROJECTS</dt>
+                    <dt>项目数</dt>
                     <dd>{projects.length}</dd>
                   </div>
                   <div>
-                    <dt>UPDATED</dt>
+                    <dt>更新时间</dt>
                     <dd>{dataClock ?? '—'}</dd>
                   </div>
                 </dl>
@@ -1069,7 +1138,7 @@ export function Workbench() {
 
               <div className="rail-card">
                 <div className="rail-head">
-                  <span className="rail-label">ACTIVITY FEED</span>
+                  <span className="rail-label">最近活动</span>
                   <span className="rail-code">{visibleActivity.length}</span>
                 </div>
                 {visibleActivity.length === 0 ? (
@@ -1094,8 +1163,8 @@ export function Workbench() {
               </div>
 
               <div className="rail-card rail-command">
-                <span className="rail-label">CLI</span>
-                <code>workmesh context &lt;code&gt;</code>
+                <span className="rail-label">Agent 操作提示</span>
+                <code>workmesh claim --task &lt;taskId&gt;</code>
               </div>
             </aside>
           </div>
@@ -1206,7 +1275,21 @@ export function Workbench() {
         )}
       </Modal>
 
-      <ReviewDecisionDrawer reviewId={reviewTarget} onClose={() => setReviewTarget(null)} />
+      <BatchReviewApprove
+        open={reviewBatchOpen}
+        targets={reviewBatchTargets}
+        onClose={() => setReviewBatchOpen(false)}
+        onCompleted={handleReviewBatchCompleted}
+      />
+
+      <ReviewDecisionDrawer
+        reviewId={reviewTarget}
+        onClose={() => setReviewTarget(null)}
+        onDecisionCommitted={() => {
+          setReviewTarget(null);
+          void load();
+        }}
+      />
 
       <ChangeDrawer
         change={changeTarget}

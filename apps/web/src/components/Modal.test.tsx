@@ -188,4 +188,30 @@ describe('Modal（Esc / 图层栈 / IME / 焦点）', () => {
     expect(screen.queryByRole('dialog', { name: '焦点归还' })).not.toBeInTheDocument();
     expect(document.activeElement).toBe(opener);
   });
+
+  it('标题与描述分别通过 aria-labelledby / aria-describedby 关联', () => {
+    render(
+      <Modal open title="归档项目" description="归档后成员只能只读访问。" onClose={() => {}}>
+        <p>影响说明</p>
+      </Modal>,
+    );
+
+    const dialog = screen.getByRole('dialog', { name: '归档项目' });
+    expect(dialog).toHaveAccessibleDescription('归档后成员只能只读访问。');
+    const describedBy = dialog.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)).toHaveTextContent('归档后成员只能只读访问。');
+  });
+
+  it('初始焦点优先落在第一个可编辑控件', () => {
+    render(
+      <Modal open title="新建项目" onClose={() => {}}>
+        <input aria-label="项目名称" />
+        <input aria-label="项目 Key" />
+        <button>提交</button>
+      </Modal>,
+    );
+
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '项目名称' }));
+  });
 });

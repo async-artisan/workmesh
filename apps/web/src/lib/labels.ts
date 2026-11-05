@@ -84,6 +84,17 @@ export const ACTION_LABELS: Record<string, string> = {
   CLI_AUTHORIZE_DENY: '拒绝设备授权',
   CREDENTIAL_REVOKE: '撤销 Agent 凭据',
   WORKFLOW_PUBLISH: '发布流程定义',
+  PROJECT_INVITATION_CREATE: '发出项目邀请',
+  PROJECT_INVITATION_ACCEPT: '接受项目邀请',
+  PROJECT_INVITATION_REVOKE: '撤销项目邀请',
+  PROJECT_MEMBER_REVOKE: '移除项目成员',
+  PROJECT_ARCHIVE: '归档项目',
+  PROJECT_CREATE: '创建项目',
+  PROJECT_UPDATE: '更新项目',
+  WORKSPACE_DEFINITION_UPDATE: '更新工作区定义',
+  WORKSPACE_DEFINITION_PUBLISH: '发布工作区定义',
+  WORKSPACE_ENROLLMENT_CREATE: '生成接入码',
+  WORKSPACE_ENROLLMENT_REVOKE: '撤销接入码',
 };
 
 export const REVISION_STATE_LABELS: Record<string, string> = {
@@ -91,6 +102,29 @@ export const REVISION_STATE_LABELS: Record<string, string> = {
   PUBLISHED: '已发布',
   WITHDRAWN: '已撤回',
 };
+
+/** 高风险动作的目标类型：确认弹窗里先说人话，原始枚举收进技术详情。 */
+export const TARGET_TYPE_LABELS: Record<string, string> = {
+  REVIEW_REQUEST: '评审请求',
+  KNOWLEDGE_DOCUMENT: '知识/PRD 文档',
+  WORKFLOW_DEFINITION: '流程定义',
+  WORKFLOW_DEFINITION_REVISION: '流程版本',
+  PROJECT: '项目',
+  PROJECT_MEMBER: '项目成员',
+  PROJECT_INVITATION: '项目邀请',
+  CREDENTIAL: 'Agent 凭据',
+  CHANGE_RECIPIENT: '变更接收人',
+  CLI_AUTHORIZATION: '设备授权请求',
+  REQUIREMENT: '需求',
+  TASK: '任务',
+  ARTIFACT_SET: '工件集',
+};
+
+/** 目标类型的中文名；未知类型回落到原始值，避免显示空白。 */
+export function targetTypeLabel(value: string | null | undefined): string {
+  if (!value) return '—';
+  return TARGET_TYPE_LABELS[value] ?? value;
+}
 
 /** 评审决定类型；业务文案与影响说明共用同一份枚举，避免页面各写一套。 */
 export type ReviewDecisionValue = 'APPROVE' | 'CHANGES_REQUESTED' | 'REJECT';

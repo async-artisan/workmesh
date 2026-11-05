@@ -88,13 +88,21 @@ describe('V1BoardService.board', () => {
       card({ currentClaimId: 'c1', workStatus: 'ACTIVE', claimedUserId: 'u1' }), // ACTIVE
       card({ currentClaimId: 'c2', workStatus: 'BLOCKED', claimedUserId: 'u1' }), // BLOCKED
       card({ currentClaimId: 'c3', workStatus: 'PAUSED', claimedUserId: 'u1' }), // PAUSED
+      card({ currentClaimId: 'c5', workStatus: 'CANCELLED', claimedUserId: 'u1' }), // CANCELLED
       card({ currentClaimId: 'c4', currentArtifactSetId: 'a1', claimedUserId: 'u1' }), // DELIVERED
     ]);
     const { service } = build(repo);
     const board = await service.board(human('u1'), 'p1');
     const byKey = Object.fromEntries(board.columns.map((c) => [c.key, c.cards.length]));
-    expect(byKey).toEqual({ BACKLOG: 1, ACTIVE: 1, BLOCKED: 1, PAUSED: 1, DELIVERED: 1 });
-    expect(board.columns).toHaveLength(5);
+    expect(byKey).toEqual({
+      BACKLOG: 1,
+      ACTIVE: 1,
+      BLOCKED: 1,
+      PAUSED: 1,
+      CANCELLED: 1,
+      DELIVERED: 1,
+    });
+    expect(board.columns).toHaveLength(6);
   });
 
   it('rejects an AGENT lacking task:read with 403', async () => {

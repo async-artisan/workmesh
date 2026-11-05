@@ -5,9 +5,12 @@ import { Modal } from './Modal';
 export function ReviewDecisionDrawer({
   reviewId,
   onClose,
+  onDecisionCommitted,
 }: {
   reviewId: string | null;
   onClose: () => void;
+  /** 决定提交成功后由工作台关闭抽屉并刷新待办列表。 */
+  onDecisionCommitted?: () => void;
 }) {
   return (
     <Modal
@@ -18,7 +21,13 @@ export function ReviewDecisionDrawer({
       size="lg"
       onClose={onClose}
     >
-      {reviewId && <ReviewDecision reviewId={reviewId} embedded />}
+      {reviewId && (
+        <ReviewDecision
+          reviewId={reviewId}
+          embedded
+          onDecisionCommitted={onDecisionCommitted}
+        />
+      )}
     </Modal>
   );
 }

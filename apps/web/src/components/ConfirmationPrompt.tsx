@@ -7,6 +7,8 @@ import {
 } from '../api/auth';
 import { formatApiError } from '../api/client';
 import type { Confirmation } from '../api/resources';
+import { ACTION_LABELS, labelFor, targetTypeLabel } from '../lib/labels';
+import { formatDateTime } from '../lib/datetime';
 import { DecisionSummary, type DecisionSummaryData } from './DecisionSummary';
 import { Modal } from './Modal';
 
@@ -21,6 +23,10 @@ export interface ConfirmationPromptProps {
    * 技术摘要（actionDigest / 目标 / 期望版本）收进“查看技术详情”折叠区。
    */
   summary?: DecisionSummaryData;
+  /** 业务目标名称（例如“PRD：供应商管理 · YFF-021”）；确认前先让人看清改的是哪一条。 */
+  targetLabel?: string;
+  /** 提交后的业务后果，逐条展示；不提供时只显示服务端动作预览。 */
+  impact?: string[];
   /** 票据签发前填写的业务字段（例如撤销原因）。 */
   children?: ReactNode;
   onClose: () => void;
@@ -39,6 +45,8 @@ export function ConfirmationPrompt({
   binding,
   submitLabel = '确认执行',
   summary,
+  targetLabel,
+  impact,
   children,
   onClose,
   onConfirmed,
@@ -144,40 +152,41 @@ export function ConfirmationPrompt({
         {!preview && !error && <p className="modal-note">正在读取服务端动作预览…</p>}
         {preview && (
           <>
-            {summary ? (
-              <details className="wm-decision-technical">
-                <summary>查看技术详情</summary>
-                <dl className="signoff-meta">
-                  <div>
-                    <dt>动作</dt>
-                    <dd>{preview.display.action}</dd>
-                  </div>
-                  <div>
-                    <dt>目标</dt>
-                    <dd className="cell-mono">
-                      {preview.display.targetType} · {preview.display.targetId}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>期望版本</dt>
-                    <dd>v{preview.display.expectedVersion}</dd>
-                  </div>
-                  <div>
-                    <dt>动作摘要</dt>
-                    <dd className="cell-mono" data-testid="action-digest">
-                      {preview.actionDigest}
-                    </dd>
-                  </div>
-                </dl>
-              </details>
-            ) : (
+            {!summary && (
               <dl className="signoff-meta">
                 <div>
                   <dt>动作</dt>
-                  <dd>{preview.display.action}</dd>
+                  <dd>{labelFor(ACTION_LABELS, preview.display.action)}</dd>
                 </div>
                 <div>
                   <dt>目标</dt>
+                  <dd>{targetLabel ?? targetTypeLabel(preview.display.targetType)}</dd>
+                </div>
+                <div>
+                  <dt>期望版本</dt>
+                  <dd>v{preview.display.expectedVersion}</dd>
+                </div>
+              </dl>
+            )}
+            {impact && impact.length > 0 && (
+              <div className="confirm-impact">
+                <p>提交后会发生</p>
+                <ul>
+                  {impact.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <details className="wm-decision-technical">
+              <summary>查看技术详情</summary>
+              <dl className="signoff-meta">
+                <div>
+                  <dt>动作码</dt>
+                  <dd>{preview.display.action}</dd>
+                </div>
+                <div>
+                  <dt>目标标识</dt>
                   <dd className="cell-mono">
                     {preview.display.targetType} · {preview.display.targetId}
                   </dd>
@@ -193,10 +202,10 @@ export function ConfirmationPrompt({
                   </dd>
                 </div>
               </dl>
-            )}
+            </details>
             {ticket ? (
               <p className="confirm-banner">
-                票据已签发，单次有效，截止 {new Date(ticket.expiresAt).toLocaleString('zh-CN')}。
+                票据已签发，单次有效，截止 {formatDateTime(ticket.expiresAt)}。
                 执行前如目标版本或内容变化，服务端仍会拒绝。
               </p>
             ) : (

@@ -188,4 +188,35 @@ describe('DiffViewer（统一差异阅读）', () => {
     expect(remove?.querySelector('.wm-diff-sr-only')).toHaveTextContent('删除');
     expect(add?.querySelector('.wm-diff-sr-only')).toHaveTextContent('新增');
   });
+
+  it('仅看修改隐藏上下文但不改变统计，切换正文后恢复默认', () => {
+    const oldLines = textWithLines(20).split('\n');
+    const newLines = [...oldLines];
+    newLines[9] = 'changed-10';
+    const { container, rerender } = render(
+      <DiffViewer oldText={oldLines.join('\n')} newText={newLines.join('\n')} />,
+    );
+
+    const toggle = screen.getByRole('button', { name: '仅看修改' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText(/共 1 处修改 · 新增 \+1 · 删除 -1/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /显示第/ }).length).toBeGreaterThan(0);
+    fireEvent.click(toggle);
+    expect(screen.getByRole('button', { name: '显示完整上下文' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(container.querySelectorAll('.wm-diff-context')).toHaveLength(0);
+    expect(container.querySelectorAll('.wm-diff-change')).toHaveLength(1);
+    expect(screen.getByText(/共 1 处修改 · 新增 \+1 · 删除 -1/)).toBeInTheDocument();
+
+    const nextLines = [...newLines];
+    nextLines[9] = 'changed-again';
+    rerender(<DiffViewer oldText={oldLines.join('\n')} newText={nextLines.join('\n')} />);
+    expect(screen.getByRole('button', { name: '仅看修改' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(container.querySelectorAll('.wm-diff-context').length).toBeGreaterThan(0);
+  });
 });

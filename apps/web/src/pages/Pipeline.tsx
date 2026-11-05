@@ -160,7 +160,7 @@ export function Pipeline() {
           </p>
         </div>
         <div className="page-actions">
-          <ProjectSelect />
+          <ProjectSelect onCreateProject={() => navigate('/projects')} />
           <button
             type="button"
             className="ghost"
@@ -254,6 +254,7 @@ export function Pipeline() {
           ) : (
             <ProjectPipelineOverview
               key={projectId}
+              projectId={projectId ?? undefined}
               requirements={requirements}
               requirementsComplete={aggregation.complete}
               onSelectRequirement={(item) =>

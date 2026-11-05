@@ -1,0 +1,93 @@
+/* 工作台窄屏压缩：把首屏让给"待办列表"，而不是重复的统计卡。 */
+
+@media (max-width: 720px) {
+  .command-head {
+    padding: 14px 14px 16px;
+  }
+
+  .command-hero {
+    margin-top: 12px;
+    gap: 10px;
+  }
+
+  /* 待办总数与图例压成一行，避免大数字 + 图例各占一块。 */
+  .hero-total {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .hero-label {
+    display: none;
+  }
+
+  .hero-total strong {
+    font-size: 44px;
+  }
+
+  .hero-unit {
+    font-size: 11px;
+  }
+
+  .spectrum-bar {
+    height: 8px;
+  }
+
+  .spectrum-legend {
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin-top: 8px;
+  }
+
+  /* 4 张统计卡压成一行 chip：数字 + 标签，高约 56px（原来 1 列 4 张约 590px）。 */
+  .wb-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .wb-stat {
+    min-height: 0;
+    padding: 9px 10px 10px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'value'
+      'label';
+    gap: 1px;
+    border-radius: 10px;
+  }
+
+  .wb-stat-index,
+  .wb-stat-orbit,
+  .wb-stat-hint {
+    display: none;
+  }
+
+  .wb-stat-value {
+    font-size: 20px;
+  }
+
+  .wb-stat-label {
+    margin-top: 0;
+    font-size: 10.5px;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .wb-toolbar {
+    margin-top: 10px;
+  }
+
+  .wb-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .wb-tab {
+    flex: 0 0 auto;
+  }
+}
