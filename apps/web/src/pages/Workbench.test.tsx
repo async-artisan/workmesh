@@ -217,6 +217,35 @@ describe('Workbench（跨项目待办聚合）', () => {
     expect(screen.queryByText(/SYS\.STATE/)).not.toBeInTheDocument();
   });
 
+  it('逾期审批置顶展示，按到期时间排序并带评审入口', async () => {
+    const overdueSnapshot = {
+      ...snapshot,
+      counts: { ...snapshot.counts, overdueApprovals: 1 },
+      overdueApprovals: [
+        {
+          slotId: 'slot-late',
+          slotKey: 'task-acceptance',
+          kind: 'TASK_ACCEPTANCE',
+          reviewId: 'review-9',
+          projectId: 'p1',
+          projectKey: 'DEMO',
+          projectName: 'Demo',
+          dueAt: '2026-11-01T00:00:00.000Z',
+          escalated: false,
+          overdueSeconds: 7200,
+        },
+      ],
+    };
+    setup({ workbench: () => ({ status: 200, body: envelope(overdueSnapshot) }) });
+    renderWorkbench();
+
+    const section = await screen.findByRole('region', { name: '逾期审批' });
+    expect(within(section).getByText('逾期审批 1 条')).toBeInTheDocument();
+    expect(within(section).getByText('Demo')).toBeInTheDocument();
+    expect(within(section).getByText(/逾期 2 小时/)).toBeInTheDocument();
+    expect(within(section).getByRole('button')).toHaveTextContent(/任务验收|task-acceptance/);
+  });
+
   it('记住角色筛选，下次打开继续生效', async () => {
     mockFetch(handler());
     renderWorkbench();

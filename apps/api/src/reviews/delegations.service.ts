@@ -42,7 +42,7 @@ export class DelegationsService {
     await this.membership(projectId, userId, true);
     const slot = await this.prisma.approvalSlot.findFirst({
       where: { id: input.slotId, projectId },
-      select: { id: true, requiredUserId: true, reviewRequestId: true },
+      select: { id: true, requiredUserId: true, requiredRoleId: true, reviewRequestId: true },
     });
     if (!slot)
       throw new WorkmeshError(
@@ -69,6 +69,26 @@ export class DelegationsService {
         { delegateUserId: input.delegateUserId },
         422,
       );
+
+    // 同角色资格限制：槽位绑定业务角色时，被委托人必须持有该角色（有效 assignment）。
+    if (slot.requiredRoleId) {
+      const assignment = await this.prisma.projectRoleAssignment.findFirst({
+        where: {
+          projectId,
+          userId: input.delegateUserId,
+          roleId: slot.requiredRoleId,
+          revokedAt: null,
+        },
+        select: { id: true },
+      });
+      if (!assignment)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.VALIDATION_FAILED,
+          'DELEGATE_ROLE_MISMATCH',
+          { requiredRoleId: slot.requiredRoleId, delegateUserId: input.delegateUserId },
+          422,
+        );
+    }
 
     const expiresAt = new Date(input.expiresAt);
     if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now())

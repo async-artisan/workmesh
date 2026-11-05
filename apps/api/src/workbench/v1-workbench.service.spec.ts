@@ -26,6 +26,7 @@ function createHarness() {
     requirement: { findMany: vi.fn() },
     changeEvent: { findMany: vi.fn() },
     changeRecipient: { findMany: vi.fn() },
+    approvalSlot: { findMany: vi.fn() },
   };
   const authorization = { resolveProjectContext: vi.fn() };
   const reviews = { listReviews: vi.fn() };
@@ -158,6 +159,7 @@ describe('V1WorkbenchService', () => {
     prisma.changeRecipient.findMany.mockResolvedValue([
       { eventId: 'evt-1', roleId: 'role-backend' },
     ]);
+    prisma.approvalSlot.findMany.mockResolvedValue([]);
 
     const result = await service.get(principal, null);
 
@@ -191,10 +193,64 @@ describe('V1WorkbenchService', () => {
     prisma.requirement.findMany.mockResolvedValue([]);
     prisma.changeEvent.findMany.mockResolvedValue([]);
     prisma.changeRecipient.findMany.mockResolvedValue([]);
+    prisma.approvalSlot.findMany.mockResolvedValue([]);
 
     const result = await service.get(principal, 'p1');
 
     expect(result.counts.total).toBe(0);
     expect(result.warnings.join(' ')).toContain('评审数据加载失败');
+  });
+
+  it('聚合逾期审批：跨项目按 dueAt 升序返回，并标记是否已升级', async () => {
+    const { service, prisma, authorization, reviews, changes, ready } = createHarness();
+
+    prisma.project.findMany.mockResolvedValue([
+      { id: 'p1', key: 'DEMO', name: 'Demo' },
+      { id: 'p2', key: 'OPS', name: 'Ops' },
+    ]);
+    authorization.resolveProjectContext.mockResolvedValue({ activeRoleIds: [] });
+    reviews.listReviews.mockResolvedValue({ items: [], nextCursor: null });
+    changes.listRecipients.mockResolvedValue({ items: [], nextCursor: null });
+    ready.ready.mockResolvedValue({ items: [], nextCursor: null, hasMore: false });
+    prisma.approvalSlot.findMany.mockResolvedValue([
+      {
+        id: 'slot-late',
+        slotKey: 'task-acceptance',
+        kind: 'TASK_ACCEPTANCE',
+        reviewRequestId: 'review-9',
+        projectId: 'p1',
+        dueAt: new Date(Date.now() - 2 * 3_600_000),
+        escalatedAt: null,
+      },
+      {
+        id: 'slot-escalated',
+        slotKey: 'release-approval',
+        kind: 'RELEASE_ACCEPTANCE',
+        reviewRequestId: 'review-8',
+        projectId: 'p2',
+        dueAt: new Date(Date.now() - 3_600_000),
+        escalatedAt: new Date(),
+      },
+    ]);
+
+    const result = await service.get(principal, null);
+
+    expect(result.counts.overdueApprovals).toBe(2);
+    // counts.total 不重复计入逾期（逾期只是置顶视图）。
+    expect(result.counts.total).toBe(0);
+    expect(result.overdueApprovals).toHaveLength(2);
+    expect(result.overdueApprovals[0]).toMatchObject({
+      slotId: 'slot-late',
+      projectKey: 'DEMO',
+      projectName: 'Demo',
+      reviewId: 'review-9',
+      escalated: false,
+    });
+    expect(result.overdueApprovals[0].overdueSeconds).toBeGreaterThanOrEqual(7200);
+    expect(result.overdueApprovals[1]).toMatchObject({
+      slotId: 'slot-escalated',
+      projectKey: 'OPS',
+      escalated: true,
+    });
   });
 });

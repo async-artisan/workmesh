@@ -30,6 +30,20 @@ function fakePrisma() {
       dueAt: new Date('2026-10-01T00:00:00Z'),
       decisions: [{ id: 'decision-1' }],
     },
+    {
+      id: 'slot-3',
+      projectId: 'p1',
+      slotKey: 'release-approval',
+      kind: 'RELEASE_ACCEPTANCE',
+      reviewRequestId: 'review-3',
+      requiredUserId: 'member',
+      requiredRoleId: 'role-approver',
+      dueAt: new Date('2026-10-01T00:00:00Z'),
+      decisions: [] as unknown[],
+    },
+  ];
+  const roleAssignments = [
+    { projectId: 'p1', userId: 'approver', roleId: 'role-approver', revokedAt: null },
   ];
   const delegations: Array<Record<string, unknown> & { id: string }> = [];
 
@@ -42,6 +56,23 @@ function fakePrisma() {
           (member) =>
             member.projectId === input.where.projectId_userId.projectId &&
             member.userId === input.where.projectId_userId.userId,
+        ) ?? null,
+    },
+    projectRoleAssignment: {
+      findFirst: async (input: {
+        where: {
+          projectId: string;
+          userId: string;
+          roleId: string;
+          revokedAt: null;
+        };
+      }) =>
+        roleAssignments.find(
+          (assignment) =>
+            assignment.projectId === input.where.projectId &&
+            assignment.userId === input.where.userId &&
+            assignment.roleId === input.where.roleId &&
+            assignment.revokedAt === null,
         ) ?? null,
     },
     approvalSlot: {
@@ -220,15 +251,43 @@ describe('DelegationsService', () => {
     });
   });
 
+  it('rejects delegates without the slot required business role', async () => {
+    const { service } = fakePrisma();
+    await expect(
+      service.create('p1', 'owner', {
+        slotId: 'slot-3',
+        delegateUserId: 'owner',
+        expiresAt: future,
+      }),
+    ).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      message: 'DELEGATE_ROLE_MISMATCH',
+    });
+  });
+
+  it('allows delegates holding the same required business role', async () => {
+    const { service } = fakePrisma();
+    await expect(
+      service.create('p1', 'owner', {
+        slotId: 'slot-3',
+        delegateUserId: 'approver',
+        expiresAt: future,
+      }),
+    ).resolves.toMatchObject({
+      slotId: 'slot-3',
+      delegateUserId: 'approver',
+    });
+  });
+
   it('lists overdue slots without decisions', async () => {
     const { service } = fakePrisma();
     const overdue = await service.overdue('p1', 'member');
-    expect(overdue.map((slot) => slot.id)).toEqual(['slot-1']);
+    expect(overdue.map((slot) => slot.id)).toEqual(['slot-1', 'slot-3']);
   });
 
   it('escalates overdue undecided slots once', async () => {
     const { service } = fakePrisma();
-    await expect(service.escalate('p1', 'owner')).resolves.toEqual({ escalated: 1 });
+    await expect(service.escalate('p1', 'owner')).resolves.toEqual({ escalated: 2 });
     await expect(service.escalate('p1', 'owner')).resolves.toEqual({ escalated: 0 });
   });
 });

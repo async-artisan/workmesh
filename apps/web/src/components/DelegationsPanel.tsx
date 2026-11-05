@@ -219,6 +219,10 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
     (delegation) =>
       !delegation.revokedAt && new Date(delegation.expiresAt).getTime() > Date.now(),
   );
+  const expiringSoon = activeDelegations.filter((delegation) => {
+    const hoursLeft = (new Date(delegation.expiresAt).getTime() - Date.now()) / 3_600_000;
+    return hoursLeft > 0 && hoursLeft <= 24;
+  });
 
   return (
     <div className="delegations-panel">
@@ -239,6 +243,12 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
             )}
           </span>
         </div>
+
+        {expiringSoon.length > 0 && (
+          <p className="delegation-reminder" role="status">
+            {expiringSoon.length} 条委托将在 24 小时内到期，请确认交接、延期或撤销。
+          </p>
+        )}
 
         {canWrite && (
           <div className="delegation-form form-grid">
@@ -308,8 +318,10 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
         ) : (
           <ul className="delegation-list">
             {delegations.map((delegation) => {
-              const expired = new Date(delegation.expiresAt).getTime() <= Date.now();
+              const hoursLeft = (new Date(delegation.expiresAt).getTime() - Date.now()) / 3_600_000;
+              const expired = hoursLeft <= 0;
               const revoked = Boolean(delegation.revokedAt);
+              const expiring = !revoked && !expired && hoursLeft <= 24;
               return (
                 <li key={delegation.id} className="delegation-row">
                   <div>
@@ -321,8 +333,14 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
                     <small>到期 {formatDateTime(delegation.expiresAt)}</small>
                   </div>
                   <div className="delegation-row-actions">
-                    <span className="status-tag">
-                      {revoked ? '已撤销' : expired ? '已过期' : '生效中'}
+                    <span className={`status-tag${expiring ? ' is-warning' : ''}`}>
+                      {revoked
+                        ? '已撤销'
+                        : expired
+                          ? '已过期'
+                          : expiring
+                            ? `即将到期（${Math.max(1, Math.ceil(hoursLeft))} 小时）`
+                            : '生效中'}
                     </span>
                     {canWrite && !revoked && !expired && (
                       <button

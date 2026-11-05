@@ -68,6 +68,20 @@ export type WorkbenchReadyTaskItem = {
   ageSeconds: number | null;
 };
 
+/** 逾期审批（到期未决定）：工作台置顶展示，跨项目按 dueAt 升序。 */
+export type WorkbenchOverdueApprovalItem = {
+  slotId: string;
+  slotKey: string;
+  kind: string;
+  reviewId: string;
+  projectId: string;
+  projectKey: string;
+  projectName: string;
+  dueAt: string;
+  escalated: boolean;
+  overdueSeconds: number;
+};
+
 type ProjectResult = {
   reviews: WorkbenchReviewItem[];
   changes: WorkbenchChangeItem[];
@@ -123,19 +137,68 @@ export class V1WorkbenchService {
     const reviews = results.flatMap((result) => result.reviews);
     const changes = results.flatMap((result) => result.changes);
     const readyTasks = results.flatMap((result) => result.readyTasks);
+    const overdueApprovals = await this.loadOverdueApprovals(projects);
 
     return {
       counts: {
         reviews: reviews.length,
         changes: changes.length,
         readyTasks: readyTasks.length,
+        overdueApprovals: overdueApprovals.length,
         total: reviews.length + changes.length + readyTasks.length,
       },
       reviews,
       changes,
       readyTasks,
+      overdueApprovals,
       warnings,
     };
+  }
+
+  /** 跨项目读取「到期且未决定」的审批槽；只读展示，升级动作仍在项目内手动触发。 */
+  private async loadOverdueApprovals(
+    projects: readonly ProjectRow[],
+  ): Promise<WorkbenchOverdueApprovalItem[]> {
+    if (projects.length === 0) return [];
+    const now = new Date();
+    const rows = await this.prisma.approvalSlot.findMany({
+      where: {
+        projectId: { in: projects.map((project) => project.id) },
+        dueAt: { lte: now },
+        decisions: { none: {} },
+      },
+      orderBy: { dueAt: 'asc' },
+      take: 50,
+      select: {
+        id: true,
+        slotKey: true,
+        kind: true,
+        reviewRequestId: true,
+        projectId: true,
+        dueAt: true,
+        escalatedAt: true,
+      },
+    });
+    const projectById = new Map(projects.map((project) => [project.id, project]));
+    return rows.flatMap((row) => {
+      const project = projectById.get(row.projectId);
+      if (!project || !row.dueAt) return [];
+      const dueTime = row.dueAt instanceof Date ? row.dueAt.getTime() : new Date(row.dueAt).getTime();
+      return [
+        {
+          slotId: row.id,
+          slotKey: row.slotKey,
+          kind: row.kind,
+          reviewId: row.reviewRequestId,
+          projectId: project.id,
+          projectKey: project.key,
+          projectName: project.name,
+          dueAt: new Date(dueTime).toISOString(),
+          escalated: Boolean(row.escalatedAt),
+          overdueSeconds: Math.max(0, Math.floor((now.getTime() - dueTime) / 1000)),
+        },
+      ];
+    });
   }
 
   private async loadProject(

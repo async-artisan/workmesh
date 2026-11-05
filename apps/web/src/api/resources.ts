@@ -942,11 +942,33 @@ export interface WorkbenchReadyTaskItem {
   ageSeconds: number | null;
 }
 
+/** 逾期审批（到期未决定）：工作台置顶展示，跨项目按 dueAt 升序。 */
+export interface WorkbenchOverdueApprovalItem {
+  slotId: string;
+  slotKey: string;
+  kind: string;
+  reviewId: string;
+  projectId: string;
+  projectKey: string;
+  projectName: string;
+  dueAt: string;
+  escalated: boolean;
+  overdueSeconds: number;
+}
+
 export interface WorkbenchSnapshot {
-  counts: { reviews: number; changes: number; readyTasks: number; total: number };
+  counts: {
+    reviews: number;
+    changes: number;
+    readyTasks: number;
+    total: number;
+    overdueApprovals?: number;
+  };
   reviews: WorkbenchReviewItem[];
   changes: WorkbenchChangeItem[];
   readyTasks: WorkbenchReadyTaskItem[];
+  /** 旧服务端响应可能没有该字段；前端按空数组处理。 */
+  overdueApprovals?: WorkbenchOverdueApprovalItem[];
   warnings: string[];
 }
 

@@ -199,4 +199,24 @@ describe('DelegationsPanel（委托 / 超时）', () => {
     expect(screen.queryByRole('button', { name: '创建委托' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '标记全部升级' })).not.toBeInTheDocument();
   });
+
+  it('委托将在 24 小时内到期时给出提醒与「即将到期」状态', async () => {
+    delegations = [
+      {
+        id: 'delegation-soon',
+        projectId: 'p1',
+        slotId: 'slot-1',
+        delegatorUserId: 'be-1',
+        delegateUserId: 'owner-1',
+        expiresAt: new Date(Date.now() + 2 * 3_600_000).toISOString(),
+        revokedAt: null,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    mockFetch(handler());
+    renderPanel();
+
+    expect(await screen.findByText(/将在 24 小时内到期/)).toBeInTheDocument();
+    expect(screen.getByText(/即将到期（2 小时）/)).toBeInTheDocument();
+  });
 });

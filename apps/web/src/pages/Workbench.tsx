@@ -488,6 +488,8 @@ export function Workbench() {
 
   /** 有任一筛选条件（搜索 / 角色 / 项目范围 / 非“全部”标签）时，空列表是“没有匹配项”。 */
   const hasActiveFilter = query.trim() !== '' || roleFilter !== '' || scope !== '' || tab !== 'all';
+  /** 逾期审批置顶：到期未决定，跨项目按 dueAt 升序；旧响应缺字段时按空数组处理。 */
+  const overdueApprovals = snapshot?.overdueApprovals ?? [];
 
   /** 批量按钮与提交只认“当前快照中仍存在且被选中”的变更。 */
   const batchTargets = useMemo<BatchTarget[]>(() => {
@@ -921,6 +923,34 @@ export function Workbench() {
               id="wb-tabpanel"
               aria-labelledby={`wb-tab-${tab}`}
             >
+              {overdueApprovals.length > 0 && (
+                <section className="wb-overdue" aria-label="逾期审批">
+                  <div className="wb-overdue-head">
+                    <strong>逾期审批 {overdueApprovals.length} 条</strong>
+                    <small>到期未决定，按到期时间升序；升级只提醒，不会自动批准。</small>
+                  </div>
+                  <div className="wb-overdue-list">
+                    {overdueApprovals.slice(0, 6).map((item) => (
+                      <button
+                        key={item.slotId}
+                        type="button"
+                        className="wb-overdue-row"
+                        onClick={() => navigate(`/reviews/${encodeURIComponent(item.reviewId)}`)}
+                      >
+                        <span className="wb-overdue-project">{item.projectName}</span>
+                        <span className="wb-overdue-slot">
+                          {labelFor(STEP_LABELS, item.slotKey)}
+                        </span>
+                        <span className="wb-type">{item.kind}</span>
+                        <span className="wb-overdue-age">
+                          逾期 {ageLabel(item.overdueSeconds)}
+                        </span>
+                        {item.escalated && <span className="status-tag">已升级</span>}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
               <div className="wb-stats">
                 <button
                   className={`wb-stat${tab === 'signOffs' ? ' is-active' : ''}`}
