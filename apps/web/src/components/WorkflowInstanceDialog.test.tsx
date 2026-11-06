@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setCsrfToken } from '../api/client';
 import type { RoleView, WorkflowDefinitionView, WorkflowStepDefinition } from '../api/resources';
@@ -68,15 +68,22 @@ interface HandlerOptions {
   postStatus?: number;
   postBody?: unknown;
   postCalls?: { count: number };
+  /** 让仓库列表与需求详情请求挂起：用于断言打开弹窗时的加载状态。 */
+  contextGate?: Promise<void>;
+  /** 让提交流程请求挂起：用于断言提交中的按钮状态。 */
+  postGate?: Promise<void>;
 }
 
 function handler(options: HandlerOptions = {}) {
-  return (url: string, init: RequestInit) => {
+  return async (url: string, init: RequestInit) => {
     const path = pathOf(url);
     const method = methodOf(init);
-    if (path === '/api/v1/projects/p1/repositories' && method === 'GET')
+    if (path === '/api/v1/projects/p1/repositories' && method === 'GET') {
+      if (options.contextGate) await options.contextGate;
       return { status: 200, body: envelope(options.repositories ?? []) };
-    if (path === '/api/v1/projects/p1/requirements/req-1' && method === 'GET')
+    }
+    if (path === '/api/v1/projects/p1/requirements/req-1' && method === 'GET') {
+      if (options.contextGate) await options.contextGate;
       return {
         status: 200,
         body: envelope({
@@ -89,6 +96,7 @@ function handler(options: HandlerOptions = {}) {
           counts: { tasks: 0, artifacts: 0, reviews: 0, changes: 0 },
         }),
       };
+    }
     if (path === '/api/v1/workflow-definition-revisions/rev-1' && method === 'GET')
       return {
         status: 200,
@@ -103,6 +111,7 @@ function handler(options: HandlerOptions = {}) {
       };
     if (path === '/api/v1/requirements/req-1/workflow-instances' && method === 'POST') {
       if (options.postCalls) options.postCalls.count += 1;
+      if (options.postGate) await options.postGate;
       return {
         status: options.postStatus ?? 201,
         body: options.postBody ?? envelope({ instanceId: 'inst-1', requirementVersion: 3 }),
@@ -393,5 +402,84 @@ describe('WorkflowInstanceDialog（初始化流程实例的可推进性）', () 
       await screen.findByText(/还没有已发布流程|该项目还没有已发布的流程定义/),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '确认创建' })).toBeDisabled();
+  });
+
+  it('打开时先显示 role="status" 的加载态，仓库与验收读完才渲染表单', async () => {
+    let releaseContext: () => void = () => undefined;
+    const contextGate = new Promise<void>((resolve) => {
+      releaseContext = resolve;
+    });
+    mockFetch(
+      handler({
+        definition: baseDefinition,
+        repositories: [repository],
+        acceptanceKeys: ['A1'],
+        contextGate,
+      }),
+    );
+    render(
+      <WorkflowInstanceDialog
+        open
+        requirement={requirement}
+        definitions={[publishedDefinition]}
+        roles={roles}
+        members={members}
+        onClose={vi.fn()}
+        onCreated={vi.fn()}
+      />,
+    );
+
+    const dialog = screen.getByRole('dialog', { name: '初始化流程实例' });
+    const loadingRegion = within(dialog).getByRole('status');
+    expect(loadingRegion).toHaveTextContent(/正在读取/);
+    expect(loadingRegion).toHaveAttribute('aria-busy', 'true');
+    expect(within(dialog).getByRole('button', { name: '确认创建' })).toBeDisabled();
+    // 加载中不渲染可能被误提交的空表单（例如仓库登记表单）。
+    expect(screen.queryByLabelText('仓库 owner')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('步骤 prd 责任人')).not.toBeInTheDocument();
+
+    await act(async () => {
+      releaseContext();
+    });
+
+    expect(await screen.findByLabelText('步骤 prd 责任人')).toBeInTheDocument();
+    expect(screen.queryByLabelText('仓库 owner')).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('提交中按钮显示“提交中…”并禁用，不会重复提交', async () => {
+    let releasePost: () => void = () => undefined;
+    const postGate = new Promise<void>((resolve) => {
+      releasePost = resolve;
+    });
+    const postCalls = { count: 0 };
+    const { onCreated } = renderDialog({
+      definition: baseDefinition,
+      repositories: [repository],
+      acceptanceKeys: ['A1'],
+      postGate,
+      postCalls,
+    });
+
+    await screen.findByText(/还不能提交：还有 3 项未完成/);
+    fillOwnersAndApprover();
+    await waitFor(() => expect(screen.getByRole('button', { name: '确认创建' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: '确认创建' }));
+
+    const busyButton = screen.getByRole('button', { name: '提交中…' });
+    expect(busyButton).toBeDisabled();
+    expect(screen.getByRole('dialog', { name: '初始化流程实例' })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    );
+    fireEvent.click(busyButton);
+    expect(postCalls.count).toBe(1);
+
+    await act(async () => {
+      releasePost();
+    });
+    await waitFor(() =>
+      expect(onCreated).toHaveBeenCalledWith('需求 DEMO-REQ-1 的流程实例已创建。'),
+    );
   });
 });

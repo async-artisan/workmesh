@@ -19,13 +19,18 @@ import { requireIdempotencyKey } from '../common/v1-idempotency';
 import {
   CreateProjectDto,
   AddProjectMemberDto,
+  ArchiveProjectRepositoryDto,
   CreateProjectRepositoryDto,
   CreateProjectRoleDto,
   ProjectRoleChangeDto,
   UpdateProjectDto,
   UpdateProjectRoleDto,
 } from './dto';
-import { ProjectsService, type ProjectRoleChangeContext } from './projects.service';
+import {
+  ProjectsService,
+  type ProjectRoleChangeContext,
+  type ProjectWriteContext,
+} from './projects.service';
 
 function humanUserId(request: V1Request): string {
   const principal = request.v1Principal;
@@ -128,8 +133,21 @@ export class ProjectsController {
     @Req() request: V1Request,
     @Param('projectId') projectId: string,
     @Body() dto: CreateProjectRepositoryDto,
+    @Headers('idempotency-key') idempotencyKey: string,
   ) {
-    return this.projects.createRepository(humanUserId(request), projectId, dto);
+    const principal = humanPrincipal(request);
+    return this.projects.createRepository(
+      principal,
+      projectId,
+      dto,
+      this.writeContext(
+        request,
+        principal,
+        dto,
+        `/api/v1/projects/${projectId}/repositories`,
+        idempotencyKey,
+      ),
+    );
   }
 
   @Delete(':projectId/repositories/:repositoryId')
@@ -137,8 +155,23 @@ export class ProjectsController {
     @Req() request: V1Request,
     @Param('projectId') projectId: string,
     @Param('repositoryId') repositoryId: string,
+    @Body() dto: ArchiveProjectRepositoryDto,
+    @Headers('idempotency-key') idempotencyKey: string,
   ) {
-    return this.projects.archiveRepository(humanUserId(request), projectId, repositoryId);
+    const principal = humanPrincipal(request);
+    return this.projects.archiveRepository(
+      principal,
+      projectId,
+      repositoryId,
+      dto,
+      this.writeContext(
+        request,
+        principal,
+        dto,
+        `/api/v1/projects/${projectId}/repositories/${repositoryId}`,
+        idempotencyKey,
+      ),
+    );
   }
 
   @Put(':projectId/members/:userId/roles/:roleId')
@@ -233,6 +266,26 @@ export class ProjectsController {
       method: request.method,
       route: request.originalUrl ?? route,
       body: { expectedVersion: dto.expectedVersion, reason: dto.reason },
+      operationId: randomUUID(),
+      now: new Date(),
+      webSessionId: principal.sessionId ?? '',
+      userAuthVersion: principal.authVersion ?? 0,
+    };
+  }
+
+  /** 仓库写操作（登记/归档）的幂等上下文；body 用于 requestDigest，confirmation 会被排除。 */
+  private writeContext(
+    request: V1Request,
+    principal: V1Principal,
+    body: object,
+    route: string,
+    idempotencyKey: string,
+  ): ProjectWriteContext {
+    return {
+      idempotencyKey: requireIdempotencyKey(idempotencyKey),
+      method: request.method,
+      route: request.originalUrl ?? route,
+      body: body as Record<string, unknown>,
       operationId: randomUUID(),
       now: new Date(),
       webSessionId: principal.sessionId ?? '',

@@ -19,6 +19,12 @@ import { serializeDeletionCookie, setSessionCookies } from './v1-session-cookies
 import { V1ActionService } from './v1-action.service';
 import { V1CliAuthorizationService } from './v1-cli-authorization.service';
 import {
+  CLIENT_VERSION_MAX,
+  DEVICE_NAME_MAX,
+  DEVICE_PLATFORM_MAX,
+  sanitizeDeviceValue,
+} from './v1-cli-authorization.service';
+import {
   ActionPreviewDto,
   ApproveCliAuthorizationDto,
   ConfirmationTicketDto,
@@ -37,6 +43,39 @@ function principalOf(request: V1Request): Principal {
 
 function emailOf(request: Request): string {
   return request.ip || 'unknown';
+}
+
+/** 读取单个请求头；重复头部（数组）取第一个可用值。 */
+function rawHeader(request: Request, name: string): string | undefined {
+  const value = request.headers?.[name];
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.find((item) => typeof item === 'string');
+  return undefined;
+}
+
+/**
+ * CLI 设备元数据：老客户端不发送这些头部，返回空对象而不是 undefined 字段。
+ * 空值/纯空白 -> 不传；超长 -> 截断（记录设备信息不应让授权请求失败）。
+ */
+function deviceMetadataOf(request: Request): {
+  deviceName?: string;
+  devicePlatform?: string;
+  clientVersion?: string;
+} {
+  const deviceName = sanitizeDeviceValue(rawHeader(request, 'x-workmesh-device'), DEVICE_NAME_MAX);
+  const devicePlatform = sanitizeDeviceValue(
+    rawHeader(request, 'x-workmesh-platform'),
+    DEVICE_PLATFORM_MAX,
+  );
+  const clientVersion = sanitizeDeviceValue(
+    rawHeader(request, 'x-workmesh-client-version'),
+    CLIENT_VERSION_MAX,
+  );
+  return {
+    ...(deviceName === undefined ? {} : { deviceName }),
+    ...(devicePlatform === undefined ? {} : { devicePlatform }),
+    ...(clientVersion === undefined ? {} : { clientVersion }),
+  };
 }
 
 function readCookie(request: Request, name: string): string | undefined {
@@ -196,13 +235,21 @@ export class V1AuthController {
   }
 
   @Post('cli-authorizations')
-  createCliAuthorization(
+  async createCliAuthorization(
     @Req() request: Request,
     @Body() dto: CreateCliAuthorizationDto,
     @Res({ passthrough: true }) response: Response,
   ) {
     response.status(201);
-    return this.cli.create({ ...dto, ip: emailOf(request) });
+    const result = await this.cli.create({
+      ...dto,
+      ip: emailOf(request),
+      ...deviceMetadataOf(request),
+    });
+    return {
+      ...result,
+      verificationUri: new URL('/cli/authorize', publicOrigin()).toString(),
+    };
   }
 
   @UseGuards(V1AuthGuard)

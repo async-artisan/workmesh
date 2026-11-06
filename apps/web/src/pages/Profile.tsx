@@ -1,22 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { formatApiError } from '../api/client';
-import { authApi } from '../api/auth';
+import { authApi, type AgentCredentialDeviceView, type AgentCredentialView } from '../api/auth';
 import { projectApi, type ProjectView, type RoleView } from '../api/resources';
 import { ConfirmDialog } from '../components/Modal';
 import { PageState, toPageLoadState, type PageLoadState } from '../components/PageState';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import { useAuthStore } from '../store/auth';
 
-export interface CredentialView {
-  id: string;
-  name: string;
-  projectId: string;
-  roleId: string;
-  scopes: string[];
-  expiresAt: string;
-  revokedAt: string | null;
-}
+/** 凭据列表项：服务端附带 createdAt 与授权设备元数据（旧凭据 device 为 null）。 */
+export type CredentialView = AgentCredentialView;
 
 export const CREDENTIAL_EXPIRING_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -68,6 +61,49 @@ export function formatCredentialTime(value: string): string {
 
 export function shortCredentialId(id: string): string {
   return id.length > 8 ? `${id.slice(0, 8)}…` : id;
+}
+
+/** 设备列展示内容：主机名优先；历史授权记录可能只有 clientName/时长。 */
+interface CredentialDeviceSummary {
+  primary: string;
+  secondary: string;
+  authorizedAt: string | null;
+  /** 旧授权记录在设备头上线前签发，只有 clientName/授权时间，没有主机名。 */
+  missingHostname: boolean;
+}
+
+/**
+ * 把服务端 device 归纳成两行文本：
+ * - device.name 存在 → 主机名 + `clientName · platform · ip`；
+ * - 缺主机名但有其他字段 → clientName（或“未记录设备”）+ `platform · ip`，并标注未上报主机名；
+ * - device 为 null 或没有任何可用字段 → null（调用方渲染“未记录 / 旧凭据没有设备信息”）。
+ */
+function credentialDeviceSummary(
+  device: AgentCredentialDeviceView | null,
+): CredentialDeviceSummary | null {
+  if (!device) return null;
+  const trim = (value: string | null | undefined): string =>
+    typeof value === 'string' ? value.trim() : '';
+  const name = trim(device.name);
+  const clientName = trim(device.clientName);
+  const platform = trim(device.platform);
+  const ip = trim(device.ip);
+  if (!name && !clientName && !platform && !ip) return null;
+  const authorizedAt = device.authorizedAt ?? null;
+  if (name) {
+    return {
+      primary: name,
+      secondary: [clientName, platform, ip].filter(Boolean).join(' · '),
+      authorizedAt,
+      missingHostname: false,
+    };
+  }
+  return {
+    primary: clientName || '未记录设备',
+    secondary: [platform, ip].filter(Boolean).join(' · '),
+    authorizedAt,
+    missingHostname: true,
+  };
 }
 
 interface ScopeGroupDefinition {
@@ -220,14 +256,20 @@ const css = `
 .profile-credential-card__head { display:flex; gap:10px; justify-content:space-between; align-items:flex-start; }
 .profile-credential-card__head strong { overflow-wrap:anywhere; }
 .profile-credential-meta { color:var(--text-secondary,#64748b); font-size:12px; overflow-wrap:anywhere; }
-.profile-credential-id { color:var(--text-muted,#7b8aa0); font-family:var(--wm-font-mono, ui-monospace, monospace); font-size:11px; }
+.profile-credential-id { color:var(--text-muted,#7b8aa0); font-family:var(--wm-font-mono, ui-monospace, monospace); font-size:12px; }
+.profile-credential-device { display:grid; gap:2px; min-width:0; }
+.profile-credential-device__name { color:var(--text-primary,#0f172a); font-weight:500; overflow-wrap:anywhere; }
+.profile-credential-device__line { display:block; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-secondary,#64748b); font-size:12px; }
+.profile-credential-device__line--muted { color:var(--text-muted,#7b8aa0); }
+.profile-credential-card__details { display:grid; gap:8px; border-top:1px solid var(--border,#e2e8f0); padding-top:6px; }
+.profile-credential-card__details > summary { width:fit-content; color:var(--accent-hover,#0e7490); font-size:12px; cursor:pointer; }
 .profile-scopes { display:grid; gap:4px; min-width:0; max-width:360px; }
 .profile-scopes__summary { color:var(--text-secondary,#475569); font-size:12px; overflow-wrap:anywhere; }
 .profile-scopes__details > summary { color:var(--accent-hover,#0e7490); font-size:12px; cursor:pointer; }
 .profile-scope-group { display:flex; flex-wrap:wrap; gap:5px; align-items:baseline; margin-top:6px; font-size:12px; }
 .profile-scope-group strong { color:var(--text-primary,#0f172a); font-size:12px; }
 .profile-scope-tags { display:flex; flex-wrap:wrap; gap:4px; }
-.profile-scope-note { color:var(--text-muted,#7b8aa0); font-size:11px; margin:4px 0 0; overflow-wrap:anywhere; }
+.profile-scope-note { color:var(--text-muted,#7b8aa0); font-size:12px; margin:4px 0 0; overflow-wrap:anywhere; }
 .profile-credential-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .profile-empty-credentials { padding:18px; display:grid; gap:10px; max-width:620px; }
 .profile-empty-credentials h3 { margin:0; font-size:16px; }
@@ -239,6 +281,7 @@ const css = `
   .profile-credential-toolbar { align-items:stretch; flex-direction:column; }
   .profile-credential-toolbar label, .profile-credential-toolbar select { width:100%; }
   .profile-scopes { max-width:none; }
+  .profile-credential-device__line { max-width:none; white-space:normal; overflow:visible; }
 }
 `;
 
@@ -309,7 +352,6 @@ export function Profile() {
     return () => {
       requestRef.current += 1;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const projectNameById = useMemo(
@@ -371,7 +413,6 @@ export function Profile() {
         return sortBy === 'expiry-desc' ? rightValue - leftValue : leftValue - rightValue;
       });
     // now 只用于状态筛选；当前渲染时间改变时由状态派生重新计算。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [credentials, projectFilter, roleFilter, statusFilter, sortBy]);
 
   async function revoke(credential: CredentialView) {
@@ -632,6 +673,7 @@ export function Profile() {
                     <thead>
                       <tr>
                         <th>凭据</th>
+                        <th>设备</th>
                         <th>项目</th>
                         <th>角色</th>
                         <th>状态</th>
@@ -643,6 +685,7 @@ export function Profile() {
                     <tbody>
                       {filteredCredentials.map((credential) => {
                         const status = credentialStatus(credential, now);
+                        const device = credentialDeviceSummary(credential.device);
                         return (
                           <tr
                             key={credential.id}
@@ -653,6 +696,54 @@ export function Profile() {
                               <strong>{credential.name}</strong>
                               <div className="profile-credential-id" title={credential.id}>
                                 凭据 ID {shortCredentialId(credential.id)}
+                              </div>
+                            </td>
+                            <td data-testid="credential-device">
+                              <div className="profile-credential-device">
+                                {device ? (
+                                  <>
+                                    <span
+                                      className="profile-credential-device__name"
+                                      title={
+                                        device.missingHostname
+                                          ? '旧凭据未上报主机名'
+                                          : device.primary
+                                      }
+                                    >
+                                      {device.primary}
+                                    </span>
+                                    {device.secondary && (
+                                      <span
+                                        className="profile-credential-device__line"
+                                        title={device.secondary}
+                                      >
+                                        {device.secondary}
+                                      </span>
+                                    )}
+                                    {device.missingHostname && (
+                                      <span className="profile-credential-device__line profile-credential-device__line--muted">
+                                        旧凭据未上报主机名
+                                      </span>
+                                    )}
+                                    {device.authorizedAt && (
+                                      <span
+                                        className="profile-credential-device__line profile-credential-device__line--muted"
+                                        title={`授权于 ${formatCredentialTime(device.authorizedAt)}`}
+                                      >
+                                        授权 {formatCredentialTime(device.authorizedAt)}
+                                      </span>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="profile-credential-device__line profile-credential-device__line--muted">
+                                      未记录
+                                    </span>
+                                    <span className="profile-credential-device__line">
+                                      旧凭据没有设备信息
+                                    </span>
+                                  </>
+                                )}
                               </div>
                             </td>
                             <td>{projectLabel(credential.projectId)}</td>
@@ -687,6 +778,7 @@ export function Profile() {
                 <div className="profile-credentials-cards" data-testid="credentials-cards">
                   {filteredCredentials.map((credential) => {
                     const status = credentialStatus(credential, now);
+                    const device = credentialDeviceSummary(credential.device);
                     return (
                       <article
                         className="profile-credential-card"
@@ -704,18 +796,53 @@ export function Profile() {
                         <p className="profile-credential-meta">
                           {projectLabel(credential.projectId)} · {roleLabel(credential.roleId)}
                         </p>
-                        <p className="profile-credential-id" title={credential.id}>
-                          凭据 ID {shortCredentialId(credential.id)}
+                        {device ? (
+                          <>
+                            <p className="profile-credential-meta">设备：{device.primary}</p>
+                            {device.secondary && (
+                              <p className="profile-credential-meta">{device.secondary}</p>
+                            )}
+                            {device.missingHostname && (
+                              <p className="profile-credential-meta">旧凭据未上报主机名</p>
+                            )}
+                            {device.authorizedAt && (
+                              <p className="profile-credential-meta">
+                                授权：{formatCredentialTime(device.authorizedAt)}
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <p className="profile-credential-meta">设备：未记录</p>
+                            <p className="profile-credential-meta">旧凭据没有设备信息</p>
+                          </>
+                        )}
+                        <p className="profile-credential-meta">
+                          责任人：{user?.email ?? '当前会话账号'}
+                        </p>
+                        <p className="profile-credential-meta">
+                          下一步：
+                          {status === 'valid' || status === 'expiring'
+                            ? '如不再使用可吊销凭据'
+                            : status === 'unknown'
+                              ? '状态待确认，暂无法操作'
+                              : '无需操作，凭据已失效'}
                         </p>
                         <p className="profile-credential-meta">
                           到期：{formatCredentialTime(credential.expiresAt)}
                         </p>
-                        {credential.revokedAt && (
-                          <p className="profile-credential-meta">
-                            吊销于：{formatCredentialTime(credential.revokedAt)}
+                        <details className="profile-credential-card__details">
+                          <summary>查看凭据详情</summary>
+                          <p className="profile-credential-id" title={credential.id}>
+                            凭据 ID {shortCredentialId(credential.id)}
                           </p>
-                        )}
-                        <ScopeDetails scopes={credential.scopes} />
+                          {credential.revokedAt && (
+                            <p className="profile-credential-meta">
+                              吊销于：{formatCredentialTime(credential.revokedAt)}
+                            </p>
+                          )}
+                          <ScopeDetails scopes={credential.scopes} />
+                        </details>
                         <div className="profile-credential-actions">
                           {revokeControl(credential)}
                         </div>

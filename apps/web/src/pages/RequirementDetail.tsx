@@ -18,6 +18,7 @@ import {
   type WorkflowDefinitionView,
 } from '../api/resources';
 import { ConfirmDialog, Modal } from '../components/Modal';
+import { FullValueDisclosure } from '../components/FullValueDisclosure';
 import {
   RequirementPipeline,
   type RequirementPipelinePhase,
@@ -38,7 +39,6 @@ import {
 } from '../lib/labels';
 import {
   resolveTaskDisplayState,
-  type DependencyInfoIssue,
   type TaskDisplayState,
   type TaskStateSignals,
 } from '../lib/taskDisplayState';
@@ -333,7 +333,9 @@ export function RequirementDetail({
   const routeKey = requirementIdProp ?? params.requirementId ?? '';
   const routePrefix = routeKey.includes('-') ? routeKey.split('-')[0] : '';
   const routeProject = projects.find((project) => project.key === routePrefix);
-  const effectiveProjectId = routeProject?.id ?? selectedProjectId;
+  const effectiveProjectId = searchParams.has('projectId')
+    ? selectedProjectId
+    : (routeProject?.id ?? selectedProjectId);
 
   const [detail, setDetail] = useState<RequirementDetailView | null>(null);
   const [prdDocs, setPrdDocs] = useState<DocumentDetail[]>([]);
@@ -396,8 +398,9 @@ export function RequirementDetail({
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (routeProject && routeProject.id !== selectedProjectId) setProjectId(routeProject.id);
-  }, [routeProject, selectedProjectId, setProjectId]);
+    if (!searchParams.has('projectId') && routeProject && routeProject.id !== selectedProjectId)
+      setProjectId(routeProject.id);
+  }, [routeProject, selectedProjectId, setProjectId, searchParams]);
 
   // 切换需求或项目时清理旧上下文与失败状态，避免把上一条需求的角色/定义当成当前事实。
   useEffect(() => {
@@ -532,7 +535,6 @@ export function RequirementDetail({
       initRequestRef.current += 1;
     };
     // 只在目标需求/项目或流程实例数量变化时重新读取初始化上下文。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail?.requirement.id, detail?.tasks.length, effectiveProjectId]);
 
   // 三个上下文全部 ready 且成员身份已确认，才允许打开/保留初始化表单。
@@ -854,6 +856,7 @@ export function RequirementDetail({
           artifactCount: task.artifactCount,
           currentClaimId: task.currentClaimId,
           reviewStatus: task.review?.status ?? null,
+          ownerLabel: task.responsibleUser?.email ?? null,
           dependsOnStepKeys: dependencySignals.dependsOnStepKeys ?? null,
           doneStepKeys: dependencySignals.doneStepKeys ? [...dependencySignals.doneStepKeys] : null,
           displayState: taskStates[task.id],
@@ -969,18 +972,35 @@ export function RequirementDetail({
       tasksByPhase.set('discovery', [...(tasksByPhase.get('discovery') ?? []), ...leftovers]);
     }
 
-    return phaseDefs.map((def) => ({
-      id: def.id,
-      label: def.label,
-      shortLabel: def.shortLabel,
-      role: def.role,
-      roleLabel: labelFor(
-        { product: '产品', ui: '设计', engineering: '前端 / 后端', qa: '测试', ops: '运维' },
-        def.role,
-      ),
-      tasks: tasksByPhase.get(def.id) ?? [],
-      nextAction: def.nextAction,
-    }));
+    return phaseDefs.map((def) => {
+      const phaseTasks = tasksByPhase.get(def.id) ?? [];
+      const liveTask = phaseTasks.find((task) =>
+        ['IN_PROGRESS', 'BLOCKED_OR_FROZEN', 'CLAIMABLE'].includes(task.displayState?.kind ?? ''),
+      );
+      const currentTask =
+        liveTask ?? phaseTasks.find((task) => task.ownerLabel?.trim()) ?? phaseTasks[0];
+      // When a live task is known but has no responsibleUser, preserve that fact instead of
+      // borrowing the owner of a completed task in the same phase.
+      const ownerLabel = liveTask
+        ? (liveTask.ownerLabel?.trim() ?? null)
+        : (currentTask?.ownerLabel?.trim() ?? null);
+      return {
+        id: def.id,
+        label: def.label,
+        shortLabel: def.shortLabel,
+        role: def.role,
+        roleLabel: labelFor(
+          { product: '产品', ui: '设计', engineering: '前端 / 后端', qa: '测试', ops: '运维' },
+          def.role,
+        ),
+        ownerLabel,
+        tasks: phaseTasks,
+        nextAction: def.nextAction,
+        // 这是可定位到真实任务的入口；不把静态阶段文案冒充为已执行动作。
+        actionLabel: currentTask ? '定位当前任务' : null,
+        onAction: currentTask ? () => focusTask(currentTask.id) : undefined,
+      };
+    });
   }, [pipelineTasks]);
 
   const trace = useMemo(() => {
@@ -1070,7 +1090,10 @@ export function RequirementDetail({
       return {
         title: `有 ${claimableTasks.length} 个任务可立即领取`,
         text: '判定依据：已发布流程的直接前置步骤均已完成。任务由本地 Agent 认领与交付；这里只读。',
-        action: { label: '查看看板', run: () => navigate('/board') },
+        action: {
+          label: '定位可领取任务',
+          run: () => focusTask(claimableTasks[0].id),
+        },
       };
     if (unknownStateTasks.length > 0)
       return {
@@ -1185,7 +1208,8 @@ export function RequirementDetail({
 
   if ((loading || projectsLoading) && !detail) {
     return (
-      <section>
+      <section role="status" aria-live="polite" aria-busy="true">
+        <span className="visually-hidden">正在读取需求详情…</span>
         <div className="req-head req-head-skeleton">
           <div className="skeleton-line" />
           <div className="skeleton-line short" />
@@ -1458,6 +1482,9 @@ export function RequirementDetail({
         tasks={pipelineTasks}
         collapsible
         nextAction={next?.title}
+        actionLabel={next?.action?.label}
+        onAction={next?.action?.run}
+        actionUnavailableReason={next?.action ? null : (next?.text ?? null)}
         onPhaseClick={(phase) => {
           changeTab('tasks');
           const firstTaskRole = phase.tasks?.[0]?.role;
@@ -1557,7 +1584,13 @@ export function RequirementDetail({
       </ol>
 
       <div className="req-layout">
-        <div className="req-main" role="tabpanel" id="req-tabpanel" aria-labelledby={`req-tab-${tab}`} tabIndex={0}>
+        <div
+          className="req-main"
+          role="tabpanel"
+          id="req-tabpanel"
+          aria-labelledby={`req-tab-${tab}`}
+          tabIndex={0}
+        >
           {tab === 'overview' && (
             <div className="detail-card">
               <h3>需求描述</h3>
@@ -1762,11 +1795,22 @@ export function RequirementDetail({
                                 <span className="status-tag">{artifact.mediaType}</span>
                                 <span className="task-row-meta">{artifact.byteLength} B</span>
                               </div>
-                              <div className="task-row-meta cell-mono" title={artifact.sha256}>
-                                sha256 {shortDigest(artifact.sha256)}
-                                {artifact.commitSha
-                                  ? ` · commit ${artifact.commitSha.slice(0, 8)}`
-                                  : ''}
+                              <div className="task-row-meta cell-mono">
+                                <FullValueDisclosure
+                                  label="sha256"
+                                  value={artifact.sha256}
+                                  preview={shortDigest(artifact.sha256)}
+                                />
+                                {artifact.commitSha && (
+                                  <>
+                                    {' · '}
+                                    <FullValueDisclosure
+                                      label="commit"
+                                      value={artifact.commitSha}
+                                      preview={artifact.commitSha.slice(0, 8)}
+                                    />
+                                  </>
+                                )}
                               </div>
                               {artifact.summary && (
                                 <div className="task-row-meta">{artifact.summary}</div>
@@ -1981,7 +2025,12 @@ export function RequirementDetail({
                           </span>
                         </div>
                         <div className="task-row-meta">
-                          修订 {item.revisions.length} 个 · 文档 {shortDigest(item.document.id)}
+                          修订 {item.revisions.length} 个 ·{' '}
+                          <FullValueDisclosure
+                            label="文档"
+                            value={item.document.id}
+                            preview={shortDigest(item.document.id)}
+                          />
                         </div>
                         <div className="revision-list">
                           {item.revisions.slice(0, 5).map((revision) => (
@@ -2125,6 +2174,7 @@ export function RequirementDetail({
         description={`${requirement.code} · v${requirement.version}`}
         variant="drawer"
         size="md"
+        busy={editBusy}
         onClose={requestCloseEdit}
         footer={
           <>

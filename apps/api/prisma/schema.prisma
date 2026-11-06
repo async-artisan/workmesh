@@ -973,6 +973,12 @@ model AuditEvent {
 model CliAuthorizationRequest {
   id                   String @id @default(uuid()) @db.Uuid
   clientName           String @db.VarChar(80)
+  /// 发起授权的机器元数据：CLI 通过 x-workmesh-* 头部传入；老客户端为空。
+  /// 仅用于人类在用户中心辨认凭据属于哪台设备，不参与任何授权判断。
+  deviceName           String? @db.VarChar(80)
+  devicePlatform       String? @db.VarChar(60)
+  clientVersion        String? @db.VarChar(30)
+  clientIp             String? @db.VarChar(64)
   deviceCodeHash       String @unique @db.Char(64)
   userCodeHash         String @unique @db.Char(64)
   codeChallenge        String @db.Char(43)
@@ -1292,8 +1298,10 @@ model ProjectWorkspaceDefinitionRevisionRepository {
   revision      ProjectWorkspaceDefinitionRevision @relation(fields: [revisionId], references: [id], onDelete: Restrict)
   repository    ProjectRepository                  @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
 
-  @@unique([revisionId, logicalKey])
-  @@unique([revisionId, repositoryId])
+  // PostgreSQL truncated the names in migration 0018 to its 63-byte identifier limit.
+  // Map to those existing names so drift checks do not propose renaming valid indexes.
+  @@unique([revisionId, logicalKey], map: "ProjectWorkspaceDefinitionRevisionRepository_revisionId_logical")
+  @@unique([revisionId, repositoryId], map: "ProjectWorkspaceDefinitionRevisionRepository_revisionId_reposit")
   @@index([repositoryId])
   @@schema("workmesh_v1")
 }

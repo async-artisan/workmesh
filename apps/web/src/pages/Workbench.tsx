@@ -18,9 +18,12 @@ import { ErrorState } from '../components/ErrorState';
 import { Modal } from '../components/Modal';
 import { ReviewDecisionDrawer } from '../components/ReviewDecisionDrawer';
 import { StaleDataBanner, formatUpdatedAtClock } from '../components/StaleDataBanner';
+import { InlineLoading } from '../components/Skeleton';
 import { useProjectContext } from '../hooks/useProjectContext';
-import { ACTION_LABELS, STEP_LABELS, labelFor } from '../lib/labels';
+import { ACTION_LABELS, STEP_LABELS, REVIEW_STATUS_LABELS, labelFor } from '../lib/labels';
 import { getWorkbenchSnapshot } from '../lib/workbenchSnapshot';
+import { useProjectStore } from '../store/project';
+import '../styles/workbench-actions.css';
 
 type Tab = 'all' | 'signOffs' | 'approvals' | 'changes' | 'ready';
 type SortKey = 'oldest' | 'newest' | 'project' | 'type';
@@ -97,7 +100,8 @@ function itemRequirementPath(item: WorkbenchItem): string | null {
   const code = item.data.requirement?.code;
   if (!code) return null;
   const tab = item.type === 'review' ? 'tasks' : item.type === 'change' ? 'changes' : 'overview';
-  return `/requirements/${encodeURIComponent(code)}?tab=${tab}`;
+  const task = item.type === 'ready' ? `&taskId=${encodeURIComponent(item.data.taskId)}` : '';
+  return `/requirements/${encodeURIComponent(code)}?tab=${tab}${task}&projectId=${encodeURIComponent(item.data.projectId)}`;
 }
 
 function itemRank(item: WorkbenchItem): number {
@@ -134,10 +138,25 @@ function batchStatusLabel(status: BatchItemStatus): string {
  * 只做只读聚合与导航；签字、确认变更仍进入各自页面并走服务端票据。
  */
 export function Workbench() {
+  const [params, setParams] = useSearchParams();
+  const scope = params.get('projectId') ?? params.get('project') ?? '';
+  const setScope = (id: string) => {
+    if (id) useProjectStore.getState().setProjectId(id);
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.delete('project');
+      if (id) next.set('projectId', id);
+      else next.delete('projectId');
+      return next;
+    });
+  };
+  return <WorkbenchScope key={scope} scope={scope} setScope={setScope} />;
+}
+
+function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: string) => void }) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const { projects } = useProjectContext();
-  const [scope, setScope] = useState(params.get('project') ?? '');
   const [snapshot, setSnapshot] = useState<WorkbenchSnapshot | null>(null);
   const [dataState, setDataState] = useState<WorkbenchDataState>('loading');
   const [error, setError] = useState('');
@@ -148,6 +167,7 @@ export function Workbench() {
   );
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState(() => {
+    if (scope) return '';
     try {
       return localStorage.getItem(ROLE_PREF_KEY) ?? '';
     } catch {
@@ -176,6 +196,15 @@ export function Workbench() {
   const snapshotRef = useRef<WorkbenchSnapshot | null>(null);
   const selectionRef = useRef<Set<string>>(new Set());
   const filterKeyRef = useRef({ tab, query, roleFilter, scope });
+  const loadRequestRef = useRef(0);
+  const activeRef = useRef(true);
+  useEffect(() => {
+    activeRef.current = true;
+    return () => {
+      activeRef.current = false;
+      loadRequestRef.current += 1;
+    };
+  }, []);
 
   function updateSelection(next: Set<string>) {
     selectionRef.current = next;
@@ -187,11 +216,13 @@ export function Workbench() {
    * 失败时不清空旧数据：已有快照进入 stale，只有首次失败才是页面级 error。
    */
   async function load(options: { force?: boolean } = { force: true }): Promise<boolean> {
+    const request = ++loadRequestRef.current;
     setLoading(true);
     try {
       const value = await getWorkbenchSnapshot(scope || null, {
         force: options.force ?? true,
       });
+      if (!activeRef.current || request !== loadRequestRef.current) return false;
       snapshotRef.current = value;
       setSnapshot(value);
       setUpdatedAt(new Date());
@@ -206,11 +237,12 @@ export function Workbench() {
       }
       return true;
     } catch (caught) {
+      if (!activeRef.current || request !== loadRequestRef.current) return false;
       setError(formatApiError(caught));
       setDataState(snapshotRef.current ? 'stale' : 'error');
       return false;
     } finally {
-      setLoading(false);
+      if (activeRef.current && request === loadRequestRef.current) setLoading(false);
     }
   }
 
@@ -223,7 +255,6 @@ export function Workbench() {
     // 首次进入允许复用顶部铃铛刚拉取的快照；用户后续刷新/操作会 force 拉新数据。
     void load({ force: false });
     // load 依赖当前 scope；scope 变化本身就是触发条件。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope]);
 
   // tab / 搜索词 / 角色筛选 / 项目范围变化都会让旧选择不再对应同一批可见数据。
@@ -244,7 +275,6 @@ export function Workbench() {
     }
     setSelectedReviews(new Set());
     // updateSelection / setNotice 是稳定语义的状态写入，不需要作为依赖。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, query, roleFilter, scope]);
 
   useEffect(() => {
@@ -297,6 +327,7 @@ export function Workbench() {
     const publish = () => setBatchResults([...carried, ...results]);
     publish();
     for (let index = 0; index < targets.length; index += 1) {
+      if (!activeRef.current) return;
       const target = targets[index];
       setBatchProgress({ current: index + 1, total: targets.length });
       try {
@@ -405,24 +436,31 @@ export function Workbench() {
     }
   }
 
-  const signOffReviews = useMemo(
-    () => (snapshot?.reviews ?? []).filter((review) => isSignOffKind(review.kind)),
-    [snapshot],
+  const matchesFilters = (item: WorkbenchItem) =>
+    (!query.trim() || itemSearchText(item).includes(query.trim().toLowerCase())) &&
+    (!roleFilter || itemRoleKeys(item).includes(roleFilter));
+  const signOffReviews = (snapshot?.reviews ?? []).filter(
+    (review) => isSignOffKind(review.kind) && matchesFilters({ type: 'review', data: review }),
   );
-  const approvalReviews = useMemo(
-    () => (snapshot?.reviews ?? []).filter((review) => !isSignOffKind(review.kind)),
-    [snapshot],
+  const approvalReviews = (snapshot?.reviews ?? []).filter(
+    (review) => !isSignOffKind(review.kind) && matchesFilters({ type: 'review', data: review }),
+  );
+  const filteredChanges = (snapshot?.changes ?? []).filter((data) =>
+    matchesFilters({ type: 'change', data }),
+  );
+  const filteredReady = (snapshot?.readyTasks ?? []).filter((data) =>
+    matchesFilters({ type: 'ready', data }),
   );
   const counts = {
     signOffs: signOffReviews.length,
     approvals: approvalReviews.length,
-    changes: snapshot?.counts.changes ?? 0,
-    readyTasks: snapshot?.counts.readyTasks ?? 0,
+    changes: filteredChanges.length,
+    readyTasks: filteredReady.length,
     total:
       signOffReviews.length +
       approvalReviews.length +
-      (snapshot?.counts.changes ?? 0) +
-      (snapshot?.counts.readyTasks ?? 0),
+      filteredChanges.length +
+      filteredReady.length,
   };
 
   const roleOptions = useMemo(() => {
@@ -460,6 +498,8 @@ export function Workbench() {
 
     const ageOf = (item: WorkbenchItem) => item.data.ageSeconds ?? -1;
     return [...filtered].sort((a, b) => {
+      if (a.data.ageSeconds === null) return b.data.ageSeconds === null ? 0 : 1;
+      if (b.data.ageSeconds === null) return -1;
       if (sort === 'newest') return ageOf(a) - ageOf(b);
       if (sort === 'type') return itemRank(a) - itemRank(b) || ageOf(b) - ageOf(a);
       // "按项目"的组顺序在 groups 里排；组内仍按最久未处理。
@@ -487,9 +527,62 @@ export function Workbench() {
   }, [items, sort]);
 
   /** 有任一筛选条件（搜索 / 角色 / 项目范围 / 非“全部”标签）时，空列表是“没有匹配项”。 */
-  const hasActiveFilter = query.trim() !== '' || roleFilter !== '' || scope !== '' || tab !== 'all';
+  const hasActiveFilter = query.trim() !== '' || roleFilter !== '' || tab !== 'all';
   /** 逾期审批置顶：到期未决定，跨项目按 dueAt 升序；旧响应缺字段时按空数组处理。 */
-  const overdueApprovals = snapshot?.overdueApprovals ?? [];
+  const overdueApprovals = [...(snapshot?.overdueApprovals ?? [])].sort(
+    (a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt),
+  );
+  const oldest = <T extends { ageSeconds: number | null }>(values: T[]): T | undefined =>
+    [...values].sort((a, b) => (b.ageSeconds ?? -1) - (a.ageSeconds ?? -1))[0];
+  const actions: Array<{
+    key: Tab;
+    label: string;
+    count: number;
+    age: number | null;
+    open: () => void;
+  }> = [
+    ...(
+      [
+        { key: 'signOffs', label: '待签字', values: signOffReviews },
+        { key: 'approvals', label: '待审批', values: approvalReviews },
+      ] as const
+    ).map(({ key, label, values }) => {
+      const item = oldest([...values]);
+      return {
+        key,
+        label,
+        count: values.length,
+        age: item?.ageSeconds ?? null,
+        open: () => {
+          if (item) navigate(`/reviews/${encodeURIComponent(item.reviewId)}`);
+        },
+      };
+    }),
+    {
+      key: 'changes',
+      label: '待确认变更',
+      count: filteredChanges.length,
+      age: oldest(filteredChanges)?.ageSeconds ?? null,
+      open: () => {
+        const item = oldest(filteredChanges);
+        if (item) openChange(item);
+      },
+    },
+    {
+      key: 'ready',
+      label: '可开工任务',
+      count: filteredReady.length,
+      age: oldest(filteredReady)?.ageSeconds ?? null,
+      open: () => {
+        const item = oldest(filteredReady);
+        if (item)
+          navigate(
+            itemRequirementPath({ type: 'ready', data: item }) ??
+              `/board?projectId=${encodeURIComponent(item.projectId)}`,
+          );
+      },
+    },
+  ];
 
   /** 批量按钮与提交只认“当前快照中仍存在且被选中”的变更。 */
   const batchTargets = useMemo<BatchTarget[]>(() => {
@@ -559,7 +652,7 @@ export function Workbench() {
         className="wb-row is-signOff"
         key={review.reviewId}
         onClick={(event) => {
-          if ((event.target as HTMLElement).closest('button, input, a')) return;
+          if ((event.target as HTMLElement).closest('button, input, a, summary')) return;
           if (path) navigate(path);
         }}
       >
@@ -588,13 +681,23 @@ export function Workbench() {
             {labelFor(STEP_LABELS, review.subjectLabel)} · {review.role?.title ?? '未指定角色'} ·
             等待 {ageLabel(review.ageSeconds)}
           </div>
-          <div className="wb-row-context">
-            证据 {review.evidence.artifactCount} 件{kinds.length ? `（${kinds.join(' / ')}）` : ''}
-            {review.evidence.hasPr ? ' · 含 PR' : ''}
-            {codeRefs ? ` · 代码引用 ${codeRefs}` : ''}
-            {checks.total ? ` · 检查 ${checks.total - checks.failed}/${checks.total}` : ''}
-            {checks.failed ? `（${checks.failed} 失败）` : ''} · v{review.version}
-          </div>
+          <p className="wb-card-owner">
+            状态：{labelFor(REVIEW_STATUS_LABELS, review.status)} · 当前负责人：服务端未提供姓名
+          </p>
+          <p className="wb-card-owner">
+            下一步：{decidableSlot ? '打开评审并核验证据' : '查看评审与授权状态'}
+          </p>
+          <details className="wb-card-details">
+            <summary>证据与版本</summary>
+            <div className="wb-row-context">
+              证据 {review.evidence.artifactCount} 件
+              {kinds.length ? `（${kinds.join(' / ')}）` : ''}
+              {review.evidence.hasPr ? ' · 含 PR' : ''}
+              {codeRefs ? ` · 代码引用 ${codeRefs}` : ''}
+              {checks.total ? ` · 检查 ${checks.total - checks.failed}/${checks.total}` : ''}
+              {checks.failed ? `（${checks.failed} 失败）` : ''} · v{review.version}
+            </div>
+          </details>
         </div>
         <div className="wb-row-actions">
           <button
@@ -624,7 +727,7 @@ export function Workbench() {
         className="wb-row is-change"
         key={change.recipientId}
         onClick={(event) => {
-          if ((event.target as HTMLElement).closest('button, input, a')) return;
+          if ((event.target as HTMLElement).closest('button, input, a, summary')) return;
           if (path) navigate(path);
         }}
       >
@@ -643,7 +746,14 @@ export function Workbench() {
           <div className="wb-row-detail">
             变更字段：{fields} · 待确认：{roles} · 等待 {ageLabel(change.ageSeconds)}
           </div>
-          <div className="wb-row-context">变更版本 v{change.version}</div>
+          <p className="wb-card-owner">状态：待确认 · 当前负责人：服务端未提供姓名</p>
+          <p className="wb-card-owner">下一步：查看变更并确认处理结果</p>
+          <details className="wb-card-details">
+            <summary>变更版本与时间</summary>
+            <div className="wb-row-context">
+              变更版本 v{change.version} · {change.createdAt}
+            </div>
+          </details>
         </div>
         <div className="wb-row-actions">
           <button
@@ -668,7 +778,7 @@ export function Workbench() {
         className="wb-row is-ready"
         key={task.taskId}
         onClick={(event) => {
-          if ((event.target as HTMLElement).closest('button, input, a')) return;
+          if ((event.target as HTMLElement).closest('button, input, a, summary')) return;
           if (path) navigate(path);
         }}
       >
@@ -681,6 +791,8 @@ export function Workbench() {
             {task.role?.title ?? '未指定角色'} · {task.stepKey} · 可开工 · 任务{' '}
             {task.taskId.slice(0, 8)}
           </div>
+          <p className="wb-card-owner">状态：可开工 · 当前负责人：服务端未提供负责人</p>
+          <p className="wb-card-owner">下一步：打开任务确认条件，由本地 Agent 领取</p>
         </div>
         <div className="wb-row-actions">
           <button
@@ -688,7 +800,7 @@ export function Workbench() {
             onClick={(event) => {
               event.stopPropagation();
               if (path) navigate(path);
-              else navigate('/board');
+              else navigate(`/board?projectId=${encodeURIComponent(task.projectId)}`);
             }}
           >
             查看上下文
@@ -742,13 +854,9 @@ export function Workbench() {
           : `已同步${dataClock ? ` · ${dataClock}` : ''}`;
   const scopeLabel = scope ? (scopeProjectName ?? '所选项目') : '全部项目';
   const refreshLabel = loading ? (snapshot ? '刷新中…' : '加载中…') : '刷新';
-
-  const spectrum = [
-    { key: 'signOffs', label: '签字', value: counts.signOffs, className: 'is-sign' },
-    { key: 'approvals', label: '审批', value: counts.approvals, className: 'is-approval' },
-    { key: 'changes', label: '变更', value: counts.changes, className: 'is-change' },
-    { key: 'ready', label: '可开工', value: counts.readyTasks, className: 'is-ready' },
-  ];
+  /** 首屏没有任何快照时：数字一律显示占位，不能把「0 件待办」当成真实读数。 */
+  const initialLoading = dataState === 'loading' && !snapshot;
+  const countText = (value: number) => (!snapshot ? '—' : value);
 
   return (
     <section className="wb-page">
@@ -766,12 +874,14 @@ export function Workbench() {
             <p className="page-sub">
               只回答一件事：现在有什么在等我。签字与确认仍由服务端校验版本与权限。
             </p>
+            <p className="page-sub">范围：{scopeLabel}</p>
           </div>
           <div className="page-actions">
             <select
               className="select"
               aria-label="项目范围"
               value={scope}
+              disabled={batchBusy || changeBusy}
               onChange={(event) => setScope(event.target.value)}
             >
               <option value="">全部项目</option>
@@ -787,33 +897,59 @@ export function Workbench() {
             </button>
           </div>
         </div>
-        <div className="command-hero">
+        <div className="command-hero wb-action-summary">
           <div className="hero-total">
             <span className="hero-label">待处理事项</span>
-            <strong>{String(counts.total).padStart(2, '0')}</strong>
+            <strong>{!snapshot ? '--' : String(counts.total).padStart(2, '0')}</strong>
             <span className="hero-unit">件待办 · 当前范围</span>
           </div>
-          <div className="hero-spectrum">
-            <div className="spectrum-bar" aria-label="待办类型构成">
-              {spectrum.map((item) => (
-                <span
-                  key={item.key}
-                  className={`spectrum-seg ${item.className}`}
-                  style={{ flexGrow: item.value }}
-                  title={`${item.label} ${item.value}`}
-                />
-              ))}
-            </div>
-            <div className="spectrum-legend">
-              {spectrum.map((item) => (
-                <span key={item.key} className={`legend-item ${item.className}`}>
-                  <i />
-                  {item.label}
-                  <strong>{item.value}</strong>
-                </span>
-              ))}
-            </div>
-          </div>
+          <section className="wb-priority-actions" aria-label="优先行动">
+            <h3>现在可以处理</h3>
+            {dataState === 'stale' && <p role="status">行动项可能已过期，请刷新后确认。</p>}
+            {dataState === 'error' ? (
+              <p>无法读取行动项，请重试加载工作台数据。</p>
+            ) : initialLoading ? (
+              <p>正在读取行动项…</p>
+            ) : (
+              <div className="wb-action-grid">
+                {actions.map((action) => (
+                  <article className="wb-action-card" key={action.key}>
+                    <strong>
+                      {action.label} · {action.count}
+                    </strong>
+                    <span>
+                      {!action.count
+                        ? '当前没有此类事项'
+                        : action.age === null
+                          ? '服务端未提供等待时间'
+                          : `最早已等待 ${ageLabel(action.age)}`}
+                    </span>
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={!action.count}
+                      onClick={action.open}
+                    >
+                      打开{action.label}
+                    </button>
+                  </article>
+                ))}
+              </div>
+            )}
+            {!!overdueApprovals.length && (
+              <button
+                className="primary"
+                onClick={() =>
+                  navigate(`/reviews/${encodeURIComponent(overdueApprovals[0].reviewId)}`)
+                }
+              >
+                处理最早到期的逾期审批
+              </button>
+            )}
+            <p className="page-sub">
+              行动项按当前搜索和角色筛选统计；等待时间来自服务端，未提供业务优先级。
+            </p>
+          </section>
         </div>
       </header>
 
@@ -942,9 +1078,7 @@ export function Workbench() {
                           {labelFor(STEP_LABELS, item.slotKey)}
                         </span>
                         <span className="wb-type">{item.kind}</span>
-                        <span className="wb-overdue-age">
-                          逾期 {ageLabel(item.overdueSeconds)}
-                        </span>
+                        <span className="wb-overdue-age">逾期 {ageLabel(item.overdueSeconds)}</span>
                         {item.escalated && <span className="status-tag">已升级</span>}
                       </button>
                     ))}
@@ -963,7 +1097,7 @@ export function Workbench() {
                       background: `conic-gradient(#22d3ee ${share(counts.signOffs)}%, #e2e8f0 0)`,
                     }}
                   />
-                  <span className="wb-stat-value">{counts.signOffs}</span>
+                  <span className="wb-stat-value">{countText(counts.signOffs)}</span>
                   <span className="wb-stat-label">待签字</span>
                   <span className="wb-stat-hint">任务验收等你落锤</span>
                 </button>
@@ -978,7 +1112,7 @@ export function Workbench() {
                       background: `conic-gradient(#3b82f6 ${share(counts.approvals)}%, #e2e8f0 0)`,
                     }}
                   />
-                  <span className="wb-stat-value">{counts.approvals}</span>
+                  <span className="wb-stat-value">{countText(counts.approvals)}</span>
                   <span className="wb-stat-label">待审批</span>
                   <span className="wb-stat-hint">PRD / 知识发布</span>
                 </button>
@@ -993,7 +1127,7 @@ export function Workbench() {
                       background: `conic-gradient(#fbbf24 ${share(counts.changes)}%, #e2e8f0 0)`,
                     }}
                   />
-                  <span className="wb-stat-value">{counts.changes}</span>
+                  <span className="wb-stat-value">{countText(counts.changes)}</span>
                   <span className="wb-stat-label">待确认变更</span>
                   <span className="wb-stat-hint">角色确认已处理</span>
                 </button>
@@ -1008,7 +1142,7 @@ export function Workbench() {
                       background: `conic-gradient(#34d399 ${share(counts.readyTasks)}%, #e2e8f0 0)`,
                     }}
                   />
-                  <span className="wb-stat-value">{counts.readyTasks}</span>
+                  <span className="wb-stat-value">{countText(counts.readyTasks)}</span>
                   <span className="wb-stat-label">可开工</span>
                   <span className="wb-stat-hint">依赖已满足</span>
                 </button>
@@ -1038,15 +1172,17 @@ export function Workbench() {
                       >
                         {TAB_LABELS[key]}
                         <span>
-                          {key === 'all'
-                            ? counts.total
-                            : key === 'signOffs'
-                              ? counts.signOffs
-                              : key === 'approvals'
-                                ? counts.approvals
-                                : key === 'changes'
-                                  ? counts.changes
-                                  : counts.readyTasks}
+                          {countText(
+                            key === 'all'
+                              ? counts.total
+                              : key === 'signOffs'
+                                ? counts.signOffs
+                                : key === 'approvals'
+                                  ? counts.approvals
+                                  : key === 'changes'
+                                    ? counts.changes
+                                    : counts.readyTasks,
+                          )}
                         </span>
                       </button>
                     ),
@@ -1060,7 +1196,8 @@ export function Workbench() {
               </div>
 
               {loading && !snapshot && (
-                <div className="wb-list">
+                <div className="wb-list" role="status" aria-live="polite" aria-busy="true">
+                  <span className="visually-hidden">正在加载待办列表…</span>
                   {[0, 1, 2].map((index) => (
                     <div className="wb-row skeleton-row" key={index}>
                       <div className="skeleton-line" />
@@ -1157,7 +1294,7 @@ export function Workbench() {
                   </div>
                   <div>
                     <dt>项目数</dt>
-                    <dd>{projects.length}</dd>
+                    <dd>{initialLoading ? '—' : projects.length}</dd>
                   </div>
                   <div>
                     <dt>更新时间</dt>
@@ -1172,7 +1309,11 @@ export function Workbench() {
                   <span className="rail-code">{visibleActivity.length}</span>
                 </div>
                 {visibleActivity.length === 0 ? (
-                  <p className="detail-empty">还没有审计事件。</p>
+                  initialLoading ? (
+                    <InlineLoading label="正在加载最近活动…" />
+                  ) : (
+                    <p className="detail-empty">还没有审计事件。</p>
+                  )
                 ) : (
                   <div className="rail-feed">
                     {visibleActivity.slice(0, 6).map((item) => (
@@ -1210,6 +1351,7 @@ export function Workbench() {
             : `将逐一确认 ${batchTargets.length} 条变更；每条仍按自己的版本提交。`
         }
         size="md"
+        busy={batchBusy}
         onClose={() => {
           if (!batchBusy) setBatchOpen(false);
         }}

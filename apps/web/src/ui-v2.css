@@ -480,6 +480,7 @@ body {
 
 .table-card > .field textarea {
   width: 100%;
+  max-width: 1200px;
   min-height: 320px;
   padding: 10px 12px;
   border: 1px solid var(--border-strong);
@@ -505,7 +506,9 @@ body {
   font-weight: 600;
 }
 
-.form-grid .field input,
+/* 只给文本类控件套表单尺寸；checkbox/radio 保持原生尺寸（曾被 100%/38px
+   撑成大方块，授权页 20 个权限勾选框全部中招）。 */
+.form-grid .field input:not([type='checkbox']):not([type='radio']),
 .form-grid .field textarea,
 .form-grid .field select {
   min-height: 38px;
@@ -522,7 +525,7 @@ body {
   line-height: 1.6;
 }
 
-.form-grid .field input:focus,
+.form-grid .field input:not([type='checkbox']):not([type='radio']):focus,
 .form-grid .field textarea:focus,
 .form-grid .field select:focus {
   border-color: var(--accent);
@@ -663,10 +666,13 @@ body {
   background: #fff;
 }
 
-/* ---------- 看板：5 列铺满，不再留空半屏 ---------- */
+/* ---------- 看板：所有状态列排成一行，装不下就横向滚动 ---------- */
+/* 状态是 6 列（Board.tsx:10-17 未开始/进行中/阻塞/暂停/已取消/已交付），
+   原先写死 repeat(5, …) 会把「已交付」挤到第二行、留下 4 个空格。 */
 .board-grid {
-  grid-template-columns: repeat(5, minmax(220px, 1fr));
-  grid-auto-flow: initial;
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(220px, 1fr);
   gap: 14px;
   overflow-x: auto;
   padding: 2px 2px 16px;

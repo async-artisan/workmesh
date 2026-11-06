@@ -22,11 +22,7 @@ export function ReviewDecisionDrawer({
       onClose={onClose}
     >
       {reviewId && (
-        <ReviewDecision
-          reviewId={reviewId}
-          embedded
-          onDecisionCommitted={onDecisionCommitted}
-        />
+        <ReviewDecision reviewId={reviewId} embedded onDecisionCommitted={onDecisionCommitted} />
       )}
     </Modal>
   );

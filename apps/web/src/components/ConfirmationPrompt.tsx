@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   authApi,
   type ActionBindingInput,
@@ -11,6 +11,7 @@ import { ACTION_LABELS, labelFor, targetTypeLabel } from '../lib/labels';
 import { formatDateTime } from '../lib/datetime';
 import { DecisionSummary, type DecisionSummaryData } from './DecisionSummary';
 import { Modal } from './Modal';
+import { InlineLoading } from './Skeleton';
 
 export interface ConfirmationPromptProps {
   open: boolean;
@@ -18,6 +19,8 @@ export interface ConfirmationPromptProps {
   description?: string;
   binding: ActionBindingInput | null;
   submitLabel?: string;
+  /** 票据核验通过、执行最终写操作时的按钮忙文案（默认“提交中…”）。 */
+  busyLabel?: string;
   /**
    * 业务决定摘要。评审决定等场景必须提供：密码输入前先展示用户实际提交的决定，
    * 技术摘要（actionDigest / 目标 / 期望版本）收进“查看技术详情”折叠区。
@@ -44,6 +47,7 @@ export function ConfirmationPrompt({
   description,
   binding,
   submitLabel = '确认执行',
+  busyLabel = '提交中…',
   summary,
   targetLabel,
   impact,
@@ -56,55 +60,63 @@ export function ConfirmationPrompt({
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const sessionRef = useRef(0);
 
   // 绑定对象由页面内联构造，每次渲染都是新引用；用内容键避免预览 effect 反复重跑。
   const bindingKey = binding ? JSON.stringify(binding) : '';
-  useEffect(() => {
-    if (!open || !binding) return;
-    let alive = true;
+  useLayoutEffect(() => {
+    const session = ++sessionRef.current;
     setPreview(null);
     setTicket(null);
     setPassword('');
+    setBusy(false);
     setError('');
-    authApi
-      .preview(binding)
-      .then((value) => {
-        if (alive) setPreview(value);
-      })
-      .catch((caught: unknown) => {
-        if (alive) setError(formatApiError(caught));
-      });
+    if (open && binding) {
+      authApi
+        .preview(binding)
+        .then((value) => {
+          if (sessionRef.current === session) setPreview(value);
+        })
+        .catch((caught: unknown) => {
+          if (sessionRef.current === session) setError(formatApiError(caught));
+        });
+    }
     return () => {
-      alive = false;
+      // Invalidate the old session before any later promise continuation can run.
+      sessionRef.current += 1;
     };
   }, [open, bindingKey]);
 
   async function issueTicket() {
-    if (!preview || !binding) return;
+    if (!open || !preview || !binding) return;
+    const session = sessionRef.current;
     setBusy(true);
     setError('');
     try {
       const issued = await authApi.issueTicket(binding, preview.actionDigest, password);
-      setTicket(issued);
-      setPassword('');
+      if (sessionRef.current === session) {
+        setTicket(issued);
+        setPassword('');
+      }
     } catch (caught) {
-      setError(formatApiError(caught));
+      if (sessionRef.current === session) setError(formatApiError(caught));
     } finally {
-      setBusy(false);
+      if (sessionRef.current === session) setBusy(false);
     }
   }
 
   async function execute() {
-    if (!ticket) return;
+    if (!open || !ticket) return;
+    const session = sessionRef.current;
     setBusy(true);
     setError('');
     try {
       await onConfirmed({ ticketId: ticket.ticketId, ticketSecret: ticket.ticketSecret });
-      onClose();
+      if (sessionRef.current === session) onClose();
     } catch (caught) {
-      setError(formatApiError(caught));
+      if (sessionRef.current === session) setError(formatApiError(caught));
     } finally {
-      setBusy(false);
+      if (sessionRef.current === session) setBusy(false);
     }
   }
 
@@ -114,6 +126,7 @@ export function ConfirmationPrompt({
       title={title}
       description={description}
       size="md"
+      busy={busy}
       onClose={onClose}
       footer={
         ticket ? (
@@ -122,7 +135,7 @@ export function ConfirmationPrompt({
               取消
             </button>
             <button className="primary" onClick={() => void execute()} disabled={busy}>
-              {busy ? '提交中…' : submitLabel}
+              {busy ? busyLabel : submitLabel}
             </button>
           </>
         ) : (
@@ -133,9 +146,9 @@ export function ConfirmationPrompt({
             <button
               className="primary"
               onClick={() => void issueTicket()}
-              disabled={busy || !password}
+              disabled={busy || !preview || !password}
             >
-              {busy ? '校验中…' : '验证密码并签发票据'}
+              {busy ? '校验中…' : preview ? '验证密码并签发票据' : '读取动作预览中…'}
             </button>
           </>
         )
@@ -149,7 +162,13 @@ export function ConfirmationPrompt({
             {error}
           </p>
         )}
-        {!preview && !error && <p className="modal-note">正在读取服务端动作预览…</p>}
+        {!preview &&
+          !error &&
+          (binding ? (
+            <InlineLoading label="正在读取服务端动作预览…" />
+          ) : (
+            <p className="modal-note">确认内容还没有就绪。</p>
+          ))}
         {preview && (
           <>
             {!summary && (

@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ProjectDetail } from './ProjectDetail';
 import { setCsrfToken } from '../api/client';
-import { bodyOf, envelope, methodOf, mockFetch, pathOf } from '../test-utils';
+import { envelope, methodOf, mockFetch, pathOf } from '../test-utils';
 
 const project = {
   id: 'p1',
@@ -35,6 +35,7 @@ function renderDetail(projectId = 'p1') {
     <MemoryRouter initialEntries={[`/projects/${projectId}`]}>
       <Routes>
         <Route path="/projects/:projectId" element={<ProjectDetail />} />
+        <Route path="/workspace" element={<div>接入与工作区</div>} />
         <Route path="/projects" element={<div>项目列表页</div>} />
       </Routes>
     </MemoryRouter>,
@@ -80,8 +81,8 @@ describe('ProjectDetail（项目详情）', () => {
     localStorage.clear();
   });
 
-  it('展示项目信息、流程与成员，并可登记代码仓库', async () => {
-    const mock = mockFetch(handler());
+  it('展示项目信息、流程与成员，并引导到工作区登记仓库', async () => {
+    mockFetch(handler());
     renderDetail();
 
     expect(await screen.findByRole('heading', { name: 'Demo 项目' })).toBeInTheDocument();
@@ -93,27 +94,9 @@ describe('ProjectDetail（项目详情）', () => {
     expect(screen.getByText('产品')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: '代码仓库' }));
+    expect(await screen.findByText('还没有登记代码仓库')).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole('button', { name: '登记仓库' })[0]!);
-    const dialog = await screen.findByRole('dialog', { name: '登记代码仓库' });
-    fireEvent.change(screen.getByLabelText('仓库 owner'), { target: { value: 'yesgoo' } });
-    fireEvent.change(screen.getByLabelText('仓库名'), { target: { value: 'yifanfan' } });
-    fireEvent.change(screen.getByLabelText('默认分支'), { target: { value: 'main' } });
-    fireEvent.click(screen.getByRole('button', { name: '确认登记' }));
-
-    expect(await screen.findByText('yesgoo/yifanfan')).toBeInTheDocument();
-    expect(screen.queryByRole('dialog', { name: '登记代码仓库' })).not.toBeInTheDocument();
-    const createCall = mock.mock.calls.find(
-      ([url, init]) =>
-        pathOf(String(url)) === '/api/v1/projects/p1/repositories' &&
-        methodOf(init ?? {}) === 'POST',
-    );
-    expect(bodyOf(createCall?.[1] ?? {})).toMatchObject({
-      adapter: 'github',
-      externalId: 'yesgoo/yifanfan',
-      owner: 'yesgoo',
-      name: 'yifanfan',
-      defaultBranch: 'main',
-    });
+    expect(await screen.findByText('接入与工作区')).toBeInTheDocument();
   });
 
   it('仓库为空时给出登记引导，登记按钮可用', async () => {

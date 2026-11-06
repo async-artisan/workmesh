@@ -8,10 +8,15 @@ import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { PrismaClient } from '../../node_modules/.prisma/workmesh-v1-client';
 import { evaluateSuiteTestDatabase, verifiedTestDatabase } from '../src/common/v1-test-database';
-import { createWorkmeshClient, runWorkmeshTask } from '../../../scripts/api-agent-poc/workmesh-http.mjs';
+import {
+  createWorkmeshClient,
+  runWorkmeshTask,
+} from '../../../scripts/api-agent-poc/workmesh-http.mjs';
 import { runDemo } from '../../../scripts/api-agent-poc/runtime.mjs';
 
-const suite = evaluateSuiteTestDatabase().ok ? describe.sequential : describe.skip;
+const livePocEnabled = process.env.WORKMESH_POC_LIVE === '1';
+const suite =
+  livePocEnabled && evaluateSuiteTestDatabase().ok ? describe.sequential : describe.skip;
 const origin = 'http://127.0.0.1:5173';
 const hash = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex');
 
@@ -39,7 +44,9 @@ suite('real API-driven Agent task execution with isolated PostgreSQL', () => {
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = module.createNestApplication();
     app.setGlobalPrefix('api');
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+    );
     await app.listen(0, '127.0.0.1');
     browser = request.agent(app.getHttpServer());
   }, 60_000);
@@ -83,7 +90,11 @@ suite('real API-driven Agent task execution with isolated PostgreSQL', () => {
       expect(session.body.data.authenticated).toBe(false);
       const email = `api-agent-${randomUUID()}@http.test`;
       const password = `Api-agent-${randomUUID()}!`;
-      const registered = await humanPost('/auth/register', { email, password, name: 'API Agent POC reviewer' });
+      const registered = await humanPost('/auth/register', {
+        email,
+        password,
+        name: 'API Agent POC reviewer',
+      });
       expect(registered.status).toBe(201);
       userId = registered.body.data.user.id;
       const storedUser = await db.user.findUniqueOrThrow({ where: { id: userId } });
@@ -113,18 +124,22 @@ suite('real API-driven Agent task execution with isolated PostgreSQL', () => {
         roleSlots: [{ key: 'accept', roleKey: 'backend', kind: 'TASK_ACCEPTANCE' }],
         roleExclusions: [],
         stepRemovals: [],
-        steps: [{
-          key: 'implementation',
-          kind: 'IMPLEMENTATION',
-          roleKey: 'backend',
-          deps: [],
-          outputKinds: ['IMPL'],
-          baselinePolicy: 'NONE',
-          gates: [{ mode: 'ALL', reviewerSlots: ['accept'] }],
-        }],
+        steps: [
+          {
+            key: 'implementation',
+            kind: 'IMPLEMENTATION',
+            roleKey: 'backend',
+            deps: [],
+            outputKinds: ['IMPL'],
+            baselinePolicy: 'NONE',
+            gates: [{ mode: 'ALL', reviewerSlots: ['accept'] }],
+          },
+        ],
       };
       const workflowKey = 'api-agent-poc';
-      const definitionRow = await db.workflowDefinition.create({ data: { projectId, workflowKey } });
+      const definitionRow = await db.workflowDefinition.create({
+        data: { projectId, workflowKey },
+      });
       const definitionDigest = hash(JSON.stringify(definition));
       const revision = await db.workflowRevision.create({
         data: {
@@ -210,36 +225,61 @@ suite('real API-driven Agent task execution with isolated PostgreSQL', () => {
       const device = deviceResponse.body.data;
       expect(typeof device.deviceCode).toBe('string');
 
-      const viewed = await humanPost('/auth/cli-authorizations/lookup', { userCode: device.userCode });
+      const viewed = await humanPost('/auth/cli-authorizations/lookup', {
+        userCode: device.userCode,
+      });
       expect(viewed.status).toBe(201);
-      const scopes = ['task:read', 'task:claim', 'task:deliver', 'context:create', 'context:read', 'review:read'];
-      const beforeForbiddenGrant = await db.agentCredential.count({ where: { userId, revokedAt: null } });
-      const forbiddenGrant = await humanPost(`/auth/cli-authorizations/${device.authorizationId}/approve`, {
-        expectedVersion: 1,
-        projectId,
-        roleId,
-        scopes: [...scopes, 'review:approve'],
-        expiresInDays: 1,
+      const scopes = [
+        'task:read',
+        'task:claim',
+        'task:deliver',
+        'context:create',
+        'context:read',
+        'review:read',
+      ];
+      const beforeForbiddenGrant = await db.agentCredential.count({
+        where: { userId, revokedAt: null },
       });
+      const forbiddenGrant = await humanPost(
+        `/auth/cli-authorizations/${device.authorizationId}/approve`,
+        {
+          expectedVersion: 1,
+          projectId,
+          roleId,
+          scopes: [...scopes, 'review:approve'],
+          expiresInDays: 1,
+        },
+      );
       expect(forbiddenGrant.status).toBe(422);
-      expect(await db.agentCredential.count({ where: { userId, revokedAt: null } })).toBe(beforeForbiddenGrant);
+      expect(await db.agentCredential.count({ where: { userId, revokedAt: null } })).toBe(
+        beforeForbiddenGrant,
+      );
 
-      const approved = await humanPost(`/auth/cli-authorizations/${device.authorizationId}/approve`, {
-        expectedVersion: 1,
-        projectId,
-        roleId,
-        scopes,
-        expiresInDays: 1,
-      });
+      const approved = await humanPost(
+        `/auth/cli-authorizations/${device.authorizationId}/approve`,
+        {
+          expectedVersion: 1,
+          projectId,
+          roleId,
+          scopes,
+          expiresInDays: 1,
+        },
+      );
       expect(approved.status).toBe(201);
       expect(approved.body.data.status).toBe('APPROVED');
       const issued = await request(app.getHttpServer())
         .post('/api/v1/auth/cli-authorizations/poll')
-        .send({ authorizationId: device.authorizationId, deviceCode: device.deviceCode, codeVerifier: verifier });
+        .send({
+          authorizationId: device.authorizationId,
+          deviceCode: device.deviceCode,
+          codeVerifier: verifier,
+        });
       expect(issued.status).toBe(201);
       expect(issued.body.data.status).toBe('ISSUED');
       credentialId = issued.body.data.credential.credentialId;
-      const credential = await db.agentCredential.findUniqueOrThrow({ where: { id: credentialId } });
+      const credential = await db.agentCredential.findUniqueOrThrow({
+        where: { id: credentialId },
+      });
       expect(credential.scopes).toEqual(scopes);
       expect(credential.tokenHash).toBe(hash(credentialSecret));
 
@@ -262,12 +302,15 @@ suite('real API-driven Agent task execution with isolated PostgreSQL', () => {
             sha256: resource.sha256,
             text: resource.bodyBytes.toString('utf8'),
           }));
-          modelReceivedSnapshotResource = resourceTexts.some((resource) =>
-            resource.text === roleInstructions.toString('utf8') && resource.sha256 === hash(roleInstructions));
+          modelReceivedSnapshotResource = resourceTexts.some(
+            (resource) =>
+              resource.text === roleInstructions.toString('utf8') &&
+              resource.sha256 === hash(roleInstructions),
+          );
           expect(claimedTask.id).toBe(taskId);
           expect(snapshot.taskId).toBe(taskId);
           expect(modelReceivedSnapshotResource).toBe(true);
-          run = await runDemo({
+          run = (await runDemo({
             runId,
             model,
             taskContext: JSON.stringify({
@@ -276,20 +319,30 @@ suite('real API-driven Agent task execution with isolated PostgreSQL', () => {
               manifestDigest: snapshot.manifestDigest,
               resources: resourceTexts,
             }),
-          }) as unknown as Record<string, unknown>;
+          })) as unknown as Record<string, unknown>;
           return run;
         },
       });
       expect(result.run.ok).toBe(true);
       expect(result.run.runId).toBe(runId);
       expect(result.run.testExitCodes).toEqual([1, 0]);
-      expect(result.snapshot.resources.some((resource: { targetId: string }) => resource.targetId === roleResource.id)).toBe(true);
+      expect(
+        result.snapshot.resources.some(
+          (resource: { targetId: string }) => resource.targetId === roleResource.id,
+        ),
+      ).toBe(true);
       expect(result.review.status).toBe('OPEN');
 
       const artifactSetId = result.delivery.artifactSet.id;
       const persisted = await db.artifact.findFirstOrThrow({
         where: { artifactSetId },
-        select: { bodyBytes: true, sha256: true, byteLength: true, submittedByStampId: true, checks: true },
+        select: {
+          bodyBytes: true,
+          sha256: true,
+          byteLength: true,
+          submittedByStampId: true,
+          checks: true,
+        },
       });
       const artifactBytes = Buffer.from(persisted.bodyBytes!);
       const artifactPayload = JSON.parse(artifactBytes.toString('utf8'));
@@ -298,10 +351,21 @@ suite('real API-driven Agent task execution with isolated PostgreSQL', () => {
       expect(artifactPayload.source.content).toBe(result.run.finalSource);
       expect(artifactPayload.snapshotId).toBe(result.snapshot.id);
       expect(artifactPayload.manifestDigest).toBe(result.snapshot.manifestDigest);
-      expect(persisted.checks).toMatchObject([{ code: 'api-agent-tests', source: 'AGENT_REPORTED', passed: true }]);
-      const stamp = await db.principalStamp.findUniqueOrThrow({ where: { id: persisted.submittedByStampId } });
-      expect(stamp).toMatchObject({ kind: 'AGENT', agentCredentialId: credentialId, projectId, roleId });
-      const claimRow = await db.taskClaim.findUniqueOrThrow({ where: { id: result.claim.claimId } });
+      expect(persisted.checks).toMatchObject([
+        { code: 'api-agent-tests', source: 'AGENT_REPORTED', passed: true },
+      ]);
+      const stamp = await db.principalStamp.findUniqueOrThrow({
+        where: { id: persisted.submittedByStampId },
+      });
+      expect(stamp).toMatchObject({
+        kind: 'AGENT',
+        agentCredentialId: credentialId,
+        projectId,
+        roleId,
+      });
+      const claimRow = await db.taskClaim.findUniqueOrThrow({
+        where: { id: result.claim.claimId },
+      });
       expect(claimRow.credentialId).toBe(credentialId);
 
       const beforeReplay = await db.artifactSet.count({ where: { taskId } });
@@ -314,8 +378,12 @@ suite('real API-driven Agent task execution with isolated PostgreSQL', () => {
       expect(replay.artifactSet.id).toBe(artifactSetId);
       expect(await db.artifactSet.count({ where: { taskId } })).toBe(beforeReplay);
 
-      const review = await db.reviewRequest.findUniqueOrThrow({ where: { id: result.delivery.reviewRequestId } });
-      const slot = await db.approvalSlot.findFirstOrThrow({ where: { reviewRequestId: review.id } });
+      const review = await db.reviewRequest.findUniqueOrThrow({
+        where: { id: result.delivery.reviewRequestId },
+      });
+      const slot = await db.approvalSlot.findFirstOrThrow({
+        where: { reviewRequestId: review.id },
+      });
       const agentDecision = await fetch(
         `http://127.0.0.1:${address.port}/api/v1/review-requests/${review.id}/decisions`,
         {
@@ -333,16 +401,20 @@ suite('real API-driven Agent task execution with isolated PostgreSQL', () => {
           }),
         },
       );
-      const agentDecisionBody = await agentDecision.json() as { error?: { code?: string } };
+      const agentDecisionBody = (await agentDecision.json()) as { error?: { code?: string } };
       expect(agentDecision.status).toBe(403);
       expect(agentDecisionBody.error?.code).toBe('HUMAN_SESSION_REQUIRED');
       const stillOpen = await db.reviewRequest.findUniqueOrThrow({ where: { id: review.id } });
       expect(stillOpen.status).toBe('OPEN');
       expect(await db.reviewDecision.count({ where: { reviewRequestId: review.id } })).toBe(0);
 
-      const inbox = remember(await browser.get(`/api/v1/projects/${projectId}/review-requests?status=OPEN`));
+      const inbox = remember(
+        await browser.get(`/api/v1/projects/${projectId}/review-requests?status=OPEN`),
+      );
       expect(inbox.status).toBe(200);
-      expect(inbox.body.data.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: review.id, status: 'OPEN' })]));
+      expect(inbox.body.data.items).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: review.id, status: 'OPEN' })]),
+      );
 
       const revoked = await browser
         .delete(`/api/v1/auth/credentials/${credentialId}`)
@@ -355,17 +427,63 @@ suite('real API-driven Agent task execution with isolated PostgreSQL', () => {
       expect(oldBearerResponse.status).toBe(401);
 
       evidence.status = 'passed';
-      evidence.model = { provider: 'ollama', name: model, ok: result.run.ok, turns: result.run.turns, toolCalls: result.run.toolCalls, elapsedMs: result.run.elapsedMs, testExitCodes: result.run.testExitCodes };
-      evidence.http = { readyTaskFound: true, claimed: true, snapshotCreated: true, snapshotResourcesHydrated: result.resources.length, modelReceivedSnapshotResource, hostedArtifactPersisted: true, artifactSetId, reviewRequestId: review.id, reviewStatus: stillOpen.status, agentDecisionStatus: agentDecision.status, agentDecisionCode: agentDecisionBody.error?.code, decisionsCreated: 0, deliveryReplay: replay.replayed, artifactSetsAfterReplay: beforeReplay, revokedCredentialRejected: oldBearerResponse.status === 401 };
-      evidence.integrity = { artifactSha256Matches: persisted.sha256 === hash(artifactBytes), artifactByteLengthMatches: persisted.byteLength === artifactBytes.byteLength, agentStampMatchesCredential: stamp.agentCredentialId === credentialId, claimMatchesCredential: claimRow.credentialId === credentialId };
-      evidence.fixture = { setup: 'direct Prisma workflow/task fixture plus real HTTP registration and project creation', roleResourceSha256: hash(roleInstructions), humanDeviceAuthorization: true, forbiddenAgentApprovalScopeRejected: forbiddenGrant.status === 422 };
-      evidence.limits = ['local Ollama model inference', 'synthetic pure-function code fixture, not repository execution', 'direct Prisma setup for the workflow task fixture', 'HUMAN approval was simulated through a real session in this test; no approval decision was made'];
+      evidence.model = {
+        provider: 'ollama',
+        name: model,
+        ok: result.run.ok,
+        turns: result.run.turns,
+        toolCalls: result.run.toolCalls,
+        elapsedMs: result.run.elapsedMs,
+        testExitCodes: result.run.testExitCodes,
+      };
+      evidence.http = {
+        readyTaskFound: true,
+        claimed: true,
+        snapshotCreated: true,
+        snapshotResourcesHydrated: result.resources.length,
+        modelReceivedSnapshotResource,
+        hostedArtifactPersisted: true,
+        artifactSetId,
+        reviewRequestId: review.id,
+        reviewStatus: stillOpen.status,
+        agentDecisionStatus: agentDecision.status,
+        agentDecisionCode: agentDecisionBody.error?.code,
+        decisionsCreated: 0,
+        deliveryReplay: replay.replayed,
+        artifactSetsAfterReplay: beforeReplay,
+        revokedCredentialRejected: oldBearerResponse.status === 401,
+      };
+      evidence.integrity = {
+        artifactSha256Matches: persisted.sha256 === hash(artifactBytes),
+        artifactByteLengthMatches: persisted.byteLength === artifactBytes.byteLength,
+        agentStampMatchesCredential: stamp.agentCredentialId === credentialId,
+        claimMatchesCredential: claimRow.credentialId === credentialId,
+      };
+      evidence.fixture = {
+        setup:
+          'direct Prisma workflow/task fixture plus real HTTP registration and project creation',
+        roleResourceSha256: hash(roleInstructions),
+        humanDeviceAuthorization: true,
+        forbiddenAgentApprovalScopeRejected: forbiddenGrant.status === 422,
+      };
+      evidence.limits = [
+        'local Ollama model inference',
+        'synthetic pure-function code fixture, not repository execution',
+        'direct Prisma setup for the workflow task fixture',
+        'HUMAN approval was simulated through a real session in this test; no approval decision was made',
+      ];
     } catch (error) {
       evidence.status = 'failed';
       evidence.failure = {
         name: error instanceof Error ? error.name : 'Error',
-        code: typeof (error as { code?: unknown })?.code === 'string' ? (error as { code: string }).code : null,
-        status: typeof (error as { status?: unknown })?.status === 'number' ? (error as { status: number }).status : null,
+        code:
+          typeof (error as { code?: unknown })?.code === 'string'
+            ? (error as { code: string }).code
+            : null,
+        status:
+          typeof (error as { status?: unknown })?.status === 'number'
+            ? (error as { status: number }).status
+            : null,
       };
       throw error;
     } finally {
@@ -380,7 +498,14 @@ suite('real API-driven Agent task execution with isolated PostgreSQL', () => {
           testExitCodes: run.testExitCodes,
           error: run.error ?? null,
           assistantResponses: Array.isArray(run.assistantResponses)
-            ? (run.assistantResponses as Array<{ turn?: number; content?: string; toolCalls?: unknown[]; toolsOffered?: number }>).map((response) => ({
+            ? (
+                run.assistantResponses as Array<{
+                  turn?: number;
+                  content?: string;
+                  toolCalls?: unknown[];
+                  toolsOffered?: number;
+                }>
+              ).map((response) => ({
                 turn: response.turn,
                 contentPreview: response.content?.slice(0, 400) ?? '',
                 toolCalls: response.toolCalls ?? [],

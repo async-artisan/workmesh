@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatApiError } from '../api/client';
 import { boardApi, type BoardCard, type BoardSnapshot } from '../api/resources';
 import { ProjectSelect } from '../components/ProjectSelect';
+import { InlineLoading, SkeletonLines } from '../components/Skeleton';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { STEP_LABELS, WORK_STATUS_LABELS, labelFor } from '../lib/labels';
 import { resolveTaskDisplayState } from '../lib/taskDisplayState';
@@ -15,6 +16,9 @@ const COLUMN_LABELS: Record<string, string> = {
   CANCELLED: '已取消',
   DELIVERED: '已交付',
 };
+
+/** 首屏骨架按已知列数占位；列名由服务端快照决定，占位里不显示列名，避免误导。 */
+const SKELETON_COLUMN_COUNT = Object.keys(COLUMN_LABELS).length;
 
 /**
  * 看板只读：按服务端派生列展示任务与工作态。
@@ -39,26 +43,36 @@ export function Board() {
   const { projectId } = useProjectContext();
   const [snapshot, setSnapshot] = useState<BoardSnapshot | null>(null);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => Boolean(projectId));
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [requirementFilter, setRequirementFilter] = useState('');
   const [viewMode, setViewMode] = useState<'columns' | 'requirements'>('columns');
+  const loadRequestRef = useRef(0);
+  // 首屏没有可展示的快照：渲染骨架，而不是空看板或空态文案。
+  const firstLoad = Boolean(projectId) && !snapshot && !error;
 
   async function load() {
+    // 切项目时旧请求的响应不能覆盖新一轮看板。
+    const requestId = ++loadRequestRef.current;
     if (!projectId) {
       setSnapshot(null);
+      setLoading(false);
       return;
     }
     setLoading(true);
+    setError('');
     try {
-      setSnapshot(await boardApi.get(projectId));
+      const next = await boardApi.get(projectId);
+      if (requestId !== loadRequestRef.current) return;
+      setSnapshot(next);
       setError('');
     } catch (caught) {
-      setSnapshot(null);
+      if (requestId !== loadRequestRef.current) return;
+      // 刷新失败保留已有看板，只在顶部提示错误，不把已加载的卡片清空。
       setError(formatApiError(caught));
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestRef.current) setLoading(false);
     }
   }
 
@@ -197,6 +211,22 @@ export function Board() {
       )}
       {!projectId && <p className="page-card muted">先选择项目。</p>}
 
+      {firstLoad && (
+        <div data-testid="board-loading" aria-busy="true">
+          <InlineLoading label="正在加载看板…" />
+          <div className="board-grid" aria-hidden="true">
+            {Array.from({ length: SKELETON_COLUMN_COUNT }, (_, index) => (
+              <div className="board-col" key={index}>
+                <div className="board-col-head">
+                  <div className="skeleton-line short" />
+                </div>
+                <SkeletonLines lines={3} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {snapshot && (
         <div className="board-toolbar">
           <input
@@ -240,6 +270,8 @@ export function Board() {
           看板不包含流程依赖与评审状态：未开始任务显示「状态待确认」，具体能否领取以需求详情为准（按已发布流程的步骤依赖判定）。
         </p>
       )}
+
+      {loading && snapshot && <InlineLoading label="正在刷新看板…" />}
 
       {snapshot && viewMode === 'columns' && (
         <>

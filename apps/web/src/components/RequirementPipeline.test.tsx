@@ -219,20 +219,38 @@ describe('RequirementPipeline 首屏折叠 / 本地头像 / 任务去重', () =>
     expect(screen.getByText('下一步')).toBeInTheDocument();
     expect(screen.getByText('完成验收测试')).toBeInTheDocument();
     expect(document.querySelectorAll('.pipeline-task-card')).toHaveLength(0);
-    expect(screen.queryByRole('button', { name: /前端实现，状态：已完成/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /前端实现，状态：已完成/ }),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(toggle).toHaveTextContent('收起团队视图');
     expect(document.getElementById(detailId!)).not.toHaveAttribute('hidden');
     expect(document.querySelectorAll('.pipeline-task-card')).toHaveLength(2);
-    expect(
-      screen.getByRole('button', { name: /前端实现，状态：已完成/ }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /前端实现，状态：已完成/ })).toBeInTheDocument();
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(document.querySelectorAll('.pipeline-task-card')).toHaveLength(0);
+  });
+
+  it('团队视图切换使用原生按钮，保留 Enter 与 Space 键盘激活入口', () => {
+    render(<RequirementPipeline collapsible tasks={tasks} />);
+    const toggle = screen.getByRole('button', { name: '展开团队视图' });
+    expect(toggle).toHaveAttribute('type', 'button');
+
+    toggle.focus();
+    fireEvent.keyDown(toggle, { key: 'Enter', code: 'Enter' });
+    fireEvent.keyUp(toggle, { key: 'Enter', code: 'Enter' });
+    // JSDOM 不会替浏览器合成原生按钮的 click，这里显式触发相同的激活结果。
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.keyDown(toggle, { key: ' ', code: 'Space' });
+    fireEvent.keyUp(toggle, { key: ' ', code: 'Space' });
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('重复分配给两个阶段的任务只渲染一次，统计分母同源', () => {
@@ -249,8 +267,20 @@ describe('RequirementPipeline 首屏折叠 / 本地头像 / 任务去重', () =>
       <RequirementPipeline
         collapsible
         phases={[
-          { id: 'discovery', label: '需求发现', shortLabel: '发现', role: 'product', tasks: [shared] },
-          { id: 'definition', label: '方案定义', shortLabel: '定义', role: 'product', tasks: [shared] },
+          {
+            id: 'discovery',
+            label: '需求发现',
+            shortLabel: '发现',
+            role: 'product',
+            tasks: [shared],
+          },
+          {
+            id: 'definition',
+            label: '方案定义',
+            shortLabel: '定义',
+            role: 'product',
+            tasks: [shared],
+          },
         ]}
       />,
     );
@@ -281,5 +311,109 @@ describe('RequirementPipeline 首屏折叠 / 本地头像 / 任务去重', () =>
       container.querySelectorAll('.pipeline-task-card-owner .wm-role-avatar[aria-hidden="true"]')
         .length,
     ).toBeGreaterThan(0);
+  });
+
+  it('首屏摘要显示当前阶段、真实负责人和阻塞原因，并只提供真实动作入口', () => {
+    const onAction = vi.fn();
+    render(
+      <RequirementPipeline
+        collapsible
+        phases={[
+          {
+            id: 'build',
+            label: '开发实现',
+            role: 'engineering',
+            roleLabel: '研发',
+            status: 'blocked',
+            ownerLabel: 'owner@example.com',
+            blockedReason: '等待接口契约确认',
+            actionLabel: '查看阻塞任务',
+            onAction,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('开发实现')).toBeInTheDocument();
+    expect(screen.getByText('owner@example.com')).toBeInTheDocument();
+    expect(screen.getByText('等待接口契约确认')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '查看阻塞任务' }));
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('缺少负责人或阻塞原因时明确标注未知，并给阶段轨道可访问当前态', () => {
+    render(
+      <RequirementPipeline
+        collapsible
+        phases={[{ id: 'build', label: '开发实现', role: 'engineering', status: 'blocked' }]}
+      />,
+    );
+
+    expect(screen.getByText('暂未分配责任人')).toBeInTheDocument();
+    expect(screen.getByText('服务端未提供阻塞原因')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '展开团队视图' }));
+    const rail = screen.getByRole('region', { name: '阶段进度，可横向滚动' });
+    expect(rail).toHaveAttribute('tabindex', '0');
+    expect(rail.querySelector('[aria-current="step"]')).not.toBeNull();
+  });
+
+  it('没有真实操作入口时明确说明原因，并允许调用方透传更准确的说明', () => {
+    const { rerender } = render(
+      <RequirementPipeline
+        collapsible
+        phases={[{ id: 'build', label: '开发实现', role: 'engineering', status: 'active' }]}
+        actionLabel={null}
+        onAction={null}
+      />,
+    );
+
+    expect(screen.getByText('当前没有可用操作入口；可展开团队视图查看任务。')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '定位任务' })).not.toBeInTheDocument();
+
+    rerender(
+      <RequirementPipeline
+        collapsible
+        phases={[{ id: 'build', label: '开发实现', role: 'engineering', status: 'active' }]}
+        actionLabel={null}
+        onAction={null}
+        actionUnavailableReason="服务端未提供可定位的任务入口，请刷新后重试。"
+      />,
+    );
+    expect(screen.getByText('服务端未提供可定位的任务入口，请刷新后重试。')).toBeInTheDocument();
+    expect(
+      screen.queryByText('当前没有可用操作入口；可展开团队视图查看任务。'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('空的前置阶段不会遮住唯一真实任务阶段与负责人', () => {
+    render(
+      <RequirementPipeline
+        collapsible
+        phases={[
+          { id: 'discovery', label: '需求发现', role: 'product', tasks: [] },
+          {
+            id: 'build',
+            label: '开发实现',
+            role: 'engineering',
+            tasks: [
+              {
+                id: 'backend-impl',
+                stepKey: 'backend-impl',
+                role: 'backend',
+                ownerLabel: 'fixture@example.test',
+                executionStatus: 'OPEN',
+                workStatus: 'ACTIVE',
+                dependsOnStepKeys: [],
+                doneStepKeys: [],
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('开发实现')).toBeInTheDocument();
+    expect(screen.getByText('fixture@example.test')).toBeInTheDocument();
+    expect(screen.queryByText('暂未分配责任人')).not.toBeInTheDocument();
   });
 });

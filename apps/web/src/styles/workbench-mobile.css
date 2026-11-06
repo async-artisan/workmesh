@@ -27,7 +27,7 @@
   }
 
   .hero-unit {
-    font-size: 11px;
+    font-size: var(--wm-text-xs);
   }
 
   .spectrum-bar {
@@ -70,7 +70,7 @@
 
   .wb-stat-label {
     margin-top: 0;
-    font-size: 10.5px;
+    font-size: var(--wm-text-xs);
     line-height: 1.25;
     white-space: nowrap;
     overflow: hidden;

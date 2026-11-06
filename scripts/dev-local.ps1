@@ -27,6 +27,10 @@
 .PARAMETER PgHome
   embedded-postgres 的安装目录，默认 %LOCALAPPDATA%\workmesh-pg。
 
+.PARAMETER SkipNodeCheck
+  跳过 Node 版本下限检查（engines 要求 >=20.19.0）。仅用于本机 Node 略低但实测可用
+  （例如 20.13）的机器；会打印警告，不改变启动步骤。
+
 .EXAMPLE
   powershell -NoProfile -File scripts/dev-local.ps1
 
@@ -37,6 +41,7 @@
 param(
   [switch]$Check,
   [switch]$Stop,
+  [switch]$SkipNodeCheck,
   [int]$PgPort = 5432,
   [int]$ApiPort = 3000,
   [int]$WebPort = 5173,
@@ -214,8 +219,23 @@ if ($Check) {
 Write-Step "WorkMesh 本地启动（仓库 $root）"
 $started = @()
 
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw '找不到 node，请先安装 Node.js 20+。' }
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw '找不到 node，请先安装 Node.js 20.19.0 或更高版本。' }
 if (-not (Get-Command pnpm.cmd -ErrorAction SilentlyContinue)) { throw '找不到 pnpm，请先安装 pnpm 10.x。' }
+
+$nodeVersionText = (& node --version).Trim()
+if ($nodeVersionText -notmatch '^v(\d+)\.(\d+)\.(\d+)') {
+  throw "无法识别 Node.js 版本 '$nodeVersionText'；需要 Node.js 20.19.0 或更高版本。"
+}
+$nodeMajor = [int]$matches[1]
+$nodeMinor = [int]$matches[2]
+$nodePatch = [int]$matches[3]
+if (($nodeMajor -lt 20) -or ($nodeMajor -eq 20 -and $nodeMinor -lt 19)) {
+  if ($SkipNodeCheck) {
+    Write-Warn2 "已跳过 Node 版本检查：当前 $nodeVersionText，package.json engines 要求 >=20.19.0（本机实测可运行）"
+  } else {
+    throw "当前 Node.js $nodeVersionText 不受支持；需要 Node.js 20.19.0 或更高版本（确实只能用它时加 -SkipNodeCheck）。"
+  }
+}
 
 # 1. PostgreSQL
 if ($pg) {
@@ -263,7 +283,7 @@ Write-Host "  Web          http://127.0.0.1:$WebPort   （必须用 127.0.0.1，
 Write-Host "  API          http://127.0.0.1:$ApiPort/api/v1"
 Write-Host "  Swagger      http://127.0.0.1:$ApiPort/api/docs"
 Write-Host "  数据          PostgreSQL 127.0.0.1:$PgPort/workmesh，schema workmesh_v1"
-Write-Host "  演示账号      owner@yesgoo.local / Yff-Demo-2026!   （另有 pm/ui/dev/be/qa/ops@yesgoo.local，同密码）"
+Write-Host "  演示数据      不会自动创建；导入与最小演示说明见 docs/local-dev.md"
 Write-Host "  日志          .tmp\dev-logs\*.log"
 Write-Host "  停止          powershell -NoProfile -File scripts\dev-local.ps1 -Stop"
 Write-Host ""

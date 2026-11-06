@@ -16,6 +16,8 @@ import {
 } from '../api/resources';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { ProjectSelect } from '../components/ProjectSelect';
+import { InlineLoading, TableSkeletonRows } from '../components/Skeleton';
+import { WorkflowDefinitionEditor } from '../components/WorkflowDefinitionEditor';
 import { loadProjects } from '../store/project';
 import { useProjectContext } from '../hooks/useProjectContext';
 
@@ -120,8 +122,19 @@ function parseDefinition(text: string): Record<string, unknown> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
-  } catch {
-    throw new Error('流程定义不是合法 JSON。');
+  } catch (caught) {
+    const message = caught instanceof SyntaxError ? caught.message : 'JSON 解析失败';
+    const positionMatch = message.match(/position\s+(\d+)/i);
+    if (positionMatch) {
+      const position = Number(positionMatch[1]);
+      const prefix = text.slice(0, position);
+      const line = prefix.split('\n').length;
+      const column = position - prefix.lastIndexOf('\n');
+      throw new Error(`流程定义不是合法 JSON：第 ${line} 行第 ${column} 列，${message}`, {
+        cause: caught,
+      });
+    }
+    throw new Error(`流程定义不是合法 JSON：${message}`, { cause: caught });
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
     throw new Error('流程定义必须是 JSON 对象。');
@@ -158,8 +171,11 @@ export function Workflows() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
-  const editorRef = useRef<HTMLTextAreaElement>(null);
-  const editorErrorRef = useRef<HTMLParagraphElement>(null);
+  /** 流程定义/角色包列表的读取状态：首屏不能先闪「还没有已发布的流程定义」。 */
+  const [loading, setLoading] = useState(Boolean(projectId));
+  /** 读取序号：项目切换后，旧请求不能清掉新请求的 loading。 */
+  const loadRequestRef = useRef(0);
+  const editorErrorRef = useRef<HTMLParagraphElement | null>(null);
 
   const roleTitles = useMemo(() => new Map(roles.map((role) => [role.key, role.title])), [roles]);
 
@@ -169,12 +185,16 @@ export function Workflows() {
   }, [projects, projectId]);
 
   async function load() {
+    const requestId = loadRequestRef.current + 1;
+    loadRequestRef.current = requestId;
     if (!projectId) {
       setDefinitions([]);
       setPackages([]);
       setRoles([]);
+      setLoading(false);
       return;
     }
+    setLoading(true);
     try {
       const [definitionPage, packagePage, roleList] = await Promise.all([
         workflowApi.listDefinitions(projectId),
@@ -213,11 +233,19 @@ export function Workflows() {
       }
       setBaselineText(serverBaseline);
     } catch (caught) {
+      if (loadRequestRef.current !== requestId) return;
       setError(formatApiError(caught));
+    } finally {
+      if (loadRequestRef.current === requestId) setLoading(false);
     }
   }
 
   useEffect(() => {
+    // 项目切换：先清掉上一个项目的定义/角色包，避免旧数据被当作本项目内容继续使用。
+    setDefinitions([]);
+    setPackages([]);
+    setRoles([]);
+    setLoading(Boolean(projectId));
     void load();
   }, [projectId]);
 
@@ -376,9 +404,11 @@ export function Workflows() {
     setNotice(`流程 ${target.workflowKey} 已发布。需求页即可用该修订创建流程实例。`);
     setValidation(null);
     setPending(null);
-    await load();
+    // 发布成功后先移除本地草稿，避免刷新定义时又恢复已发布内容并覆盖成功提示。
     clearDraft(projectId);
     setDraftRestored(false);
+    await load();
+    setBaselineText(editorText);
   }
 
   const binding: ActionBindingInput | null =
@@ -420,8 +450,12 @@ export function Workflows() {
             onChange={() => setDefinitions([])}
             onCreateProject={() => navigate('/projects')}
           />
-          <button className="ghost" disabled={!projectId || busy} onClick={() => void load()}>
-            刷新
+          <button
+            className="ghost"
+            disabled={!projectId || busy || loading}
+            onClick={() => void load()}
+          >
+            {loading ? '读取中…' : '刷新'}
           </button>
         </div>
       </header>
@@ -469,36 +503,25 @@ export function Workflows() {
             </span>
           )}
         </div>
-        <div className="field">
-          <span>流程定义（JSON）</span>
-          <textarea
-            ref={editorRef}
-            id="workflow-editor"
-            className="cell-mono"
-            aria-label="流程定义 JSON"
-            aria-invalid={Boolean(editorError)}
-            aria-describedby={editorError ? 'workflow-editor-error' : undefined}
-            rows={16}
-            value={editorText}
-            onChange={(event) => {
-              setEditorText(event.target.value);
-              setEditorError('');
-              setValidation(null);
-              setPending(null);
-            }}
-            placeholder="点击「载入标准模板」开始，或粘贴已有的流程定义。"
-          />
-          {editorError && (
-            <p
-              className="error"
-              id="workflow-editor-error"
-              role="alert"
-              tabIndex={-1}
-              ref={editorErrorRef}
-            >
-              {editorError}
-            </p>
-          )}
+        <WorkflowDefinitionEditor
+          value={editorText}
+          roles={roles.map((role) => ({ key: role.key, title: role.title }))}
+          error={editorError}
+          issues={validation?.issues}
+          errorId="workflow-editor-error"
+          errorRef={(node) => {
+            editorErrorRef.current = node;
+          }}
+          onChange={(next) => {
+            setEditorText(next);
+            setEditorError('');
+            setValidation(null);
+            setPending(null);
+          }}
+          disabled={busy}
+        />
+        <div>
+          {loading && !editorText.trim() && <InlineLoading label="正在加载流程定义内容…" />}
         </div>
       </div>
 
@@ -577,8 +600,16 @@ export function Workflows() {
       <div className="table-card">
         <div className="card-head">
           <h3>
-            流程定义<small>{definitions.length}</small>
+            流程定义
+            <small>{loading && definitions.length === 0 ? '加载中…' : definitions.length}</small>
           </h3>
+          <div className="card-head-actions">
+            {loading && (
+              <InlineLoading
+                label={definitions.length > 0 ? '正在刷新流程定义…' : '正在加载流程定义…'}
+              />
+            )}
+          </div>
         </div>
         <div className="table-scroll">
           <table className="data-table">
@@ -592,29 +623,39 @@ export function Workflows() {
               </tr>
             </thead>
             <tbody>
-              {definitions.map((definition) => (
-                <tr key={definition.workflowKey}>
-                  <td className="cell-mono">{definition.workflowKey}</td>
-                  <td>{definition.title}</td>
-                  <td className="cell-num">v{definition.currentRevision}</td>
-                  <td className="cell-mono">{definition.currentPublishedRevisionId ?? '未发布'}</td>
-                  <td className="col-actions">
-                    <button
-                      className="ghost"
-                      disabled={busy || !definition.currentPublishedRevisionId}
-                      onClick={() => void loadPublishedRevision(definition)}
-                    >
-                      载入为下一版
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {definitions.length === 0 && (
-                <tr className="table-empty">
-                  <td colSpan={5}>
-                    {projectId ? '还没有已发布的流程定义，先载入标准模板并发布。' : '先选择项目。'}
-                  </td>
-                </tr>
+              {loading && definitions.length === 0 ? (
+                <TableSkeletonRows rows={3} columns={5} />
+              ) : (
+                <>
+                  {definitions.map((definition) => (
+                    <tr key={definition.workflowKey}>
+                      <td className="cell-mono">{definition.workflowKey}</td>
+                      <td>{definition.title}</td>
+                      <td className="cell-num">v{definition.currentRevision}</td>
+                      <td className="cell-mono">
+                        {definition.currentPublishedRevisionId ?? '未发布'}
+                      </td>
+                      <td className="col-actions">
+                        <button
+                          className="ghost"
+                          disabled={busy || !definition.currentPublishedRevisionId}
+                          onClick={() => void loadPublishedRevision(definition)}
+                        >
+                          载入为下一版
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {definitions.length === 0 && (
+                    <tr className="table-empty">
+                      <td colSpan={5}>
+                        {projectId
+                          ? '还没有已发布的流程定义，先载入标准模板并发布。'
+                          : '先选择项目。'}
+                      </td>
+                    </tr>
+                  )}
+                </>
               )}
             </tbody>
           </table>

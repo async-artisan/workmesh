@@ -35,6 +35,7 @@ export function ChangeDrawer({ change, busy, error, onClose, onAck }: ChangeDraw
       description={change ? `${change.requirement?.code ?? '未关联需求'} · v${change.version}` : ''}
       variant="drawer"
       size="md"
+      busy={busy}
       onClose={onClose}
       footer={
         <>

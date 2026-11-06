@@ -1,0 +1,244 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# The job uploads a build artifact and creates a draft GitHub Release. It never
+# publishes the workspace packages to npm.
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  package:
+    name: Package Windows x64 release
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
+        with:
+          version: 10.28.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Validate release tag
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_NAME -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$') {
+            throw "Release tag '$env:GITHUB_REF_NAME' is not a SemVer tag such as v1.2.3 or v1.2.3-rc.1."
+          }
+          $package = Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json
+          $tagVersion = $env:GITHUB_REF_NAME.Substring(1)
+          if ([string]$package.version -ne $tagVersion) {
+            throw "Release tag $env:GITHUB_REF_NAME does not match root package.json version $($package.version)."
+          }
+          "WORKMESH_RELEASE_VERSION=$tagVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build role package manifests
+        run: pnpm build:role-packages
+
+      - name: Locate or install PostgreSQL runtime
+        shell: pwsh
+        run: |
+          $pg = Get-ChildItem -Path 'C:\Program Files\PostgreSQL' -Filter 'postgres.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $pg) {
+            choco install postgresql16 --yes --no-progress --params="'/Password:workmesh-release'"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Chocolatey could not install PostgreSQL 16 (exit code $LASTEXITCODE)."
+            }
+            $pg = Get-ChildItem -Path 'C:\Program Files\PostgreSQL' -Filter 'postgres.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          if (-not $pg) {
+            throw 'PostgreSQL runtime was not found after installation; package-box.ps1 needs postgres.exe, initdb.exe and pg_dump.exe.'
+          }
+          $pgRoot = $pg.Directory.Parent.FullName
+          foreach ($required in @('bin\postgres.exe', 'bin\initdb.exe', 'bin\pg_dump.exe', 'lib', 'share')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $pgRoot $required))) {
+              throw "PostgreSQL runtime is incomplete: $pgRoot\$required"
+            }
+          }
+          "PG_ROOT=$pgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Using PostgreSQL runtime at $pgRoot"
+
+      - name: Build and package CLI and box
+        shell: pwsh
+        run: |
+          $output = Join-Path $env:GITHUB_WORKSPACE 'release\workmesh-box-win-x64'
+          $node = (Get-Command node -ErrorAction Stop).Source
+          & .\scripts\package-box.ps1 -OutputDir $output -PostgresRoot $env:PG_ROOT -NodeExe $node -Version $env:WORKMESH_RELEASE_VERSION
+          if ($LASTEXITCODE -ne 0) {
+            throw "scripts/package-box.ps1 failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Prepare release files and checksums
+        shell: pwsh
+        run: |
+          $releaseRoot = Join-Path $env:GITHUB_WORKSPACE 'release'
+          $boxZip = Join-Path $releaseRoot 'workmesh-box-win-x64.zip'
+          $boxChecksum = "$boxZip.sha256"
+          $cliZip = Join-Path $releaseRoot 'workmesh-box-win-x64\downloads\workmesh-cli-win-x64.zip'
+          $cliChecksum = "$cliZip.sha256"
+          if (-not (Test-Path -LiteralPath $boxZip)) { throw "Box archive was not produced: $boxZip" }
+          if (-not (Test-Path -LiteralPath $boxChecksum)) { throw "Box checksum was not produced: $boxChecksum" }
+          if (-not (Test-Path -LiteralPath $cliZip)) { throw "CLI archive was not produced: $cliZip" }
+          if (-not (Test-Path -LiteralPath $cliChecksum)) { throw "CLI checksum was not produced: $cliChecksum" }
+
+          $artifactRoot = Join-Path $releaseRoot 'artifacts'
+          if (Test-Path -LiteralPath $artifactRoot) { Remove-Item -LiteralPath $artifactRoot -Recurse -Force }
+          New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
+          Copy-Item -LiteralPath $boxZip -Destination (Join-Path $artifactRoot 'workmesh-box-win-x64.zip')
+          Copy-Item -LiteralPath $boxChecksum -Destination (Join-Path $artifactRoot 'workmesh-box-win-x64.zip.sha256')
+          Copy-Item -LiteralPath $cliZip -Destination (Join-Path $artifactRoot 'workmesh-cli-win-x64.zip')
+          Copy-Item -LiteralPath $cliChecksum -Destination (Join-Path $artifactRoot 'workmesh-cli-win-x64.zip.sha256')
+
+          foreach ($archiveName in @('workmesh-box-win-x64.zip', 'workmesh-cli-win-x64.zip')) {
+            $archivePath = Join-Path $artifactRoot $archiveName
+            $checksumPath = "$archivePath.sha256"
+            $actualHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $declared = (Get-Content -LiteralPath $checksumPath -Raw).Trim()
+            $expected = "$actualHash  $archiveName"
+            if ($declared -ne $expected) {
+              throw "Checksum sidecar does not match $archiveName. Expected '$expected', got '$declared'."
+            }
+          }
+
+          $checksums = Get-ChildItem -LiteralPath $artifactRoot -Filter '*.zip' -File |
+            Sort-Object Name |
+            ForEach-Object {
+              $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $($_.Name)"
+            }
+          if (-not $checksums) { throw 'No release archives were available for checksum generation.' }
+          $checksums | Set-Content -LiteralPath (Join-Path $artifactRoot 'SHA256SUMS.txt') -Encoding ASCII
+          Get-ChildItem -LiteralPath $artifactRoot -File | Format-Table Name, Length
+          Get-Content -LiteralPath (Join-Path $artifactRoot 'SHA256SUMS.txt')
+
+      - name: Generate dependency SBOM
+        shell: pwsh
+        run: |
+          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE 'release\artifacts'
+          $licenseJson = (pnpm --filter '@workmesh/api...' --filter '@workmesh/web...' --filter '@workmesh/cli...' --filter '@workmesh/box...' licenses list --prod --json | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw "pnpm licenses list failed with exit code $LASTEXITCODE." }
+          $licenseGroups = $licenseJson | ConvertFrom-Json
+          $components = @{}
+          foreach ($group in $licenseGroups.PSObject.Properties) {
+            $licenseId = [string]$group.Name
+            foreach ($package in @($group.Value)) {
+              foreach ($version in @($package.versions)) {
+                $name = [string]$package.name
+                $purlName = $name -replace '^@', '%40'
+                $purl = "pkg:npm/$purlName@$version"
+                if (-not $components.ContainsKey($purl)) {
+                  $components[$purl] = [ordered]@{
+                    type = 'library'
+                    'bom-ref' = $purl
+                    name = $name
+                    version = [string]$version
+                    purl = $purl
+                    licenses = @(@{ license = @{ id = $licenseId } })
+                  }
+                }
+              }
+            }
+          }
+          if ($components.Count -eq 0) { throw 'The dependency SBOM contained no components.' }
+          $bom = [ordered]@{
+            bomFormat = 'CycloneDX'
+            specVersion = '1.5'
+            serialNumber = "urn:uuid:$([guid]::NewGuid())"
+            version = 1
+            metadata = [ordered]@{
+              timestamp = (Get-Date).ToUniversalTime().ToString('o')
+              component = [ordered]@{ type = 'application'; name = 'workmesh-box'; version = $env:WORKMESH_RELEASE_VERSION }
+              tools = @(@{ vendor = 'pnpm'; name = 'pnpm licenses list'; version = (pnpm --version) })
+              properties = @(
+                @{ name = 'workmesh:inventory:scope'; value = 'Workspace production npm dependency inventory; not a complete release artifact SBOM' },
+                @{ name = 'workmesh:inventory:limitations'; value = 'Excludes bundled Node.js and PostgreSQL and may exclude deployed development or build dependencies' }
+              )
+            }
+            components = @($components.Values | Sort-Object name, version)
+          }
+          $bom | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $artifactRoot 'workmesh-dependencies.cdx.json') -Encoding UTF8
+          $sbomPath = Join-Path $artifactRoot 'workmesh-dependencies.cdx.json'
+          $sbomHash = (Get-FileHash -LiteralPath $sbomPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          Add-Content -LiteralPath (Join-Path $artifactRoot 'SHA256SUMS.txt') -Value ($sbomHash + '  workmesh-dependencies.cdx.json') -Encoding ASCII
+          Write-Host "Wrote dependency SBOM with $($components.Count) components."
+
+      - name: Verify release archives can be installed
+        shell: pwsh
+        run: |
+          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE 'release\artifacts'
+          $smokeRoot = Join-Path $env:RUNNER_TEMP 'workmesh-release-smoke'
+          if (Test-Path -LiteralPath $smokeRoot) { Remove-Item -LiteralPath $smokeRoot -Recurse -Force }
+          New-Item -ItemType Directory -Path $smokeRoot -Force | Out-Null
+          $boxRoot = Join-Path $smokeRoot 'box'
+          $cliRoot = Join-Path $smokeRoot 'cli'
+          Expand-Archive -LiteralPath (Join-Path $artifactRoot 'workmesh-box-win-x64.zip') -DestinationPath $boxRoot -Force
+          Expand-Archive -LiteralPath (Join-Path $artifactRoot 'workmesh-cli-win-x64.zip') -DestinationPath $cliRoot -Force
+          foreach ($required in @(
+            'runtime\node.exe',
+            'runtime\pgsql\bin\postgres.exe',
+            'install.ps1',
+            'start-workmesh.ps1',
+            'app\api\dist\main.js',
+            'app\node_modules\.prisma\workmesh-v1-client\query_engine-windows.dll.node'
+          )) {
+            if (-not (Test-Path -LiteralPath (Join-Path $boxRoot $required))) { throw "Box archive is missing $required." }
+          }
+          $cliNode = Join-Path $cliRoot 'runtime\node.exe'
+          $cliEntry = Join-Path $cliRoot 'app\cli\index.js'
+          if (-not (Test-Path -LiteralPath $cliNode) -or -not (Test-Path -LiteralPath $cliEntry)) { throw 'CLI archive is missing its Node runtime or entrypoint.' }
+          & $cliNode $cliEntry --version
+          if ($LASTEXITCODE -ne 0) { throw "Packaged CLI --version failed with exit code $LASTEXITCODE." }
+          Write-Host 'Archive extraction and packaged CLI smoke checks passed.'
+
+      - name: Attest release archives
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
+        with:
+          subject-path: release/artifacts/*.zip
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: workmesh-${{ github.ref_name }}-windows-x64
+          path: release/artifacts/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create draft GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE 'release\artifacts'
+          $files = @(Get-ChildItem -LiteralPath $artifactRoot -File | Sort-Object Name | ForEach-Object { $_.FullName })
+          if ($files.Count -lt 5) { throw "Expected two archives, two sidecar checksums and SHA256SUMS.txt in $artifactRoot; found $($files.Count) files." }
+          $arguments = @(
+            'release', 'create', $env:GITHUB_REF_NAME,
+            '--draft',
+            '--verify-tag',
+            '--title', $env:GITHUB_REF_NAME,
+            '--generate-notes'
+          ) + $files
+          & gh @arguments
+          if ($LASTEXITCODE -ne 0) {
+            throw "gh release create failed with exit code $LASTEXITCODE. The run artifact remains available for diagnosis."
+          }

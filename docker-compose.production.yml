@@ -1,0 +1,18 @@
+# Production overlay. Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.production.yml up -d
+# Put secrets in an external secret manager or a protected .env file. Do not
+# commit the values below or expose the database service outside the Compose network.
+services:
+  postgres:
+    restart: always
+
+  app:
+    restart: always
+    environment:
+      NODE_ENV: production
+      WORKMESH_COOKIE_MODE: SECURE
+      WORKMESH_PUBLIC_ORIGIN: ${WORKMESH_PUBLIC_ORIGIN:?Set the public HTTPS origin}
+      WEB_ORIGIN: ${WEB_ORIGIN:?Set the public HTTPS web origin}
+      WORKMESH_TICKET_ENCRYPTION_KEY: ${WORKMESH_TICKET_ENCRYPTION_KEY:?Set a random 32-byte ticket encryption key}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a non-default database password}
+    ports: []

@@ -177,6 +177,79 @@ export interface AccessView {
   grants: AccessGrant[];
 }
 
+/** The three knowledge collections exposed by the project knowledge API. */
+export type KnowledgeBaseKind = 'BUSINESS' | 'SYSTEM' | 'PRACTICE';
+
+export interface KnowledgeBaseView {
+  id: string;
+  projectId: string;
+  key: string;
+  name: string;
+  /** Comes from the server's KnowledgeBase.kind field; do not infer it from the key or name. */
+  kind: KnowledgeBaseKind | (string & {});
+  visibility: 'PROJECT' | 'RESTRICTED';
+  version: number;
+  authzVersion: number;
+  publicationApproverUserId: string;
+  publicationApproverRoleId: string | null;
+  archivedAt: string | null;
+}
+
+export interface KnowledgeBaseSearchItem {
+  knowledgeBaseId: string;
+  knowledgeBaseName: string;
+  knowledgeBaseKind: KnowledgeBaseKind | (string & {});
+  revisionId: string;
+  documentId: string;
+  documentKind: string;
+  /** The revision state represented by this search hit. Current API searches published revisions. */
+  status: RevisionState;
+  title: string;
+  excerpt: string;
+  sha256: string;
+}
+
+export interface KnowledgeBaseListPage extends ListPage<KnowledgeBaseView> {
+  hasMore: boolean;
+}
+
+export interface KnowledgeBaseSearchPage extends ListPage<KnowledgeBaseSearchItem> {
+  hasMore: boolean;
+  truncated: boolean;
+}
+
+/** Read-only system-unit and dependency records used inside the SYSTEM knowledge collection. */
+export interface ProjectUnitView {
+  id: string;
+  projectId: string;
+  key: string;
+  name: string;
+  kind: string;
+  repositoryId: string | null;
+  repoPath: string | null;
+  ownerUserId: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectUnitDependencyView {
+  id: string;
+  projectId: string;
+  fromUnitId: string;
+  toUnitId: string;
+  edgeKind: string;
+  protocol: string | null;
+  contractDocumentId: string | null;
+  source: string;
+  confidence: string;
+  evidence: string | null;
+  verifiedAt: string | null;
+  createdAt: string;
+  fromUnit: { key: string; name: string } | null;
+  toUnit: { key: string; name: string } | null;
+}
+
 export interface Confirmation {
   ticketId: string;
   ticketSecret: string;
@@ -332,6 +405,10 @@ export const projectApi = {
       body: { email },
     }),
   roles: (projectId: string) => apiRequest<RoleView[]>(`${projectPath(projectId)}/roles`),
+  /** Read-only system units used by the SYSTEM knowledge collection's relations panel. */
+  units: (projectId: string) => apiRequest<ProjectUnitView[]>(`${projectPath(projectId)}/units`),
+  unitDependencies: (projectId: string) =>
+    apiRequest<ProjectUnitDependencyView[]>(`${projectPath(projectId)}/unit-dependencies`),
   assignRole: (
     projectId: string,
     userId: string,
@@ -356,40 +433,295 @@ export const projectApi = {
     }),
 };
 
-export interface ProjectRepositoryView {
+/**
+ * Project knowledge collections and their published-document search.
+ * The server applies project membership and knowledge-base read authorization before returning data.
+ */
+export const knowledgeBaseApi = {
+  list: (projectId: string, input: { limit?: number; cursor?: string | null } = {}) => {
+    const query = new URLSearchParams({ limit: String(input.limit ?? 50) });
+    if (input.cursor) query.set('cursor', input.cursor);
+    return apiRequest<KnowledgeBaseListPage>(
+      `${projectPath(projectId)}/knowledge-bases?${query.toString()}`,
+    );
+  },
+  search: (
+    knowledgeBaseId: string,
+    input: { q: string; limit?: number; cursor?: string | null },
+  ) => {
+    const query = new URLSearchParams({ q: input.q, limit: String(input.limit ?? 50) });
+    if (input.cursor) query.set('cursor', input.cursor);
+    return apiRequest<KnowledgeBaseSearchPage>(
+      `/knowledge-bases/${enc(knowledgeBaseId)}/search?${query.toString()}`,
+    );
+  },
+};
+
+/**
+ * 仓库身份模式（§7.4）：`DECLARED` 是 HUMAN 声明的受控 locator，
+ * `PROVIDER` 才来自受支持 adapter 的稳定外部 ID。DECLARED 行的
+ * `adapter/externalId` 必须为空，Web 不把 owner/name 或 URL 塞进这些字段。
+ */
+export type RepositoryIdentityMode = 'DECLARED' | 'PROVIDER';
+
+/** 由 locator 推导出的来源协议；服务端返回，仅用于展示。 */
+export type RepositoryLocatorSource = 'HTTPS' | 'SSH';
+
+export interface ProjectRepositoryLocatorView {
   id: string;
+  canonicalLocator: string;
+  source?: RepositoryLocatorSource | string | null;
+  declaredAt?: string | null;
+}
+
+/** PROVIDER 身份的稳定外部 ID；DECLARED 仓库该字段为空。 */
+export interface ProjectRepositoryProviderView {
   adapter: string;
   externalId: string;
+}
+
+export interface ProjectRepositoryView {
+  id: string;
+  /** T2 扩展后的身份模式；旧响应缺失时由页面按 provider 字段保守判断，不推断“已验证”。 */
+  identityMode?: RepositoryIdentityMode;
+  /** 仅 PROVIDER 可非空；DECLARED 必须为空。 */
+  adapter: string | null;
+  /** 仅 PROVIDER 可非空；禁止用 owner/name 或 URL 冒充。 */
+  externalId: string | null;
+  /** 展示字段，不是身份字段。 */
   owner: string;
   name: string;
   defaultBranch: string | null;
   createdAt: string;
+  archivedAt?: string | null;
+  /** P0a 不执行真实 provider 核验，这里只展示服务端已有记录。 */
+  lastVerifiedStatus?: string | null;
+  lastVerifiedAt?: string | null;
+  provider?: ProjectRepositoryProviderView | null;
+  locators?: ProjectRepositoryLocatorView[];
 }
 
 /** 代码仓库登记：流程实例的 IMPL 步骤必须声明仓库范围，GIT_REF 工件只能引用这里的仓库。 */
 export const repositoryApi = {
   list: (projectId: string) =>
     apiRequest<ProjectRepositoryView[]>(`${projectPath(projectId)}/repositories`),
-  create: (
-    projectId: string,
-    data: {
-      adapter?: 'github';
-      externalId: string;
-      owner: string;
-      name: string;
-      defaultBranch?: string;
-    },
-  ) =>
-    apiRequest<ProjectRepositoryView>(`${projectPath(projectId)}/repositories`, {
+};
+
+/**
+ * 工作区定义与接入码（T9 只读/编辑契约，来源 docs/design/project-workspace-onboarding.md §13.2–§13.5）。
+ * 未发布定义时 `GET workspace-definition` 仍是 200 + `NOT_CONFIGURED`，不制造空 revision；
+ * 该状态只用于展示与引导发布，不能签发接入码。
+ */
+export type WorkspaceDefinitionStatus = 'CONFIGURED' | 'NOT_CONFIGURED';
+export type WorkspaceLayoutKind = 'SINGLE_ROOT' | 'MULTI_ROOT' | 'NONE';
+export type WorkspaceRelationType = 'SUBMODULE_OF' | 'NESTED_IN';
+
+export interface WorkspaceDefinitionIssue {
+  path: string;
+  code: string;
+  message: string;
+}
+
+export interface WorkspaceDefinitionRepositoryRef {
+  key: string;
+  projectRepositoryId: string;
+  suggestedPath: string | null;
+  defaultRef: string | null;
+  description: string | null;
+}
+
+export interface WorkspaceDefinitionRelation {
+  type: WorkspaceRelationType;
+  repositoryKey: string;
+  parentRepositoryKey: string;
+}
+
+export interface WorkspaceContextPolicy {
+  requiredDocumentIds: string[];
+  roleDocumentIds: Record<string, string[]>;
+  repositoryDocuments: Array<Record<string, unknown>>;
+}
+
+/** 定义 payload：文档引用只存在 JSON 里，不建文档关系表（§21.1 冻结）。 */
+export interface WorkspaceDefinitionPayload {
+  schemaVersion: string;
+  projectId?: string;
+  layout: { kind: WorkspaceLayoutKind };
+  repositories: WorkspaceDefinitionRepositoryRef[];
+  relations?: WorkspaceDefinitionRelation[];
+  roleHints?: Record<string, { recommendedRepositoryKeys: string[] }>;
+  contextPolicy?: WorkspaceContextPolicy;
+  [key: string]: unknown;
+}
+
+/** GET 定义响应里的仓库条目：拓扑引用 + 服真实仓库身份字段（DECLARED/PROVIDER）。 */
+export interface WorkspaceDefinitionRepositoryView extends WorkspaceDefinitionRepositoryRef {
+  identityMode: RepositoryIdentityMode;
+  adapter: string | null;
+  externalId: string | null;
+  owner: string;
+  name: string;
+  archivedAt: string | null;
+  provider?: ProjectRepositoryProviderView | null;
+  locators?: ProjectRepositoryLocatorView[];
+}
+
+export interface WorkspaceDefinitionDraftView {
+  definitionVersion: number;
+  payloadDigest: string;
+  payload: WorkspaceDefinitionPayload;
+  updatedAt: string;
+}
+
+export interface WorkspaceDefinitionView {
+  definitionStatus: WorkspaceDefinitionStatus;
+  projectId: string;
+  projectVersion: number;
+  definitionVersion: number;
+  revisionId: string | null;
+  revisionNo: number | null;
+  digest: string | null;
+  publishedAt: string | null;
+  /** 当前已发布 payload；未配置时为 null。 */
+  payload: WorkspaceDefinitionPayload | null;
+  repositories: WorkspaceDefinitionRepositoryView[];
+  /** 服务端已保存的草稿；没有草稿时为 null。 */
+  draft: WorkspaceDefinitionDraftView | null;
+  validation: { valid: boolean; issues: WorkspaceDefinitionIssue[] };
+}
+
+export interface WorkspaceDefinitionValidationResult {
+  valid: boolean;
+  digest: string | null;
+  definition: WorkspaceDefinitionPayload | null;
+  issues: WorkspaceDefinitionIssue[];
+}
+
+export interface WorkspaceDefinitionDraftSaveView {
+  definitionVersion: number;
+  payloadDigest: string;
+  projectVersion: number;
+  updatedAt: string;
+  replayed: boolean;
+}
+
+export interface WorkspaceDefinitionPublishView {
+  revisionId: string;
+  revisionNo: number;
+  digest: string;
+  definitionVersion: number;
+  projectVersion: number;
+  publishedAt: string;
+  replayed: boolean;
+}
+
+export interface RepositoryDeclarationInput {
+  expectedProjectVersion: number;
+  locator: string;
+  targetRepositoryId?: string | null;
+  displayName?: string | null;
+  confirmation: Confirmation;
+}
+
+export interface RepositoryDeclarationView {
+  repositoryId: string;
+  locatorId: string;
+  /** 复用已有仓库时保留服务端已有的真实身份。 */
+  identityMode: RepositoryIdentityMode;
+  canonicalLocator: string;
+  source: RepositoryLocatorSource | string;
+  owner: string;
+  name: string;
+  reused: boolean;
+  replayed: boolean;
+  alias: boolean;
+  projectVersion: number;
+}
+
+export interface RepositoryArchiveInput {
+  expectedProjectVersion: number;
+  confirmation: Confirmation;
+}
+
+export interface RepositoryArchiveView {
+  repositoryId: string;
+  archivedAt: string;
+  projectVersion: number;
+  replayed: boolean;
+}
+
+export interface WorkspaceEnrollmentView {
+  enrollmentId: string;
+  /** 明文码只在签发响应中出现一次；前端不得缓存、重放或写入持久存储。 */
+  code: string;
+  projectId: string;
+  definitionRevisionId: string;
+  definitionDigest: string;
+  expiresAt: string;
+}
+
+/**
+ * 工作区接入 API。所有写请求自动带 `Idempotency-Key`；
+ * 接入码签发不需要确认票据（码本身不授权），但必须保留幂等键：
+ * 同键重放返回 409 `ENROLLMENT_CODE_NOT_REPLAYABLE`，明文永不重复返回。
+ */
+export const workspaceApi = {
+  /** 活动仓库列表；已归档仓库不返回。 */
+  repositories: (projectId: string) =>
+    apiRequest<ProjectRepositoryView[]>(`${projectPath(projectId)}/repositories`),
+  /** 声明 DECLARED 仓库：只提交 locator，不用 owner/name 伪造 externalId。 */
+  declareRepository: (projectId: string, input: RepositoryDeclarationInput) =>
+    apiRequest<RepositoryDeclarationView>(`${projectPath(projectId)}/repositories/declarations`, {
       method: 'POST',
-      body: { adapter: 'github', ...data },
+      body: input,
       idempotencyKey: 'auto',
     }),
-  archive: (projectId: string, repositoryId: string) =>
-    apiRequest<ProjectRepositoryView>(
+  archiveRepository: (projectId: string, repositoryId: string, input: RepositoryArchiveInput) =>
+    apiRequest<RepositoryArchiveView>(
       `${projectPath(projectId)}/repositories/${enc(repositoryId)}`,
-      { method: 'DELETE', idempotencyKey: 'auto' },
+      { method: 'DELETE', body: input, idempotencyKey: 'auto' },
     ),
+  definition: (projectId: string) =>
+    apiRequest<WorkspaceDefinitionView>(`${projectPath(projectId)}/workspace-definition`),
+  /** 草稿保存要求 `payloadDigest` 与服务端规范化结果一致；先 validate 再保存。 */
+  saveDraft: (
+    projectId: string,
+    input: {
+      expectedDefinitionVersion: number;
+      payloadDigest: string;
+      definition: WorkspaceDefinitionPayload;
+    },
+  ) =>
+    apiRequest<WorkspaceDefinitionDraftSaveView>(
+      `${projectPath(projectId)}/workspace-definition/draft`,
+      { method: 'PUT', body: input, idempotencyKey: 'auto' },
+    ),
+  /** 内容诊断永远 200 + issues；不产生已发布定义。 */
+  validateDefinition: (projectId: string, definition: WorkspaceDefinitionPayload) =>
+    apiRequest<WorkspaceDefinitionValidationResult>(
+      `${projectPath(projectId)}/workspace-definition/validate`,
+      { method: 'POST', body: { definition } },
+    ),
+  /** 发布已保存的草稿：双版本 CAS + 票据 + 幂等；请求体不带定义内容。 */
+  publishDefinition: (
+    projectId: string,
+    input: {
+      expectedProjectVersion: number;
+      expectedDefinitionVersion: number;
+      payloadDigest: string;
+      confirmation: Confirmation;
+    },
+  ) =>
+    apiRequest<WorkspaceDefinitionPublishView>(
+      `${projectPath(projectId)}/workspace-definition/publish`,
+      { method: 'POST', body: input, idempotencyKey: 'auto' },
+    ),
+  issueEnrollment: (projectId: string, ttlSeconds?: number) =>
+    apiRequest<WorkspaceEnrollmentView>(`${projectPath(projectId)}/workspace-enrollments`, {
+      method: 'POST',
+      body: ttlSeconds ? { ttlSeconds } : {},
+      idempotencyKey: 'auto',
+    }),
 };
 
 export interface InvitationRoleView {
@@ -756,16 +1088,18 @@ export interface OverdueApprovalSlotView {
 export const delegationApi = {
   list: (projectId: string) =>
     apiRequest<ApprovalSlotDelegationView[]>(`${projectPath(projectId)}/delegations`),
-  create: (projectId: string, input: { slotId: string; delegateUserId: string; expiresAt: string }) =>
+  create: (
+    projectId: string,
+    input: { slotId: string; delegateUserId: string; expiresAt: string },
+  ) =>
     apiRequest<ApprovalSlotDelegationView>(`${projectPath(projectId)}/delegations`, {
       method: 'POST',
       body: input,
     }),
   revoke: (projectId: string, delegationId: string) =>
-    apiRequest<{ revoked: boolean }>(
-      `${projectPath(projectId)}/delegations/${enc(delegationId)}`,
-      { method: 'DELETE' },
-    ),
+    apiRequest<{ revoked: boolean }>(`${projectPath(projectId)}/delegations/${enc(delegationId)}`, {
+      method: 'DELETE',
+    }),
   overdue: (projectId: string) =>
     apiRequest<OverdueApprovalSlotView[]>(`${projectPath(projectId)}/approvals/overdue`),
   escalate: (projectId: string) =>

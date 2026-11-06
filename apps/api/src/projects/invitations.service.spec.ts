@@ -102,7 +102,7 @@ describe('InvitationsService', () => {
       invitationRow({ expiresAt: new Date('2026-11-01T00:00:00.000Z') }),
     );
 
-    await expect(service.prepareAnonymousAccept('wmi_x', 'a@b.com')).rejects.toThrow(
+    await expect(service.prepareAnonymousAccept('wmi_x', 'a@b.com', context.now)).rejects.toThrow(
       /INVITATION_EXPIRED/,
     );
   });
@@ -112,7 +112,9 @@ describe('InvitationsService', () => {
     prisma.projectInvitation.findUnique.mockResolvedValue(invitationRow());
     prisma.user.findUnique.mockResolvedValue({ id: 'u-9' });
 
-    await expect(service.prepareAnonymousAccept('wmi_x', 'Old@B.com')).rejects.toMatchObject({
+    await expect(
+      service.prepareAnonymousAccept('wmi_x', 'Old@B.com', context.now),
+    ).rejects.toMatchObject({
       code: 'RESOURCE_CONFLICT',
     });
     expect(prisma.user.findUnique).toHaveBeenCalledWith({
@@ -126,7 +128,7 @@ describe('InvitationsService', () => {
     prisma.projectInvitation.findUnique.mockResolvedValue(invitationRow({ email: 'bound@b.com' }));
     prisma.user.findUnique.mockResolvedValue(null);
 
-    const prepared = await service.prepareAnonymousAccept('wmi_x', 'other@b.com');
+    const prepared = await service.prepareAnonymousAccept('wmi_x', 'other@b.com', context.now);
     expect(prepared.email).toBe('bound@b.com');
   });
 

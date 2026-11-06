@@ -11,6 +11,8 @@ export type V1KnowledgeBaseView = {
   projectId: string;
   key: string;
   name: string;
+  /** 分类由 KnowledgeBase.kind 提供；保留 string 以兼容模板扩展的类别。 */
+  kind: string;
   visibility: KnowledgeVisibility;
   version: number;
   authzVersion: number;
@@ -42,8 +44,13 @@ export type V1KnowledgeBaseAccessView = {
 };
 
 export type V1KnowledgeBaseSearchItem = {
+  knowledgeBaseId: string;
+  knowledgeBaseName: string;
+  knowledgeBaseKind: string;
   revisionId: string;
   documentId: string;
+  documentKind: string;
+  status: 'PUBLISHED';
   title: string;
   excerpt: string;
   sha256: string;
@@ -127,6 +134,8 @@ export interface V1KnowledgeBaseRepository {
 
   searchKnowledgeBase(input: {
     knowledgeBaseId: string;
+    knowledgeBaseName: string;
+    knowledgeBaseKind: string;
     q: string;
     limit: number;
     cursor: string | null;

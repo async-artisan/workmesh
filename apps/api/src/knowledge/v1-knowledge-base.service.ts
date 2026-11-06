@@ -515,6 +515,8 @@ export class V1KnowledgeBaseService {
       : 20;
     const page = await this.repository.searchKnowledgeBase({
       knowledgeBaseId,
+      knowledgeBaseName: knowledgeBase.name,
+      knowledgeBaseKind: knowledgeBase.kind,
       q: query.q,
       limit,
       cursor: query.cursor ?? null,

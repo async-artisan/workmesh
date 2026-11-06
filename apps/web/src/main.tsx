@@ -19,6 +19,7 @@ import './styles/workbench-mobile.css';
 import './styles/shell.css';
 import './styles/contrast.css';
 import './styles/confirm.css';
+import './styles/foundations.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

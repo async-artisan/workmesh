@@ -8,7 +8,10 @@ const demo = { id: 'p1', key: 'DEMO', name: 'Demo', version: 1 };
 const ops = { id: 'p2', key: 'OPS', name: 'Ops', version: 2 };
 
 /** 只处理 GET /api/v1/projects，其余请求交给 mockFetch 的默认 404。 */
-function projectsReply(handler: () => { status: number; body: unknown } | undefined) {
+function projectsReply(
+  handler: () =>
+    { status: number; body: unknown } | Promise<{ status: number; body: unknown }> | undefined,
+) {
   return (url: string, init: RequestInit) => {
     if (pathOf(url) === '/api/v1/projects' && methodOf(init) === 'GET') return handler();
     return undefined;
@@ -41,6 +44,62 @@ describe('ProjectSelect（统一项目上下文的状态展示）', () => {
     invalidateProjects();
   });
 
+  it('403 项目列表失败时给出权限引导且不显示空列表入口', async () => {
+    mockFetch(
+      projectsReply(() => ({
+        status: 403,
+        body: { error: { code: 'PROJECT_UNAVAILABLE', message: '当前项目列表不可用' } },
+      })),
+    );
+    render(<ProjectSelect onCreateProject={() => undefined} />);
+    expect(await screen.findByText('项目列表加载失败')).toBeInTheDocument();
+    expect(
+      screen.getByText('当前账号没有查看项目列表的权限，请联系项目管理员。'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '创建项目' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '接受邀请' })).not.toBeInTheDocument();
+  });
+
+  it('服务失败时给出稍后重试引导且不显示空列表入口', async () => {
+    mockFetch(
+      projectsReply(() => ({
+        status: 500,
+        body: { error: { code: 'PROJECT_UNAVAILABLE', message: '当前项目列表不可用' } },
+      })),
+    );
+    render(<ProjectSelect onCreateProject={() => undefined} />);
+    expect(await screen.findByText('项目列表加载失败')).toBeInTheDocument();
+    expect(screen.getByText('项目服务暂时不可用，请稍后重试。')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '创建项目' })).not.toBeInTheDocument();
+  });
+
+  it('网络失败时明确提示检查网络并提供重试', async () => {
+    mockFetch(
+      projectsReply(() => {
+        throw new TypeError('Failed to fetch');
+      }),
+    );
+    render(<ProjectSelect />);
+    expect(await screen.findByText('项目列表加载失败')).toBeInTheDocument();
+    expect(screen.getByText('暂时无法读取项目列表，请检查网络后重试。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重试加载项目列表' })).toBeInTheDocument();
+  });
+
+  it('尚未读取项目时不显示创建项目，成功空列表才显示真实创建入口', async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mockFetch(projectsReply(() => pending.then(() => ({ status: 200, body: envelope([]) }))));
+    render(<ProjectSelect onCreateProject={() => undefined} />);
+    expect(screen.queryByRole('button', { name: '创建项目' })).not.toBeInTheDocument();
+    await act(async () => {
+      release();
+    });
+    expect(await screen.findByRole('button', { name: '创建项目' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '接受邀请' })).not.toBeInTheDocument();
+  });
+
   it('首次加载时禁用选择器并显示加载文案', () => {
     // 永不 resolve 的请求：稳定停留在首次加载态。
     vi.stubGlobal(
@@ -54,6 +113,44 @@ describe('ProjectSelect（统一项目上下文的状态展示）', () => {
     expect(select).toBeDisabled();
     expect(select).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByRole('option', { name: '正在加载项目…' })).toBeInTheDocument();
+    // 不只靠下拉占位文案：另有一处 role="status" + aria-busy 的加载提示。
+    const loadingRegion = screen.getByRole('status');
+    expect(loadingRegion).toHaveTextContent('正在读取项目…');
+    expect(loadingRegion).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('已有数据刷新时显示行内加载提示，旧数据保持可选中', async () => {
+    let calls = 0;
+    let releaseRefresh: () => void = () => undefined;
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    mockFetch(
+      projectsReply(() => {
+        calls += 1;
+        if (calls === 1) return { status: 200, body: envelope([demo]) };
+        return refreshGate.then(() => ({ status: 200, body: envelope([demo, ops]) }));
+      }),
+    );
+
+    render(<ProjectSelect />);
+    await findReadySelect('p1');
+
+    act(() => {
+      void useProjectStore.getState().refreshProjects();
+    });
+
+    expect(screen.getByRole('status')).toHaveTextContent('正在刷新项目列表…');
+    expect(currentSelect()).not.toBeDisabled();
+    expect(currentSelect()).toHaveValue('p1');
+    expect(screen.getByRole('option', { name: /Demo/ })).toBeInTheDocument();
+
+    await act(async () => {
+      releaseRefresh();
+    });
+
+    await waitFor(() => expect(screen.getByRole('option', { name: /Ops/ })).toBeInTheDocument());
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('加载成功但没有项目时显示创建 / 邀请入口，点击触发回调', async () => {
@@ -64,7 +161,11 @@ describe('ProjectSelect（统一项目上下文的状态展示）', () => {
     render(<ProjectSelect onCreateProject={onCreateProject} onAcceptInvite={onAcceptInvite} />);
 
     expect(await screen.findByText('还没有可访问的项目')).toBeInTheDocument();
-    expect(screen.getByText('你可以创建项目，或通过邀请加入已有项目。')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        '你可以创建项目；如已有项目管理员邀请你，请打开管理员发送的邀请链接加入已有项目。',
+      ),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '创建项目' }));
     fireEvent.click(screen.getByRole('button', { name: '接受邀请' }));
@@ -107,7 +208,7 @@ describe('ProjectSelect（统一项目上下文的状态展示）', () => {
     render(<ProjectSelect />);
 
     expect(await screen.findByText('项目列表加载失败')).toBeInTheDocument();
-    expect(screen.getByText('暂时无法读取项目列表。')).toBeInTheDocument();
+    expect(screen.getByText('项目服务暂时不可用，请稍后重试。')).toBeInTheDocument();
     // 失败不能伪装成空列表。
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.queryByText('还没有可访问的项目')).not.toBeInTheDocument();

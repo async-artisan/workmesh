@@ -1,5 +1,7 @@
+import { platform as osPlatform } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { V1Client, type FetchLike } from './client';
+import { CLI_VERSION } from './config';
 import { CliError } from './errors';
 import type { Platform } from './platform';
 
@@ -59,6 +61,27 @@ describe('V1Client', () => {
     expect(headers.authorization).toBe('Bearer wm_a1.credential.secret');
     expect(headers.accept).toBe('application/json');
     expect(calls[0]?.init.redirect).toBe('error');
+  });
+
+  it('每个请求都上报设备元数据头，并遵守契约长度上限', async () => {
+    const { fetch, calls } = stub([
+      () => json(200, { data: {}, meta: { requestId: 'req-device' } }),
+      () => json(200, { data: {}, meta: { requestId: 'req-device-2' } }),
+    ]);
+    const client = makeClient(fetch);
+    await client.request('GET', '/tasks');
+    await client.request('POST', '/auth/cli-authorizations', { body: {}, idempotent: false });
+
+    for (const call of calls) {
+      const headers = call.init.headers as Record<string, string>;
+      expect(headers.accept).toBe('application/json');
+      expect(headers['x-workmesh-device']?.length).toBeGreaterThan(0);
+      expect(headers['x-workmesh-device']?.length).toBeLessThanOrEqual(80);
+      expect(headers['x-workmesh-platform']).toMatch(new RegExp(`^${osPlatform()} `));
+      expect(headers['x-workmesh-platform']?.length).toBeLessThanOrEqual(60);
+      expect(headers['x-workmesh-client-version']).toBe(CLI_VERSION);
+      expect(headers['x-workmesh-client-version']?.length).toBeLessThanOrEqual(30);
+    }
   });
 
   it('非 2xx 一律按错误 envelope 失败，不当作成功', async () => {

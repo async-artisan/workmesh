@@ -1,0 +1,332 @@
+/* #26 基础组件迁移层。最后导入；旧主题保留结构和断点，视觉语义统一来自 tokens.css。
+ * 页面专属状态色、布局、动画和交互仍由对应组件负责。 */
+:root {
+  --bg-app: var(--wm-color-bg-app);
+  --bg-nav: var(--wm-color-surface);
+  --bg-panel: var(--wm-color-surface);
+  --surface: var(--wm-color-surface);
+  --surface-hover: var(--wm-color-surface-muted);
+  --border: var(--wm-color-border);
+  --border-strong: var(--wm-color-border-strong);
+  --text-primary: var(--wm-color-text-primary);
+  --text-secondary: var(--wm-color-text-secondary);
+  --text-muted: var(--wm-color-text-muted);
+  --accent: var(--wm-color-accent);
+  --accent-hover: var(--wm-color-accent-hover);
+  --accent-soft: var(--wm-color-accent-soft);
+  --accent-border: var(--wm-color-accent-border);
+  --success: var(--wm-color-success);
+  --success-soft: var(--wm-color-success-soft);
+  --success-border: var(--wm-color-success-border);
+  --warning: var(--wm-color-warning);
+  --warning-soft: var(--wm-color-warning-soft);
+  --warning-border: var(--wm-color-warning-border);
+  --danger: var(--wm-color-danger);
+  --danger-soft: var(--wm-color-danger-soft);
+  --danger-border: var(--wm-color-danger-border);
+  --shadow-sm: var(--wm-shadow-sm);
+  --shadow-md: var(--wm-shadow-md);
+  --radius-sm: var(--wm-radius-sm);
+  --radius-md: var(--wm-radius-md);
+  --radius-lg: var(--wm-radius-lg);
+}
+
+body {
+  font-family: var(--wm-font-body);
+  font-size: var(--wm-text-md);
+  color: var(--wm-color-text-primary);
+  background-color: var(--wm-color-bg-app);
+}
+
+.drawer {
+  background: var(--wm-color-surface);
+  border-color: var(--wm-color-border);
+}
+
+.menu-item {
+  color: var(--wm-color-text-secondary);
+}
+
+.menu-item:hover,
+.menu-item.active {
+  background: var(--wm-color-accent-soft);
+  color: var(--wm-color-accent-text);
+}
+
+.primary,
+.ghost,
+.danger {
+  font-family: var(--wm-font-body);
+  font-size: var(--wm-text-md);
+  border-radius: var(--wm-radius-sm);
+}
+
+.primary {
+  color: var(--wm-color-text-inverse);
+  border-color: var(--wm-color-accent);
+  background: var(--wm-color-accent);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--wm-color-accent-hover);
+  border-color: var(--wm-color-accent-hover);
+}
+
+.ghost {
+  color: var(--wm-color-text-secondary);
+  background: var(--wm-color-surface);
+  border-color: var(--wm-color-border-strong);
+}
+
+.ghost:hover:not(:disabled) {
+  color: var(--wm-color-accent-text);
+  background: var(--wm-color-accent-soft);
+  border-color: var(--wm-color-accent-border);
+}
+
+.danger {
+  color: var(--wm-color-danger);
+  background: var(--wm-color-danger-soft);
+  border-color: var(--wm-color-danger-border);
+}
+
+.danger:hover:not(:disabled) {
+  color: var(--wm-color-danger);
+  background: var(--wm-color-danger-soft);
+  border-color: var(--wm-color-danger);
+}
+
+input:not([type='checkbox']):not([type='radio']),
+textarea,
+select {
+  font-size: var(--wm-text-md);
+  color: var(--wm-color-text-primary);
+  background-color: var(--wm-color-surface);
+  border-color: var(--wm-color-border-strong);
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--wm-color-accent);
+}
+
+.table-card,
+.detail-card,
+.page-card,
+.modal-card {
+  background: var(--wm-color-surface);
+  color: var(--wm-color-text-primary);
+  border-color: var(--wm-color-border);
+  border-radius: var(--wm-radius-lg);
+  box-shadow: var(--wm-shadow-sm);
+}
+
+.data-table th {
+  background: var(--wm-color-surface-subtle);
+  color: var(--wm-color-text-secondary);
+  border-color: var(--wm-color-border);
+  font-size: var(--wm-text-xs);
+}
+
+.data-table td {
+  color: var(--wm-color-text-secondary);
+  border-color: var(--wm-color-border);
+  font-size: var(--wm-text-md);
+}
+
+.status-tag {
+  font-size: var(--wm-text-xs);
+  border-radius: var(--wm-radius-sm);
+}
+
+.modal-card.is-drawer {
+  border-radius: 0;
+  box-shadow: var(--wm-shadow-md);
+}
+
+/* ---------- #26 verified shell and component-family migration ----------
+ * These selectors are the last layer in main.tsx. They replace the v2/v3/v4
+ * hard-coded surfaces with tokens while leaving layout, breakpoints, state
+ * selectors and interaction rules in their owning stylesheets. */
+.navbar {
+  background: var(--wm-color-surface);
+  border-color: var(--wm-color-border);
+  box-shadow: var(--wm-shadow-sm);
+}
+
+.sidebar {
+  background: var(--wm-color-surface-subtle);
+  border-color: var(--wm-color-border);
+  box-shadow: var(--wm-shadow-sm);
+}
+
+.logo,
+.page-head h2,
+.card-head h3,
+.detail-card h3,
+.modal-head h3 {
+  color: var(--wm-color-text-primary);
+}
+
+.nav-bell,
+.user-profile,
+.user-menu-panel,
+.notification-panel,
+.page-more-panel,
+.toast {
+  border-color: var(--wm-color-border);
+  background: var(--wm-color-surface);
+  color: var(--wm-color-text-primary);
+  box-shadow: var(--wm-shadow-sm);
+}
+
+.nav-bell:hover,
+.user-profile:hover {
+  border-color: var(--wm-color-accent-border);
+  background: var(--wm-color-accent-soft);
+}
+
+.auth-card,
+.req-head,
+.gate-bar,
+.board-col,
+.board-card,
+.wb-stat,
+.wb-row,
+.wb-empty,
+.rail-card {
+  border-color: var(--wm-color-border);
+  background: var(--wm-color-surface);
+  box-shadow: var(--wm-shadow-sm);
+}
+
+.card-head,
+.modal-head,
+.modal-foot,
+.detail-card-head,
+.notification-head,
+.user-menu-meta {
+  border-color: var(--wm-color-border);
+}
+
+.data-table tbody tr:hover,
+.wb-row:hover {
+  background: var(--wm-color-surface-subtle);
+}
+
+.wb-commandbar {
+  border-color: var(--wm-color-border);
+  background: var(--wm-color-surface);
+  box-shadow: var(--wm-shadow-sm);
+}
+
+.wb-stat:hover,
+.wb-stat.is-active,
+.wb-row:hover {
+  border-color: var(--wm-color-accent-border);
+}
+
+.wb-row.is-signOff {
+  border-left-color: var(--wm-color-accent);
+}
+
+.wb-row.is-change {
+  border-left-color: var(--wm-color-warning-strong);
+}
+
+.wb-row.is-ready {
+  border-left-color: var(--wm-color-success);
+}
+
+/* Pipeline cards and lanes keep their existing geometry, but all surfaces and
+   status borders now use the same semantic token family as the rest of the UI. */
+.requirement-pipeline .pipeline-wall,
+.requirement-pipeline .pipeline-task-lane {
+  border-color: var(--wm-color-border);
+  background: var(--wm-color-surface-subtle);
+}
+
+.requirement-pipeline .pipeline-workbench,
+.requirement-pipeline .pipeline-phase-node,
+.requirement-pipeline .pipeline-task,
+.requirement-pipeline .pipeline-task-card {
+  border-color: var(--wm-color-border);
+  background: var(--wm-color-surface);
+  color: var(--wm-color-text-secondary);
+  box-shadow: var(--wm-shadow-sm);
+}
+
+.requirement-pipeline .pipeline-phase-node:hover,
+.requirement-pipeline .pipeline-task:hover,
+.requirement-pipeline .pipeline-task-card:hover {
+  border-color: var(--wm-color-accent-border);
+}
+
+.requirement-pipeline .pipeline-phase.is-done .pipeline-phase-node {
+  border-color: var(--wm-color-success-border);
+}
+
+.requirement-pipeline .pipeline-phase.is-active .pipeline-phase-node {
+  border-color: var(--wm-color-accent-border);
+  box-shadow: 0 0 0 2px var(--wm-color-accent-soft);
+}
+
+.requirement-pipeline .pipeline-phase.is-blocked .pipeline-phase-node {
+  border-color: var(--wm-color-danger-border);
+  background: var(--wm-color-danger-soft);
+}
+
+.requirement-pipeline .pipeline-stage-step {
+  border-color: var(--wm-color-border);
+  background: var(--wm-color-surface-muted);
+  color: var(--wm-color-text-muted);
+}
+
+.requirement-pipeline .pipeline-stage-step.is-done {
+  border-color: var(--wm-color-success-border);
+  background: var(--wm-color-success-soft);
+  color: var(--wm-color-success);
+}
+
+.requirement-pipeline .pipeline-stage-step.is-active {
+  border-color: var(--wm-color-accent-border);
+  background: var(--wm-color-accent-soft);
+  color: var(--wm-color-accent-text);
+}
+
+.requirement-pipeline .pipeline-stage-step.is-blocked {
+  border-color: var(--wm-color-danger-border);
+  background: var(--wm-color-danger-soft);
+  color: var(--wm-color-danger);
+}
+
+/* Preserve the state-specific borders after the page-level neutral card rule. */
+.requirement-pipeline .pipeline-task-card.is-state-claimable {
+  border-color: var(--wm-color-success-border);
+}
+
+.requirement-pipeline .pipeline-task-card.is-state-waiting_predecessor,
+.requirement-pipeline .pipeline-task-card.is-state-waiting_approval,
+.requirement-pipeline .pipeline-task-card.is-state-unknown {
+  border-color: var(--wm-color-warning-border);
+  border-style: dashed;
+}
+
+.requirement-pipeline .pipeline-task-card.is-state-claimed,
+.requirement-pipeline .pipeline-task-card.is-state-in_progress {
+  border-color: var(--wm-color-accent-border);
+}
+
+.requirement-pipeline .pipeline-task-card.is-state-blocked_or_frozen {
+  border-color: var(--wm-color-danger-border);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: var(--wm-focus-width) solid var(--wm-color-focus-ring);
+  outline-offset: 2px;
+}

@@ -688,8 +688,8 @@ export async function runDemo({ provider = "ollama", baseUrl = "http://127.0.0.1
     onEvent: (event) => events.push(summarizeEvent(event)),
   });
   const startedAt = performance.now();
-  let initialSource = "";
-  let finalSource = "";
+  let initialSource;
+  let finalSource;
   let outcome = null;
   let errorCode = null;
   try {

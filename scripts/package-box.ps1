@@ -4,6 +4,7 @@ param(
   [string]$OutputDir = '',
   [string]$PostgresRoot = '',
   [string]$NodeExe = '',
+  [string]$Version = '',
   [switch]$SkipBuild,
   [switch]$Force
 )
@@ -13,6 +14,11 @@ $root = (Resolve-Path (Join-Path $scriptRoot '..')).Path
 if ([string]::IsNullOrWhiteSpace($OutputDir)) { $OutputDir = Join-Path $root 'release\workmesh-box-win-x64' }
 if ([string]::IsNullOrWhiteSpace($PostgresRoot)) { $PostgresRoot = Join-Path $root '.tmp\pgclient\pgsql' }
 if ([string]::IsNullOrWhiteSpace($NodeExe)) { $NodeExe = (Get-Command node -ErrorAction Stop).Source }
+if ([string]::IsNullOrWhiteSpace($Version)) {
+  $rootPackage = Get-Content -LiteralPath (Join-Path $root 'package.json') -Raw | ConvertFrom-Json
+  $Version = [string]$rootPackage.version
+}
+if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') { throw "Invalid release version: $Version" }
 $releasePath = [System.IO.Path]::GetFullPath($OutputDir)
 function Require-Path([string]$Path, [string]$Label) { if (-not (Test-Path -LiteralPath $Path)) { throw "$Label not found: $Path" } }
 function Copy-Tree([string]$Source, [string]$Destination) {
@@ -57,7 +63,17 @@ Copy-Item -LiteralPath (Join-Path $root 'packages\box\package.json') -Destinatio
 Copy-Tree (Join-Path $root 'packages\role-packages\roles') "$releasePath\roles"
 $apiOut = "$releasePath\app\api"
 New-Item -ItemType Directory -Force -Path $apiOut | Out-Null
+# Keep devDependencies in this deployment because install.ps1 runs Prisma's
+# migration CLI from app\api\node_modules\prisma during first-run setup.
 Run 'pnpm' @('--filter','@workmesh/api','deploy','--legacy',$apiOut)
+foreach ($requiredApiPath in @(
+  (Join-Path $apiOut 'dist\main.js'),
+  (Join-Path $apiOut 'prisma\schema.prisma'),
+  (Join-Path $apiOut 'node_modules\prisma\build\index.js'),
+  (Join-Path $apiOut 'node_modules\@prisma\client')
+)) {
+  Require-Path $requiredApiPath 'Deployed API artifact'
+}
 $workmeshModules = "$apiOut\node_modules\@workmesh"
 New-Item -ItemType Directory -Force -Path $workmeshModules | Out-Null
 foreach ($packageName in @('shared','role-packages')) {
@@ -100,8 +116,18 @@ Set-Content -LiteralPath "$cliZip.sha256" -Encoding ASCII -Value ($cliHash + '  
 Remove-Item -LiteralPath $cliStage -Recurse -Force
 $cliDownloadPage = '<!doctype html><meta charset="utf-8"><title>WorkMesh Downloads</title><h1>WorkMesh Downloads</h1><p><a href="/download/workmesh-cli-win-x64.zip">Windows x64 CLI ZIP</a> <a href="/download/workmesh-cli-win-x64.zip.sha256">SHA-256</a></p>'
 Set-Content -LiteralPath "$downloads\index.html" -Encoding UTF8 -Value $cliDownloadPage
-$manifest = [ordered]@{ schemaVersion='1.0'; product='workmesh-box'; version='1.0.0'; platform='win-x64'; builtAt=(Get-Date).ToUniversalTime().ToString('o'); node=$NodeExe; includes=@('node-runtime','postgresql','api','web','cli','box','role-packages'); apiPort=3000; webPort=5173; pgPort=5432 }
-$manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$releasePath\release-manifest.json" -Encoding UTF8
+# Keep the existing `node` manifest field for consumers, but make it portable:
+# the absolute runner path would disclose the build machine and differ between
+# runners. The packaged executable is always at this relative location.
+$manifest = [ordered]@{ schemaVersion='1.0'; product='workmesh-box'; version=$Version; platform='win-x64'; builtAt=(Get-Date).ToUniversalTime().ToString('o'); node='runtime\node.exe'; includes=@('node-runtime','postgresql','api','web','cli','box','role-packages'); apiPort=3000; webPort=5173; pgPort=5432 }
+$manifestJson = $manifest | ConvertTo-Json -Depth 5
+$manifestPath = Join-Path $releasePath 'release-manifest.json'
+Set-Content -LiteralPath $manifestPath -Value $manifestJson -Encoding UTF8
+$writtenManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+if ([System.IO.Path]::IsPathRooted([string]$writtenManifest.node)) { throw 'Release manifest node path must be relative to the package root.' }
+Require-Path (Join-Path $releasePath ([string]$writtenManifest.node)) 'Packaged Node runtime from release manifest'
+$releaseDownloadPage = '<!doctype html><meta charset="utf-8"><title>WorkMesh Downloads</title><h1>WorkMesh Downloads</h1><p><a href="/download/workmesh-box-win-x64.zip">Windows x64 Box Package</a> <a href="/download/workmesh-box-win-x64.zip.sha256">SHA-256</a></p><p><a href="/download/workmesh-cli-win-x64.zip">Windows x64 CLI ZIP</a> <a href="/download/workmesh-cli-win-x64.zip.sha256">SHA-256</a></p>'
+Set-Content -LiteralPath "$downloads\index.html" -Encoding UTF8 -Value $releaseDownloadPage
 $archive = Join-Path (Split-Path $releasePath -Parent) ((Split-Path $releasePath -Leaf) + '.zip')
 $archiveDownload = "$downloads\workmesh-box-win-x64.zip"
 if (Test-Path $archive) { Remove-Item $archive -Force }
@@ -112,7 +138,5 @@ $archiveHash = (Get-FileHash $archiveDownload -Algorithm SHA256).Hash.ToLowerInv
 $archiveHashLine = $archiveHash + '  workmesh-box-win-x64.zip'
 Set-Content -LiteralPath "$archiveDownload.sha256" -Encoding ASCII -Value $archiveHashLine
 Set-Content -LiteralPath "$archive.sha256" -Encoding ASCII -Value ($archiveHash + '  ' + [System.IO.Path]::GetFileName($archive))
-$releaseDownloadPage = '<!doctype html><meta charset="utf-8"><title>WorkMesh Downloads</title><h1>WorkMesh Downloads</h1><p><a href="/download/workmesh-box-win-x64.zip">Windows x64 Box Package</a> <a href="/download/workmesh-box-win-x64.zip.sha256">SHA-256</a></p><p><a href="/download/workmesh-cli-win-x64.zip">Windows x64 CLI ZIP</a> <a href="/download/workmesh-cli-win-x64.zip.sha256">SHA-256</a></p>'
-Set-Content -LiteralPath "$downloads\index.html" -Encoding UTF8 -Value $releaseDownloadPage
 Write-Host "Windows box package ready: $releasePath" -ForegroundColor Green
 Write-Host "Download archive: $archiveDownload" -ForegroundColor Green

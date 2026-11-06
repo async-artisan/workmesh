@@ -313,6 +313,15 @@ body {
 }
 
 /* ---------- 输入 ---------- */
+/* v3 在控件上写了 color-scheme: dark（第 311-315 行），v4 是亮色主题，
+   这里必须显式改回 light：否则原生 checkbox/radio、select 下拉弹层、
+   textarea 滚动条仍按深色渲染（未勾选的复选框会变成深灰方块）。 */
+input,
+textarea,
+select {
+  color-scheme: light;
+}
+
 input:not([type='checkbox']):not([type='radio']),
 textarea,
 select,
@@ -955,27 +964,6 @@ input[type='radio'] {
   color: #7b8aa0;
 }
 
-.req-create-grid {
-  grid-template-columns: minmax(220px, 1fr) minmax(320px, 1.5fr);
-  gap: 14px;
-  max-width: none;
-  padding: 16px 20px 0;
-}
-
-.req-create-grid .field textarea {
-  min-height: 72px;
-}
-
-.req-create-grid + .toolbar {
-  padding-top: 12px;
-}
-
-@media (max-width: 760px) {
-  .req-create-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
 .req-list-tools {
   display: flex;
   align-items: center;
@@ -1151,6 +1139,10 @@ input[type='radio'] {
 
 .segmented {
   display: inline-flex;
+  align-items: center;
+  /* 同排还有 36px 高的 .select / .ghost；不写 min-height 时这里只有 30px，
+     整排控件上下边缘会参差不齐。 */
+  min-height: 36px;
   padding: 2px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
@@ -1786,4 +1778,211 @@ button.pipeline-task:not(:disabled):hover { border-color: #67e8f9; }
 
 .artifact-checks .status-tag {
   font-size: 9.5px;
+}
+
+/* #27 readability closeout: these selectors are visible business/technical
+   metadata on the current shell, workbench, board, role, review and pipeline
+   pages.  Keep short decorative counters in their own smaller rule, while
+   making labels, statuses, owners and evidence readable and wrappable. */
+.menu-group-label {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.menu-group-label span {
+  font-size: 10px;
+}
+
+.api-state,
+.command-kicker,
+.command-date,
+.hero-label,
+.hero-unit,
+.wb-group-head span,
+.rail-label,
+.rail-code,
+.rail-status,
+.rail-meta dt,
+.rail-meta dd,
+.rail-feed-time,
+.rail-feed-body small,
+.board-toolbar-count,
+.acl-kb-label,
+.gate-list-role,
+.gate-list-state,
+.task-row-meta,
+.task-signed .task-row-meta,
+.artifact-checks,
+.review-checks {
+  font-size: 12px;
+}
+
+.rail-meta dd,
+.rail-feed-body strong,
+.rail-feed-body small,
+.task-row-meta,
+.wb-row-context,
+.acl-kb-label,
+.gate-list-role,
+.gate-list-state {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.rail-meta dd,
+.rail-feed-body strong,
+.rail-feed-body small {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.pipeline-phase-copy strong,
+.pipeline-task-main strong {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+.pipeline-phase-copy small,
+.pipeline-task-main small,
+.pipeline-phase-status,
+.pipeline-phase-count,
+.pipeline-deps,
+.pipeline-legend,
+.pipeline-blocked,
+.pipeline-parallel {
+  font-size: 12px;
+}
+
+.pipeline-phase-copy small,
+.pipeline-task-main small,
+.pipeline-deps {
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+.pipeline-task-main strong,
+.pipeline-task-main small {
+  overflow: visible;
+}
+
+.runs-item > small,
+.runs-chat-title p,
+.runs-step-label,
+.runs-step small,
+.runs-event,
+.runs-event time,
+.runs-message-meta time,
+.runs-empty-steps span {
+  font-size: 12px;
+}
+
+.runs-item-topline .status-tag,
+.runs-empty-steps i {
+  font-size: 11px;
+}
+
+.runs-chat-title p,
+.runs-step-label,
+.runs-step small,
+.runs-event,
+.runs-item > small {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* Browser verification found nested small elements shrinking below their
+   readable parent size, plus a few higher-specificity status/evidence rules. */
+.table-foot small,
+.card-head-actions small,
+.artifact-checks .status-tag,
+.runs-item-topline .status-tag,
+.evidence-meta {
+  font-size: 12px;
+}
+
+.wb-group-head h3 {
+  font-size: 14px;
+}
+
+/* RequirementPipeline is a live requirement-detail view, not a decorative
+   mock. Its stage, role, owner, status and task copy must remain readable. */
+.pipeline-team-stats span,
+.pipeline-stage-step,
+.pipeline-leader-status,
+.pipeline-member-status,
+.pipeline-task-card-top,
+.pipeline-task-card-top em,
+.pipeline-task-card-owner span,
+.pipeline-task-card-owner small,
+.pipeline-task-lane h4 small,
+.pipeline-task-lane > p {
+  font-size: 12px;
+}
+
+.pipeline-chip {
+  max-width: 160px;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.pipeline-task-lane h4 {
+  font-size: 14px;
+}
+
+.pipeline-task-card-top {
+  align-items: flex-start;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-task-card-top em {
+  flex: 0 1 auto;
+  white-space: normal;
+}
+
+.pipeline-task-card strong {
+  overflow: visible;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.pipeline-task-card-owner {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.pipeline-task-card-owner span,
+.pipeline-task-card-owner small {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+@media (max-width: 640px) {
+  .table-foot {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .table-foot .pager {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+}
+
+/* The header connection state and clock are visible technical metadata on
+   desktop. Keep them readable while preserving the compact header layout. */
+.nav-console,
+.console-label,
+.console-clock {
+  font-size: 12px;
+  letter-spacing: 0.08em;
 }

@@ -21,6 +21,7 @@ describe('主导航分组', () => {
       '/requirements',
       '/reviews',
       '/projects',
+      '/workspace',
       '/board',
       '/pipeline',
       '/knowledge',
@@ -37,6 +38,7 @@ describe('主导航分组', () => {
     expect(findNav('/roles').key).toBe('成员与角色');
     expect(findNav('/prd').key).toBe('项目文档');
     expect(findNav('/authorization').group).toBe('account');
+    expect(findNav('/workspace').key).toBe('接入与工作区');
     expect(findNav('/requirements/req-1').key).toBe('需求');
   });
 });

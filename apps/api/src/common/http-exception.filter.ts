@@ -41,6 +41,17 @@ function isPrismaInvalidInput(error: unknown): boolean {
   return candidate.name === 'PrismaClientKnownRequestError' && candidate.code === 'P2023';
 }
 
+/** Keep diagnostic logs useful without copying credentials or connection strings into them. */
+function sanitizeLogText(value: string): string {
+  return value
+    .replace(/([a-z][a-z\d+.-]*:\/\/)([^/\s:@]+)(?::[^/\s@]*)?@/gi, '$1[REDACTED]@')
+    .replace(/([?&](?:password|token|secret|key|authorization|cookie)=)[^&\s]+/gi, '$1[REDACTED]')
+    .replace(
+      /\b(?:password|token|secret|authorization|cookie)\b(\s*[:=]\s*)([^,\s;}\]]+)/gi,
+      '$1[REDACTED]',
+    );
+}
+
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
@@ -90,29 +101,55 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     if (status >= 500) {
-      const line = `${request?.method ?? 'UNKNOWN'} ${request?.path ?? 'UNKNOWN'} returned ${status} [${code}]: ${message}`;
+      const line = JSON.stringify({
+        event: 'http_request_failed',
+        method: request?.method ?? 'UNKNOWN',
+        path: request?.path ?? 'UNKNOWN',
+        status,
+        code,
+        message: sanitizeLogText(message),
+        requestId,
+      });
       if (error instanceof WorkmeshError) {
         // 已映射错误（如就绪探针 503）只记一行：堆栈对语义明确的错误没有定位价值，
         // 且探针被轮询时会刷屏。未映射异常仍必须留堆栈。
         this.logger.error(line);
       } else {
         // 未映射异常必须留堆栈：只记一行 message 会让 500 无法定位（A3 首跑就撞上过）。
-        this.logger.error(line, error instanceof Error ? error.stack : String(error));
+        this.logger.error(
+          line,
+          sanitizeLogText(error instanceof Error ? (error.stack ?? '') : String(error)),
+        );
       }
     } else if (warned) {
       // 已降级为 4xx 的 Prisma 输入错误：不值得报警，但要留痕以便发现内部把坏值传进查询。
       const column = (error as { meta?: { columnName?: unknown } }).meta?.columnName;
       this.logger.warn(
-        `${request?.method ?? 'UNKNOWN'} ${request?.path ?? 'UNKNOWN'} returned ${status} [${code}]: ${message}${
-          typeof column === 'string' ? ` (column ${column})` : ''
-        }`,
+        JSON.stringify({
+          event: 'http_request_rejected',
+          method: request?.method ?? 'UNKNOWN',
+          path: request?.path ?? 'UNKNOWN',
+          status,
+          code,
+          message: sanitizeLogText(message),
+          requestId,
+          ...(typeof column === 'string' ? { column } : {}),
+        }),
       );
     } else if (status >= 400) {
       // 4xx 过去在服务端完全没有痕迹：用户把响应里的 requestId 报过来时，日志里搜不到
       // 任何对应记录，登录/CSRF/票据失败也无从排查。这里统一留一行 warn（含 requestId），
       // 不记堆栈——4xx 是客户端问题，堆栈没有价值且会刷屏。
       this.logger.warn(
-        `${request?.method ?? 'UNKNOWN'} ${request?.path ?? 'UNKNOWN'} returned ${status} [${code}] requestId=${requestId}: ${message}`,
+        JSON.stringify({
+          event: 'http_request_rejected',
+          method: request?.method ?? 'UNKNOWN',
+          path: request?.path ?? 'UNKNOWN',
+          status,
+          code,
+          message: sanitizeLogText(message),
+          requestId,
+        }),
       );
     }
     response?.setHeader?.('X-Request-Id', requestId);

@@ -1,6 +1,7 @@
 import { useProjectContext } from '../hooks/useProjectContext';
 import { EmptyState } from './EmptyState';
 import { ErrorState } from './ErrorState';
+import { InlineLoading } from './Skeleton';
 import { StaleDataBanner } from './StaleDataBanner';
 
 interface ProjectSelectProps {
@@ -41,10 +42,8 @@ export function ProjectSelect({
 
   const hasProjects = projects.length > 0;
   const selectClassName = `select${className ? ` ${className}` : ''}`;
-  // 当前选中的项目可能刚被移除、尚未回落到第一个可访问项目；此时按第一个展示，避免空 value。
-  const selectedValue = projects.some((project) => project.id === projectId)
-    ? projectId
-    : (projects[0]?.id ?? '');
+  // 保留 URL 的显式选择；不可访问的项目使用下方占位选项提示用户重新选择。
+  const selectedValue = projectId;
 
   const handle = (next: string) => {
     setProjectId(next);
@@ -57,7 +56,7 @@ export function ProjectSelect({
       <div className="wm-project-select">
         <ErrorState
           title="项目列表加载失败"
-          message="暂时无法读取项目列表。"
+          message={error}
           detail={errorDetail}
           onRetry={() => void refreshProjects()}
           retryAriaLabel="重试加载项目列表"
@@ -66,7 +65,7 @@ export function ProjectSelect({
     );
   }
 
-  // 2）首次加载：禁用选择器并给出加载文案。
+  // 2）首次加载：禁用选择器并给出可读的加载提示（role="status"），不只靠下拉里的占位文案。
   if (!hasProjects && loading) {
     return (
       <div className="wm-project-select">
@@ -80,6 +79,7 @@ export function ProjectSelect({
         >
           <option value="">正在加载项目…</option>
         </select>
+        <InlineLoading label="正在读取项目…" />
       </div>
     );
   }
@@ -90,7 +90,7 @@ export function ProjectSelect({
       <div className="wm-project-select">
         <EmptyState
           title="还没有可访问的项目"
-          description="你可以创建项目，或通过邀请加入已有项目。"
+          description="你可以创建项目；如已有项目管理员邀请你，请打开管理员发送的邀请链接加入已有项目。"
           actionLabel={onCreateProject ? '创建项目' : undefined}
           onAction={onCreateProject}
           secondaryActionLabel={onAcceptInvite ? '接受邀请' : undefined}
@@ -118,12 +118,16 @@ export function ProjectSelect({
         aria-busy={loading || undefined}
         onChange={(event) => handle(event.target.value)}
       >
+        {!projects.some((project) => project.id === projectId) && (
+          <option value={projectId}>指定项目不可访问，请重新选择</option>
+        )}
         {projects.map((project) => (
           <option key={project.id} value={project.id}>
             {project.name}（{project.key}）
           </option>
         ))}
       </select>
+      {loading && <InlineLoading label="正在刷新项目列表…" />}
     </div>
   );
 }

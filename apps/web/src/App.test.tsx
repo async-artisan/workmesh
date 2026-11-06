@@ -683,4 +683,56 @@ describe('App（cookie WebSession 引导）', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '主导航' })).toBeNull());
     expect(document.activeElement).toBe(toggle);
   });
+
+  it('接入与工作区路由可达，并在主导航中注册入口', async () => {
+    stubApi((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init);
+      if (path === '/api/health') return { status: 200, body: {} };
+      if (path === '/api/v1/auth/session' && method === 'GET')
+        return { status: 200, body: envelope(authenticatedSession) };
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/activity' && method === 'GET')
+        return { status: 200, body: envelope({ items: [] }) };
+      if (path === '/api/v1/projects/p1/members' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope([{ id: 'user-1', email: 'user@example.com', role: 'MEMBER', version: 1 }]),
+        };
+      if (path === '/api/v1/projects/p1/repositories' && method === 'GET')
+        return { status: 200, body: envelope([]) };
+      if (path === '/api/v1/projects/p1/workspace-definition' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope({
+            definitionStatus: 'NOT_CONFIGURED',
+            projectId: 'p1',
+            projectVersion: 1,
+            definitionVersion: 0,
+            revisionId: null,
+            revisionNo: null,
+            digest: null,
+            publishedAt: null,
+            payload: null,
+            repositories: [],
+            draft: null,
+            validation: { valid: true, issues: [] },
+          }),
+        };
+      return undefined;
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/workspace']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: '接入与工作区' })).toBeInTheDocument();
+    expect(await screen.findByText('工作区定义尚未发布')).toBeInTheDocument();
+    expect(document.title).toBe('接入与工作区 · WorkMesh');
+    // 桌面侧栏与移动抽屉共享同一导航项；至少存在一个可达入口。
+    expect(screen.getAllByRole('button', { name: '接入与工作区' }).length).toBeGreaterThan(0);
+  });
 });

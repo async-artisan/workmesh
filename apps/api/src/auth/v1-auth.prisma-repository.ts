@@ -9,6 +9,7 @@ import type {
   V1CliAuthorizationRecord,
   V1CliDenyInput,
   V1CredentialCreateInput,
+  V1CredentialListRecord,
   V1CredentialRecord,
   V1RateWindowInput,
   V1SessionCreateInput,
@@ -171,10 +172,23 @@ export class V1AuthPrismaRepository implements V1AuthRepository {
     });
   }
 
-  async listCredentials(userId: string): Promise<V1CredentialRecord[]> {
+  async listCredentials(userId: string): Promise<V1CredentialListRecord[]> {
     const rows = await this.prisma.agentCredential.findMany({
       where: { userId },
-      include: { user: { select: USER_SELECT } },
+      include: {
+        user: { select: USER_SELECT },
+        // 仅 CLI 签发的凭据有反向关联的授权请求；老凭据为 null。
+        authorizationRequest: {
+          select: {
+            clientName: true,
+            deviceName: true,
+            devicePlatform: true,
+            clientVersion: true,
+            clientIp: true,
+            approvedAt: true,
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
     });
     return rows.map((row) => ({
@@ -189,6 +203,17 @@ export class V1AuthPrismaRepository implements V1AuthRepository {
       expiresAt: row.expiresAt,
       revokedAt: row.revokedAt,
       user: row.user,
+      createdAt: row.createdAt,
+      device: row.authorizationRequest
+        ? {
+            name: row.authorizationRequest.deviceName,
+            platform: row.authorizationRequest.devicePlatform,
+            clientVersion: row.authorizationRequest.clientVersion,
+            ip: row.authorizationRequest.clientIp,
+            clientName: row.authorizationRequest.clientName,
+            authorizedAt: row.authorizationRequest.approvedAt,
+          }
+        : null,
     }));
   }
 
@@ -241,6 +266,10 @@ export class V1AuthPrismaRepository implements V1AuthRepository {
         codeChallengeMethod: input.codeChallengeMethod,
         credentialSecretHash: input.credentialSecretHash,
         expiresAt: input.expiresAt,
+        deviceName: input.deviceName ?? null,
+        devicePlatform: input.devicePlatform ?? null,
+        clientVersion: input.clientVersion ?? null,
+        clientIp: input.clientIp ?? null,
       },
     });
     return mapCli(row);

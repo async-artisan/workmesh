@@ -15,7 +15,6 @@ import {
   CLI_VERSION,
   assertRoleKey,
   ensurePrivateDir,
-  loadWorkspace,
   lockPath,
   packagesDir,
   parseWorkspaceConfig,
@@ -25,6 +24,12 @@ import {
   type WorkspaceHost,
 } from './config';
 import { writePrivateFile } from './private-fs';
+import {
+  detectWorkspaceState,
+  dualConfigError,
+  legacyWorkspaceView,
+  v1MigrationRequiredError,
+} from './workspace-config';
 
 export type InstalledFile = { path: string; sha256: string; kind: string };
 
@@ -260,6 +265,13 @@ export async function installRolePackage(options: {
 }): Promise<InstallResult> {
   const packageDir = resolve(options.packageDir);
   const workspaceDir = resolve(options.workspaceDir);
+  // v1→v2 五态先判定：V1_ONLY 的写命令要求先迁移，DUAL_ACTIVE 拒绝自动选择。
+  const snapshot = await detectWorkspaceState(workspaceDir);
+  if (snapshot.state === 'DUAL_ACTIVE') throw dualConfigError(snapshot);
+  if (snapshot.state === 'V1_ONLY') throw v1MigrationRequiredError('roles install');
+  const existingWorkspace: WorkspaceConfig | undefined = snapshot.v2.value
+    ? legacyWorkspaceView(snapshot.v2.value)
+    : undefined;
   const manifest = await readManifest(packageDir);
   const resources = await verifyResources(packageDir, manifest);
   const manifestDigest = await sha256Bytes(new TextEncoder().encode(canonicalJson(manifest)));
@@ -275,7 +287,6 @@ export async function installRolePackage(options: {
     );
 
   // 首次安装/角色一致性与目标目录检查都在写入前完成，失败不留下半装状态。
-  const existingWorkspace = await maybeLoadWorkspace(workspaceDir);
   let pendingWorkspace: WorkspaceConfig | undefined;
   if (!existingWorkspace) {
     if (!options.projectId) throw new CliError('INVALID_REQUEST', '首次安装需要 --project <uuid>');
@@ -373,13 +384,4 @@ export async function installRolePackage(options: {
     files: resources.map((resource) => join(target, resource.path)),
     reused,
   };
-}
-
-async function maybeLoadWorkspace(dir: string): Promise<WorkspaceConfig | undefined> {
-  try {
-    return await loadWorkspace(dir);
-  } catch (error) {
-    if (error instanceof CliError && error.code === 'CONFIG_NOT_FOUND') return undefined;
-    throw error;
-  }
 }

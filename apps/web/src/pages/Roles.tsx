@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatApiError } from '../api/client';
 import {
@@ -12,6 +12,7 @@ import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { InviteMemberDialog } from '../components/InviteMemberDialog';
 import { Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
+import { InlineLoading, SkeletonLines, TableSkeletonRows } from '../components/Skeleton';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { useNarrowViewport } from '../hooks/useNarrowViewport';
 import { toast } from '../store/toast';
@@ -54,7 +55,7 @@ const aclStyles = `
 .acl-grant-empty { color:var(--danger,#cf2d33); font-size:12px; }
 .acl-form-error { margin:0; }
 .acl-detail-subject { display:grid; gap:2px; }
-.acl-detail-subject small { color:var(--text-muted,#7b8aa0); font-size:11px; }
+.acl-detail-subject small { color:var(--text-muted,#7b8aa0); font-size:var(--wm-text-xs,12px); }
 .acl-overview-table th, .acl-overview-table td { white-space:nowrap; }
 .acl-detail-table th, .acl-detail-table td { vertical-align:top; }
 @media (max-width: 720px) {
@@ -99,6 +100,11 @@ export function Roles() {
   const narrow = useNarrowViewport();
   const [members, setMembers] = useState<MemberView[]>([]);
   const [roles, setRoles] = useState<RoleView[]>([]);
+  /** 成员与业务角色是分开请求的两块内容，各自有 loading，首屏不先闪空态。 */
+  const [membersLoading, setMembersLoading] = useState(Boolean(projectId));
+  const [rolesLoading, setRolesLoading] = useState(Boolean(projectId));
+  /** 成员/角色读取序号：项目切换后旧请求不能清掉新请求的 loading。 */
+  const loadRequestRef = useRef(0);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [grantTarget, setGrantTarget] = useState<RoleGrantTarget | null>(null);
@@ -108,6 +114,9 @@ export function Roles() {
   const [knowledgeBaseId, setKnowledgeBaseId] = useState('');
   const [access, setAccess] = useState<AccessView | null>(null);
   const [accessError, setAccessError] = useState('');
+  /** 读取访问集合按钮也是异步动作：请求中必须有可读状态。 */
+  const [accessLoading, setAccessLoading] = useState(false);
+  const accessRequestRef = useRef(0);
   const [aclOpen, setAclOpen] = useState(false);
   const [aclForm, setAclForm] = useState({
     visibility: 'PROJECT' as 'PROJECT' | 'RESTRICTED',
@@ -132,25 +141,43 @@ export function Roles() {
   const [aclOriginalGrants, setAclOriginalGrants] = useState<AclGrantDraft[]>([]);
 
   async function load() {
+    const requestId = loadRequestRef.current + 1;
+    loadRequestRef.current = requestId;
     if (!projectId) {
       setMembers([]);
       setRoles([]);
+      setMembersLoading(false);
+      setRolesLoading(false);
       return;
     }
+    setMembersLoading(true);
+    setRolesLoading(true);
     try {
       const [memberRows, roleRows] = await Promise.all([
         projectApi.members(projectId),
         projectApi.roles(projectId),
       ]);
+      if (loadRequestRef.current !== requestId) return;
       setMembers(memberRows);
       setRoles(roleRows);
       setError('');
     } catch (caught) {
+      if (loadRequestRef.current !== requestId) return;
       setError(formatApiError(caught));
+    } finally {
+      if (loadRequestRef.current === requestId) {
+        setMembersLoading(false);
+        setRolesLoading(false);
+      }
     }
   }
 
   useEffect(() => {
+    // 项目切换：先清掉上一个项目的成员/角色，避免旧项目数据继续展示；刷新仍保留现有行。
+    setMembers([]);
+    setRoles([]);
+    setMembersLoading(Boolean(projectId));
+    setRolesLoading(Boolean(projectId));
     void load();
   }, [projectId]);
 
@@ -309,12 +336,20 @@ export function Roles() {
       setAccessError('当前项目没有默认知识库，无法读取 ACL。');
       return;
     }
+    const requestId = accessRequestRef.current + 1;
+    accessRequestRef.current = requestId;
+    setAccessLoading(true);
     try {
-      setAccess(await aclApi.getAccess(id));
+      const next = await aclApi.getAccess(id);
+      if (accessRequestRef.current !== requestId) return;
+      setAccess(next);
       setAccessError('');
     } catch (caught) {
+      if (accessRequestRef.current !== requestId) return;
       setAccess(null);
       setAccessError(formatApiError(caught));
+    } finally {
+      if (accessRequestRef.current === requestId) setAccessLoading(false);
     }
   }
 
@@ -416,7 +451,11 @@ export function Roles() {
         </div>
         <div className="page-actions">
           <ProjectSelect
-            onChange={() => setAccess(null)}
+            onChange={() => {
+              accessRequestRef.current += 1;
+              setAccess(null);
+              setAccessLoading(false);
+            }}
             onCreateProject={() => navigate('/projects')}
           />
         </div>
@@ -432,9 +471,13 @@ export function Roles() {
       <div className="table-card">
         <div className="card-head">
           <h3>
-            成员<small>{members.length}</small>
+            成员
+            <small>{membersLoading && members.length === 0 ? '加载中…' : members.length}</small>
           </h3>
-          <span className="card-head-actions">
+          <div className="card-head-actions">
+            {membersLoading && (
+              <InlineLoading label={members.length > 0 ? '正在刷新成员…' : '正在加载成员…'} />
+            )}
             <button
               className="ghost"
               onClick={() => setInviteOpen(true)}
@@ -442,10 +485,15 @@ export function Roles() {
             >
               邀请成员
             </button>
-          </span>
+          </div>
         </div>
         {narrow ? (
           <ul className="wm-mobile-card-list" data-testid="roles-member-card-list">
+            {membersLoading && members.length === 0 && (
+              <li className="wm-mobile-card">
+                <SkeletonLines lines={3} />
+              </li>
+            )}
             {members.map((member) => (
               <li className="wm-mobile-card" key={member.id} data-testid="roles-member-card">
                 <div className="wm-mobile-card-head">
@@ -457,18 +505,22 @@ export function Roles() {
                     {member.email}
                   </span>
                 )}
-                <div className="wm-mobile-card-tags">
-                  {(member.roles ?? []).length === 0 ? (
-                    <span className="muted">未授予业务角色</span>
-                  ) : (
-                    member.roles?.map((role) => (
-                      <span className="status-tag" key={role.id}>
-                        {role.title}
-                      </span>
-                    ))
-                  )}
-                </div>
-                <div className="wm-mobile-card-meta">成员版本 v{member.version}</div>
+                <p className="wm-mobile-card-meta">下一步：管理业务角色</p>
+                <details className="wm-mobile-card-details">
+                  <summary>查看业务角色与版本</summary>
+                  <div className="wm-mobile-card-tags">
+                    {(member.roles ?? []).length === 0 ? (
+                      <span className="muted">未授予业务角色</span>
+                    ) : (
+                      member.roles?.map((role) => (
+                        <span className="status-tag" key={role.id}>
+                          {role.title}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                  <p className="wm-mobile-card-meta">成员版本：v{member.version}</p>
+                </details>
                 <div className="wm-mobile-card-actions">
                   <button className="ghost" onClick={() => setRoleMember(member)}>
                     管理角色
@@ -476,8 +528,14 @@ export function Roles() {
                 </div>
               </li>
             ))}
-            {members.length === 0 && (
-              <li className="wm-mobile-empty">{projectId ? '没有活动成员。' : '先选择项目。'}</li>
+            {!membersLoading && members.length === 0 && (
+              <li className="wm-mobile-empty">
+                {projectId
+                  ? error
+                    ? '成员列表读取失败，请稍后重试。'
+                    : '没有活动成员。'
+                  : '先选择项目。'}
+              </li>
             )}
           </ul>
         ) : (
@@ -492,42 +550,54 @@ export function Roles() {
                 </tr>
               </thead>
               <tbody>
-                {members.map((member) => (
-                  <tr key={member.id}>
-                    <td>
-                      <strong>{member.name || member.email}</strong>
-                      {member.name && member.name !== member.email && (
-                        <div className="cell-mono cell-truncate">{member.email}</div>
-                      )}
-                    </td>
-                    <td>
-                      <span className="status-tag">{member.role}</span>
-                    </td>
-                    <td className="cell-num">v{member.version}</td>
-                    <td className="col-actions">
-                      <div className="role-summary">
-                        <div className="role-tags">
-                          {(member.roles ?? []).length === 0 ? (
-                            <span className="muted">未授予业务角色</span>
-                          ) : (
-                            member.roles?.map((role) => (
-                              <span className="status-tag" key={role.id}>
-                                {role.title}
-                              </span>
-                            ))
+                {membersLoading && members.length === 0 ? (
+                  <TableSkeletonRows rows={4} columns={4} />
+                ) : (
+                  <>
+                    {members.map((member) => (
+                      <tr key={member.id}>
+                        <td>
+                          <strong>{member.name || member.email}</strong>
+                          {member.name && member.name !== member.email && (
+                            <div className="cell-mono cell-truncate">{member.email}</div>
                           )}
-                        </div>
-                        <button className="ghost" onClick={() => setRoleMember(member)}>
-                          管理角色
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {members.length === 0 && (
-                  <tr className="table-empty">
-                    <td colSpan={4}>{projectId ? '没有活动成员。' : '先选择项目。'}</td>
-                  </tr>
+                        </td>
+                        <td>
+                          <span className="status-tag">{member.role}</span>
+                        </td>
+                        <td className="cell-num">v{member.version}</td>
+                        <td className="col-actions">
+                          <div className="role-summary">
+                            <div className="role-tags">
+                              {(member.roles ?? []).length === 0 ? (
+                                <span className="muted">未授予业务角色</span>
+                              ) : (
+                                member.roles?.map((role) => (
+                                  <span className="status-tag" key={role.id}>
+                                    {role.title}
+                                  </span>
+                                ))
+                              )}
+                            </div>
+                            <button className="ghost" onClick={() => setRoleMember(member)}>
+                              管理角色
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {members.length === 0 && (
+                      <tr className="table-empty">
+                        <td colSpan={4}>
+                          {projectId
+                            ? error
+                              ? '成员列表读取失败，请稍后重试。'
+                              : '没有活动成员。'
+                            : '先选择项目。'}
+                        </td>
+                      </tr>
+                    )}
+                  </>
                 )}
               </tbody>
             </table>
@@ -544,52 +614,69 @@ export function Roles() {
         onClose={() => setRoleMember(null)}
       >
         <div className="role-manage-list">
-          {roles.map((role) => {
-            const granted = Boolean(
-              roleMember?.roles?.some((assignment) => assignment.id === role.id),
-            );
-            return (
-              <div className="role-manage-row" key={role.id}>
-                <div>
-                  <strong>{role.title}</strong>
-                  <small>{role.key}</small>
-                </div>
-                <button
-                  className={granted ? 'danger' : 'ghost'}
-                  onClick={() => {
-                    if (!roleMember) return;
-                    setGrantTarget({
-                      member: roleMember,
-                      role,
-                      revoke: granted,
-                      reason: '',
-                    });
-                    setRoleMember(null);
-                  }}
-                >
-                  {granted ? '撤销' : '授予'}
-                </button>
-              </div>
-            );
-          })}
-          {roles.length === 0 && <p className="detail-empty">项目还没有业务角色。</p>}
+          {rolesLoading && roles.length === 0 ? (
+            <InlineLoading label="正在加载业务角色…" />
+          ) : (
+            <>
+              {roles.map((role) => {
+                const granted = Boolean(
+                  roleMember?.roles?.some((assignment) => assignment.id === role.id),
+                );
+                return (
+                  <div className="role-manage-row" key={role.id}>
+                    <div>
+                      <strong>{role.title}</strong>
+                      <small>{role.key}</small>
+                    </div>
+                    <button
+                      className={granted ? 'danger' : 'ghost'}
+                      onClick={() => {
+                        if (!roleMember) return;
+                        setGrantTarget({
+                          member: roleMember,
+                          role,
+                          revoke: granted,
+                          reason: '',
+                        });
+                        setRoleMember(null);
+                      }}
+                    >
+                      {granted ? '撤销' : '授予'}
+                    </button>
+                  </div>
+                );
+              })}
+              {roles.length === 0 && (
+                <p className="detail-empty">
+                  {error ? '业务角色读取失败，请刷新页面后重试。' : '项目还没有业务角色。'}
+                </p>
+              )}
+            </>
+          )}
         </div>
       </Modal>
 
       <div className="table-card">
         <div className="card-head">
           <h3>知识库访问（ACL）</h3>
-          <span className="card-head-actions">
+          <div className="card-head-actions">
+            {accessLoading && (
+              <InlineLoading label={access ? '正在刷新访问集合…' : '正在读取访问集合…'} />
+            )}
             <span className="acl-kb-label">默认知识库：{selectedProject?.name ?? '未配置'}</span>
-            <button className="ghost" onClick={() => void loadAccess()} disabled={!knowledgeBaseId}>
-              读取访问集合
+            <button
+              className="ghost"
+              onClick={() => void loadAccess()}
+              disabled={!knowledgeBaseId || accessLoading}
+            >
+              {accessLoading ? '读取中…' : '读取访问集合'}
             </button>
             {access && (
               <button className="primary" onClick={openAcl}>
                 替换访问集合
               </button>
             )}
-          </span>
+          </div>
         </div>
         {accessError && (
           <p className="error" role="alert">
@@ -1025,6 +1112,7 @@ export function Roles() {
         projectId={projectId}
         projectVersion={selectedProject?.version ?? null}
         roles={roles}
+        rolesLoading={rolesLoading}
         onClose={() => setInviteOpen(false)}
       />
     </section>

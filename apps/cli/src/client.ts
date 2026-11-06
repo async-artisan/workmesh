@@ -1,6 +1,16 @@
+import { hostname as osHostname, platform as osPlatform, release as osRelease } from 'node:os';
 import { canonicalJson, type ApiError } from '@workmesh/shared';
+import { CLI_VERSION } from './config';
 import { CliError } from './errors';
 import type { Platform } from './platform';
+import {
+  parseConsumedEnrollment,
+  parseCurrentWorkspaceDefinition,
+  parseWorkspaceRevision,
+  type EnrolledProject,
+  type ResolvedWorkspaceDefinition,
+  type WorkspaceDefinitionPayload,
+} from './workspace-config';
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -29,6 +39,39 @@ const RETRYABLE_STATUS = new Set([408, 429, 502, 503, 504]);
 const MAX_ATTEMPTS = 3;
 const SAFE_PATH = /^\/[A-Za-z0-9._~/:%+-]*$/;
 const ENCODED_SEPARATOR = /%(?:2f|2e|00|5c)/i;
+
+/** 设备元数据头上限，与 GET /auth/credentials 暴露的 device 字段契约一致。 */
+const DEVICE_NAME_MAX = 80;
+const PLATFORM_MAX = 60;
+const CLIENT_VERSION_MAX = 30;
+const HEADER_SAFE = /[^\x20-\x7e]/g;
+
+function truncateHeader(value: string, max: number): string {
+  return value.length > max ? value.slice(0, max) : value;
+}
+
+/**
+ * 每个请求都上报设备元数据，让凭据列表能区分是哪台机器授权的。
+ * 值在模块加载时只计算一次；HTTP 头只能是 ASCII，非 ASCII 主机名按 `_` 归一。
+ */
+function buildDeviceHeaders(): Readonly<Record<string, string>> {
+  let hostname: string;
+  try {
+    hostname = osHostname();
+  } catch {
+    hostname = '';
+  }
+  return Object.freeze({
+    'x-workmesh-device': truncateHeader(hostname.replace(HEADER_SAFE, '_'), DEVICE_NAME_MAX),
+    'x-workmesh-platform': truncateHeader(
+      `${osPlatform()} ${osRelease()}`.replace(HEADER_SAFE, '_'),
+      PLATFORM_MAX,
+    ),
+    'x-workmesh-client-version': truncateHeader(CLI_VERSION, CLIENT_VERSION_MAX),
+  });
+}
+
+const DEVICE_HEADERS = buildDeviceHeaders();
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -145,7 +188,10 @@ export class V1Client {
     idempotencyKey: string | undefined,
     remaining: number,
   ): Promise<{ response: Response; text: string }> {
-    const headers: Record<string, string> = { accept: 'application/json' };
+    const headers: Record<string, string> = {
+      accept: 'application/json',
+      ...DEVICE_HEADERS,
+    };
     if (this.bearer) headers.authorization = `Bearer ${this.bearer}`;
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
@@ -220,4 +266,71 @@ export class V1Client {
     const wait = Math.min(retryAfter ?? exponential + Math.floor(this.random() * 100), remaining);
     if (wait > 0) await this.sleep(wait);
   }
+
+  /**
+   * 匿名消费一次性接入码（不携带 bearer；码本身是唯一凭证）。
+   * 响应只解析项目与精确已发布 revision，不授予任何额外权限。
+   */
+  async consumeEnrollmentCode(code: string): Promise<V1Response<EnrolledProject>> {
+    const response = await this.request<unknown>('POST', '/workspace-enrollments/consume', {
+      body: { code },
+      idempotent: false,
+    });
+    return { data: parseConsumedEnrollment(response.data), requestId: response.requestId };
+  }
+
+  /**
+   * 读取精确已发布 revision（绝不回退到“当前 revision”）。
+   * digest 由服务端对 payload 规范化计算；这里同时做本地重算校验。
+   */
+  async getWorkspaceDefinitionRevision(
+    projectId: string,
+    revisionId: string,
+  ): Promise<WorkspaceRevisionResponse> {
+    const response = await this.request<unknown>(
+      'GET',
+      `/projects/${encodeURIComponent(projectId)}/workspace-definition/revisions/${encodeURIComponent(revisionId)}`,
+    );
+    const parsed = await parseWorkspaceRevision(response.data);
+    return {
+      revision: parsed.revision,
+      digestMatchesPayload: parsed.digestMatchesPayload,
+      payloadPresent: parsed.payloadPresent,
+      requestId: response.requestId,
+    };
+  }
+
+  /** 读取当前已发布定义（只读；NOT_CONFIGURED 是展示状态，不是可接入 revision）。 */
+  async getWorkspaceDefinition(projectId: string): Promise<WorkspaceDefinitionResponse> {
+    const response = await this.request<unknown>(
+      'GET',
+      `/projects/${encodeURIComponent(projectId)}/workspace-definition`,
+    );
+    const parsed = await parseCurrentWorkspaceDefinition(response.data);
+    return {
+      definitionStatus: parsed.definitionStatus,
+      projectId: parsed.projectId,
+      revision: parsed.revision,
+      digestMatchesPayload: parsed.digestMatchesPayload,
+      requestId: response.requestId,
+    };
+  }
 }
+
+export type WorkspaceRevisionResponse = {
+  revision: ResolvedWorkspaceDefinition;
+  /** payload 在响应中显式给出时，本地 sha256(canonicalJson(payload)) 是否等于 digest。 */
+  digestMatchesPayload: boolean;
+  payloadPresent: boolean;
+  requestId: string;
+};
+
+export type WorkspaceDefinitionResponse = {
+  definitionStatus: 'CONFIGURED' | 'NOT_CONFIGURED';
+  projectId: string;
+  revision: ResolvedWorkspaceDefinition | null;
+  digestMatchesPayload: boolean;
+  requestId: string;
+};
+
+export type WorkspaceRevisionPayload = WorkspaceDefinitionPayload;

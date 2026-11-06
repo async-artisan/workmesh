@@ -3,6 +3,7 @@ export * from './bytes';
 export * from './canonical-json';
 export * from './errors';
 export * from './protocol';
+export * from './repository-locator';
 export * from './strict-json';
 export * from './schemas';
 export * from './test-database';

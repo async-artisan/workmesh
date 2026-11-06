@@ -1,10 +1,18 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Requirements } from './Requirements';
 import { setCsrfToken } from '../api/client';
 import { useAuthStore } from '../store/auth';
-import { bodyOf, envelope, methodOf, mockFetch, pathOf, useProject } from '../test-utils';
+import {
+  bodyOf,
+  envelope,
+  methodOf,
+  mockFetch,
+  pathOf,
+  useProject,
+  type StubReply,
+} from '../test-utils';
 
 const project = { id: 'p1', key: 'DEMO', name: 'Demo', version: 3 };
 const requirement = {
@@ -112,6 +120,46 @@ describe('Requirements（流程实例只由管理员显式绑定）', () => {
     setCsrfToken(null);
     useAuthStore.getState().clearAuth();
     localStorage.clear();
+  });
+
+  it('新建需求走弹窗：标题为空时禁用提交，填写后提交并关闭弹窗', async () => {
+    const baseHandler = handler({ definitions: [publishedDefinition] });
+    const mock = mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init);
+      if (path === '/api/v1/projects/p1/requirements' && method === 'POST')
+        return {
+          status: 201,
+          body: envelope({ ...requirement, id: 'req-2', code: 'DEMO-REQ-2', title: '新需求' }),
+        };
+      return baseHandler(url, init);
+    });
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '新建需求' }));
+    const dialog = await screen.findByRole('dialog');
+    const submit = within(dialog).getByRole('button', { name: '创建需求' });
+    expect(submit).toBeDisabled();
+
+    fireEvent.change(within(dialog).getByLabelText('需求标题'), {
+      target: { value: '新需求' },
+    });
+    fireEvent.change(within(dialog).getByLabelText('需求描述'), {
+      target: { value: '描述内容' },
+    });
+    expect(submit).not.toBeDisabled();
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(await screen.findByText('需求已创建。')).toBeInTheDocument();
+
+    const call = mock.mock.calls.find(
+      ([url, init]) =>
+        pathOf(String(url)) === '/api/v1/projects/p1/requirements' &&
+        methodOf(init ?? {}) === 'POST',
+    );
+    expect(bodyOf(call?.[1] ?? {})).toEqual({ title: '新需求', description: '描述内容' });
   });
 
   it('没有可访问项目时显示创建项目入口并导航到真实项目列表', async () => {
@@ -462,5 +510,55 @@ describe('Requirements（≤720px 卡片列表）', () => {
     expect(screen.getByRole('columnheader', { name: '描述' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '操作' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '详情' })).toBeEnabled();
+  });
+});
+
+describe('Requirements（加载反馈）', () => {
+  beforeEach(() => {
+    setCsrfToken('csrf-1');
+    useProject('p1');
+    useAuthStore.getState().setSession({ id: 'u-1', email: 'alice@example.com' });
+  });
+
+  afterEach(() => {
+    setCsrfToken(null);
+    useAuthStore.getState().clearAuth();
+    localStorage.clear();
+  });
+
+  it('首次加载显示表格骨架与可读加载状态，不闪空态文案与 0 / 0 计数', async () => {
+    let release: (reply: StubReply) => void = () => {};
+    const pending = new Promise<StubReply>((resolve) => {
+      release = resolve;
+    });
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init);
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET') return pending;
+      if (path === '/api/v1/projects/p1/members' && method === 'GET')
+        return { status: 200, body: envelope(members) };
+      if (path === '/api/v1/projects/p1/roles' && method === 'GET')
+        return { status: 200, body: envelope(roles) };
+      if (path === '/api/v1/projects/p1/workflow-definitions' && method === 'GET')
+        return { status: 200, body: envelope({ items: [], nextCursor: null }) };
+      return undefined;
+    });
+
+    renderPage();
+
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent(/正在加载/);
+    expect(document.querySelectorAll('.wm-skeleton-row').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('requirements-table')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByText('还没有需求，点右上角「新建需求」创建。')).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 \/ 0/)).not.toBeInTheDocument();
+
+    release({ status: 200, body: envelope({ items: [requirement], nextCursor: null }) });
+
+    expect(await screen.findByText('DEMO-REQ-1')).toBeInTheDocument();
+    expect(screen.getByText('1 / 1')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
   });
 });

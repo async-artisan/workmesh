@@ -59,11 +59,38 @@ export function platformFromParts(origin: string, apiBasePath: string): Platform
   return parsePlatform(`${origin}${apiBasePath}`);
 }
 
-/** 浏览器授权页固定路径，链接中不携带 deviceCode、verifier 或任何秘密。 */
+/** 浏览器授权链接只允许固定站内页面；loopback 本地 Web/API 可使用不同端口。 */
 export function verificationUrl(platform: Platform, verificationUri: string): string {
-  if (!verificationUri.startsWith('/') || verificationUri.startsWith('//'))
-    clampThrow('verificationUri 必须是站内路径');
   if (/\s|deviceCode|userCode|codeVerifier|secret|token/i.test(verificationUri))
     clampThrow('verificationUri 不能携带设备码、验证器或凭据');
-  return `${platform.origin}${verificationUri}`;
+  const platformUrl = new URL(platform.origin);
+  let target: URL;
+  try {
+    if (verificationUri.startsWith('/') && !verificationUri.startsWith('//')) {
+      target = new URL(verificationUri, platform.origin);
+    } else {
+      target = new URL(verificationUri);
+    }
+  } catch {
+    clampThrow('verificationUri 必须是合法站内地址');
+  }
+  if (
+    (target.protocol !== 'https:' && target.protocol !== 'http:') ||
+    target.protocol !== platformUrl.protocol ||
+    target.username ||
+    target.password ||
+    target.search ||
+    target.hash ||
+    target.pathname !== '/cli/authorize'
+  )
+    clampThrow('verificationUri 必须指向固定的设备授权页');
+
+  const isLoopback = (hostname: string) => LOOPBACK.has(hostname.toLowerCase());
+  if (
+    target.origin !== platformUrl.origin &&
+    !(isLoopback(platformUrl.hostname) && isLoopback(target.hostname))
+  )
+    clampThrow('verificationUri 必须与平台同源（本地 loopback 允许不同端口）');
+
+  return target.toString();
 }

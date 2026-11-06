@@ -138,7 +138,9 @@ describe('DelegationsPanel（委托 / 超时）', () => {
 
     // 创建委托：选择槽位与被委托人
     const slotSelect = await screen.findByLabelText('委托槽位');
-    await waitFor(() => expect(within(slotSelect).getAllByRole('option').length).toBeGreaterThan(1));
+    await waitFor(() =>
+      expect(within(slotSelect).getAllByRole('option').length).toBeGreaterThan(1),
+    );
     fireEvent.change(slotSelect, { target: { value: 'slot-1' } });
     fireEvent.change(screen.getByLabelText('被委托人'), { target: { value: 'be-1' } });
     fireEvent.click(screen.getByRole('button', { name: '创建委托' }));
@@ -193,11 +195,73 @@ describe('DelegationsPanel（委托 / 超时）', () => {
     mockFetch(handler());
     renderPanel();
 
-    expect(
-      await screen.findByText('只读：仅 OWNER/ADMIN 可建立或撤销委托'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('只读：仅 OWNER/ADMIN 可建立或撤销委托')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '创建委托' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '标记全部升级' })).not.toBeInTheDocument();
+  });
+
+  it('首次加载显示加载状态与骨架，而不是“还没有委托记录”空态', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const inner = handler();
+    mockFetch(async (url, init) => {
+      await gate;
+      return inner(url, init);
+    });
+
+    renderPanel();
+
+    expect(await screen.findByRole('status')).toHaveTextContent('正在读取委托与逾期信息…');
+    expect(screen.queryByText('还没有委托记录。')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /审批委托/ })).toBeInTheDocument();
+
+    release();
+    expect(await screen.findByLabelText('委托槽位')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText('正在读取委托与逾期信息…')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('刷新时保留已有委托，并显示“刷新中…”与内联加载', async () => {
+    delegations = [
+      {
+        id: 'delegation-refresh',
+        projectId: 'p1',
+        slotId: 'slot-1',
+        delegatorUserId: 'be-1',
+        delegateUserId: 'owner-1',
+        expiresAt: new Date(Date.now() + 2 * 3_600_000).toISOString(),
+        revokedAt: null,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    let delay = false;
+    let release!: () => void;
+    let gate = Promise.resolve();
+    const inner = handler();
+    mockFetch(async (url, init) => {
+      if (delay) await gate;
+      return inner(url, init);
+    });
+
+    renderPanel();
+    expect(await screen.findByText(/即将到期/)).toBeInTheDocument();
+
+    delay = true;
+    gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+
+    expect(await screen.findByText('正在刷新委托与逾期信息…')).toBeInTheDocument();
+    // 刷新期间旧数据仍在，不能退回空态。
+    expect(screen.getByText(/即将到期/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '刷新中…' })).toBeDisabled();
+
+    release();
+    await waitFor(() => expect(screen.getByRole('button', { name: '刷新' })).toBeEnabled());
   });
 
   it('委托将在 24 小时内到期时给出提醒与「即将到期」状态', async () => {

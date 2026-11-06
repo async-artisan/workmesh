@@ -12,6 +12,7 @@ import {
 } from '../api/resources';
 import { EmptyState } from './EmptyState';
 import { ErrorState } from './ErrorState';
+import { InlineLoading, SkeletonLines } from './Skeleton';
 import { STEP_LABELS, labelFor } from '../lib/labels';
 import { formatDateTime } from '../lib/datetime';
 import { useAuthStore } from '../store/auth';
@@ -26,6 +27,10 @@ interface SlotOption {
   label: string;
   reviewId: string;
 }
+
+/** 按动作区分进行中的写操作：按钮文案要说明“正在做什么”，而不是笼统的“提交中”。 */
+type DelegationBusyAction =
+  { kind: 'create' } | { kind: 'revoke'; id: string } | { kind: 'escalate' } | null;
 
 function defaultExpiry(): string {
   const date = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -46,7 +51,8 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
   const [openReviews, setOpenReviews] = useState<ReviewView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<DelegationBusyAction>(null);
+  const busy = busyAction !== null;
   const [slotId, setSlotId] = useState('');
   const [delegateUserId, setDelegateUserId] = useState('');
   const [expiresAt, setExpiresAt] = useState(defaultExpiry);
@@ -78,7 +84,6 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
   useEffect(() => {
     void load();
     // 只随项目切换重新加载。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   const memberEmail = useMemo(() => {
@@ -154,7 +159,7 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
       setFormError('到期时间必须晚于当前时间。');
       return;
     }
-    setBusy(true);
+    setBusyAction({ kind: 'create' });
     setFormError('');
     try {
       await delegationApi.create(projectId, {
@@ -170,12 +175,12 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
     } catch (caught) {
       setFormError(formatApiError(caught));
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   }
 
   async function revoke(delegation: ApprovalSlotDelegationView) {
-    setBusy(true);
+    setBusyAction({ kind: 'revoke', id: delegation.id });
     try {
       await delegationApi.revoke(projectId, delegation.id);
       toast.success('委托已撤销。');
@@ -183,12 +188,12 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
     } catch (caught) {
       setError(formatApiError(caught));
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   }
 
   async function escalateOverdue() {
-    setBusy(true);
+    setBusyAction({ kind: 'escalate' });
     try {
       const result = await delegationApi.escalate(projectId);
       toast.success(`已标记 ${result.escalated} 条逾期槽位为升级。`);
@@ -196,12 +201,33 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
     } catch (caught) {
       setError(formatApiError(caught));
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   }
 
   if (loading && delegations.length === 0 && overdue.length === 0 && members.length === 0) {
-    return <p className="detail-empty">正在读取委托与逾期信息…</p>;
+    // 首次加载：用骨架顶住卡片结构，避免先闪一下“还没有委托记录”的空态。
+    return (
+      <div className="delegations-panel" aria-busy="true">
+        <div className="table-card">
+          <div className="card-head">
+            <h3>
+              审批委托<small>读取中</small>
+            </h3>
+          </div>
+          <InlineLoading label="正在读取委托与逾期信息…" />
+          <SkeletonLines lines={3} />
+        </div>
+        <div className="table-card">
+          <div className="card-head">
+            <h3>
+              超时未决定<small>读取中</small>
+            </h3>
+          </div>
+          <SkeletonLines lines={2} />
+        </div>
+      </div>
+    );
   }
   if (error && members.length === 0) {
     return (
@@ -216,8 +242,7 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
   }
 
   const activeDelegations = delegations.filter(
-    (delegation) =>
-      !delegation.revokedAt && new Date(delegation.expiresAt).getTime() > Date.now(),
+    (delegation) => !delegation.revokedAt && new Date(delegation.expiresAt).getTime() > Date.now(),
   );
   const expiringSoon = activeDelegations.filter((delegation) => {
     const hoursLeft = (new Date(delegation.expiresAt).getTime() - Date.now()) / 3_600_000;
@@ -225,8 +250,13 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
   });
 
   return (
-    <div className="delegations-panel">
-      {error && <p className="error" role="alert">{error}</p>}
+    <div className="delegations-panel" aria-busy={loading || busy}>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {loading && <InlineLoading label="正在刷新委托与逾期信息…" />}
 
       <div className="table-card">
         <div className="card-head">
@@ -236,7 +266,7 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
           <span className="card-head-actions">
             {canWrite ? (
               <button className="ghost" onClick={() => void load()} disabled={loading || busy}>
-                刷新
+                {loading ? '刷新中…' : '刷新'}
               </button>
             ) : (
               <small>只读：仅 OWNER/ADMIN 可建立或撤销委托</small>
@@ -304,11 +334,9 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
                 onClick={() => void createDelegation()}
                 disabled={busy || slotOptions.length === 0}
               >
-                {busy ? '提交中…' : '创建委托'}
+                {busyAction?.kind === 'create' ? '创建中…' : '创建委托'}
               </button>
-              {slotOptions.length === 0 && (
-                <small>当前没有可委托的开放审批槽位。</small>
-              )}
+              {slotOptions.length === 0 && <small>当前没有可委托的开放审批槽位。</small>}
             </div>
           </div>
         )}
@@ -325,10 +353,16 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
               return (
                 <li key={delegation.id} className="delegation-row">
                   <div>
-                    <strong>{slotLabels.get(delegation.slotId) ?? `槽位 ${delegation.slotId.slice(0, 8)}`}</strong>
+                    <strong>
+                      {slotLabels.get(delegation.slotId) ?? `槽位 ${delegation.slotId.slice(0, 8)}`}
+                    </strong>
                     <small>
-                      委托人 {memberEmail.get(delegation.delegatorUserId) ?? delegation.delegatorUserId.slice(0, 8)} →
-                      被委托人 {memberEmail.get(delegation.delegateUserId) ?? delegation.delegateUserId.slice(0, 8)}
+                      委托人{' '}
+                      {memberEmail.get(delegation.delegatorUserId) ??
+                        delegation.delegatorUserId.slice(0, 8)}{' '}
+                      → 被委托人{' '}
+                      {memberEmail.get(delegation.delegateUserId) ??
+                        delegation.delegateUserId.slice(0, 8)}
                     </small>
                     <small>到期 {formatDateTime(delegation.expiresAt)}</small>
                   </div>
@@ -348,7 +382,9 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
                         onClick={() => void revoke(delegation)}
                         disabled={busy}
                       >
-                        撤销委托
+                        {busyAction?.kind === 'revoke' && busyAction.id === delegation.id
+                          ? '撤销中…'
+                          : '撤销委托'}
                       </button>
                     )}
                   </div>
@@ -371,7 +407,7 @@ export function DelegationsPanel({ projectId }: DelegationsPanelProps) {
                 onClick={() => void escalateOverdue()}
                 disabled={busy || overdue.length === 0}
               >
-                标记全部升级
+                {busyAction?.kind === 'escalate' ? '升级中…' : '标记全部升级'}
               </button>
             )}
           </span>

@@ -2,9 +2,15 @@ import { access } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deviceLogin } from './auth';
-import { assertRoleKey, hostSupported, loadWorkspace, resolvePlatform } from './config';
+import { assertRoleKey, hostSupported, resolvePlatform } from './config';
 import { CliError } from './errors';
 import { installRolePackage, readManifest, type InstallResult } from './roles';
+import {
+  detectWorkspaceState,
+  dualConfigError,
+  legacyWorkspaceView,
+  v1MigrationRequiredError,
+} from './workspace-config';
 
 type Platform = ReturnType<typeof resolvePlatform>;
 type Login = typeof deviceLogin;
@@ -107,13 +113,11 @@ export async function resolveRolePackageDir(
 
 async function loadWorkspaceIfPresent(
   dir: string,
-): Promise<Awaited<ReturnType<typeof loadWorkspace>> | undefined> {
-  try {
-    return await loadWorkspace(dir);
-  } catch (error) {
-    if (error instanceof CliError && error.code === 'CONFIG_NOT_FOUND') return undefined;
-    throw error;
-  }
+): Promise<ReturnType<typeof legacyWorkspaceView> | undefined> {
+  const snapshot = await detectWorkspaceState(dir);
+  if (snapshot.state === 'DUAL_ACTIVE') throw dualConfigError(snapshot);
+  if (snapshot.state === 'V1_ONLY') throw v1MigrationRequiredError('setup');
+  return snapshot.v2.value ? legacyWorkspaceView(snapshot.v2.value) : undefined;
 }
 
 function agentEntryFiles(files: string[]): string[] {
@@ -136,6 +140,8 @@ export async function runSetup(input: SetupOptions): Promise<SetupResult> {
     throw new CliError('HOST_OS_UNSUPPORTED', '当前操作系统不支持安全的凭据文件存储');
 
   const role = assertRoleKey(input.role, '--role');
+  // 先判定配置五态：DUAL_ACTIVE/V1_ONLY 在读/写角色包之前就拒绝。
+  const workspace = await loadWorkspaceIfPresent(input.workspaceDir);
   const packageDir = await resolveRolePackageDir(role, {
     packageDir: input.packageDir,
     rolesRoot: input.rolesRoot,
@@ -148,7 +154,6 @@ export async function runSetup(input: SetupOptions): Promise<SetupResult> {
       `角色包 ${packageDir} 的 roleKey 是 ${manifest.roleKey}，与 --role ${role} 不一致`,
     );
 
-  const workspace = await loadWorkspaceIfPresent(input.workspaceDir);
   const projectId = input.projectId ?? workspace?.projectId;
   if (!projectId)
     throw new CliError(

@@ -47,11 +47,28 @@ function Get-ConnectionParts([string]$Url) {
 function Test-OwnPostgres([string]$DataPath) {
   $pidFile=Join-Path $DataPath 'postmaster.pid'
   if (-not (Test-Path -LiteralPath (Join-Path $DataPath 'PG_VERSION')) -or -not (Test-Path -LiteralPath $pidFile)) { return $false }
-  $pidLines=Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue
-  if ($pidLines.Count -lt 4 -or [int]$pidLines[3] -ne $PgPort) { return $false }
-  if ([System.IO.Path]::GetFullPath($pidLines[1]) -ine [System.IO.Path]::GetFullPath($DataPath)) { return $false }
-  & (Join-Path $pgBin 'pg_ctl.exe') status -D $DataPath *> $null
-  return $LASTEXITCODE -eq 0
+  try {
+    $pidLines=@(Get-Content -LiteralPath $pidFile -ErrorAction Stop)
+    [int]$serverPid=0
+    [int]$serverPort=0
+    if ($pidLines.Count -lt 4 -or -not [int]::TryParse(([string]$pidLines[0]).Trim(), [ref]$serverPid) -or $serverPid -le 0 -or -not [int]::TryParse(([string]$pidLines[3]).Trim(), [ref]$serverPort) -or $serverPort -ne $PgPort) { return $false }
+    if ([System.IO.Path]::GetFullPath(([string]$pidLines[1]).Trim()) -ine [System.IO.Path]::GetFullPath($DataPath)) { return $false }
+    & (Join-Path $pgBin 'pg_ctl.exe') status -D $DataPath *> $null
+    if ($LASTEXITCODE -ne 0) { return $false }
+
+    # pg_ctl status confirms the data directory, while this bounded retry confirms
+    # that the same postmaster PID owns the configured TCP listener.
+    $deadline=(Get-Date).AddSeconds(5)
+    do {
+      $listeners=@(Get-NetTCPConnection -LocalPort $PgPort -State Listen -ErrorAction SilentlyContinue)
+      foreach ($listener in $listeners) {
+        if ([int]$listener.OwningProcess -eq $serverPid) { return $true }
+      }
+      if ((Get-Date) -ge $deadline) { break }
+      Start-Sleep -Milliseconds 200
+    } while ($true)
+    return $false
+  } catch { return $false }
 }
 
 if ($PgPort -lt 1024 -or $PgPort -gt 65535 -or $ApiPort -lt 1 -or $ApiPort -gt 65535 -or $WebPort -lt 1 -or $WebPort -gt 65535) { throw 'Ports must be within 1..65535 (PostgreSQL should normally use an unprivileged port).' }
@@ -105,11 +122,13 @@ if (!(Test-Path -LiteralPath (Join-Path $pgData 'PG_VERSION'))) {
 }
 if (-not (Get-NetTCPConnection -LocalPort $PgPort -State Listen -ErrorAction SilentlyContinue)) {
   $pgStart = Start-Process -FilePath (Join-Path $pgBin 'pg_ctl.exe') -ArgumentList @('-D',('"'+$pgData+'"'),'-o',('"-p '+$PgPort+'"'),'-l',('"'+(Join-Path $logs 'postgres.log')+'"'),'start') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $logs 'pg-start.log') -RedirectStandardError (Join-Path $logs 'pg-start.err.log')
-  if (-not $pgStart.WaitForExit(60000)) { throw 'Timed out starting bundled PostgreSQL.' }
-  if ($pgStart.ExitCode -ne 0) { throw "Failed to start bundled PostgreSQL. See $logs\pg-start.err.log" }
-  Start-Sleep -Seconds 2
+  $pgExited = $pgStart.WaitForExit(60000)
+  if (-not $pgExited) { throw 'Timed out starting bundled PostgreSQL.' }
+  if ($null -ne $pgStart.ExitCode -and $pgStart.ExitCode -ne 0) {
+    throw "Failed to start bundled PostgreSQL (exit $($pgStart.ExitCode)). See $logs\pg-start.err.log"
+  }
 }
-if (-not (Get-NetTCPConnection -LocalPort $PgPort -State Listen -ErrorAction SilentlyContinue)) { throw "PostgreSQL did not start on port $PgPort." }
+if (-not (Test-OwnPostgres $pgData)) { throw "PostgreSQL did not start for this data directory on port $PgPort." }
 
 $psql = Join-Path $pgBin 'psql.exe'
 $env:PGPASSWORD = $db.Password

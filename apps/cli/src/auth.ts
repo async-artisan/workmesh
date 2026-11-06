@@ -22,6 +22,8 @@ export type DeviceLoginOptions = {
   onNotice: (text: string) => void;
   onPrompt: (prompt: { url: string; userCode: string; expiresAt: string }) => void;
   timeoutMs?: number;
+  /** Allows workspace init to cancel device polling after its one-time code was consumed. */
+  signal?: AbortSignal;
 };
 
 export type DeviceLoginResult = {
@@ -49,6 +51,45 @@ type CredentialView = {
 };
 
 const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+function signalError(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) return signal.reason;
+  return new CliError('USER_INTERRUPTED', '设备授权已中断', { exitCode: 130 });
+}
+
+function abortable<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal,
+  onAbort?: () => Promise<void>,
+): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) {
+    void promise.catch(() => undefined);
+    return Promise.resolve(onAbort?.()).then(() => Promise.reject(signalError(signal)));
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener('abort', onSignalAbort);
+    const onSignalAbort = () => {
+      cleanup();
+      void Promise.resolve(onAbort?.()).then(
+        () => reject(signalError(signal)),
+        () => reject(signalError(signal)),
+      );
+    };
+    signal.addEventListener('abort', onSignalAbort, { once: true });
+    promise.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error: unknown) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+}
 
 function base64url(value: Buffer): string {
   return value.toString('base64url');
@@ -106,12 +147,16 @@ function readCredentialView(value: unknown): CredentialView {
  * 每 interval 秒轮询；批准只发生在 Web，CLI 不接收密码或 HUMAN token。
  */
 export async function deviceLogin(options: DeviceLoginOptions): Promise<DeviceLoginResult> {
+  if (options.signal?.aborted) throw signalError(options.signal);
   const now = options.now ?? Date.now;
   const sleep =
     options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const timeoutMs = options.timeoutMs ?? 10 * 60 * 1000;
   const proof = createProof();
   const pendingId = randomUUID();
+  const cleanupInterruptedProof = async () => {
+    await removePendingProof(options.configHome, pendingId).catch(() => undefined);
+  };
   await savePendingProof(options.configHome, pendingId, {
     version: '1.0',
     authorizationId: null,
@@ -128,10 +173,8 @@ export async function deviceLogin(options: DeviceLoginOptions): Promise<DeviceLo
     sleep: options.sleep,
   });
 
-  const created = await anonymous.request<Record<string, unknown>>(
-    'POST',
-    '/auth/cli-authorizations',
-    {
+  const created = await abortable(
+    anonymous.request<Record<string, unknown>>('POST', '/auth/cli-authorizations', {
       body: {
         clientName: (options.clientName ?? 'workmesh-cli').slice(0, 80),
         codeChallenge: proof.codeChallenge,
@@ -139,7 +182,9 @@ export async function deviceLogin(options: DeviceLoginOptions): Promise<DeviceLo
         credentialSecretHash: proof.credentialSecretHash,
       },
       idempotent: false,
-    },
+    }),
+    options.signal,
+    cleanupInterruptedProof,
   );
 
   const authorization = asRecord(created.data, '创建设备授权响应非法');
@@ -182,17 +227,17 @@ export async function deviceLogin(options: DeviceLoginOptions): Promise<DeviceLo
     }
     let polled: V1Response<Record<string, unknown>>;
     try {
-      polled = await anonymous.request<Record<string, unknown>>(
-        'POST',
-        '/auth/cli-authorizations/poll',
-        {
+      polled = await abortable(
+        anonymous.request<Record<string, unknown>>('POST', '/auth/cli-authorizations/poll', {
           body: {
             authorizationId: device.authorizationId,
             deviceCode: device.deviceCode,
             codeVerifier: proof.codeVerifier,
           },
           idempotent: false,
-        },
+        }),
+        options.signal,
+        cleanupInterruptedProof,
       );
     } catch (error) {
       if (error instanceof CliError && error.code === 'AUTHORIZATION_DENIED')
@@ -208,7 +253,11 @@ export async function deviceLogin(options: DeviceLoginOptions): Promise<DeviceLo
         (error.code === 'AUTHORIZATION_SLOW_DOWN' || error.code === 'RATE_LIMITED')
       ) {
         intervalMs = Math.max(intervalMs, 10_000);
-        await sleep(Math.min(intervalMs, Math.max(1, deadline - now())));
+        await abortable(
+          sleep(Math.min(intervalMs, Math.max(1, deadline - now()))),
+          options.signal,
+          cleanupInterruptedProof,
+        );
         continue;
       }
       if (
@@ -216,7 +265,11 @@ export async function deviceLogin(options: DeviceLoginOptions): Promise<DeviceLo
         (error.code === 'NETWORK_UNAVAILABLE' || error.code === 'NETWORK_TIMEOUT')
       ) {
         lastNetworkError = error;
-        await sleep(Math.min(intervalMs, Math.max(1, deadline - now())));
+        await abortable(
+          sleep(Math.min(intervalMs, Math.max(1, deadline - now()))),
+          options.signal,
+          cleanupInterruptedProof,
+        );
         continue;
       }
       throw error;
@@ -227,7 +280,11 @@ export async function deviceLogin(options: DeviceLoginOptions): Promise<DeviceLo
     if (status === 'PENDING') {
       const interval = Number(poll.intervalSeconds ?? device.intervalSeconds);
       if (Number.isFinite(interval) && interval >= 1) intervalMs = interval * 1000;
-      await sleep(Math.min(intervalMs, Math.max(1, deadline - now())));
+      await abortable(
+        sleep(Math.min(intervalMs, Math.max(1, deadline - now()))),
+        options.signal,
+        cleanupInterruptedProof,
+      );
       continue;
     }
     if (status !== 'ISSUED') throw new CliError('PROTOCOL_INVALID', '轮询响应状态非法');

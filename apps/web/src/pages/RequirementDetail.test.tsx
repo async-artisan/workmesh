@@ -202,12 +202,18 @@ describe('RequirementDetail（需求详情读模型）', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: /任务/ }));
     expect(screen.getAllByText('后端实现').length).toBeGreaterThan(0);
-    expect(screen.getByText(/bob@example.com/)).toBeInTheDocument();
+    expect(screen.getByText('责任人')).toBeInTheDocument();
+    expect(screen.getByText('bob@example.com')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '展开团队视图' }));
+    const taskOwnerLabels = screen.getAllByText(/bob@example.com/);
+    expect(taskOwnerLabels.some((node) => node.closest('.pipeline-task-card'))).toBe(true);
     expect(screen.getAllByText('等待审批').length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button', { name: /去签字/ }).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole('tab', { name: /交付物/ }));
     expect(screen.getByText(/sha256 aaaaaaaaaaaa/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /sha256 aaaaaaaaaaaa/ }));
+    expect(screen.getByLabelText('sha256完整值')).toHaveTextContent('a'.repeat(64));
 
     fireEvent.click(screen.getByRole('tab', { name: /评审/ }));
     expect(screen.getByText('任务验收')).toBeInTheDocument();

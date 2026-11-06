@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { canonicalJson, V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
+import type { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
 
 /** requestDigest 覆盖的内容排除 password、confirmation secret、CSRF、requestId 和 header key 本身。 */
 const EXCLUDED_BODY_KEYS = new Set(['password', 'confirmation', 'csrfToken', 'requestId']);
@@ -17,11 +18,14 @@ export type V1OperationRecord = {
 };
 
 export interface V1IdempotencyRepository {
-  findOperation(input: {
-    projectScopeKey: string;
-    principalScopeKey: string;
-    key: string;
-  }): Promise<V1OperationRecord | null>;
+  findOperation(
+    input: {
+      projectScopeKey: string;
+      principalScopeKey: string;
+      key: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ): Promise<V1OperationRecord | null>;
 }
 
 export const V1_IDEMPOTENCY_REPOSITORY = Symbol('V1_IDEMPOTENCY_REPOSITORY');

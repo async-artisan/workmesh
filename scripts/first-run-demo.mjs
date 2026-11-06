@@ -16,6 +16,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createFirstRunIdentity } from './first-run-demo-key.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = process.env.WORKMESH_API ?? 'http://127.0.0.1:3000';
@@ -82,10 +83,8 @@ async function ticketFor(binding, password) {
   });
 }
 
-const stamp = Date.now().toString(36);
-const email = `demo-${stamp}@workmesh.local`;
+const { runId: stamp, email, projectKey } = createFirstRunIdentity();
 const password = 'Demo-Passw0rd!';
-const projectKey = `RUN${String.fromCharCode(65 + Math.floor((Date.now() % 676) / 26))}${String.fromCharCode(65 + (Date.now() % 26))}`;
 
 process.stdout.write(`\nWorkMesh first run against ${BASE}\n\n`);
 

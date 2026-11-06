@@ -10,6 +10,32 @@ const PROJECT = '2f6c1c4b-6b0e-4f5d-9c2d-2b1b4b0f9b4a';
 const API = 'https://workmesh.example.com/api/v1';
 const AGENTS = '你是一个后端角色。\n';
 
+/** 已有 v2 绑定（MIGRATED）：重装角色包不再写配置，直接复用 v2 的 project/role。 */
+async function writeV2Workspace(workspaceDir: string, roleKey = 'backend'): Promise<void> {
+  await mkdir(join(workspaceDir, '.workmesh'), { recursive: true });
+  await writeFile(
+    join(workspaceDir, '.workmesh', 'workspace.json'),
+    JSON.stringify(
+      {
+        schemaVersion: '2.0',
+        workspaceId: '11111111-1111-4111-8111-111111111111',
+        platform: { origin: 'https://workmesh.example.com', apiBasePath: '/api/v1' },
+        projectId: PROJECT,
+        definition: {
+          revisionId: '22222222-2222-4222-8222-222222222222',
+          sha256: 'a'.repeat(64),
+        },
+        layout: { kind: 'NONE' },
+        repositories: [],
+        defaults: { profile: 'default', host: 'codex', roleKey },
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+}
+
 type PackageFixture = {
   packageDir: string;
   workspaceDir: string;
@@ -133,6 +159,7 @@ describe('roles install', () => {
 
   it('同版本同摘要重复安装不改 bytes/mtime，返回 reused', async () => {
     const fixture = await makePackage();
+    await writeV2Workspace(fixture.workspaceDir);
     await installRolePackage({
       packageDir: fixture.packageDir,
       workspaceDir: fixture.workspaceDir,
@@ -159,6 +186,7 @@ describe('roles install', () => {
 
   it('本地受管文件被修改 → LOCAL_MANAGED_FILE_MODIFIED，保留本地修改', async () => {
     const fixture = await makePackage();
+    await writeV2Workspace(fixture.workspaceDir);
     await installRolePackage({
       packageDir: fixture.packageDir,
       workspaceDir: fixture.workspaceDir,
@@ -182,6 +210,7 @@ describe('roles install', () => {
 
   it('同版本不同摘要不能替换已登记包', async () => {
     const first = await makePackage();
+    await writeV2Workspace(first.workspaceDir);
     await installRolePackage({
       packageDir: first.packageDir,
       workspaceDir: first.workspaceDir,
@@ -211,23 +240,25 @@ describe('roles install', () => {
 
   it('工作区已有不同角色时拒绝混装', async () => {
     const fixture = await makePackage();
+    await writeV2Workspace(fixture.workspaceDir, 'product');
+    await expect(
+      installRolePackage({ packageDir: fixture.packageDir, workspaceDir: fixture.workspaceDir }),
+    ).rejects.toMatchObject({ code: 'LOCAL_INPUT_INVALID' });
+  });
+
+  it('v1 工作区的 roles install 要求先迁移（不静默覆盖 v1）', async () => {
+    const fixture = await makePackage();
     await installRolePackage({
       packageDir: fixture.packageDir,
       workspaceDir: fixture.workspaceDir,
       projectId: PROJECT,
       api: API,
     });
-    const config = JSON.parse(
-      await readFile(join(fixture.workspaceDir, '.workmesh', 'config.json'), 'utf8'),
-    ) as Record<string, unknown>;
-    config.roleKey = 'product';
-    await writeFile(
-      join(fixture.workspaceDir, '.workmesh', 'config.json'),
-      JSON.stringify(config, null, 2),
-      'utf8',
-    );
     await expect(
       installRolePackage({ packageDir: fixture.packageDir, workspaceDir: fixture.workspaceDir }),
-    ).rejects.toMatchObject({ code: 'LOCAL_INPUT_INVALID' });
+    ).rejects.toMatchObject({
+      code: 'WORKSPACE_V1_MIGRATION_REQUIRED',
+      exitCode: 2,
+    });
   });
 });

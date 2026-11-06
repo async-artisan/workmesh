@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
 import { ConfirmationPrompt } from './ConfirmationPrompt';
@@ -193,5 +193,159 @@ describe('ConfirmationPrompt（业务决定摘要）', () => {
 
     expect(screen.getByText('证据不足，驳回。')).toBeInTheDocument();
     expect(screen.getByText('驳回', { selector: '.wm-decision-badge' })).toBeInTheDocument();
+  });
+});
+
+describe('ConfirmationPrompt（加载与提交中的反馈）', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockReset();
+  });
+
+  it('关闭后以同一绑定重开，旧预览不能覆盖新会话', async () => {
+    let finishOld: (value: unknown) => void = () => undefined;
+    fetchMock
+      .mockReturnValueOnce(new Promise((resolve) => (finishOld = resolve)))
+      .mockResolvedValueOnce(json(200, { data: { ...preview, actionDigest: 'new-digest' } }));
+    const props = { title: '确认评审决定', binding, onClose: vi.fn(), onConfirmed: vi.fn() };
+    const { rerender } = render(<ConfirmationPrompt {...props} open />);
+    rerender(<ConfirmationPrompt {...props} open={false} />);
+    rerender(<ConfirmationPrompt {...props} open />);
+    expect(await screen.findByTestId('action-digest')).toHaveTextContent('new-digest');
+    await act(async () => finishOld(json(200, { data: preview })));
+    expect(screen.getByTestId('action-digest')).toHaveTextContent('new-digest');
+    expect(screen.getByLabelText('确认密码')).toHaveValue('');
+  });
+
+  it.each(['成功', '失败'])('旧执行迟到%s不会关闭新会话或改变其忙状态', async (outcome) => {
+    const ticketResponse = json(201, {
+      data: {
+        ticketId: 't1',
+        ticketSecret: 's1',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        actionDigest: 'digest-a',
+      },
+    });
+    let finishB: (value: unknown) => void = () => undefined;
+    fetchMock
+      .mockResolvedValueOnce(json(200, { data: preview }))
+      .mockResolvedValueOnce(ticketResponse)
+      .mockResolvedValueOnce(json(200, { data: preview }))
+      .mockReturnValueOnce(new Promise((resolve) => (finishB = resolve)));
+    let finishA: () => void = () => undefined;
+    let failA: (reason: Error) => void = () => undefined;
+    const onConfirmed = vi.fn(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          finishA = resolve;
+          failA = reject;
+        }),
+    );
+    const onClose = vi.fn();
+    const props = { title: '确认评审决定', binding, onClose, onConfirmed };
+    const { rerender } = render(<ConfirmationPrompt {...props} open />);
+    fireEvent.change(await screen.findByLabelText('确认密码'), { target: { value: 'pw-a' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证密码并签发票据' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }));
+    rerender(<ConfirmationPrompt {...props} open={false} />);
+    rerender(<ConfirmationPrompt {...props} open />);
+    fireEvent.change(await screen.findByLabelText('确认密码'), { target: { value: 'pw-b' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证密码并签发票据' }));
+    await act(async () => {
+      if (outcome === '成功') finishA();
+      else failA(new Error('旧执行失败'));
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByText(/旧执行失败/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '校验中…' })).toBeDisabled();
+    await act(async () => finishB(ticketResponse));
+    expect(await screen.findByText(/票据已签发/)).toBeInTheDocument();
+  });
+
+  it('动作预览读取中显示 role="status" 加载态，签发按钮禁用且不能先输密码', async () => {
+    let releasePreview: (value: unknown) => void = () => undefined;
+    fetchMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        releasePreview = resolve;
+      }),
+    );
+
+    render(
+      <ConfirmationPrompt
+        open
+        title="确认评审决定"
+        binding={binding}
+        onClose={vi.fn()}
+        onConfirmed={vi.fn()}
+      />,
+    );
+
+    const dialog = screen.getByRole('dialog', { name: '确认评审决定' });
+    const loadingRegion = within(dialog).getByRole('status');
+    expect(loadingRegion).toHaveTextContent('正在读取服务端动作预览…');
+    expect(loadingRegion).toHaveAttribute('aria-busy', 'true');
+    expect(within(dialog).getByRole('button', { name: '读取动作预览中…' })).toBeDisabled();
+    expect(within(dialog).queryByLabelText('确认密码')).not.toBeInTheDocument();
+
+    await act(async () => {
+      releasePreview(json(200, { data: preview }));
+    });
+
+    expect(await screen.findByTestId('action-digest')).toHaveTextContent('digest-a');
+    expect(within(dialog).queryByRole('status')).not.toBeInTheDocument();
+    // 预览就绪后仍需先输入密码才能签发票据。
+    expect(within(dialog).getByRole('button', { name: '验证密码并签发票据' })).toBeDisabled();
+  });
+
+  it('执行提交中：按钮显示忙文案并禁用，Esc 不会关闭弹窗', async () => {
+    fetchMock.mockResolvedValueOnce(json(200, { data: preview })).mockResolvedValueOnce(
+      json(201, {
+        data: {
+          ticketId: 't1',
+          ticketSecret: 's1',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          actionDigest: 'digest-a',
+        },
+      }),
+    );
+
+    let releaseSubmit: () => void = () => undefined;
+    const submitGate = new Promise<void>((resolve) => {
+      releaseSubmit = resolve;
+    });
+    const onConfirmed = vi.fn(async () => {
+      await submitGate;
+    });
+    const onClose = vi.fn();
+
+    render(
+      <ConfirmationPrompt
+        open
+        title="确认评审决定"
+        binding={binding}
+        submitLabel="提交决定"
+        onClose={onClose}
+        onConfirmed={onConfirmed}
+      />,
+    );
+
+    expect(await screen.findByTestId('action-digest')).toHaveTextContent('digest-a');
+    fireEvent.change(screen.getByLabelText('确认密码'), { target: { value: 'secret-pass' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证密码并签发票据' }));
+    await screen.findByText(/票据已签发/);
+
+    fireEvent.click(screen.getByRole('button', { name: '提交决定' }));
+
+    const busyButton = screen.getByRole('button', { name: '提交中…' });
+    expect(busyButton).toBeDisabled();
+    const dialog = screen.getByRole('dialog', { name: '确认评审决定' });
+    expect(dialog).toHaveAttribute('aria-busy', 'true');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      releaseSubmit();
+    });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 });

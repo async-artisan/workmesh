@@ -13,11 +13,9 @@ import {
 } from '../api/resources';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
-import { Modal } from '../components/Modal';
 import { PageState } from '../components/PageState';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import { useProjectStore } from '../store/project';
-import { toast } from '../store/toast';
 
 type SectionKey = 'overview' | 'repositories' | 'members';
 
@@ -27,14 +25,6 @@ const SECTIONS: Array<{ key: SectionKey; label: string }> = [
   { key: 'members', label: '成员' },
 ];
 
-interface RepositoryForm {
-  owner: string;
-  name: string;
-  defaultBranch: string;
-}
-
-const EMPTY_REPOSITORY_FORM: RepositoryForm = { owner: '', name: '', defaultBranch: 'main' };
-
 /**
  * 项目详情：把原先散落在全局页与初始化弹窗里的仓库登记、成员入口集中到 /projects/:id。
  * 三态（加载 / 失败重试 / 正常）与页面其他列表保持一致。
@@ -43,7 +33,6 @@ export function ProjectDetail({ projectId: routeProjectId }: { projectId?: strin
   const params = useParams();
   const projectId = routeProjectId ?? params.projectId ?? '';
   const navigate = useNavigate();
-  const projects = useProjectStore((state) => state.projects);
   const [project, setProject] = useState<ProjectView | null>(null);
   const [repositories, setRepositories] = useState<ProjectRepositoryView[]>([]);
   const [members, setMembers] = useState<MemberView[]>([]);
@@ -52,10 +41,6 @@ export function ProjectDetail({ projectId: routeProjectId }: { projectId?: strin
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [stale, setStale] = useState(false);
-  const [repositoryOpen, setRepositoryOpen] = useState(false);
-  const [repositoryForm, setRepositoryForm] = useState<RepositoryForm>(EMPTY_REPOSITORY_FORM);
-  const [repositoryBusy, setRepositoryBusy] = useState(false);
-  const [repositoryError, setRepositoryError] = useState('');
 
   // 进入项目详情即把项目上下文切到这个项目，后续需求/看板/知识库都落在同一项目。
   useEffect(() => {
@@ -101,34 +86,7 @@ export function ProjectDetail({ projectId: routeProjectId }: { projectId?: strin
   useEffect(() => {
     void load();
     // load 只依赖 projectId；项目上下文切换时重新加载。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
-
-  async function registerRepository() {
-    if (!projectId || !project) return;
-    if (!repositoryForm.owner.trim() || !repositoryForm.name.trim()) {
-      setRepositoryError('仓库 owner 与 name 都不能为空。');
-      return;
-    }
-    setRepositoryBusy(true);
-    setRepositoryError('');
-    try {
-      const created = await repositoryApi.create(projectId, {
-        externalId: `${repositoryForm.owner.trim()}/${repositoryForm.name.trim()}`,
-        owner: repositoryForm.owner.trim(),
-        name: repositoryForm.name.trim(),
-        defaultBranch: repositoryForm.defaultBranch.trim() || 'main',
-      });
-      setRepositories((current) => [...current, created]);
-      setRepositoryOpen(false);
-      setRepositoryForm(EMPTY_REPOSITORY_FORM);
-      toast.success('仓库已登记，之后的 Agent 交付会引用该仓库。');
-    } catch (caught) {
-      setRepositoryError(formatApiError(caught));
-    } finally {
-      setRepositoryBusy(false);
-    }
-  }
 
   function goTo(path: string) {
     navigate(path);
@@ -271,7 +229,7 @@ export function ProjectDetail({ projectId: routeProjectId }: { projectId?: strin
               代码仓库<small>{repositories.length}</small>
             </h3>
             <span className="card-head-actions">
-              <button className="primary" onClick={() => setRepositoryOpen(true)}>
+              <button className="primary" onClick={() => goTo('/workspace')}>
                 <Plus size={14} />
                 登记仓库
               </button>
@@ -280,10 +238,10 @@ export function ProjectDetail({ projectId: routeProjectId }: { projectId?: strin
           {repositories.length === 0 ? (
             <EmptyState
               title="还没有登记代码仓库"
-              description="登记 GitHub 仓库后，任务交付、代码引用与评审证据都会指向该仓库。"
-              hint="仓库地址格式：owner/name（如 yesgoo/yifanfan）。"
+              description="在“接入与工作区”声明仓库后，任务交付、代码引用与评审证据都会指向该仓库。"
+              hint="仓库通过 canonical locator 声明；不再使用 owner/name 伪造外部 ID。"
               actionLabel="登记仓库"
-              onAction={() => setRepositoryOpen(true)}
+              onAction={() => goTo('/workspace')}
             />
           ) : (
             <div className="wb-list">
@@ -344,9 +302,7 @@ export function ProjectDetail({ projectId: routeProjectId }: { projectId?: strin
                 <li key={member.id} className="project-member-row">
                   <div>
                     <strong>{member.name || member.email}</strong>
-                    {member.name && member.name !== member.email && (
-                      <small>{member.email}</small>
-                    )}
+                    {member.name && member.name !== member.email && <small>{member.email}</small>}
                   </div>
                   <div className="project-member-roles">
                     <span className="status-tag">{member.role}</span>
@@ -362,73 +318,6 @@ export function ProjectDetail({ projectId: routeProjectId }: { projectId?: strin
           )}
         </div>
       )}
-
-      <Modal
-        open={repositoryOpen}
-        title="登记代码仓库"
-        description="仓库会绑定到当前项目；同一 owner/name 不能重复登记。"
-        size="sm"
-        onClose={() => {
-          if (!repositoryBusy) setRepositoryOpen(false);
-        }}
-        footer={
-          <>
-            <button
-              className="ghost"
-              onClick={() => setRepositoryOpen(false)}
-              disabled={repositoryBusy}
-            >
-              取消
-            </button>
-            <button
-              className="primary"
-              onClick={() => void registerRepository()}
-              disabled={repositoryBusy}
-            >
-              {repositoryBusy ? '登记中…' : '确认登记'}
-            </button>
-          </>
-        }
-      >
-        <div className="form-grid">
-          <label className="field">
-            <span>GitHub owner</span>
-            <input
-              value={repositoryForm.owner}
-              onChange={(event) =>
-                setRepositoryForm({ ...repositoryForm, owner: event.target.value })
-              }
-              placeholder="yesgoo"
-              aria-label="仓库 owner"
-            />
-          </label>
-          <label className="field">
-            <span>仓库名</span>
-            <input
-              value={repositoryForm.name}
-              onChange={(event) => setRepositoryForm({ ...repositoryForm, name: event.target.value })}
-              placeholder="yifanfan"
-              aria-label="仓库名"
-            />
-          </label>
-          <label className="field">
-            <span>默认分支</span>
-            <input
-              value={repositoryForm.defaultBranch}
-              onChange={(event) =>
-                setRepositoryForm({ ...repositoryForm, defaultBranch: event.target.value })
-              }
-              placeholder="main"
-              aria-label="默认分支"
-            />
-          </label>
-          {repositoryError && (
-            <p className="field-error" role="alert">
-              {repositoryError}
-            </p>
-          )}
-        </div>
-      </Modal>
     </section>
   );
 }

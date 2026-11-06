@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { InviteMemberDialog } from './InviteMemberDialog';
 import { setCsrfToken } from '../api/client';
@@ -123,5 +123,59 @@ describe('InviteMemberDialog', () => {
     mockFetch(handler());
     renderDialog();
     expect(screen.getByRole('button', { name: '生成邀请链接' })).toBeDisabled();
+  });
+
+  it('动作预览读取中：确认弹窗显示 role="status"，签发按钮禁用，读完才可继续', async () => {
+    let releasePreview: (value: { status: number; body: unknown }) => void = () => undefined;
+    const previewReply = new Promise<{ status: number; body: unknown }>((resolve) => {
+      releasePreview = resolve;
+    });
+    mockFetch((url, init) => {
+      if (pathOf(url) === '/api/v1/auth/action-previews' && methodOf(init) === 'POST')
+        return previewReply;
+      return handler()(url, init);
+    });
+
+    renderDialog();
+    fireEvent.click(screen.getByLabelText('邀请角色 backend'));
+    fireEvent.click(screen.getByRole('button', { name: '生成邀请链接' }));
+
+    const prompt = await screen.findByRole('dialog', { name: '确认生成邀请链接' });
+    const loadingRegion = within(prompt).getByRole('status');
+    expect(loadingRegion).toHaveTextContent('正在读取服务端动作预览…');
+    expect(loadingRegion).toHaveAttribute('aria-busy', 'true');
+    expect(within(prompt).getByRole('button', { name: '读取动作预览中…' })).toBeDisabled();
+    expect(within(prompt).queryByLabelText('确认密码')).not.toBeInTheDocument();
+
+    await act(async () => {
+      releasePreview({
+        status: 201,
+        body: envelope({
+          binding: {
+            action: 'PROJECT_INVITATION_CREATE',
+            projectId: 'p1',
+            targetType: 'PROJECT_INVITATION',
+            targetId: 'p1',
+            expectedVersion: 3,
+            roleSlot: null,
+            payload: { roleIds: ['r-backend'], email: null, expiresInHours: 72 },
+          },
+          actionDigest: 'a'.repeat(64),
+          display: {
+            action: 'PROJECT_INVITATION_CREATE',
+            targetType: 'PROJECT_INVITATION',
+            targetId: 'p1',
+            expectedVersion: 3,
+            projectId: 'p1',
+            roleSlot: null,
+          },
+        }),
+      });
+    });
+
+    expect(await within(prompt).findByLabelText('确认密码')).toBeInTheDocument();
+    fireEvent.change(within(prompt).getByLabelText('确认密码'), { target: { value: 'pw' } });
+    expect(within(prompt).getByRole('button', { name: '验证密码并签发票据' })).toBeEnabled();
+    expect(within(prompt).queryByRole('status')).not.toBeInTheDocument();
   });
 });

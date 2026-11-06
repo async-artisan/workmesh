@@ -328,6 +328,8 @@ export class V1AccountService {
       scopes: credential.scopes,
       expiresAt: credential.expiresAt,
       revokedAt: credential.revokedAt,
+      createdAt: credential.createdAt,
+      device: credential.device,
     }));
   }
 

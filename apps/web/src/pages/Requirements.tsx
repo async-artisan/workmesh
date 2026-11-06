@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { formatApiError } from '../api/client';
 import {
@@ -10,8 +10,9 @@ import {
   type RoleView,
   type WorkflowDefinitionView,
 } from '../api/resources';
-import { ConfirmDialog } from '../components/Modal';
+import { Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
+import { InlineLoading, SkeletonLines, TableSkeletonRows } from '../components/Skeleton';
 import { WorkflowInstanceDialog } from '../components/WorkflowInstanceDialog';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { useAuthStore } from '../store/auth';
@@ -47,7 +48,7 @@ function useNarrowList(): boolean {
 export function Requirements() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { projectId } = useProjectContext();
+  const { projectId, loading: projectListLoading } = useProjectContext();
   const user = useAuthStore((state) => state.user);
   const [items, setItems] = useState<RequirementView[]>([]);
   const [roles, setRoles] = useState<RoleView[]>([]);
@@ -58,14 +59,24 @@ export function Requirements() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createFormOpen, setCreateFormOpen] = useState(false);
+  const [createError, setCreateError] = useState('');
   const [workflowTarget, setWorkflowTarget] = useState<RequirementView | null>(null);
   const [query, setQuery] = useState('');
   const [phaseFilter, setPhaseFilter] = useState('');
   const [page, setPage] = useState(1);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [listLoading, setListLoading] = useState(false);
+  // 记录列表已加载完成的项目：换了项目但还没拿到数据时，必须显示骨架而不是空态。
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+  const loadRequestRef = useRef(0);
   const PAGE_SIZE = 12;
+  // 项目列表还在加载、尚未选出当前项目时，列表同样属于“首屏加载中”，不能先闪空态。
+  const awaitingProject = !projectId && projectListLoading;
+  const firstLoad = Boolean(projectId) && loadedProjectId !== projectId;
+  const listPending = firstLoad || awaitingProject;
+  const showListLoading = listPending || listLoading;
 
   useEffect(() => {
     const legacy = searchParams.get('req');
@@ -82,11 +93,13 @@ export function Requirements() {
   const publishedDefinitions = publishedWorkflowDefinitions(definitions);
   const narrowList = useNarrowList();
 
-  const emptyListText = projectId
-    ? items.length === 0
-      ? '还没有需求，先在上方创建。'
-      : '没有匹配的需求，清空搜索或阶段筛选。'
-    : '先选择项目。';
+  const emptyListText = error
+    ? '加载失败，请重试。'
+    : projectId
+      ? items.length === 0
+        ? '还没有需求，点右上角「新建需求」创建。'
+        : '没有匹配的需求，清空搜索或阶段筛选。'
+      : '先选择项目。';
 
   /** 表格与卡片共用同一套行内操作，避免窄屏丢失「详情 / 初始化流程」入口。 */
   function requirementActions(item: RequirementView) {
@@ -150,14 +163,18 @@ export function Requirements() {
   }, [page, pageCount]);
 
   async function load() {
+    // 切项目 / 并发刷新时，旧请求的响应不允许覆盖新一轮列表与首屏状态。
+    const requestId = ++loadRequestRef.current;
     if (!projectId) {
       setItems([]);
       setRoles([]);
       setMembers([]);
       setDefinitions([]);
       setNextCursor(null);
+      setListLoading(false);
       return;
     }
+    setListLoading(true);
     try {
       const [requirementPage, memberList, roleList, definitionPage] = await Promise.all([
         requirementApi.list(projectId),
@@ -165,14 +182,21 @@ export function Requirements() {
         projectApi.roles(projectId),
         workflowApi.listDefinitions(projectId),
       ]);
+      if (requestId !== loadRequestRef.current) return;
       setItems(requirementPage.items);
       setNextCursor(requirementPage.nextCursor ?? null);
       setMembers(memberList);
       setRoles(roleList);
       setDefinitions(definitionPage.items);
       setError('');
+      setLoadedProjectId(projectId);
     } catch (caught) {
+      if (requestId !== loadRequestRef.current) return;
       setError(formatApiError(caught));
+      // 失败也要结束首屏骨架：显示错误提示而不是无限转圈或空态文案。
+      setLoadedProjectId(projectId);
+    } finally {
+      if (requestId === loadRequestRef.current) setListLoading(false);
     }
   }
 
@@ -202,10 +226,11 @@ export function Requirements() {
 
   async function create() {
     if (!projectId || !title.trim()) {
-      setError('需求标题不能为空。');
+      setCreateError('需求标题不能为空。');
       return;
     }
     setBusy(true);
+    setCreateError('');
     try {
       await requirementApi.create(projectId, {
         title: title.trim(),
@@ -213,12 +238,12 @@ export function Requirements() {
       });
       setTitle('');
       setDescription('');
-      setCreateOpen(false);
+      setCreateFormOpen(false);
       setNotice('需求已创建。');
       setError('');
       await load();
     } catch (caught) {
-      setError(formatApiError(caught));
+      setCreateError(formatApiError(caught));
     } finally {
       setBusy(false);
     }
@@ -233,7 +258,7 @@ export function Requirements() {
             这里提交最小产品意图并查看状态；PRD、知识和实现产物由本地 Agent 生成后送入 Web
             评审。流程实例由项目管理员初始化。
           </p>
-          {definitions.length === 0 && (
+          {!listPending && !error && definitions.length === 0 && (
             <p className="page-sub wm-definition-hint">当前项目还没有已发布的流程定义。</p>
           )}
         </div>
@@ -242,6 +267,16 @@ export function Requirements() {
             onChange={() => setItems([])}
             onCreateProject={() => navigate('/projects')}
           />
+          <button
+            className="primary"
+            disabled={!projectId}
+            onClick={() => {
+              setCreateError('');
+              setCreateFormOpen(true);
+            }}
+          >
+            新建需求
+          </button>
         </div>
       </header>
 
@@ -254,45 +289,17 @@ export function Requirements() {
 
       <div className="table-card">
         <div className="card-head">
-          <h3>新建需求</h3>
-        </div>
-        <div className="form-grid req-create-grid">
-          <div className="field">
-            <span>标题</span>
-            <input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              aria-label="需求标题"
-            />
-          </div>
-          <div className="field">
-            <span>描述</span>
-            <textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              aria-label="需求描述"
-            />
-          </div>
-        </div>
-        <div className="toolbar">
-          <button
-            className="primary"
-            disabled={busy || !projectId || !title.trim()}
-            onClick={() => setCreateOpen(true)}
-          >
-            {busy ? '提交中…' : '创建需求'}
-          </button>
-        </div>
-      </div>
-
-      <div className="table-card">
-        <div className="card-head">
           <h3>
             需求列表
-            <small>
-              {filteredRequirements.length} / {items.length}
-            </small>
+            {!listPending && (
+              <small>
+                {filteredRequirements.length} / {items.length}
+              </small>
+            )}
           </h3>
+          {showListLoading && (
+            <InlineLoading label={listPending ? '正在加载需求列表…' : '正在刷新需求列表…'} />
+          )}
           <div className="card-head-actions req-list-tools">
             <input
               aria-label="搜索需求"
@@ -315,33 +322,60 @@ export function Requirements() {
           </div>
         </div>
         {narrowList ? (
-          <ul className="wm-mobile-card-list" data-testid="requirements-card-list">
-            {visibleRequirements.map((item) => {
-              const state = describeRequirementState(item);
-              return (
-                <li key={item.id} className="wm-mobile-card" data-testid="requirement-card">
-                  <div className="wm-mobile-card-head">
-                    <span className="status-tag wm-mobile-card-code">{item.code}</span>
-                    <span className="wm-mobile-card-tags">
-                      <span className="status-tag">{state.phase.label}</span>
-                      <span className={`status-tag is-${state.execution.tone}`}>
-                        {state.execution.label}
-                      </span>
-                    </span>
-                  </div>
-                  <p className="wm-mobile-card-title" title={item.title}>
-                    {item.title}
-                  </p>
-                  <div className="wm-mobile-card-actions">{requirementActions(item)}</div>
+          <ul
+            className="wm-mobile-card-list"
+            data-testid="requirements-card-list"
+            aria-busy={showListLoading || undefined}
+          >
+            {listPending ? (
+              Array.from({ length: 4 }, (_, index) => (
+                <li className="wm-mobile-card" key={index} aria-hidden="true">
+                  <SkeletonLines lines={2} />
                 </li>
-              );
-            })}
-            {visibleRequirements.length === 0 && (
-              <li className="wm-mobile-empty">{emptyListText}</li>
+              ))
+            ) : (
+              <>
+                {visibleRequirements.map((item) => {
+                  const state = describeRequirementState(item);
+                  return (
+                    <li key={item.id} className="wm-mobile-card" data-testid="requirement-card">
+                      <div className="wm-mobile-card-head">
+                        <span className="status-tag wm-mobile-card-code">{item.code}</span>
+                        <span className="wm-mobile-card-tags">
+                          <span className="status-tag">{state.phase.label}</span>
+                          <span className={`status-tag is-${state.execution.tone}`}>
+                            {state.execution.label}
+                          </span>
+                        </span>
+                      </div>
+                      <p className="wm-mobile-card-title" title={item.title}>
+                        {item.title}
+                      </p>
+                      <p className="wm-mobile-card-meta">负责人：服务端未提供负责人</p>
+                      <p className="wm-mobile-card-meta">下一步：状态待确认</p>
+                      <details className="wm-mobile-card-details">
+                        <summary>查看说明与版本</summary>
+                        <p className="wm-mobile-card-meta">
+                          说明：{item.description?.trim() || '服务端未提供说明'}
+                        </p>
+                        <p className="wm-mobile-card-meta">版本：v{item.version}</p>
+                      </details>
+                      <div className="wm-mobile-card-actions">{requirementActions(item)}</div>
+                    </li>
+                  );
+                })}
+                {visibleRequirements.length === 0 && (
+                  <li className="wm-mobile-empty">{emptyListText}</li>
+                )}
+              </>
             )}
           </ul>
         ) : (
-          <div className="table-scroll" data-testid="requirements-table">
+          <div
+            className="table-scroll"
+            data-testid="requirements-table"
+            aria-busy={showListLoading || undefined}
+          >
             <table className="data-table">
               <thead>
                 <tr>
@@ -355,36 +389,44 @@ export function Requirements() {
                 </tr>
               </thead>
               <tbody>
-                {visibleRequirements.map((item) => {
-                  const state = describeRequirementState(item);
-                  return (
-                    <tr key={item.id}>
-                      <td>
-                        <span className="status-tag">{item.code}</span>
-                      </td>
-                      <td>{item.title}</td>
-                      <td>
-                        <span className="cell-truncate" title={item.description ?? ''}>
-                          {item.description || '—'}
-                        </span>
-                      </td>
-                      <td className="cell-num">v{item.version}</td>
-                      <td>{state.phase.label}</td>
-                      <td>
-                        <span className={`status-tag is-${state.execution.tone}`}>
-                          {state.execution.label}
-                        </span>
-                      </td>
-                      <td className="col-actions">
-                        <div className="cell-actions row-actions">{requirementActions(item)}</div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {visibleRequirements.length === 0 && (
-                  <tr className="table-empty">
-                    <td colSpan={7}>{emptyListText}</td>
-                  </tr>
+                {listPending ? (
+                  <TableSkeletonRows rows={5} columns={7} />
+                ) : (
+                  <>
+                    {visibleRequirements.map((item) => {
+                      const state = describeRequirementState(item);
+                      return (
+                        <tr key={item.id}>
+                          <td>
+                            <span className="status-tag">{item.code}</span>
+                          </td>
+                          <td>{item.title}</td>
+                          <td>
+                            <span className="cell-truncate" title={item.description ?? ''}>
+                              {item.description || '—'}
+                            </span>
+                          </td>
+                          <td className="cell-num">v{item.version}</td>
+                          <td>{state.phase.label}</td>
+                          <td>
+                            <span className={`status-tag is-${state.execution.tone}`}>
+                              {state.execution.label}
+                            </span>
+                          </td>
+                          <td className="col-actions">
+                            <div className="cell-actions row-actions">
+                              {requirementActions(item)}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {visibleRequirements.length === 0 && (
+                      <tr className="table-empty">
+                        <td colSpan={7}>{emptyListText}</td>
+                      </tr>
+                    )}
+                  </>
                 )}
               </tbody>
             </table>
@@ -423,17 +465,57 @@ export function Requirements() {
         )}
       </div>
 
-      <ConfirmDialog
-        open={createOpen}
-        title="确认提交产品意图"
-        description={`将创建需求「${title.trim()}」${description.trim() ? `：${description.trim()}` : ''}。后续 PRD 由本地 Product Agent 生成。`}
-        confirmLabel="确认创建需求"
+      <Modal
+        open={createFormOpen}
+        title="新建需求"
+        description="提交最小产品意图：标题必填、描述可选。创建后由本地 Product Agent 生成 PRD，流程实例仍由项目管理员初始化。"
+        size="md"
         busy={busy}
-        onCancel={() => {
-          if (!busy) setCreateOpen(false);
+        onClose={() => {
+          if (!busy) setCreateFormOpen(false);
         }}
-        onConfirm={() => void create()}
-      />
+        footer={
+          <>
+            <button className="ghost" onClick={() => setCreateFormOpen(false)} disabled={busy}>
+              取消
+            </button>
+            <button
+              className="primary"
+              disabled={busy || !projectId || !title.trim()}
+              onClick={() => void create()}
+            >
+              {busy ? '创建中…' : '创建需求'}
+            </button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          <div className="field">
+            <span>标题</span>
+            <input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              aria-label="需求标题"
+              placeholder="例如：客户询价单"
+            />
+          </div>
+          <div className="field">
+            <span>描述</span>
+            <textarea
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              aria-label="需求描述"
+              rows={4}
+              placeholder="可选：业务背景、目标用户、验收要点"
+            />
+          </div>
+          {createError && (
+            <p className="modal-error" role="alert">
+              {createError}
+            </p>
+          )}
+        </div>
+      </Modal>
 
       <WorkflowInstanceDialog
         open={Boolean(workflowTarget)}

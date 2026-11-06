@@ -15,6 +15,7 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<WorkbenchSnapshot>>();
+let generation = 0;
 
 function keyOf(scope?: string | null): string {
   return scope || '__all__';
@@ -31,10 +32,12 @@ export function getWorkbenchSnapshot(
   }
   const existing = inflight.get(key);
   if (existing && !options.force) return existing;
+  const requestGeneration = generation;
   const request = workbenchApi
     .get(scope ?? null)
     .then((value) => {
-      cache.set(key, { at: Date.now(), value });
+      if (generation === requestGeneration && inflight.get(key) === request)
+        cache.set(key, { at: Date.now(), value });
       return value;
     })
     .finally(() => {
@@ -47,15 +50,19 @@ export function getWorkbenchSnapshot(
 
 /** 会话/项目变化后让缓存失效；不传 scope 时清空全部。 */
 export function invalidateWorkbenchSnapshot(scope?: string | null): void {
+  generation += 1;
   if (scope === undefined) {
     cache.clear();
+    inflight.clear();
     return;
   }
   cache.delete(keyOf(scope));
+  inflight.delete(keyOf(scope));
 }
 
 /** 测试隔离：避免模块级缓存跨用例污染。 */
 export function resetWorkbenchSnapshotCacheForTests(): void {
+  generation += 1;
   cache.clear();
   inflight.clear();
 }

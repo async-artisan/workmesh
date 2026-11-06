@@ -46,7 +46,7 @@ function created(expiresAt = EXPIRES): Response {
       authorizationId: AUTHORIZATION,
       deviceCode: 'd'.repeat(43),
       userCode: 'ABCD-EFGH',
-      verificationUri: '/cli/authorize',
+      verificationUri: 'https://workmesh.example.com/cli/authorize',
       expiresAt,
       intervalSeconds: 5,
     },
@@ -102,6 +102,16 @@ describe('PKCE proof', () => {
     );
     expect(() => verificationUrl(PLATFORM, '/cli/authorize?userCode=ABCD')).toThrow();
     expect(() => verificationUrl(PLATFORM, '/cli/authorize?deviceCode=1')).toThrow();
+  });
+
+  it('本地开发允许 API 与 Web 使用不同 loopback 端口，并拒绝外部跳转', () => {
+    const localPlatform = { origin: 'http://127.0.0.1:3000', apiBasePath: '/api/v1' };
+    expect(verificationUrl(localPlatform, 'http://127.0.0.1:5173/cli/authorize')).toBe(
+      'http://127.0.0.1:5173/cli/authorize',
+    );
+    expect(() =>
+      verificationUrl(localPlatform, 'https://attacker.example/cli/authorize'),
+    ).toThrow();
   });
 });
 

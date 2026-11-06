@@ -4,6 +4,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -27,14 +35,14 @@ jobs:
       WORKMESH_TEST_DATABASE_USERS: postgres
       WORKMESH_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/workmesh_test_ci?schema=workmesh_v1
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
         with:
           version: 10.28.2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           # Keep CI's Node baseline consistent with the contribution guide.
-          node-version: 20.19
+          node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
@@ -55,8 +63,23 @@ jobs:
       # `pnpm test` 只匹配 src/**/*.spec.ts，test/** 从不执行。
       - run: pnpm --filter @workmesh/shared build
       - run: node scripts/test-contracts.mjs
-      - run: pnpm --filter @workmesh/api test:integration
+      # Exercise the same guarded, cross-platform root entry used by contributors.
+      # The isolated database was migrated above, so the default invocation does
+      # not repeat migrations; it only runs the write-capable suite in that target.
+      - run: pnpm test:integration:runner
+      - run: pnpm test:integration
       - run: pnpm build
       - run: pnpm exec playwright install --with-deps chromium --only-shell
       - run: pnpm test:browser:run
+      - run: pnpm test:ui-review
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: browser-evidence
+          path: |
+            .tmp/browser-results
+            .tmp/ui-review-results
+            .tmp/ui-review-captures
+          if-no-files-found: ignore
       - run: pnpm --filter @workmesh/api test:coverage

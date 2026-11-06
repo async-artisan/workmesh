@@ -214,4 +214,24 @@ describe('Modal（Esc / 图层栈 / IME / 焦点）', () => {
 
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '项目名称' }));
   });
+
+  it('busy 时锁定关闭入口：Esc / 遮罩 / 关闭按钮都不关闭，卡片标记 aria-busy', () => {
+    const onClose = vi.fn();
+    render(
+      <Modal open title="正在提交" busy onClose={onClose}>
+        <button>确认</button>
+      </Modal>,
+    );
+
+    const dialog = screen.getByRole('dialog', { name: '正在提交' });
+    expect(dialog).toHaveAttribute('aria-busy', 'true');
+    const closeButton = screen.getByRole('button', { name: '关闭弹窗' });
+    expect(closeButton).toBeDisabled();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.mouseDown(dialog.parentElement as HTMLElement);
+    fireEvent.click(closeButton);
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

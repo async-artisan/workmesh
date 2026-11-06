@@ -62,13 +62,23 @@ describe('HttpExceptionFilter input-error mapping', () => {
   });
 
   it('leaves other Prisma errors as 500 so real failures still surface', () => {
-    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
-    const { host, response } = fakeHost({ method: 'POST', path: '/api/v1/projects' });
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { host, response } = fakeHost({
+      method: 'POST',
+      path: '/api/v1/projects',
+      requestId: 'request-500',
+    });
 
     new HttpExceptionFilter().catch(prismaError('P2002'), host);
 
     expect(response.status).toHaveBeenCalledWith(500);
     expect(bodyOf(response)).toMatchObject({ code: 'INTERNAL_ERROR' });
+    expect(JSON.parse(error.mock.calls[0][0])).toMatchObject({
+      event: 'http_request_failed',
+      requestId: 'request-500',
+      status: 500,
+      code: 'INTERNAL_ERROR',
+    });
   });
 
   it('does not mistake an unrelated error carrying a code field for a Prisma error', () => {
@@ -78,5 +88,21 @@ describe('HttpExceptionFilter input-error mapping', () => {
     new HttpExceptionFilter().catch(Object.assign(new Error('boom'), { code: 'P2023' }), host);
 
     expect(response.status).toHaveBeenCalledWith(500);
+  });
+
+  it('redacts credentials and connection strings from diagnostic logs', () => {
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { host } = fakeHost({ method: 'GET', path: '/api/v1/projects' });
+    const failure = new Error(
+      'connect postgres://db-user:super-secret@db.internal/workmesh?password=still-secret',
+    );
+
+    new HttpExceptionFilter().catch(failure, host);
+
+    const [line, stack] = error.mock.calls[0] as [string, string];
+    expect(line).not.toContain('super-secret');
+    expect(line).not.toContain('still-secret');
+    expect(stack).not.toContain('super-secret');
+    expect(stack).not.toContain('still-secret');
   });
 });

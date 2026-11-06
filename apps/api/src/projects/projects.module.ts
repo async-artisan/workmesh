@@ -6,8 +6,17 @@ import { ChangeRequestsService } from '../changes/change-requests.service';
 import { ProjectAccessService } from './project-access.service';
 import { PROJECT_ROLE_REPOSITORY } from './project-role.repository';
 import { ProjectRolePrismaRepository } from './project-role.prisma-repository';
+import { ProjectRepositoryDeclarationService } from './project-repository-declaration.service';
 import { ProjectsController } from './projects.controller';
 import { ProjectsService } from './projects.service';
+import { WorkspaceDefinitionController } from './workspace-definition.controller';
+import { WorkspaceDefinitionService } from './workspace-definition.service';
+import {
+  WorkspaceEnrollmentConsumeController,
+  WorkspaceEnrollmentController,
+} from './workspace-enrollment.controller';
+import { WorkspaceEnrollmentService } from './workspace-enrollment.service';
+import { WorkspaceRepositoryController } from './workspace-repository.controller';
 import { InvitationsController } from './invitations.controller';
 import { InvitationsService } from './invitations.service';
 import { RequirementsController } from './requirements.controller';
@@ -18,6 +27,10 @@ import { UnitsService } from './units.service';
 @Module({
   controllers: [
     ProjectsController,
+    WorkspaceRepositoryController,
+    WorkspaceDefinitionController,
+    WorkspaceEnrollmentController,
+    WorkspaceEnrollmentConsumeController,
     InvitationsController,
     RequirementsController,
     UnitsController,
@@ -25,6 +38,9 @@ import { UnitsService } from './units.service';
   ],
   providers: [
     ProjectsService,
+    ProjectRepositoryDeclarationService,
+    WorkspaceDefinitionService,
+    WorkspaceEnrollmentService,
     InvitationsService,
     RequirementsService,
     UnitsService,

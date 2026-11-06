@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability report
+    url: https://github.com/async-artisan/workmesh/blob/main/SECURITY.md
+    about: Do not disclose exploitable details in a public issue. Read SECURITY.md for the private reporting path and current limitations.
+  - name: Feature request or community question
+    url: https://github.com/async-artisan/workmesh/issues/new?template=feature.yml
+    about: Discussions are pending administrator enablement; use the feature request template for proposals, questions, or deployment experience.

@@ -18,10 +18,10 @@
     display: grid;
     gap: 8px;
     padding: 12px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--surface);
-    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--wm-color-border, #e2e8f0);
+    border-radius: var(--wm-radius-md, 10px);
+    background: var(--wm-color-surface, #ffffff);
+    box-shadow: var(--wm-shadow-sm, 0 1px 2px rgba(15, 23, 42, 0.04));
   }
 
   .wm-mobile-card-head {
@@ -49,8 +49,8 @@
     display: -webkit-box;
     margin: 0;
     overflow: hidden;
-    color: var(--text-primary);
-    font-size: 14px;
+    color: var(--wm-color-text-primary, #0f172a);
+    font-size: var(--wm-text-md, 14px);
     font-weight: 600;
     line-height: 1.45;
     overflow-wrap: anywhere;
@@ -60,12 +60,31 @@
 
   .wm-mobile-card-meta {
     margin: 0;
-    overflow: hidden;
-    color: var(--text-muted);
-    font-size: 12.5px;
+    color: var(--wm-color-text-muted, #7b8aa0);
+    font-size: var(--wm-text-xs, 12px);
     line-height: 1.5;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+  }
+
+  .wm-mobile-card-details {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+    padding-top: 2px;
+    border-top: 1px solid var(--wm-color-border, #e2e8f0);
+  }
+
+  .wm-mobile-card-details > summary {
+    width: fit-content;
+    padding-top: 6px;
+    color: var(--wm-color-accent-text, #0e7490);
+    font-size: var(--wm-text-xs, 12px);
+    cursor: pointer;
+  }
+
+  .wm-mobile-card-details > summary:focus-visible {
+    outline: var(--wm-focus-width, 2px) solid var(--wm-color-focus-ring, rgba(8, 145, 178, 0.55));
+    outline-offset: 2px;
   }
 
   /* 卡片内的操作是窄屏下唯一的入口，给足点击面积并允许换行。 */
@@ -90,7 +109,7 @@
 
   .wm-mobile-empty {
     padding: 32px 12px;
-    color: var(--text-muted);
+    color: var(--wm-color-text-muted, #7b8aa0);
     font-size: 13px;
     text-align: center;
   }
@@ -116,17 +135,17 @@
     flex: 0 0 auto;
     min-height: 32px;
     padding: 4px 10px;
-    border: 1px solid var(--wm-border, #d7e0ea);
+    border: 1px solid var(--wm-color-border, #e2e8f0);
     border-radius: 999px;
-    background: var(--wm-surface, #ffffff);
-    color: var(--wm-text, #1f2a37);
+    background: var(--wm-color-surface, #ffffff);
+    color: var(--wm-color-text-primary, #0f172a);
     font-size: 13px;
   }
 
   .board-mobile-tab.is-active {
-    border-color: var(--wm-accent, #0e7490);
-    background: var(--wm-accent-soft, #e6f7fa);
-    color: var(--wm-accent-strong, #0e7490);
+    border-color: var(--wm-color-accent, #0891b2);
+    background: var(--wm-color-accent-soft, #e6f7fa);
+    color: var(--wm-color-accent-text, #0e7490);
     font-weight: 600;
   }
 
@@ -160,7 +179,7 @@
     position: sticky;
     right: 0;
     z-index: var(--wm-z-raised);
-    background: var(--surface, #ffffff);
+    background: var(--wm-color-surface, #ffffff);
     box-shadow: -10px 0 10px -10px rgba(15, 23, 42, 0.25);
   }
 

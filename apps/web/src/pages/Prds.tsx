@@ -11,6 +11,7 @@ import { formatApiError } from '../api/client';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { DiffViewer } from '../components/DiffViewer';
 import { ProjectSelect } from '../components/ProjectSelect';
+import { InlineLoading, SkeletonLines, TableSkeletonRows } from '../components/Skeleton';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { REVISION_STATE_LABELS } from '../lib/labels';
 import { loadDocumentIndex } from '../lib/documentIndex';
@@ -53,7 +54,12 @@ export function Prds() {
   const [requirementIndexLoading, setRequirementIndexLoading] = useState(false);
   const [documentIndexError, setDocumentIndexError] = useState('');
   const [documentIndexFailed, setDocumentIndexFailed] = useState(false);
-  const [docsLoading, setDocsLoading] = useState(false);
+  /** 有项目时首帧即视为加载中，避免先闪一屏「还没有 PRD」。 */
+  const [docsLoading, setDocsLoading] = useState(Boolean(projectId));
+  /** 当前项目是否已经拿到过一次文档列表结果；用于区分首次加载与「加载成功但为空」。 */
+  const [docsLoaded, setDocsLoaded] = useState(false);
+  /** 正文/对比请求本身也是异步面板：没有 loading 时点「查看内容」后卡片会一直不出现。 */
+  const [contentLoading, setContentLoading] = useState(false);
   /** 文档列表请求序号：项目切换/刷新失败时旧请求不得覆盖新页面。 */
   const docsRequestRef = useRef(0);
   /** 需求索引请求序号：首次加载和手动重读都受保护，旧项目结果不得回写。 */
@@ -64,16 +70,25 @@ export function Prds() {
   const [withdrawReason, setWithdrawReason] = useState('');
 
   const selected = docs.find((item) => item.document.id === selectedId) ?? null;
+  /** 首次加载（还没有任何文档结果）：表格用骨架行，不渲染空态与 0/0 计数。 */
+  const docsInitialLoading = Boolean(projectId) && !docsLoaded && docs.length === 0;
   const requirementLabel = (id: string | null | undefined): string => {
     if (!id) return '未绑定需求';
     const requirement = requirementsById.get(id);
     if (requirement) return `${requirement.code} · ${requirement.title}`;
+    // 需求索引和文档列表是两条独立请求：索引还在读时不能把未绑定需求当成事实。
+    if (requirementIndexLoading) return '读取中…';
     return requirementIndexError ? '关联需求暂时无法读取' : '未绑定需求';
   };
   const revisionLabel = (id: string | null | undefined): string => {
     if (!id) return '—';
     const revision = selected?.revisions.find((item) => item.id === id);
     return revision ? `v${revision.seq}` : '—';
+  };
+  const revisionTitle = (id: string | null | undefined): string => {
+    if (!id) return '—';
+    const revision = selected?.revisions.find((item) => item.id === id);
+    return revision ? `v${revision.seq} · ${revision.title}` : '—';
   };
   const filteredDocs = useMemo(() => {
     const text = query.trim().toLowerCase();
@@ -140,6 +155,10 @@ export function Prds() {
       setDocumentIndexError('');
       setDocumentIndexFailed(false);
       setDocsLoading(false);
+      setDocsLoaded(false);
+      setContentLoading(false);
+      setCompareOldId('');
+      setCompareNewId('');
       return;
     }
 
@@ -183,12 +202,18 @@ export function Prds() {
       // 文档列表重新读取后，旧正文/旧 diff 不再对应当前列表。
       contentRequestRef.current += 1;
       setContent(null);
+      setContentLoading(false);
+      setCompareOldId('');
+      setCompareNewId('');
     } catch (caught) {
       if (docsRequestRef.current !== requestId) return;
       setDocumentIndexFailed(true);
       setDocumentIndexError(`文档列表读取失败：${formatApiError(caught)}`);
     } finally {
-      if (docsRequestRef.current === requestId) setDocsLoading(false);
+      if (docsRequestRef.current === requestId) {
+        setDocsLoading(false);
+        setDocsLoaded(true);
+      }
       // 只有当前有效的索引请求才能结束 loading；过期请求不能干扰新请求。
       if (requirementIndexRequestRef.current === requirementRequestId)
         setRequirementIndexLoading(false);
@@ -207,6 +232,10 @@ export function Prds() {
     setDocumentIndexError('');
     setDocumentIndexFailed(false);
     setDocsLoading(false);
+    setDocsLoaded(false);
+    setContentLoading(false);
+    setCompareOldId('');
+    setCompareNewId('');
     setRequirementsById(new Map());
     setRequirementIndexError('');
     setRequirementIndexLoading(false);
@@ -218,15 +247,27 @@ export function Prds() {
     contentRequestRef.current += 1;
     setSelectedId(documentId);
     setContent(null);
+    setContentLoading(false);
     setCompareOldId('');
     setCompareNewId('');
     setError('');
+  }
+
+  function updateComparisonSelection(kind: 'old' | 'new', value: string) {
+    // Selecting a new pair makes any old body or diff immediately stale.
+    contentRequestRef.current += 1;
+    setContent(null);
+    setContentLoading(false);
+    setError('');
+    if (kind === 'old') setCompareOldId(value);
+    else setCompareNewId(value);
   }
 
   async function openContent(revision: RevisionView) {
     const requestId = contentRequestRef.current + 1;
     contentRequestRef.current = requestId;
     setContent(null);
+    setContentLoading(true);
     setError('');
     try {
       const body = await documentApi.content(revision.id);
@@ -250,6 +291,8 @@ export function Prds() {
     } catch (caught) {
       if (contentRequestRef.current !== requestId) return;
       setError(formatApiError(caught));
+    } finally {
+      if (contentRequestRef.current === requestId) setContentLoading(false);
     }
   }
 
@@ -261,6 +304,7 @@ export function Prds() {
     const requestId = contentRequestRef.current + 1;
     contentRequestRef.current = requestId;
     setContent(null);
+    setContentLoading(true);
     setError('');
     try {
       const [oldBody, newBody] = await Promise.all([
@@ -280,6 +324,8 @@ export function Prds() {
     } catch (caught) {
       if (contentRequestRef.current !== requestId) return;
       setError(formatApiError(caught));
+    } finally {
+      if (contentRequestRef.current === requestId) setContentLoading(false);
     }
   }
 
@@ -318,6 +364,9 @@ export function Prds() {
               contentRequestRef.current += 1;
               setSelectedId('');
               setContent(null);
+              setContentLoading(false);
+              setCompareOldId('');
+              setCompareNewId('');
             }}
             onCreateProject={() => navigate('/projects')}
           />
@@ -385,10 +434,14 @@ export function Prds() {
           <h3>
             PRD
             <small>
-              {filteredDocs.length} / {docs.length}
+              {docsInitialLoading ? '加载中…' : `${filteredDocs.length} / ${docs.length}`}
             </small>
           </h3>
           <div className="card-head-actions req-list-tools">
+            {docsLoading && (
+              <InlineLoading label={docsInitialLoading ? '正在加载 PRD…' : '正在刷新 PRD…'} />
+            )}
+            {requirementIndexLoading && !docsLoading && <InlineLoading label="正在读取需求索引…" />}
             <input
               aria-label="搜索 PRD"
               placeholder="搜索标题 / 需求"
@@ -420,48 +473,60 @@ export function Prds() {
               </tr>
             </thead>
             <tbody>
-              {filteredDocs.map((item) => {
-                const latest = item.publishedRevision ?? item.revisions[0] ?? null;
-                return (
-                  <tr
-                    key={item.document.id}
-                    className={selectedId === item.document.id ? 'is-selected' : undefined}
-                  >
-                    <td>
-                      <strong>{latest?.title ?? '未命名 PRD'}</strong>
-                      <div className="task-row-meta">
-                        {item.publishedRevision
-                          ? `已发布 v${item.publishedRevision.seq}`
-                          : latest
-                            ? `最新候选 v${latest.seq}`
-                            : '还没有修订'}
-                      </div>
-                    </td>
-                    <td>{requirementLabel(item.document.requirementId)}</td>
-                    <td className="cell-num">v{item.document.version}</td>
-                    <td className="cell-num">
-                      {item.revisions.filter((revision) => revision.state === 'CANDIDATE').length}
-                    </td>
-                    <td className="col-actions">
-                      <button className="ghost" onClick={() => selectDocument(item.document.id)}>
-                        {selectedId === item.document.id ? '当前' : '查看版本'}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-              {filteredDocs.length === 0 && (
-                <tr className="table-empty">
-                  <td colSpan={5}>
-                    {!projectId
-                      ? '先选择项目。'
-                      : docs.length === 0 && documentIndexError
-                        ? '文档列表读取失败或未完整加载，暂时无法判断是否有 PRD 文档。'
-                        : docs.length === 0
-                          ? '该项目还没有 PRD 文档，等待 Product Agent 提交候选。'
-                          : '没有匹配的 PRD，清空搜索或状态筛选。'}
-                  </td>
-                </tr>
+              {docsInitialLoading ? (
+                <TableSkeletonRows rows={5} columns={5} />
+              ) : (
+                <>
+                  {filteredDocs.map((item) => {
+                    const latest = item.publishedRevision ?? item.revisions[0] ?? null;
+                    return (
+                      <tr
+                        key={item.document.id}
+                        className={selectedId === item.document.id ? 'is-selected' : undefined}
+                      >
+                        <td>
+                          <strong>{latest?.title ?? '未命名 PRD'}</strong>
+                          <div className="task-row-meta">
+                            {item.publishedRevision
+                              ? `已发布 v${item.publishedRevision.seq}`
+                              : latest
+                                ? `最新候选 v${latest.seq}`
+                                : '还没有修订'}
+                          </div>
+                        </td>
+                        <td>{requirementLabel(item.document.requirementId)}</td>
+                        <td className="cell-num">v{item.document.version}</td>
+                        <td className="cell-num">
+                          {
+                            item.revisions.filter((revision) => revision.state === 'CANDIDATE')
+                              .length
+                          }
+                        </td>
+                        <td className="col-actions">
+                          <button
+                            className="ghost"
+                            onClick={() => selectDocument(item.document.id)}
+                          >
+                            {selectedId === item.document.id ? '当前' : '查看版本'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredDocs.length === 0 && (
+                    <tr className="table-empty">
+                      <td colSpan={5}>
+                        {!projectId
+                          ? '先选择项目。'
+                          : docs.length === 0 && documentIndexError
+                            ? '文档列表读取失败或未完整加载，暂时无法判断是否有 PRD 文档。'
+                            : docs.length === 0
+                              ? '该项目还没有 PRD 文档，等待 Product Agent 提交候选。'
+                              : '没有匹配的 PRD，清空搜索或状态筛选。'}
+                      </td>
+                    </tr>
+                  )}
+                </>
               )}
             </tbody>
           </table>
@@ -550,6 +615,75 @@ export function Prds() {
         </div>
       )}
 
+      {contentLoading && !content && (
+        <div className="table-card" data-testid="prd-content-loading">
+          <div className="card-head">
+            <h3>文档内容</h3>
+          </div>
+          <InlineLoading label="正在读取文档正文…" />
+          <SkeletonLines lines={4} />
+        </div>
+      )}
+
+      {selected && selected.revisions.length >= 2 && (
+        <div className="table-card" data-testid="prd-comparison-controls">
+          <div className="card-head">
+            <h3>
+              版本对比<small>选择任意两个修订版本</small>
+            </h3>
+          </div>
+          <div className="card-head-actions" aria-label="选择对比版本">
+            <label>
+              旧版本
+              <select
+                aria-label="对比旧版本"
+                value={compareOldId}
+                onChange={(event) => updateComparisonSelection('old', event.target.value)}
+              >
+                <option value="">选择旧版本</option>
+                {selected.revisions.map((revision) => (
+                  <option key={revision.id} value={revision.id}>
+                    v{revision.seq} · {revision.title} ·{' '}
+                    {REVISION_STATE_LABELS[revision.state] ?? revision.state}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              新版本
+              <select
+                aria-label="对比新版本"
+                value={compareNewId}
+                onChange={(event) => updateComparisonSelection('new', event.target.value)}
+              >
+                <option value="">选择新版本</option>
+                {selected.revisions.map((revision) => (
+                  <option key={revision.id} value={revision.id}>
+                    v{revision.seq} · {revision.title} ·{' '}
+                    {REVISION_STATE_LABELS[revision.state] ?? revision.state}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="ghost"
+              disabled={
+                contentLoading || !compareOldId || !compareNewId || compareOldId === compareNewId
+              }
+              onClick={() => void compareRevisions(compareOldId, compareNewId)}
+            >
+              对比所选版本
+            </button>
+            {compareOldId && compareNewId && compareOldId === compareNewId && (
+              <span className="page-sub" role="status">
+                请选择两个不同的版本再对比。
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {content && (
         <div className="table-card">
           <div className="card-head">
@@ -561,56 +695,24 @@ export function Prds() {
             </span>
           </div>
           <pre className="search-result">{content.text}</pre>
-          {selected && selected.revisions.length >= 2 && (
-            <div className="card-head-actions" aria-label="选择对比版本">
-              <label>
-                旧版本
-                <select
-                  aria-label="对比旧版本"
-                  value={compareOldId}
-                  onChange={(event) => setCompareOldId(event.target.value)}
-                >
-                  <option value="">选择旧版本</option>
-                  {selected.revisions.map((revision) => (
-                    <option key={revision.id} value={revision.id}>
-                      v{revision.seq} · {revision.title} ·{' '}
-                      {REVISION_STATE_LABELS[revision.state] ?? revision.state}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                新版本
-                <select
-                  aria-label="对比新版本"
-                  value={compareNewId}
-                  onChange={(event) => setCompareNewId(event.target.value)}
-                >
-                  <option value="">选择新版本</option>
-                  {selected.revisions.map((revision) => (
-                    <option key={revision.id} value={revision.id}>
-                      v{revision.seq} · {revision.title} ·{' '}
-                      {REVISION_STATE_LABELS[revision.state] ?? revision.state}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                className="ghost"
-                disabled={!compareOldId || !compareNewId || compareOldId === compareNewId}
-                onClick={() => void compareRevisions(compareOldId, compareNewId)}
-              >
-                对比所选版本
-              </button>
-            </div>
-          )}
           {content.baseText !== undefined && (
             <DiffViewer
               oldText={content.baseText}
               newText={content.text}
-              baseLabel={`已发布 ${revisionLabel(content.baseRevisionId)}`}
-              currentLabel={`候选 ${revisionLabel(content.revisionId)}`}
+              baseLabel={
+                selected?.publishedRevision?.id === content.baseRevisionId &&
+                selected?.revisions.find((revision) => revision.id === content.revisionId)
+                  ?.state === 'CANDIDATE'
+                  ? `已发布 ${revisionLabel(content.baseRevisionId)}`
+                  : `旧版本 ${revisionTitle(content.baseRevisionId)}`
+              }
+              currentLabel={
+                selected?.publishedRevision?.id === content.baseRevisionId &&
+                selected?.revisions.find((revision) => revision.id === content.revisionId)
+                  ?.state === 'CANDIDATE'
+                  ? `候选 ${revisionLabel(content.revisionId)}`
+                  : `新版本 ${revisionTitle(content.revisionId)}`
+              }
               testId="prd-diff"
             />
           )}

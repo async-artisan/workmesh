@@ -18,7 +18,6 @@ import {
   assertUuid,
   configHome,
   hostSupported,
-  loadWorkspace,
   resolvePlatform,
   type WorkspaceConfig,
 } from './config';
@@ -51,6 +50,22 @@ import {
   assertReusable,
   type SourceFile,
 } from './receipts';
+import {
+  detectWorkspaceState,
+  dualConfigError,
+  legacyWorkspaceView,
+  resolveActiveWorkspace,
+} from './workspace-config';
+import { runWorkspaceDiscover, type WorkspaceDiscoverResult } from './workspace-discover';
+import { runWorkspaceBind, type WorkspaceBindResult } from './workspace-bind';
+import { runWorkspaceStatus, type WorkspaceStatusReport } from './workspace-status';
+import {
+  runMigrationApply,
+  runMigrationDryRun,
+  runMigrationInspect,
+  runMigrationResolve,
+} from './workspace-migrate';
+import { runWorkspaceInit, type WorkspaceInitResult } from './workspace-init';
 
 type Options = Record<string, unknown>;
 type Connection = {
@@ -153,7 +168,8 @@ function workspaceDirOf(options: Options): string {
 async function connect(command: Command): Promise<Connection> {
   const options = optionsOf(command);
   const workspaceDir = workspaceDirOf(options);
-  const workspace = await loadWorkspace(workspaceDir);
+  const active = await resolveActiveWorkspace(workspaceDir);
+  const workspace = active.kind === 'V1' ? active.config : legacyWorkspaceView(active.config);
   const platform = resolvePlatform(workspace, str(options, 'api'));
   if (
     platform.origin !== workspace.platform.origin ||
@@ -269,7 +285,8 @@ async function runLogin(options: LoginOptions, command: Command): Promise<void> 
     throw new CliError('HOST_OS_UNSUPPORTED', '当前操作系统不支持安全的凭据文件存储');
   const io = optionsOf(command);
   const workspaceDir = workspaceDirOf(io);
-  const workspace = await loadWorkspace(workspaceDir);
+  const active = await resolveActiveWorkspace(workspaceDir);
+  const workspace = active.kind === 'V1' ? active.config : legacyWorkspaceView(active.config);
   const platform = resolvePlatform(workspace, str(io, 'api'));
   if (options.credentialStore === undefined) await confirmFileStore();
   else if (options.credentialStore !== 'file')
@@ -331,6 +348,9 @@ function buildProgram(): Command {
     console.log(
       '4. workmesh context --task <uuid> --claim <uuid> --expected-version <n> --materialize --json',
     );
+    console.log(
+      '新成员接入：workmesh workspace init --join <code> --root <dir> --api <base> --role <role>',
+    );
     console.log('按角色 SOP 本地生产；交付后用 review 请求 Web 人工确认。');
     console.log('修改角色、项目或平台需匹配的新授权；不要上传聊天、个人记忆或凭据。');
   });
@@ -382,11 +402,13 @@ function buildProgram(): Command {
       let platform;
       let workspace: WorkspaceConfig | undefined;
       try {
-        workspace = await loadWorkspace(workspaceDirOf(io));
+        const active = await resolveActiveWorkspace(workspaceDirOf(io));
+        workspace = active.kind === 'V1' ? active.config : legacyWorkspaceView(active.config);
         platform = resolvePlatform(workspace, str(io, 'api'));
       } catch (error) {
         const api = str(io, 'api');
-        if (api) platform = resolvePlatform(undefined, api);
+        if (api && error instanceof CliError && error.code === 'CONFIG_NOT_FOUND')
+          platform = resolvePlatform(undefined, api);
         else throw error;
       }
       const home = configHome(str(io, 'config-home'));
@@ -426,6 +448,9 @@ function buildProgram(): Command {
       ),
   ).action(async (raw: Options, command: Command) => {
     const io = optionsOf(command);
+    // DUAL_ACTIVE 是硬冲突：auth 写/诊断命令不得自动选择权威配置（§14.3）。
+    const snapshot = await detectWorkspaceState(workspaceDirOf(io));
+    if (snapshot.state === 'DUAL_ACTIVE') throw dualConfigError(snapshot);
     const home = configHome(str(io, 'config-home'));
     const credentials = await listCredentials(home);
     const wanted = str(raw, 'credential-id');
@@ -1294,10 +1319,10 @@ function buildProgram(): Command {
       .description('显示本地 receipt 的安全元数据')
       .requiredOption('--operation <uuid>', 'operation UUID'),
   ).action(async (raw: Options, command: Command) => {
-    const record = await readReceipt(
-      workspaceDirOf(optionsOf(command)),
-      operationIdOf(str(raw, 'operation')),
-    );
+    const io = optionsOf(command);
+    const snapshot = await detectWorkspaceState(workspaceDirOf(io));
+    if (snapshot.state === 'DUAL_ACTIVE') throw dualConfigError(snapshot);
+    const record = await readReceipt(workspaceDirOf(io), operationIdOf(str(raw, 'operation')));
     emitLocal(
       command,
       {
@@ -1416,6 +1441,303 @@ function buildProgram(): Command {
     });
   });
 
+  const workspaceCommand = program
+    .command('workspace')
+    .description('项目工作区：init / discover / bind / status / migrate（v1↔v2 五态）');
+
+  function workspaceRootOf(options: Options, raw: Options): string {
+    return str(raw, 'root') ?? workspaceDirOf(options);
+  }
+
+  withIO(
+    workspaceCommand
+      .command('init')
+      .description('接入码初始化：消费码 → 设备授权 → 精确 revision 校验 → 原子写 v2 配置')
+      .requiredOption('--join <code>', 'Web 生成的一次性接入码（不落盘）')
+      .requiredOption('--role <key>', '业务角色 key，例如 backend（浏览器最终确认）')
+      .option('--root <dir>', '工作区根目录（默认 --dir 或 cwd）')
+      .option('--host <host>', 'codex | claude-code（默认 codex）')
+      .option('--apply', '确认后消费接入码并写入本机配置（默认只做前置检查与计划）', false)
+      .option('--yes', '非交互确认（仍需 --apply 才写入）', false)
+      .option('--timeout <seconds>', '设备授权等待秒数')
+      .option('--client-name <name>', '授权页显示的客户端名', 'workmesh-workspace-init'),
+  ).action(async (raw: Options, command: Command) => {
+    const io = optionsOf(command);
+    const api = str(io, 'api');
+    if (!api)
+      throw new CliError(
+        'INVALID_REQUEST',
+        'workspace init --join 首次接入必须显式提供 --api <base>（工作区尚无平台配置）',
+      );
+    const timeoutSeconds = str(raw, 'timeout') ? Number(str(raw, 'timeout')) : undefined;
+    if (timeoutSeconds !== undefined && (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0))
+      throw new CliError('VALIDATION_FAILED', '--timeout 必须是正数秒');
+    const result: WorkspaceInitResult = await runWorkspaceInit({
+      root: workspaceRootOf(io, raw),
+      joinCode: str(raw, 'join') ?? '',
+      api,
+      role: str(raw, 'role') ?? '',
+      host: str(raw, 'host'),
+      configHome: configHome(str(io, 'config-home')),
+      apply: flag(raw, 'apply'),
+      yes: flag(raw, 'yes'),
+      clientName: str(raw, 'client-name'),
+      timeoutMs: timeoutSeconds ? Math.floor(timeoutSeconds * 1000) : undefined,
+    });
+    emitLocal(command, result, () => {
+      if (result.mode === 'plan') {
+        console.log(`接入计划（${result.platform.origin}${result.platform.apiBasePath}）`);
+        console.log(`角色：${result.role}  宿主：${result.host}`);
+        console.log('将写入：');
+        for (const path of result.wouldWrite) console.log(`  ${path}`);
+        console.log(result.nextAction);
+        return;
+      }
+      console.log(
+        `已接入项目 ${result.projectId}${result.projectName ? `（${result.projectName}）` : ''}`,
+      );
+      console.log(`workspaceId ${result.workspaceId}`);
+      console.log(
+        `定义 revision ${result.definition.revisionId}（digest ${result.definition.digest}）`,
+      );
+      console.log(`仓库映射 ${result.repositories.length} 条（${result.layoutKind}）`);
+      for (const file of result.files) console.log(`已写入 ${file}`);
+      console.log(`用户索引 ${result.userIndex}`);
+      for (const warning of result.warnings) console.log(`提示：${warning}`);
+      console.log(result.verificationText);
+      for (const next of result.nextActions) console.log(`下一步：${next}`);
+    });
+  });
+
+  withIO(
+    workspaceCommand
+      .command('discover')
+      .description('只读发现 Git roots / remotes / branch / SHA / dirty（不绑定、不写索引）')
+      .option('--root <dir>', '工作区根目录（默认 --dir 或 cwd）')
+      .option('--max-depth <n>', '最大发现深度（默认 3）')
+      .option('--max-directories <n>', '最多扫描目录数（默认 200）'),
+  ).action(async (raw: Options, command: Command) => {
+    const io = optionsOf(command);
+    const maxDepth = str(raw, 'max-depth') ? Number(str(raw, 'max-depth')) : undefined;
+    const maxDirectories = str(raw, 'max-directories')
+      ? Number(str(raw, 'max-directories'))
+      : undefined;
+    const result: WorkspaceDiscoverResult = await runWorkspaceDiscover({
+      root: workspaceRootOf(io, raw),
+      configHome: configHome(str(io, 'config-home')),
+      maxDepth,
+      maxDirectories,
+    });
+    emitLocal(command, result, () => {
+      console.log(`工作区状态：${result.state}${result.truncated ? '（扫描已截断）' : ''}`);
+      if (!result.gitAvailable) console.log('未检测到 git 可执行文件；仅报告工作区配置状态。');
+      if (result.candidates.length === 0) console.log('未发现 Git root。');
+      for (const candidate of result.candidates) {
+        const flags = [
+          candidate.checkoutKind,
+          candidate.branch ?? 'detached',
+          candidate.head ? candidate.head.slice(0, 12) : 'no-commit',
+          candidate.dirty ? 'dirty' : 'clean',
+          candidate.insideRoot ? '' : 'root 外',
+          candidate.knownWorkspaceId ? `index:${candidate.knownWorkspaceId}` : '',
+        ]
+          .filter(Boolean)
+          .join('  ');
+        console.log(`${candidate.relativePath}  ${flags}`);
+        for (const remote of candidate.remotes)
+          console.log(
+            `  ${remote.name}  ${remote.canonicalLocator}${remote.redacted ? '（凭据已脱敏）' : ''}`,
+          );
+      }
+      for (const next of result.nextActions) console.log(`下一步：${next}`);
+    });
+  });
+
+  withIO(
+    workspaceCommand
+      .command('bind')
+      .description('绑定平台定义中的仓库到本机 checkout（默认预览，--yes 才写入）')
+      .requiredOption('--repository <id>', '平台 ProjectRepository UUID')
+      .requiredOption('--path <dir>', '仓库 checkout 路径（相对 --root 或 root 内绝对路径）')
+      .option('--root <dir>', '工作区根目录（默认 --dir 或 cwd）')
+      .option('--offline', '仅用摘要有效的 revision 缓存 + 精确 canonical locator 匹配', false)
+      .option('--yes', '确认写入 workspace.json 与用户索引', false),
+  ).action(async (raw: Options, command: Command) => {
+    const io = optionsOf(command);
+    const result: WorkspaceBindResult = await runWorkspaceBind({
+      root: workspaceRootOf(io, raw),
+      repositoryId: str(raw, 'repository') ?? '',
+      path: str(raw, 'path') ?? '',
+      offline: flag(raw, 'offline'),
+      apply: flag(raw, 'yes'),
+      configHome: configHome(str(io, 'config-home')),
+      api: str(io, 'api'),
+    });
+    emitLocal(command, result, () => {
+      console.log(
+        `${result.applied ? '已绑定' : '绑定预览'} ${result.repository.key} → ${result.repository.path}（remote ${result.repository.remote}）`,
+      );
+      console.log(`身份状态 ${result.identityStatus}（${result.verificationText}）`);
+      console.log(
+        `定义 revision ${result.definition.revisionId} 来源 ${result.definition.source}${result.definition.refreshed ? '（已刷新绑定引用）' : ''}`,
+      );
+      console.log(
+        `locator ${result.locator.matchedCanonicalLocator}（${result.locator.remoteName}）`,
+      );
+      if (!result.applied) {
+        console.log('将写入：');
+        for (const item of result.wouldWrite) console.log(`  ${item.path}（${item.action}）`);
+      }
+      for (const warning of result.warnings) console.log(`提示：${warning}`);
+      console.log(result.nextAction);
+    });
+  });
+
+  withIO(
+    workspaceCommand
+      .command('status')
+      .description('本机只读诊断；--online 才做只读服务端比对')
+      .option('--root <dir>', '工作区根目录（默认 --dir 或 cwd）')
+      .option('--online', '在只读前提下比对平台当前已发布定义', false),
+  ).action(async (raw: Options, command: Command) => {
+    const io = optionsOf(command);
+    const result: WorkspaceStatusReport = await runWorkspaceStatus({
+      root: workspaceRootOf(io, raw),
+      configHome: configHome(str(io, 'config-home')),
+      online: flag(raw, 'online'),
+      api: str(io, 'api'),
+    });
+    emitLocal(command, result, () => {
+      console.log(`工作区状态：${result.state}  freshness ${result.freshness}`);
+      if (result.projectId) console.log(`项目：${result.projectId}`);
+      if (result.platform)
+        console.log(`平台：${result.platform.origin}${result.platform.apiBasePath}`);
+      if (result.definition)
+        console.log(
+          `定义 revision：${result.definition.revisionId}（digest ${result.definition.digest}）`,
+        );
+      for (const backup of result.backups) console.log(`v1 备份（不读取）：${backup}`);
+      if (result.v1Migration) console.log(`v1 迁移：${result.v1Migration.command}`);
+      for (const repository of result.repositories) {
+        const detail = repository.isGitRepository
+          ? `${repository.checkoutKind ?? ''} ${repository.branch ?? 'detached'} ${repository.head?.slice(0, 12) ?? ''} ${repository.dirty ? 'dirty' : 'clean'}`
+          : repository.exists
+            ? '非 Git 目录'
+            : '路径缺失';
+        console.log(
+          `${repository.key}  ${repository.path}  ${repository.identityStatus}${repository.reasonCode ? `/${repository.reasonCode}` : ''}  ${detail}`.trim(),
+        );
+      }
+      if (result.online) {
+        console.log(
+          `online 比对：${result.online.status} 当前 revision ${result.online.currentRevisionId ?? 'NOT_CONFIGURED'}`,
+        );
+      } else {
+        console.log('未执行 online 比对：本输出不宣称服务端在线状态，也不代表 provider 已核验。');
+      }
+      console.log(result.nextAction);
+    });
+  });
+
+  withIO(
+    workspaceCommand
+      .command('migrate')
+      .description(
+        'v1 → v2 迁移：dry-run / --apply / --inspect / --resolve keep-v2（只归档，不删除）',
+      )
+      .option('--root <dir>', '工作区根目录（默认 --dir 或 cwd）')
+      .option('--dry-run', '列出迁移映射与备份位置（零写入）', false)
+      .option('--apply', '备份 v1、原子写 v2、更新用户索引', false)
+      .option('--inspect', '只读诊断双配置/journal/摘要（零写入零删除）', false)
+      .option('--resolve <mode>', 'keep-v2（显式修复）或 keep-v1（仅指引，不删除）'),
+  ).action(async (raw: Options, command: Command) => {
+    const io = optionsOf(command);
+    const root = workspaceRootOf(io, raw);
+    const configHomeValue = configHome(str(io, 'config-home'));
+    const resolveMode = str(raw, 'resolve');
+    const selected = [
+      flag(raw, 'dry-run') ? 'dry-run' : null,
+      flag(raw, 'apply') ? 'apply' : null,
+      flag(raw, 'inspect') ? 'inspect' : null,
+      resolveMode ? 'resolve' : null,
+    ].filter((item): item is string => item !== null);
+    if (selected.length > 1)
+      throw new CliError('VALIDATION_FAILED', '--dry-run/--apply/--inspect/--resolve 只能选一个');
+    const mode = selected[0] ?? 'dry-run';
+    if (resolveMode && resolveMode !== 'keep-v2' && resolveMode !== 'keep-v1')
+      throw new CliError('VALIDATION_FAILED', '--resolve 只能是 keep-v2 或 keep-v1');
+
+    if (mode === 'dry-run') {
+      const result = await runMigrationDryRun({ root, configHome: configHomeValue });
+      emitLocal(command, result, () => {
+        console.log(
+          result.alreadyMigrated
+            ? `状态 ${result.state}：已迁移，无需写入。`
+            : `v1 → v2 迁移计划（状态 ${result.state}，dry-run 零写入）`,
+        );
+        if (result.plan) {
+          console.log(`项目 ${result.plan.projectId}`);
+          console.log(`平台 ${result.plan.platform.origin}${result.plan.platform.apiBasePath}`);
+          console.log(
+            `布局 ${result.plan.layoutKind}  仓库映射 ${result.plan.repositories.length} 条`,
+          );
+          for (const repository of result.plan.repositories)
+            console.log(
+              `  ${repository.key} ${repository.projectRepositoryId} path ${repository.path}`,
+            );
+          console.log(`备份 ${result.backupFile}`);
+        }
+        for (const item of result.wouldWrite) console.log(`将写入 ${item.path}（${item.action}）`);
+        console.log(result.nextAction);
+      });
+      return;
+    }
+    if (mode === 'apply') {
+      const result = await runMigrationApply({ root, configHome: configHomeValue });
+      emitLocal(command, result, () => {
+        console.log(
+          result.alreadyMigrated
+            ? `状态 ${result.state}：已迁移，本次零写入。`
+            : `迁移完成：${result.state}（journal ${result.journalPhase}）`,
+        );
+        if (result.backupFile)
+          console.log(
+            `v1 备份（不读取）：.workmesh/${result.backupFile.replace(/^\.workmesh\//, '')}`,
+          );
+        for (const item of result.writes) console.log(`${item.action} ${item.path}`);
+        console.log(result.nextAction);
+      });
+      return;
+    }
+    if (mode === 'inspect') {
+      const result = await runMigrationInspect({ root });
+      emitLocal(command, result, () => {
+        console.log(`状态 ${result.state}（只读诊断，零写入）`);
+        for (const file of [result.files.v1, result.files.v2])
+          console.log(
+            `${file.label} exists=${file.exists} valid=${file.valid} digest=${file.digest ?? '(none)'}`,
+          );
+        for (const backup of result.backups) console.log(`v1 备份：${backup}`);
+        console.log(
+          `journal ${result.journal.phase ?? '(none)'}  项目一致=${String(result.consistency.projectIdsMatch)}  平台一致=${String(result.consistency.platformsMatch)}`,
+        );
+        console.log(result.nextAction);
+      });
+      return;
+    }
+    const result = await runMigrationResolve({
+      root,
+      configHome: configHomeValue,
+      mode: resolveMode === 'keep-v1' ? 'keep-v1' : 'keep-v2',
+    });
+    emitLocal(command, result, () => {
+      console.log(`resolve ${result.resolution} → ${result.state}`);
+      for (const item of result.writes) console.log(`${item.action} ${item.path}`);
+      if (result.archivedV1To) console.log(`v1 已归档（不读取）：${result.archivedV1To}`);
+      console.log(result.nextAction);
+    });
+  });
+
   return program;
 }
 
@@ -1461,8 +1783,24 @@ function report(error: CliError, json: boolean): void {
     process.stderr.write('下一步：workmesh auth login --credential-store file\n');
   if (error.code === 'CONFIG_NOT_FOUND')
     process.stderr.write(
-      '下一步：workmesh roles install --package <dir> --project <uuid> --host <codex|claude-code> --api <base>\n',
+      '下一步：新接入运行 workmesh workspace init --join <code> --root <dir> --api <base> --role <role>；或运行 workmesh roles install ...（v1）\n',
     );
+  if (error.code === 'WORKSPACE_DUAL_CONFIG')
+    process.stderr.write(
+      '下一步：workmesh workspace migrate --inspect；满足 v2 校验 + journal 条件后运行 workmesh workspace migrate --resolve keep-v2（不会自动删除活动配置）\n',
+    );
+  if (error.code === 'WORKSPACE_V1_MIGRATION_REQUIRED')
+    process.stderr.write('下一步：workmesh workspace migrate --dry-run，再运行 --apply\n');
+  if (error.code === 'WORKSPACE_NOT_CONFIGURED')
+    process.stderr.write(
+      '下一步：workmesh workspace init --join <code> --root <dir> --api <base> --role <role>\n',
+    );
+  if (error.code === 'WORKSPACE_OFFLINE_UNVERIFIED')
+    process.stderr.write('下一步：联网执行 workmesh workspace bind，或先在线刷新定义缓存\n');
+  if (error.code === 'WORKSPACE_ALREADY_BOUND')
+    process.stderr.write('下一步：workmesh workspace status（P0a 不提供 --rebind）\n');
+  if (error.code === 'WORKSPACE_INIT_IN_PROGRESS')
+    process.stderr.write('下一步：等待另一个 init 结束；若接入码已消费，请回 Web 重新生成\n');
 }
 
 export { buildProgram, readOption };

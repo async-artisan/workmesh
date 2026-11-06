@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: workmesh
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env before starting Compose}
+      POSTGRES_DB: workmesh
+    volumes:
+      - workmesh-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U workmesh -d workmesh']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      WEB_PORT: 5173
+      WEB_HOST: 0.0.0.0
+      WORKMESH_V1_DATABASE_URL: postgresql://workmesh:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env before starting Compose}@postgres:5432/workmesh?schema=workmesh_v1
+      WORKMESH_COOKIE_MODE: ${WORKMESH_COOKIE_MODE:-LOCAL_INSECURE}
+      WORKMESH_PUBLIC_ORIGIN: ${WORKMESH_PUBLIC_ORIGIN:-http://127.0.0.1:5173}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://127.0.0.1:5173}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      WORKMESH_TICKET_ENCRYPTION_KEY: ${WORKMESH_TICKET_ENCRYPTION_KEY:-}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-120}
+      RATE_LIMIT_BUCKETS: ${RATE_LIMIT_BUCKETS:-10000}
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-}
+      WORKMESH_SMTP_URL: ${WORKMESH_SMTP_URL:-}
+      WORKMESH_EMAIL_FROM: ${WORKMESH_EMAIL_FROM:-no-reply@workmesh.local}
+    ports:
+      - '127.0.0.1:${WORKMESH_WEB_PORT:-5173}:5173'
+    healthcheck:
+      test: ['CMD', 'node', 'docker/healthcheck.mjs']
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 12
+
+volumes:
+  workmesh-postgres:

@@ -6,7 +6,6 @@ import { invalidateProjects } from '../store/project';
 import { SCOPE_REGISTRY } from '@workmesh/shared';
 import { bodyOf, envelope, methodOf, mockFetch, pathOf, type StubReply } from '../test-utils';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const projectOne = { id: 'p1', key: 'DEMO', name: 'Demo', version: 1 };
 const projectTwo = { id: 'p2', key: 'OPS', name: 'Ops', version: 1 };
 const roleOne = { id: 'role-1', projectId: 'p1', key: 'backend', title: '后端', version: 1 };

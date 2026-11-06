@@ -29,6 +29,8 @@ function credential(overrides: Partial<CredentialView> = {}): CredentialView {
     scopes: ['project:read', 'task:claim'],
     expiresAt: new Date(Date.now() + 30 * DAY_MS).toISOString(),
     revokedAt: null,
+    createdAt: new Date(Date.now() - 9 * DAY_MS).toISOString(),
+    device: null,
     ...overrides,
   };
 }
@@ -347,6 +349,109 @@ describe('Profile（Agent 凭据状态、权限与吊销）', () => {
     expect(rows[1]).toHaveTextContent('评审者');
     expect(rows[0]).toHaveTextContent(/凭据 ID same-cre/);
     expect(rows[1]).toHaveTextContent(/凭据 ID same-cre/);
+  });
+
+  it('有设备元数据的凭据在表格与卡片展示主机名和平台', async () => {
+    const device = {
+      name: 'DESKTOP-E2E01',
+      platform: 'win32 10.0.22631',
+      clientVersion: '1.0.0',
+      ip: '203.0.113.7',
+      clientName: 'CLI workmesh-setup',
+      authorizedAt: new Date('2026-11-01T09:30:00.000Z').toISOString(),
+    };
+    mockFetch(
+      baseHandler({
+        credentials: () => [credential({ id: 'device-cred', name: 'CLI workmesh-setup', device })],
+      }),
+    );
+
+    renderProfile();
+    await screen.findAllByText('CLI workmesh-setup');
+    const row = within(screen.getByTestId('credentials-table'))
+      .getByText('CLI workmesh-setup')
+      .closest('tr');
+    if (!row) throw new Error('缺少凭据行');
+    expect(within(row).getByText('DESKTOP-E2E01')).toBeInTheDocument();
+    expect(within(row).getByText(/win32 10\.0\.22631/)).toBeInTheDocument();
+    expect(within(row).getByText(/授权 \d{4}/)).toBeInTheDocument();
+    expect(within(row).queryByText('未记录')).not.toBeInTheDocument();
+
+    const cards = within(screen.getByTestId('credentials-cards'));
+    expect(cards.getByText('设备：DESKTOP-E2E01')).toBeInTheDocument();
+    expect(cards.getByText(/win32 10\.0\.22631/)).toBeInTheDocument();
+    expect(cards.queryByText('旧凭据没有设备信息')).not.toBeInTheDocument();
+  });
+
+  it('缺主机名的旧授权记录展示 clientName 与未上报主机名提示，而不是“未命名设备”', async () => {
+    // 真实旧数据：有授权记录，但设备头上线前签发，只有 clientName 与 authorizedAt。
+    const credentials = [
+      credential({
+        id: 'legacy-client-name',
+        name: 'CLI demo-agent',
+        device: {
+          name: null,
+          platform: null,
+          clientVersion: null,
+          ip: null,
+          clientName: 'demo-agent',
+          authorizedAt: new Date('2026-11-03T07:27:00.000Z').toISOString(),
+        },
+      }),
+    ];
+    mockFetch(baseHandler({ credentials: () => credentials }));
+
+    renderProfile();
+    await screen.findAllByText('CLI demo-agent');
+    const row = within(screen.getByTestId('credentials-table'))
+      .getByText('CLI demo-agent')
+      .closest('tr');
+    if (!row) throw new Error('缺少凭据行');
+    expect(within(row).getByText('demo-agent')).toBeInTheDocument();
+    expect(within(row).getByText('旧凭据未上报主机名')).toBeInTheDocument();
+    expect(within(row).getByText(/授权 \d{4}/)).toBeInTheDocument();
+    expect(within(row).queryByText('未命名设备')).not.toBeInTheDocument();
+    expect(within(row).queryByText('未记录')).not.toBeInTheDocument();
+
+    const cards = within(screen.getByTestId('credentials-cards'));
+    expect(cards.getByText('设备：demo-agent')).toBeInTheDocument();
+    expect(cards.getByText('旧凭据未上报主机名')).toBeInTheDocument();
+    expect(cards.queryByText('未命名设备')).not.toBeInTheDocument();
+  });
+
+  it('没有设备元数据的旧凭据展示未记录与说明，不伪造设备', async () => {
+    // 服务端两种“无设备信息”形态：无授权记录(device=null) 与 device 对象所有字段为空。
+    const credentials = [
+      credential({ id: 'legacy-null', name: '旧凭据A', device: null }),
+      credential({
+        id: 'legacy-empty',
+        name: '旧凭据B',
+        device: {
+          name: null,
+          platform: null,
+          clientVersion: null,
+          ip: null,
+          clientName: null,
+          authorizedAt: null,
+        },
+      }),
+    ];
+    mockFetch(baseHandler({ credentials: () => credentials }));
+
+    renderProfile();
+    await screen.findAllByText('旧凭据A');
+    const table = within(screen.getByTestId('credentials-table'));
+    for (const name of ['旧凭据A', '旧凭据B']) {
+      const row = table.getByText(name).closest('tr');
+      if (!row) throw new Error(`缺少凭据行：${name}`);
+      expect(within(row).getByText('未记录')).toBeInTheDocument();
+      expect(within(row).getByText('旧凭据没有设备信息')).toBeInTheDocument();
+      expect(within(row).queryByText('未命名设备')).not.toBeInTheDocument();
+    }
+
+    const cards = within(screen.getByTestId('credentials-cards'));
+    expect(cards.getAllByText('设备：未记录')).toHaveLength(2);
+    expect(cards.getAllByText('旧凭据没有设备信息')).toHaveLength(2);
   });
 
   it('首次加载失败显示页面错误而不是空列表，重试后恢复', async () => {

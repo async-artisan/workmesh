@@ -1,0 +1,5 @@
+# Default owners for repository changes.
+# Keep this entry aligned with the repository's current GitHub owner.
+# GitHub does not enforce required reviews from this file alone. A repository
+# administrator must enable the matching branch protection/ruleset and verify it.
+* @async-artisan

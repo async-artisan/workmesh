@@ -1,0 +1,82 @@
+name: Bug report
+description: Report a reproducible defect in WorkMesh
+title: 'bug: '
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please remove credentials, personal data, and other sensitive values before submitting.
+        For a security vulnerability, do not use this form; follow [SECURITY.md](../../SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Provide the release tag, commit SHA, or package version where the problem occurs.
+      placeholder: 'commit SHA or 0.x.y'
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - API
+        - Web UI
+        - CLI
+        - workmesh-box
+        - Role packages
+        - Documentation
+        - Build or CI
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Environment
+      description: Include OS, Node.js, pnpm, database, browser, and deployment mode when relevant.
+      placeholder: 'Windows 11, Node 20.19, pnpm 10.28.2, PostgreSQL 16'
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Give the smallest reliable sequence, including configuration that is safe to share.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include relevant error messages or redacted logs.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Additional evidence
+      description: Add a minimal reproduction, test case, screenshots, or links to a failing CI run if available.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I removed secrets, credentials, personal data, and production data.
+          required: true
+        - label: This is not a security vulnerability requiring private disclosure.
+          required: true

@@ -128,16 +128,17 @@ export class V1AuthorizationService {
     principal: Principal,
     projectId: string,
     mode: V1ProjectAccessMode,
+    repository: V1AuthorizationRepository = this.repository,
   ): Promise<V1ProjectContext> {
     if (!projectId) throw notFound('PROJECT_ID_REQUIRED');
     // Agent 的 projectId 必须完全相同；不允许借用户其他项目关系提权。
     if (principal.kind === 'AGENT' && principal.projectId !== projectId)
       throw notFound('CROSS_PROJECT_AGENT', { principalProjectId: principal.projectId ?? null });
 
-    const project = await this.repository.findProject(projectId);
+    const project = await repository.findProject(projectId);
     if (!project) throw notFound('PROJECT_NOT_FOUND', { projectId });
 
-    const membership = await this.repository.findMember(projectId, principal.userId);
+    const membership = await repository.findMember(projectId, principal.userId);
     if (!membership || membership.revokedAt) throw notFound('MEMBER_NOT_ACTIVE', { projectId });
 
     // 放在成员校验之后：非成员仍然只得到 404，不会因为「项目已归档」而泄露项目存在性。
@@ -150,7 +151,7 @@ export class V1AuthorizationService {
       );
 
     const assignments = (
-      await this.repository.findActiveRoleAssignments(projectId, principal.userId)
+      await repository.findActiveRoleAssignments(projectId, principal.userId)
     ).filter((item) => !item.revokedAt);
     const activeRoleIds = assignments.map((item) => item.roleId);
 
@@ -196,12 +197,18 @@ export class V1AuthorizationService {
   async resolveKnowledgeAccess(
     principal: Principal,
     knowledgeBaseId: string,
+    repository: V1AuthorizationRepository = this.repository,
   ): Promise<V1KnowledgeAccess> {
-    const knowledgeBase = await this.repository.findKnowledgeBase(knowledgeBaseId);
+    const knowledgeBase = await repository.findKnowledgeBase(knowledgeBaseId);
     if (!knowledgeBase) throw notFound('KNOWLEDGE_BASE_NOT_FOUND', { knowledgeBaseId });
 
-    const context = await this.resolveProjectContext(principal, knowledgeBase.projectId, 'read');
-    const grants = (await this.repository.findGrants(knowledgeBaseId)).filter(
+    const context = await this.resolveProjectContext(
+      principal,
+      knowledgeBase.projectId,
+      'read',
+      repository,
+    );
+    const grants = (await repository.findGrants(knowledgeBaseId)).filter(
       (grant) => !grant.revokedAt,
     );
 

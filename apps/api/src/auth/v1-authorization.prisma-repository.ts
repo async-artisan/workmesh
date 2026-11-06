@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import type { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
 import type {
   V1AuthorizationRepository,
   V1GrantRecord,
@@ -12,6 +13,11 @@ import type {
 @Injectable()
 export class V1AuthorizationPrismaRepository implements V1AuthorizationRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  static forTransaction(tx: Prisma.TransactionClient): V1AuthorizationPrismaRepository {
+    // All repository operations use delegates present on both Prisma clients.
+    return new V1AuthorizationPrismaRepository(tx as PrismaService);
+  }
 
   async findProject(projectId: string): Promise<V1ProjectRecord | null> {
     return this.prisma.project.findUnique({

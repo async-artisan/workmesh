@@ -25,6 +25,7 @@ import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { DiffViewer } from '../components/DiffViewer';
 import type { DecisionArtifactSummary, DecisionSummaryData } from '../components/DecisionSummary';
 import { EmptyState } from '../components/EmptyState';
+import { FullValueDisclosure } from '../components/FullValueDisclosure';
 import { useAuthStore } from '../store/auth';
 import {
   ARTIFACT_KIND_LABELS,
@@ -509,7 +510,6 @@ export function ReviewDecision({
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reviewId]);
 
   const revision = useMemo<RevisionView | null>(() => {
@@ -601,7 +601,8 @@ export function ReviewDecision({
 
   if (loading && !review) {
     return (
-      <section>
+      <section role="status" aria-live="polite" aria-busy="true">
+        <span className="visually-hidden">正在读取评审…</span>
         <header className="page-head">
           <div>
             <div className="skeleton-line" />
@@ -930,7 +931,12 @@ export function ReviewDecision({
               <span className="status-tag">v{review.version}</span>
             </div>
             <div className="req-head-meta">
-              {requirementLabel && `${requirementLabel} · `}摘要 {shortDigest(review.subjectDigest)}
+              {requirementLabel && `${requirementLabel} · `}
+              <FullValueDisclosure
+                label="摘要"
+                value={review.subjectDigest}
+                preview={shortDigest(review.subjectDigest)}
+              />
             </div>
           </div>
           <div className="page-actions">
@@ -1034,9 +1040,11 @@ export function ReviewDecision({
                 <h3>
                   正文<small>v{revision.seq}</small>
                 </h3>
-                <span className="task-row-meta cell-mono" title={content.sha256}>
-                  sha256 {shortDigest(content.sha256)}
-                </span>
+                <FullValueDisclosure
+                  label="sha256"
+                  value={content.sha256}
+                  preview={shortDigest(content.sha256)}
+                />
               </div>
               <pre className="paper-content">{content.text}</pre>
               {publishedText !== null && (
@@ -1088,9 +1096,11 @@ export function ReviewDecision({
                     <h3>
                       交付物<small>{artifactSet.artifacts.length}</small>
                     </h3>
-                    <span className="task-row-meta cell-mono">
-                      manifest {shortDigest(artifactSet.manifestDigest)}
-                    </span>
+                    <FullValueDisclosure
+                      label="manifest"
+                      value={artifactSet.manifestDigest}
+                      preview={shortDigest(artifactSet.manifestDigest)}
+                    />
                   </div>
                   <div className="artifact-group">
                     {artifactSet.artifacts.map((artifact) => {
@@ -1140,8 +1150,12 @@ export function ReviewDecision({
                                 )}
                               </div>
                             )}
-                            <div className="task-row-meta cell-mono" title={artifact.sha256}>
-                              sha256 {shortDigest(artifact.sha256)}
+                            <div className="task-row-meta cell-mono">
+                              <FullValueDisclosure
+                                label="sha256"
+                                value={artifact.sha256}
+                                preview={shortDigest(artifact.sha256)}
+                              />
                               {artifact.commitSha && (
                                 <>
                                   {' '}
@@ -1153,6 +1167,12 @@ export function ReviewDecision({
                                   ) : (
                                     `commit ${artifact.commitSha.slice(0, 8)}`
                                   )}
+                                  {' · '}
+                                  <FullValueDisclosure
+                                    label="完整 commit"
+                                    value={artifact.commitSha}
+                                    preview={artifact.commitSha.slice(0, 8)}
+                                  />
                                 </>
                               )}
                               {artifact.repoPath && ` · ${artifact.repoPath}`}
@@ -1334,8 +1354,21 @@ export function ReviewDecision({
                         {item.authorExternalId}
                       </div>
                       <div className="evidence-meta cell-mono">
-                        head {shortDigest(item.headSha)} · commit{' '}
-                        {item.commitSha ? shortDigest(item.commitSha) : '—'}
+                        <FullValueDisclosure
+                          label="head"
+                          value={item.headSha}
+                          preview={shortDigest(item.headSha)}
+                        />
+                        {' · '}
+                        {item.commitSha ? (
+                          <FullValueDisclosure
+                            label="commit"
+                            value={item.commitSha}
+                            preview={shortDigest(item.commitSha)}
+                          />
+                        ) : (
+                          'commit —'
+                        )}
                       </div>
                       {item.submittedAt && (
                         <div className="evidence-meta">{shortDate(item.submittedAt)}</div>
@@ -1543,7 +1576,11 @@ export function ReviewDecision({
               <p>
                 v{receipt.version} · {receipt.at} · {receipt.actor}
                 <br />
-                <span className="cell-mono">{shortDigest(receipt.subjectDigest)}</span>
+                <FullValueDisclosure
+                  label="对象摘要"
+                  value={receipt.subjectDigest}
+                  preview={shortDigest(receipt.subjectDigest)}
+                />
               </p>
               <div className="next-step-actions">
                 <button className="ghost" onClick={() => void copyReceipt()}>

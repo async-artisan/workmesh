@@ -15,7 +15,6 @@ import {
   type PipelinePhase,
   type PipelineRequirementSignals,
   type PipelineStatKey,
-  type StageProgressState,
 } from '../lib/pipelineStatus';
 
 /** Project-level requirement shape. Extra fields are optional so richer payloads can be consumed. */
@@ -125,10 +124,17 @@ const css = `
 .pipeline-overview__stat[aria-pressed='true'] { border-color:var(--accent,#0891b2); box-shadow:0 0 0 3px var(--accent-soft,rgba(8,145,178,.08)); }
 .pipeline-overview__stat strong { display:block; font-size:18px; }
 .pipeline-overview__stat span { color:var(--text-secondary, #64748b); font-size:12px; }
-.pipeline-overview__stat-note { color:var(--text-muted,#7b8aa0); font-size:12px; margin:0 0 14px; }
-.pipeline-overview__toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:12px 0 18px; }
-.pipeline-overview__search { flex:1 1 220px; min-width:180px; }
-.pipeline-overview__filter { min-width:130px; }
+.pipeline-overview__stat-note { color:var(--text-muted,#7b8aa0); font-size:12px; margin:0 0 14px; max-width:88ch; }
+.pipeline-overview__explain { margin:0 0 16px; }
+.pipeline-overview__explain > summary { cursor:pointer; color:var(--text-muted,#7b8aa0); font-size:12px; width:max-content; }
+.pipeline-overview__explain > summary:hover { color:var(--text-secondary,#475569); }
+.pipeline-overview__explain[open] > summary { margin-bottom:8px; }
+.pipeline-overview__explain .pipeline-overview__stat-note { margin:0; }
+.pipeline-overview__toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:12px 0 18px; max-width:660px; }
+.pipeline-overview__search { flex:0 1 340px; min-width:0; height:36px; padding:0 12px; border:1px solid var(--border-strong,#cbd5e1); border-radius:var(--radius-sm,7px); background:var(--surface,#fff); color:var(--text-primary,#0f172a); font-size:13px; font-family:inherit; transition:border-color .15s ease, box-shadow .15s ease; }
+.pipeline-overview__search:focus { outline:none; border-color:var(--accent,#0891b2); box-shadow:0 0 0 3px var(--accent-soft,rgba(8,145,178,.08)); }
+.pipeline-overview__filter { flex:0 0 auto; min-width:130px; height:36px; padding:0 10px; border:1px solid var(--border-strong,#cbd5e1); border-radius:var(--radius-sm,7px); background:var(--surface,#fff); color:var(--text-primary,#0f172a); font-size:13px; font-family:inherit; transition:border-color .15s ease, box-shadow .15s ease; }
+.pipeline-overview__filter:focus { outline:none; border-color:var(--accent,#0891b2); box-shadow:0 0 0 3px var(--accent-soft,rgba(8,145,178,.08)); }
 .pipeline-overview__timeline { display:flex; align-items:flex-start; overflow-x:auto; padding:4px 2px 14px; margin-bottom:8px; }
 .pipeline-overview__stage { display:flex; align-items:flex-start; min-width:132px; flex:1; }
 .pipeline-overview__stage-button { border:0; background:none; color:inherit; cursor:pointer; padding:0; text-align:center; min-width:96px; }
@@ -136,7 +142,7 @@ const css = `
 .pipeline-overview__stage-dot { display:grid; place-items:center; width:28px; height:28px; margin:0 auto 6px; border:2px solid var(--border-strong,#cbd5e1); border-radius:50%; background:var(--surface,#fff); font-size:12px; }
 .pipeline-overview__stage-button[data-active='true'] .pipeline-overview__stage-dot { border-color:var(--accent,#0891b2); color:var(--accent,#0891b2); box-shadow:0 0 0 4px var(--accent-soft,rgba(8,145,178,.08)); }
 .pipeline-overview__stage-label { font-size:12px; white-space:nowrap; }
-.pipeline-overview__stage-count { display:block; color:var(--text-muted,#7b8aa0); font-size:11px; margin-top:3px; white-space:nowrap; }
+.pipeline-overview__stage-count { display:block; color:var(--text-muted,#7b8aa0); font-size:var(--wm-text-xs,12px); margin-top:3px; white-space:nowrap; }
 .pipeline-overview__connector { align-self:flex-start; height:2px; flex:1; min-width:22px; margin:14px 5px 0; background:var(--border,#e2e8f0); }
 .pipeline-overview__connector[data-complete='true'] { background:var(--success,#059669); }
 .pipeline-overview__timeline-note { color:var(--text-muted,#7b8aa0); font-size:12px; margin:0 0 18px; }
@@ -145,7 +151,7 @@ const css = `
 .pipeline-overview__row:hover, .pipeline-overview__row:focus-visible { border-color:var(--accent-border,#0891b2); box-shadow:0 0 0 3px var(--accent-soft,rgba(8,145,178,.08)); outline:none; }
 .pipeline-overview__row-head { display:flex; align-items:center; gap:9px; justify-content:space-between; }
 .pipeline-overview__title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.pipeline-overview__code, .pipeline-overview__badge { font-size:11px; border-radius:999px; padding:3px 8px; white-space:nowrap; }
+.pipeline-overview__code, .pipeline-overview__badge { font-size:var(--wm-text-xs,12px); border-radius:999px; padding:3px 8px; white-space:nowrap; }
 .pipeline-overview__code { color:var(--accent-hover,#0e7490); background:var(--accent-soft,rgba(8,145,178,.08)); }
 .pipeline-overview__badge { background:var(--surface-hover,#f1f5f9); color:var(--text-secondary,#475569); }
 .pipeline-overview__badge[data-kind='phase'] { background:var(--surface-hover,#f1f5f9); color:var(--text-primary,#0f172a); }
@@ -328,27 +334,18 @@ export function ProjectPipelineOverview({
           </div>
         )}
       </div>
-      {narrow ? (
-        <details className="pipeline-overview__explain">
-          <summary>统计口径说明</summary>
-          <p className="pipeline-overview__stat-note">
-            执行状态按服务端 workStatus 分类；「已发布/已归档」按业务阶段 phase
-            统计；缺少/未知状态计入「状态待确认」。
-            {requirementsComplete
-              ? ''
-              : ' 分页读取未完成：当前统计仅覆盖已读取需求，不代表项目总需求数。'}
-          </p>
-        </details>
-      ) : (
+      {/* 统计口径是长文本说明，桌面端也折叠：铺开会让筛选表单被一大段灰字顶下去。 */}
+      <details className="pipeline-overview__explain">
+        <summary>统计口径说明</summary>
         <p className="pipeline-overview__stat-note">
-          统计口径：执行状态按服务端 workStatus 分类；「已发布/已归档」按业务阶段 phase
+          执行状态按服务端 workStatus 分类；「已发布/已归档」按业务阶段 phase
           统计；缺少/未知状态计入「状态待确认」。未开始仅在服务端显式返回 executionStatus=OPEN
           时计入；显式 null/未知执行状态会进入「状态待确认」。
           {requirementsComplete
             ? ''
             : ' 分页读取未完成：当前统计仅覆盖已读取需求，不代表项目总需求数。'}
         </p>
-      )}
+      </details>
 
       {!narrow && toolbar}
 

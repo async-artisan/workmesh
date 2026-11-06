@@ -4,7 +4,6 @@ import { ApiError, formatApiError } from '../api/client';
 import { authApi, type CliAuthorizationView } from '../api/auth';
 import { projectApi, type ProjectView, type RoleView } from '../api/resources';
 import { ConfirmDialog } from '../components/Modal';
-import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { loadProjects } from '../store/project';
 
@@ -218,12 +217,6 @@ function describeFailure(
   return { message: fallbacks[context], detail, requestId };
 }
 
-function isExpiryValid(value: string): boolean {
-  if (!/^\d+$/.test(value.trim())) return false;
-  const days = Number(value);
-  return Number.isInteger(days) && days >= 1 && days <= MAX_AUTHORIZATION_DAYS;
-}
-
 function expiryError(value: string): string {
   if (!value.trim()) return '请输入有效期。';
   if (!/^\d+$/.test(value.trim())) return `有效期必须是 1–${MAX_AUTHORIZATION_DAYS} 的整数天。`;
@@ -247,16 +240,32 @@ function formatDateTime(value: string | number): string {
 }
 
 const css = `
-.authorization-page { max-width:1120px; }
-.authorization-guide { margin-top:16px; }
-.authorization-guide code { padding: 2px 6px; border-radius: 4px; background: var(--surface-hover, #f1f5f9); font-family: var(--wm-font-mono, ui-monospace, monospace); }
+.authorization-query-layout { display:grid; gap:20px; }
+@media (min-width: 1400px) {
+  .authorization-query-layout { grid-template-columns:minmax(0,640px) minmax(0,1fr); gap:40px; align-items:start; }
+}
+.authorization-approve { max-width:none; }
+.authorization-approve .field-row { grid-template-columns:repeat(2,minmax(220px,380px)); }
+.authorization-expiry-field { max-width:200px; }
+.authorization-guide { max-width:640px; padding-top:14px; border-top:1px solid var(--border,#e2e8f0); }
+@media (min-width: 1400px) {
+  .authorization-guide { max-width:none; margin-top:2px; padding-top:0; border-top:0; border-left:1px solid var(--border,#e2e8f0); padding-left:32px; }
+}
+.authorization-guide h3 { margin:0 0 8px; color:var(--text-primary,#0f172a); font-size:13px; font-weight:600; }
+.authorization-guide p { margin:0; color:var(--text-secondary,#475569); font-size:13px; line-height:1.7; }
+.authorization-guide .muted { color:var(--text-muted,#7b8aa0); font-size:12px; }
+.authorization-guide__steps { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin:0; padding:0; list-style:none; }
+.authorization-guide__steps li { display:grid; gap:4px; padding:10px 12px; border:1px solid var(--border,#e2e8f0); border-radius:8px; background:var(--surface-hover,#f8fafc); }
+.authorization-guide__steps strong { font-size:12.5px; font-weight:600; color:var(--text-primary,#0f172a); }
+.authorization-guide__steps span { font-size:12px; line-height:1.6; color:var(--text-secondary,#475569); }
+.authorization-guide code, .authorization-query small code { padding:2px 6px; border-radius:4px; background:var(--surface-hover,#f1f5f9); font-family:var(--wm-font-mono, ui-monospace, monospace); }
 .authorization-query { max-width:640px; }
 .authorization-query__row { display:flex; gap:8px; align-items:center; }
 .authorization-query__row input { flex:0 1 320px; min-width:0; font-family:var(--wm-font-mono, ui-monospace, monospace); letter-spacing:0.06em; }
 .authorization-query__row .primary { flex:0 0 auto; white-space:nowrap; }
 .authorization-summary { margin:12px 0; padding:12px; border:1px solid var(--border,#e2e8f0); border-radius:8px; background:var(--surface-hover,#f8fafc); }
 .authorization-summary__meta { display:flex; flex-wrap:wrap; gap:8px 18px; color:var(--text-secondary,#475569); font-size:12px; }
-.authorization-scope-groups { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:8px; }
+.authorization-scope-groups { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:10px; margin-top:8px; }
 .authorization-scope-group { border:1px solid var(--border,#e2e8f0); border-radius:8px; padding:10px; min-width:0; }
 .authorization-scope-group legend { padding:0 4px; color:var(--text-primary,#0f172a); font-size:12px; font-weight:600; }
 .authorization-scope-options { display:grid; gap:6px; }
@@ -524,7 +533,7 @@ export function Authorization() {
   const showPendingForm = status?.canApprove === true;
 
   return (
-    <section className="authorization-page">
+    <section>
       <style>{css}</style>
       <header className="page-head">
         <div>
@@ -554,44 +563,64 @@ export function Authorization() {
       )}
 
       <div className="page-card">
-        <form
-          className="form-grid authorization-query"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (userCode.trim()) void doLookup();
-          }}
-        >
-          <div className="field">
-            <label htmlFor="authorization-code">授权码</label>
-            <div className="authorization-query__row">
-              <input
-                id="authorization-code"
-                value={userCode}
-                onChange={(event) => handleCodeChange(event.target.value)}
-                placeholder="例如 ABCD-EFGH"
-                autoComplete="one-time-code"
-                spellCheck={false}
-              />
-              <button className="primary" type="submit" disabled={lookupBusy || !userCode.trim()}>
-                {lookupBusy ? '查询中…' : '查询授权请求'}
-              </button>
+        {/* 宽屏把「查询表单」和「CLI 指引」并排，卡片不会右半边空着；
+            窄屏（<1400）自动叠成一列。 */}
+        <div className="authorization-query-layout">
+          <form
+            className="form-grid authorization-query"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (userCode.trim()) void doLookup();
+            }}
+          >
+            <div className="field">
+              <label htmlFor="authorization-code">授权码</label>
+              <div className="authorization-query__row">
+                <input
+                  id="authorization-code"
+                  value={userCode}
+                  onChange={(event) => handleCodeChange(event.target.value)}
+                  placeholder="例如 ABCD-EFGH"
+                  autoComplete="one-time-code"
+                  spellCheck={false}
+                />
+                <button className="primary" type="submit" disabled={lookupBusy || !userCode.trim()}>
+                  {lookupBusy ? '查询中…' : '查询授权请求'}
+                </button>
+              </div>
+              <small className="muted">
+                在 CLI 运行 <code>workmesh auth login</code> 获取授权码，再填写到这里查询；按 Enter
+                可直接查询。
+              </small>
             </div>
-            <small className="muted">
-              在 CLI 运行 <code>workmesh auth login</code> 获取授权码，再填写到这里查询；按 Enter
-              可直接查询。
-            </small>
-          </div>
-        </form>
+          </form>
 
-        {!lookup && !lookupBusy && !lookupFailure && (
-          <EmptyState
-            className="authorization-guide"
-            variant="waiting"
-            title="还没有查询授权请求"
-            description="在 CLI 运行 workmesh auth login，把终端显示的设备授权码填写到上方查询。"
-            hint="授权码用于把 CLI 与当前登录账号关联；批准前请核对客户端名称、项目、角色与权限范围。"
-          />
-        )}
+          {!lookup && !lookupBusy && !lookupFailure && (
+            <div className="authorization-guide">
+              <h3>还没有查询授权请求</h3>
+              <ol className="authorization-guide__steps">
+                <li>
+                  <strong>在 CLI 发起授权</strong>
+                  <span>
+                    运行 <code>workmesh auth login</code>。
+                  </span>
+                </li>
+                <li>
+                  <strong>复制授权码</strong>
+                  <span>终端会显示形如 ABCD-EFGH 的设备授权码。</span>
+                </li>
+                <li>
+                  <strong>回来查询</strong>
+                  <span>把授权码填到左侧输入框，按 Enter 直接查询。</span>
+                </li>
+                <li>
+                  <strong>核对并批准</strong>
+                  <span>核对客户端名称、项目、角色与权限范围；服务端仍会二次校验。</span>
+                </li>
+              </ol>
+            </div>
+          )}
+        </div>
 
         {lookupFailure && (
           <ErrorState
@@ -654,87 +683,89 @@ export function Authorization() {
             )}
 
             {showPendingForm && (
-              <div className="form-grid">
-                <div className="field">
-                  <span>项目</span>
-                  <select
-                    value={projectId}
-                    aria-label="授权项目"
-                    disabled={projectsState === 'loading'}
-                    onChange={(event) => void loadRoles(event.target.value)}
-                  >
-                    <option value="">
-                      {projectsState === 'loading' ? '正在读取项目…' : '选择项目'}
-                    </option>
-                    {projects.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.name}（{project.key}）
+              <div className="form-grid authorization-approve">
+                <div className="field-row">
+                  <div className="field">
+                    <span>项目</span>
+                    <select
+                      value={projectId}
+                      aria-label="授权项目"
+                      disabled={projectsState === 'loading'}
+                      onChange={(event) => void loadRoles(event.target.value)}
+                    >
+                      <option value="">
+                        {projectsState === 'loading' ? '正在读取项目…' : '选择项目'}
                       </option>
-                    ))}
-                  </select>
-                  {projectsState === 'error' && projectsFailure && (
-                    <div className="error" role="alert">
-                      <p>{projectsFailure.message}</p>
-                      <button type="button" className="ghost" onClick={retryProjects}>
-                        重试加载项目
-                      </button>
-                      {projectsFailure.detail && (
-                        <details className="wm-error-state__details authorization-error-detail">
-                          <summary className="wm-error-state__summary">查看详细信息</summary>
-                          <pre className="wm-error-state__detail">{projectsFailure.detail}</pre>
-                        </details>
-                      )}
-                    </div>
-                  )}
-                  {projectsState === 'ready' && projects.length === 0 && (
-                    <small className="muted">当前账号没有可授权的项目。</small>
-                  )}
+                      {projects.map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.name}（{project.key}）
+                        </option>
+                      ))}
+                    </select>
+                    {projectsState === 'error' && projectsFailure && (
+                      <div className="error" role="alert">
+                        <p>{projectsFailure.message}</p>
+                        <button type="button" className="ghost" onClick={retryProjects}>
+                          重试加载项目
+                        </button>
+                        {projectsFailure.detail && (
+                          <details className="wm-error-state__details authorization-error-detail">
+                            <summary className="wm-error-state__summary">查看详细信息</summary>
+                            <pre className="wm-error-state__detail">{projectsFailure.detail}</pre>
+                          </details>
+                        )}
+                      </div>
+                    )}
+                    {projectsState === 'ready' && projects.length === 0 && (
+                      <small className="muted">当前账号没有可授权的项目。</small>
+                    )}
+                  </div>
+
+                  <div className="field">
+                    <span>业务角色</span>
+                    <select
+                      value={roleId}
+                      aria-label="授权角色"
+                      disabled={!projectId || rolesState === 'loading' || rolesState === 'error'}
+                      onChange={(event) => setRoleId(event.target.value)}
+                    >
+                      <option value="">
+                        {!projectId
+                          ? '先选择项目'
+                          : rolesState === 'loading'
+                            ? '正在读取角色…'
+                            : rolesState === 'error'
+                              ? '角色读取失败'
+                              : '选择角色'}
+                      </option>
+                      {roles.map((role) => (
+                        <option key={role.id} value={role.id}>
+                          {role.title}
+                        </option>
+                      ))}
+                    </select>
+                    {rolesState === 'loading' && <small className="muted">正在读取角色…</small>}
+                    {rolesState === 'error' && rolesFailure && (
+                      <div className="error" role="alert">
+                        <p>{rolesFailure.message}</p>
+                        <button type="button" className="ghost" onClick={retryRoles}>
+                          重试加载角色
+                        </button>
+                        {rolesFailure.detail && (
+                          <details className="wm-error-state__details authorization-error-detail">
+                            <summary className="wm-error-state__summary">查看详细信息</summary>
+                            <pre className="wm-error-state__detail">{rolesFailure.detail}</pre>
+                          </details>
+                        )}
+                      </div>
+                    )}
+                    {rolesState === 'ready' && roles.length === 0 && (
+                      <small className="muted">该项目没有可用业务角色。</small>
+                    )}
+                  </div>
                 </div>
 
-                <div className="field">
-                  <span>业务角色</span>
-                  <select
-                    value={roleId}
-                    aria-label="授权角色"
-                    disabled={!projectId || rolesState === 'loading' || rolesState === 'error'}
-                    onChange={(event) => setRoleId(event.target.value)}
-                  >
-                    <option value="">
-                      {!projectId
-                        ? '先选择项目'
-                        : rolesState === 'loading'
-                          ? '正在读取角色…'
-                          : rolesState === 'error'
-                            ? '角色读取失败'
-                            : '选择角色'}
-                    </option>
-                    {roles.map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {role.title}
-                      </option>
-                    ))}
-                  </select>
-                  {rolesState === 'loading' && <small className="muted">正在读取角色…</small>}
-                  {rolesState === 'error' && rolesFailure && (
-                    <div className="error" role="alert">
-                      <p>{rolesFailure.message}</p>
-                      <button type="button" className="ghost" onClick={retryRoles}>
-                        重试加载角色
-                      </button>
-                      {rolesFailure.detail && (
-                        <details className="wm-error-state__details authorization-error-detail">
-                          <summary className="wm-error-state__summary">查看详细信息</summary>
-                          <pre className="wm-error-state__detail">{rolesFailure.detail}</pre>
-                        </details>
-                      )}
-                    </div>
-                  )}
-                  {rolesState === 'ready' && roles.length === 0 && (
-                    <small className="muted">该项目没有可用业务角色。</small>
-                  )}
-                </div>
-
-                <div className="field">
+                <div className="field authorization-expiry-field">
                   <label htmlFor="authorization-expiry">有效期（天）</label>
                   <input
                     id="authorization-expiry"

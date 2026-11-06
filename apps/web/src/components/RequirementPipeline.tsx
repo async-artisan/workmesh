@@ -27,6 +27,8 @@ export interface RequirementPipelineTask {
   doneStepKeys?: string[] | null;
   /** 父级已用统一映射算好的展示状态；缺省时组件自行用同一函数计算。 */
   displayState?: TaskDisplayState;
+  /** 服务端返回的真实负责人；缺失时首屏必须明确标注未知。 */
+  ownerLabel?: string | null;
 }
 export interface RequirementPipelinePhase {
   id: string;
@@ -38,6 +40,15 @@ export interface RequirementPipelinePhase {
   tasks?: RequirementPipelineTask[];
   blockedBy?: string[];
   nextAction?: string;
+  /** 服务端返回的当前负责人；缺失时首屏必须明确标注未知，不得推测。 */
+  ownerLabel?: string | null;
+  /** 服务端返回的阻塞原因；缺失时首屏展示数据不可用提示。 */
+  blockedReason?: string | null;
+  /** 真实可执行入口的文案；只在调用方提供入口时渲染按钮。 */
+  actionLabel?: string | null;
+  onAction?: () => void;
+  /** 没有真实可执行入口时的解释；缺失时使用组件默认说明。 */
+  actionUnavailableReason?: string | null;
   updatedAt?: string;
 }
 export interface RequirementPipelineProps {
@@ -47,6 +58,11 @@ export interface RequirementPipelineProps {
   onTaskClick?: (task: RequirementPipelineTask) => void;
   className?: string;
   nextAction?: string;
+  /** 首屏摘要中的真实业务动作；缺失时不渲染按钮。 */
+  actionLabel?: string | null;
+  onAction?: (() => void) | null;
+  /** 首屏没有真实业务动作时展示的原因；缺失时使用可展开团队视图的默认说明。 */
+  actionUnavailableReason?: string | null;
   /**
    * 首屏折叠：默认只渲染一行「阶段进度 + 下一步」摘要，展开后才渲染完整团队视图。
    * 独立使用（如流程总览页）时可保持默认展开，避免隐藏已有内容。
@@ -168,6 +184,9 @@ export function RequirementPipeline({
   onTaskClick,
   className = '',
   nextAction,
+  actionLabel,
+  onAction,
+  actionUnavailableReason,
   collapsible = false,
 }: RequirementPipelineProps) {
   const detailId = useId();
@@ -241,11 +260,48 @@ export function RequirementPipeline({
   const blockedCount = buckets.blocked.length;
   const claimableCount = buckets.claimable.length;
   const waitingCount = buckets.waiting.length;
+  // 空的 pending 阶段不能抢占真实任务阶段：首屏必须围绕当前任务显示阶段和负责人。
+  const currentPhase =
+    phaseModels.find(
+      (item) => item.tasks.length > 0 && (item.status === 'blocked' || item.status === 'active'),
+    ) ??
+    phaseModels.find(
+      (item) => item.tasks.length > 0 && !['done', 'skipped'].includes(item.status),
+    ) ??
+    phaseModels.find((item) => item.tasks.length > 0) ??
+    phaseModels.find((item) => item.status === 'pending') ??
+    phaseModels[phaseModels.length - 1];
+  // 组件调用方提供的 nextAction 是服务端/页面层事实；缺失时与当前阶段保持一致，
+  // 避免摘要同时展示两个不同的阶段动作。
   const derivedNextAction =
     nextAction ??
+    currentPhase?.phase.nextAction ??
     phaseModels.find((item) => item.status === 'active' || item.status === 'blocked')?.phase
       .nextAction ??
     '等待流程推进';
+  const currentPhaseLabel = currentPhase?.phase.label ?? '状态待确认';
+  const currentOwner =
+    currentPhase?.phase.ownerLabel?.trim() ||
+    currentPhase?.tasks.find((task) => task.ownerLabel?.trim())?.ownerLabel?.trim() ||
+    '暂未分配责任人';
+  const currentRole = currentPhase?.phase.roleLabel?.trim() || roleLabel(currentPhase?.phase.role);
+  const currentBlocker =
+    currentPhase?.phase.blockedReason?.trim() ||
+    (currentPhase?.status === 'blocked'
+      ? '服务端未提供阻塞原因'
+      : currentPhase?.status === 'active'
+        ? '当前阶段未标记阻塞'
+        : '状态待确认');
+  // undefined 表示调用方未覆盖阶段动作；显式 null 表示当前没有可执行入口。
+  const summaryActionLabel =
+    actionLabel !== undefined ? actionLabel : currentPhase?.phase.actionLabel;
+  const summaryOnAction = onAction !== undefined ? onAction : currentPhase?.phase.onAction;
+  const summaryActionUnavailableReason =
+    actionUnavailableReason !== undefined
+      ? actionUnavailableReason
+      : currentPhase?.phase.actionUnavailableReason;
+  const actionUnavailableText =
+    summaryActionUnavailableReason?.trim() || '当前没有可用操作入口；可展开团队视图查看任务。';
   const sectionRef = useRef<HTMLElement | null>(null);
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const selectedTaskIds = useMemo(() => {
@@ -337,13 +393,9 @@ export function RequirementPipeline({
         </span>
         <strong>{stepLabel}</strong>
         <span className="pipeline-task-card-owner">
-          <RoleAvatar
-            role={task.role}
-            label={roleLabel(task.role, task.roleLabel)}
-            decorative
-          />
+          <RoleAvatar role={task.role} label={roleLabel(task.role, task.roleLabel)} decorative />
           <span>
-            {roleLabel(task.role, task.roleLabel)}
+            {task.ownerLabel?.trim() || '责任人暂未分配'} · {roleLabel(task.role, task.roleLabel)}
             {task.artifactCount !== undefined ? ` · ${task.artifactCount} 件证据` : ''}
           </span>
           <small>{taskHint(task, state)}</small>
@@ -383,8 +435,39 @@ export function RequirementPipeline({
             </strong>
             <span className="pipeline-summary-next">
               <span>下一步</span>
-              <strong>{derivedNextAction}</strong>
+              <strong>{derivedNextAction || '状态待确认'}</strong>
             </span>
+            <div className="pipeline-summary-facts" aria-label="当前阶段执行信息">
+              <span>
+                <b>当前阶段</b>
+                <strong>{currentPhaseLabel}</strong>
+              </span>
+              <span>
+                <b>责任人</b>
+                <strong>{currentOwner}</strong>
+              </span>
+              <span>
+                <b>责任角色</b>
+                <strong>{currentRole}</strong>
+              </span>
+              <span>
+                <b>阻塞原因</b>
+                <strong>{currentBlocker}</strong>
+              </span>
+              {summaryActionLabel && summaryOnAction ? (
+                <button
+                  type="button"
+                  className="ghost pipeline-summary-action"
+                  onClick={summaryOnAction}
+                >
+                  {summaryActionLabel}
+                </button>
+              ) : (
+                <span className="pipeline-summary-action-unavailable" role="status">
+                  {actionUnavailableText}
+                </span>
+              )}
+            </div>
           </div>
           <button
             type="button"
@@ -431,12 +514,19 @@ export function RequirementPipeline({
                 <b>{blockedCount}</b> 阻塞
               </span>
             </div>
-            <div className="pipeline-stage-rail" aria-label="阶段进度">
+            <div
+              className="pipeline-stage-rail"
+              role="region"
+              aria-label="阶段进度，可横向滚动"
+              tabIndex={0}
+            >
               {phaseModels.map(({ phase, status }, index) => (
                 <button
                   type="button"
                   key={phase.id}
                   className={`pipeline-stage-step is-${status}`}
+                  aria-current={phase.id === currentPhase?.phase.id ? 'step' : undefined}
+                  aria-label={`${phase.label}，${STATUS_LABELS[status]}${phase.id === currentPhase?.phase.id ? '，当前阶段' : ''}`}
                   onClick={() => onPhaseClick?.(phase)}
                   disabled={!onPhaseClick}
                 >
@@ -461,7 +551,12 @@ export function RequirementPipeline({
                     : '等待团队'}
                 </span>
               </div>
-              <div className="pipeline-team-members">
+              <div
+                className="pipeline-team-members"
+                role="region"
+                aria-label="团队成员，可横向滚动"
+                tabIndex={0}
+              >
                 {members.map((member, index) => {
                   const currentTask =
                     member.tasks.find((task) => normalizeStatus(task) === 'active') ??
@@ -484,9 +579,7 @@ export function RequirementPipeline({
                         className="pipeline-person-card"
                         aria-pressed={selectedRole === member.role}
                         onClick={() =>
-                          setSelectedRole((role) =>
-                            role === member.role ? null : member.role,
-                          )
+                          setSelectedRole((role) => (role === member.role ? null : member.role))
                         }
                       >
                         <span className="pipeline-robot">

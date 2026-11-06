@@ -1,0 +1,183 @@
+.workflow-definition-editor {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  padding: var(--wm-space-4);
+  font-size: var(--wm-text-md);
+}
+.workflow-definition-editor input:not([type='checkbox']):not([type='radio']),
+.workflow-definition-editor textarea,
+.workflow-definition-editor select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: var(--wm-space-2) var(--wm-space-3);
+  border: 1px solid var(--wm-color-border-strong);
+  border-radius: var(--wm-radius-sm);
+  font: inherit;
+  color: var(--wm-color-text-primary);
+  background: var(--wm-color-surface);
+}
+.workflow-definition-editor textarea {
+  resize: vertical;
+}
+.workflow-editor-modes button {
+  min-height: 40px;
+  padding: var(--wm-space-2) var(--wm-space-3);
+  border: 1px solid var(--wm-color-border-strong);
+  border-radius: var(--wm-radius-sm);
+  font: inherit;
+  color: var(--wm-color-text-secondary);
+  background: var(--wm-color-surface);
+  cursor: pointer;
+}
+.workflow-editor-heading,
+.workflow-step-heading,
+.workflow-gate-row,
+.workflow-slot-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.workflow-editor-heading {
+  border-bottom: 1px solid var(--border, #d7dce5);
+  padding-bottom: 0.75rem;
+}
+.workflow-editor-heading h3 {
+  margin: 0;
+}
+.workflow-editor-heading p,
+.workflow-editor-note {
+  margin: 0.25rem 0 0;
+  color: var(--muted, #64748b);
+  font-size: 0.875rem;
+}
+.workflow-field-error {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 400;
+}
+.workflow-editor-modes {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.workflow-editor-modes button.active {
+  border-color: var(--wm-color-accent);
+  background: var(--wm-color-accent);
+  color: var(--wm-color-text-inverse);
+}
+.workflow-structured-form,
+.workflow-editor-list {
+  display: grid;
+  gap: 1rem;
+}
+.workflow-structured-form fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-sm);
+  padding: var(--wm-space-4);
+}
+.workflow-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.workflow-editor-grid > label,
+.workflow-slot-row > label {
+  display: grid;
+  gap: 0.3rem;
+  font-weight: 600;
+}
+.workflow-wide {
+  grid-column: 1 / -1;
+}
+.workflow-step-editor {
+  border: 1px solid var(--border, #d7dce5);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.75rem;
+}
+.workflow-step-heading h4 {
+  margin: 0;
+}
+.workflow-dependencies,
+.workflow-gates,
+.workflow-slot-checks {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.workflow-field-label,
+.workflow-slot-checks > span {
+  font-weight: 600;
+  flex-basis: 100%;
+}
+.workflow-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 400;
+  min-height: 36px;
+  overflow-wrap: anywhere;
+}
+.workflow-gate-row {
+  border-top: 1px solid var(--border, #d7dce5);
+  padding-top: 0.5rem;
+  flex-wrap: wrap;
+}
+.workflow-gate-row label {
+  display: grid;
+  gap: 0.3rem;
+}
+.workflow-gate-row .workflow-check {
+  display: inline-flex;
+}
+.workflow-gate-row .workflow-slot-checks {
+  flex: 1;
+  min-width: 12rem;
+}
+.workflow-slot-row {
+  border-top: 1px solid var(--border, #d7dce5);
+  padding-top: 0.5rem;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.workflow-slot-row > label {
+  flex: 1;
+  min-width: 12rem;
+}
+.workflow-editor-invalid {
+  border: 1px solid #eab308;
+  background: #fefce8;
+  padding: 0.75rem;
+}
+.workflow-advanced-fields {
+  display: grid;
+  gap: 0.75rem;
+}
+.workflow-advanced-fields > label {
+  display: grid;
+  gap: 0.3rem;
+  font-weight: 600;
+}
+@media (max-width: 640px) {
+  .workflow-editor-heading,
+  .workflow-step-heading {
+    flex-direction: column;
+  }
+  .workflow-editor-grid {
+    grid-template-columns: 1fr;
+  }
+  .workflow-wide {
+    grid-column: auto;
+  }
+  .workflow-gate-row {
+    align-items: stretch;
+  }
+}

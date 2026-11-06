@@ -166,10 +166,53 @@ function contentReply(revisionId: string, text: string) {
   };
 }
 
+const searchKnowledgeBase = {
+  id: 'kb-search',
+  projectId: 'p1',
+  key: 'search-key',
+  name: '搜索知识库',
+  kind: 'BUSINESS',
+  visibility: 'PROJECT',
+  version: 1,
+  authzVersion: 1,
+  publicationApproverUserId: 'user-1',
+  publicationApproverRoleId: null,
+  archivedAt: null,
+};
+
+function searchResult(
+  documentId: string,
+  revisionId: string,
+  title: string,
+  status: 'PUBLISHED' | 'CANDIDATE' | 'WITHDRAWN' = 'PUBLISHED',
+) {
+  return {
+    knowledgeBaseId: searchKnowledgeBase.id,
+    knowledgeBaseName: searchKnowledgeBase.name,
+    knowledgeBaseKind: searchKnowledgeBase.kind,
+    revisionId,
+    documentId,
+    documentKind: 'KNOWLEDGE',
+    status,
+    title,
+    excerpt: `${title} 摘要`,
+    sha256: `sha256-${documentId}`,
+  };
+}
+
 function openKnowledgeRevision(title: string) {
+  openKnowledgeGovernance();
   const row = screen.getByText(title).closest('tr');
   if (!row) throw new Error(`找不到修订行：${title}`);
   fireEvent.click(within(row).getByRole('button', { name: '查看正文' }));
+}
+
+function openKnowledgeGovernance() {
+  const panel = document.querySelector<HTMLDetailsElement>('details.knowledge-governance-panel');
+  if (panel && !panel.open) {
+    const summary = panel.querySelector('summary');
+    if (summary) fireEvent.click(summary);
+  }
 }
 
 describe('Knowledge（撤销发布必须带版本与票据）', () => {
@@ -579,6 +622,246 @@ describe('Knowledge（撤销发布必须带版本与票据）', () => {
     await waitFor(() => expect(screen.queryByText('P1 知识文档')).not.toBeInTheDocument());
   });
 
+  it('双版本选择器显示真实元数据、阻止同版本并支持仅看修改', async () => {
+    const mock = mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET')
+        return pageReply([searchableKnowledgeDocument], null);
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
+        return pageReply([], null);
+      if (path.endsWith('/rev-candidate/content'))
+        return contentReply('rev-candidate', '# 候选版本\n- 新内容');
+      if (path.endsWith('/rev-history/content'))
+        return contentReply('rev-history', '# 历史版本\n- 旧内容');
+      if (path.endsWith('/rev-1/content')) return contentReply('rev-1', '# 已发布版本');
+      return undefined;
+    });
+
+    renderKnowledge();
+    expect((await screen.findAllByText('Release notes')).length).toBeGreaterThan(0);
+    openKnowledgeGovernance();
+    const oldVersion = await screen.findByRole('combobox', { name: '对比旧版本' });
+    const newVersion = screen.getByRole('combobox', { name: '对比新版本' });
+    expect(
+      within(oldVersion).getByRole('option', { name: /v1 · Release notes · 已发布/ }),
+    ).toBeInTheDocument();
+    expect(
+      within(oldVersion).getByRole('option', { name: /v2 · 候选独有标题 · 候选/ }),
+    ).toBeInTheDocument();
+    expect(
+      within(newVersion).getByRole('option', { name: /v3 · 历史独有标题 · 已撤回/ }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(oldVersion, { target: { value: 'rev-candidate' } });
+    fireEvent.change(newVersion, { target: { value: 'rev-candidate' } });
+    const compareButton = screen.getByRole('button', { name: '对比所选版本' });
+    expect(compareButton).toBeDisabled();
+    expect(screen.getByText('请选择两个不同的版本再对比。')).toBeInTheDocument();
+    expect(mock.mock.calls.filter(([url]) => pathOf(String(url)).includes('/content')).length).toBe(
+      0,
+    );
+
+    fireEvent.change(newVersion, { target: { value: 'rev-history' } });
+    fireEvent.click(compareButton);
+    const diff = await screen.findByTestId('knowledge-diff');
+    expect(diff).toHaveTextContent('新增：# 历史版本');
+    expect(diff).toHaveTextContent('删除：# 候选版本');
+    expect(diff).toHaveTextContent('旧版本 v2 · 候选独有标题 → 新版本 v3 · 历史独有标题');
+    expect(
+      mock.mock.calls.some(([url]) => pathOf(String(url)).endsWith('/rev-candidate/content')),
+    ).toBe(true);
+    expect(
+      mock.mock.calls.some(([url]) => pathOf(String(url)).endsWith('/rev-history/content')),
+    ).toBe(true);
+
+    const onlyChanges = within(diff).getByRole('button', { name: '仅看修改' });
+    fireEvent.click(onlyChanges);
+    expect(within(diff).getByRole('button', { name: '显示完整上下文' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('手动对比失败清空旧 diff，重试成功且旧正文迟到不会覆盖新选择', async () => {
+    const race = {
+      document: { ...documentDetail.document, id: 'doc-kb-race' },
+      revisions: [
+        { ...publishedRevision, id: 'rev-kb-base', documentId: 'doc-kb-race', title: '知识基线' },
+        { ...candidateRevision, id: 'rev-kb-a', documentId: 'doc-kb-race', title: '知识候选 A' },
+        { ...historicalRevision, id: 'rev-kb-b', documentId: 'doc-kb-race', title: '知识候选 B' },
+      ],
+      publishedRevision: {
+        ...publishedRevision,
+        id: 'rev-kb-base',
+        documentId: 'doc-kb-race',
+        title: '知识基线',
+      },
+    };
+    const oldSlow = deferred<StubReply>();
+    let failNew = true;
+    const mock = mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET')
+        return pageReply([race], null);
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
+        return pageReply([], null);
+      if (path.endsWith('/rev-kb-a/content')) return oldSlow.promise;
+      if (path.endsWith('/rev-kb-b/content')) {
+        if (failNew)
+          return {
+            status: 503,
+            body: {
+              error: {
+                code: 'CONTENT_UNAVAILABLE',
+                message: 'B 正文暂时不可用',
+                requestId: 'req-b',
+              },
+            },
+          };
+        return contentReply('rev-kb-b', '# 新版本 B');
+      }
+      if (path.endsWith('/rev-kb-base/content')) return contentReply('rev-kb-base', '# 基线');
+      return undefined;
+    });
+
+    renderKnowledge();
+    expect((await screen.findAllByText('知识候选 A')).length).toBeGreaterThan(0);
+    openKnowledgeGovernance();
+    const oldVersion = await screen.findByRole('combobox', { name: '对比旧版本' });
+    const newVersion = screen.getByRole('combobox', { name: '对比新版本' });
+    fireEvent.change(oldVersion, { target: { value: 'rev-kb-a' } });
+    fireEvent.change(newVersion, { target: { value: 'rev-kb-b' } });
+    const compareButton = screen.getByRole('button', { name: '对比所选版本' });
+    fireEvent.click(compareButton);
+    expect(await screen.findByRole('alert')).toHaveTextContent('B 正文暂时不可用');
+    expect(screen.queryByTestId('knowledge-diff')).not.toBeInTheDocument();
+
+    // Retry the same pair after the new-version read recovers.
+    failNew = false;
+    oldSlow.resolve(contentReply('rev-kb-a', '# 旧版本 A'));
+    fireEvent.click(compareButton);
+    const diff = await screen.findByTestId('knowledge-diff');
+    expect(diff).toHaveTextContent('新增：# 新版本 B');
+    expect(diff).toHaveTextContent('删除：# 旧版本 A');
+    expect(
+      mock.mock.calls.filter(([url]) => pathOf(String(url)).endsWith('/rev-kb-a/content')).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('项目切换后清空手动对比并忽略旧项目正文', async () => {
+    const projectTwo = { ...project, id: 'p2', key: 'OPS', name: 'Ops' };
+    const oldProject = {
+      document: { ...documentDetail.document, id: 'doc-k-p1' },
+      revisions: [
+        { ...publishedRevision, id: 'rev-k-p1-old', documentId: 'doc-k-p1', title: 'P1 旧版' },
+        { ...candidateRevision, id: 'rev-k-p1-new', documentId: 'doc-k-p1', title: 'P1 新版' },
+      ],
+      publishedRevision: {
+        ...publishedRevision,
+        id: 'rev-k-p1-old',
+        documentId: 'doc-k-p1',
+        title: 'P1 旧版',
+      },
+    };
+    const newProject = knowledgeDocumentFor('doc-k-p2', 'P2 知识文档');
+    const oldBody = deferred<StubReply>();
+    const newBody = deferred<StubReply>();
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project, projectTwo]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET')
+        return pageReply([oldProject], null);
+      if (path === '/api/v1/projects/p2/documents' && method === 'GET')
+        return pageReply([newProject], null);
+      if (path.endsWith('/requirements') && method === 'GET') return pageReply([], null);
+      if (path.endsWith('/rev-k-p1-old/content')) return oldBody.promise;
+      if (path.endsWith('/rev-k-p1-new/content')) return newBody.promise;
+      return undefined;
+    });
+
+    renderKnowledge();
+    expect((await screen.findAllByText('P1 新版')).length).toBeGreaterThan(0);
+    openKnowledgeGovernance();
+    fireEvent.change(screen.getByLabelText('对比旧版本'), { target: { value: 'rev-k-p1-old' } });
+    fireEvent.change(screen.getByLabelText('对比新版本'), { target: { value: 'rev-k-p1-new' } });
+    fireEvent.click(screen.getByRole('button', { name: '对比所选版本' }));
+    fireEvent.change(screen.getByLabelText('选择项目'), { target: { value: 'p2' } });
+    expect((await screen.findAllByText('P2 知识文档')).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('knowledge-diff')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: '对比旧版本' })).not.toBeInTheDocument();
+
+    oldBody.resolve(contentReply('rev-k-p1-old', '# 迟到 P1 旧版'));
+    newBody.resolve(contentReply('rev-k-p1-new', '# 迟到 P1 新版'));
+    await waitFor(() => expect(screen.queryByText('# 迟到 P1 旧版')).not.toBeInTheDocument());
+    expect(screen.queryByText('# 迟到 P1 新版')).not.toBeInTheDocument();
+  });
+
+  it('切换文档后清空旧正文与版本选择，旧文档迟到响应不能恢复', async () => {
+    const firstDocument = {
+      document: { ...documentDetail.document, id: 'doc-k-first' },
+      revisions: [
+        { ...publishedRevision, id: 'rev-k-first', documentId: 'doc-k-first', title: '第一篇知识' },
+        {
+          ...candidateRevision,
+          id: 'rev-k-first-candidate',
+          documentId: 'doc-k-first',
+          title: '第一篇候选',
+        },
+      ],
+      publishedRevision: {
+        ...publishedRevision,
+        id: 'rev-k-first',
+        documentId: 'doc-k-first',
+        title: '第一篇知识',
+      },
+    };
+    const secondDocument = knowledgeDocumentFor('doc-k-second', '第二篇知识');
+    const delayed = deferred<StubReply>();
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET')
+        return pageReply([firstDocument, secondDocument], null);
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
+        return pageReply([], null);
+      if (path.endsWith('/rev-k-first-candidate/content')) return delayed.promise;
+      if (path.endsWith('/rev-doc-k-second/content'))
+        return contentReply('rev-doc-k-second', '# 第二篇已发布正文');
+      return undefined;
+    });
+
+    renderKnowledge();
+    expect((await screen.findAllByText('第一篇候选')).length).toBeGreaterThan(0);
+    openKnowledgeRevision('第一篇候选');
+    expect(await screen.findByText('正在读取文档正文…')).toBeInTheDocument();
+
+    const secondRow = screen.getByText('第二篇知识').closest('tr');
+    expect(secondRow).not.toBeNull();
+    fireEvent.click(within(secondRow!).getByRole('button', { name: '阅读当前版本' }));
+    expect((await screen.findAllByText('第二篇知识')).length).toBeGreaterThan(0);
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: '第二篇已发布正文',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('正在读取文档正文…')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: '对比旧版本' })).not.toBeInTheDocument();
+
+    delayed.resolve(contentReply('rev-k-first-candidate', '# 迟到第一篇'));
+    await waitFor(() => expect(screen.queryByText('# 迟到第一篇')).not.toBeInTheDocument());
+  });
+
   it('P1 文档列表请求延迟到 P2 加载后才返回，也不能覆盖 P2', async () => {
     const projectTwo = { ...project, id: 'p2', key: 'OPS', name: 'Ops' };
     const p1Documents = deferred<StubReply>();
@@ -851,5 +1134,484 @@ describe('Knowledge（撤销发布必须带版本与票据）', () => {
     expect(screen.getByText('workmesh auth login')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '复制初始化命令' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /创建文档/ })).not.toBeInTheDocument();
+  });
+
+  it('文档列表仍在读取时显示骨架与 role=status，不渲染空态或 0 / 0 计数', async () => {
+    const documents = deferred<StubReply>();
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET') return documents.promise;
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
+        return pageReply([], null);
+      return undefined;
+    });
+
+    renderKnowledge();
+
+    const indicator = await screen.findByText('正在加载文档…');
+    expect(indicator.closest('[role="status"]')).not.toBeNull();
+    expect(indicator.closest('[aria-busy="true"]')).not.toBeNull();
+    expect(document.querySelectorAll('.wm-skeleton-row').length).toBeGreaterThan(0);
+    expect(
+      screen.queryByText('该项目还没有文档，等待本地 Agent 提交候选。'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('0 / 0')).not.toBeInTheDocument();
+
+    documents.resolve(pageReply([knowledgeDocumentFor('doc-load', '加载完成的知识文档')], null));
+    expect((await screen.findAllByText('加载完成的知识文档')).length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.queryByText('正在加载文档…')).not.toBeInTheDocument());
+  });
+
+  it('按服务端类别展示三库门户，跨库搜索并从已发布结果打开正文', async () => {
+    const bases = [
+      {
+        id: 'kb-business',
+        projectId: 'p1',
+        key: 'system-key',
+        name: '业务规则库',
+        kind: 'BUSINESS',
+        visibility: 'PROJECT',
+        version: 1,
+        authzVersion: 1,
+        publicationApproverUserId: 'user-1',
+        publicationApproverRoleId: null,
+        archivedAt: null,
+      },
+      {
+        id: 'kb-system',
+        projectId: 'p1',
+        key: 'practice-key',
+        name: '系统说明库',
+        kind: 'SYSTEM',
+        visibility: 'PROJECT',
+        version: 1,
+        authzVersion: 1,
+        publicationApproverUserId: 'user-1',
+        publicationApproverRoleId: null,
+        archivedAt: null,
+      },
+      {
+        id: 'kb-practice',
+        projectId: 'p1',
+        key: 'business-key',
+        name: '操作实践库',
+        kind: 'PRACTICE',
+        visibility: 'PROJECT',
+        version: 1,
+        authzVersion: 1,
+        publicationApproverUserId: 'user-1',
+        publicationApproverRoleId: null,
+        archivedAt: null,
+      },
+    ];
+    const document = {
+      ...searchableKnowledgeDocument,
+      document: { ...searchableKnowledgeDocument.document, knowledgeBaseId: 'kb-business' },
+    };
+    const searchedBases: string[] = [];
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET')
+        return pageReply([document], null);
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
+        return pageReply([], null);
+      if (path === '/api/v1/projects/p1/knowledge-bases' && method === 'GET')
+        return pageReply(bases, null);
+      if (path.startsWith('/api/v1/knowledge-bases/') && path.endsWith('/search')) {
+        const baseId = path.split('/')[4];
+        searchedBases.push(baseId);
+        const titleByBase: Record<string, string> = {
+          'kb-business': '业务规则搜索结果',
+          'kb-system': '系统接口搜索结果',
+          'kb-practice': '操作手册搜索结果',
+        };
+        return {
+          status: 200,
+          body: envelope({
+            items: [
+              {
+                knowledgeBaseId: baseId,
+                knowledgeBaseName: bases.find((base) => base.id === baseId)?.name ?? '',
+                knowledgeBaseKind: bases.find((base) => base.id === baseId)?.kind ?? '',
+                revisionId: 'rev-1',
+                documentId: baseId === 'kb-business' ? 'doc-1' : `doc-${baseId}`,
+                documentKind: 'KNOWLEDGE',
+                status: 'PUBLISHED',
+                title: titleByBase[baseId],
+                excerpt: `${titleByBase[baseId]}的摘要`,
+                sha256: 'sha256-result',
+              },
+            ],
+            nextCursor: null,
+            hasMore: false,
+            truncated: false,
+          }),
+        };
+      }
+      if (path === '/api/v1/document-revisions/rev-1/content' && method === 'GET')
+        return contentReply('rev-1', '当前正式发布的正文内容');
+      return undefined;
+    });
+
+    renderKnowledge();
+
+    const businessCard = await screen.findByRole('button', { name: /业务事实库/ });
+    const systemCard = screen.getByRole('button', { name: /系统事实库/ });
+    const practiceCard = screen.getByRole('button', { name: /角色实践库/ });
+    const businessArticle = businessCard.closest('article');
+    if (!businessArticle) throw new Error('业务事实库卡片缺少 article 容器');
+    expect(await within(businessArticle).findByText('Release notes')).toBeInTheDocument();
+    expect(within(businessArticle).getByText(/当前生效 · v1/)).toBeInTheDocument();
+    expect(within(systemCard).getByText('0 篇可浏览文档')).toBeInTheDocument();
+    expect(within(practiceCard).getByText('0 篇可浏览文档')).toBeInTheDocument();
+
+    fireEvent.click(
+      within(businessArticle).getByRole('button', { name: /Release notes.*当前生效.*阅读/ }),
+    );
+    expect(await screen.findByText('当前正式发布的正文内容')).toBeInTheDocument();
+    expect(screen.getAllByText(/当前生效 · v1/).length).toBeGreaterThanOrEqual(2);
+    fireEvent.click(screen.getByRole('button', { name: '版本与评审（当前）' }));
+    fireEvent.click(await screen.findByText('来源与适用信息'));
+    const sourcePanel = screen.getByText('来源与适用信息').closest('details');
+    if (!sourcePanel) throw new Error('来源面板缺少 details 容器');
+    expect(within(sourcePanel).getByText('所属知识库')).toBeInTheDocument();
+    expect(within(sourcePanel).getByText('业务规则库')).toBeInTheDocument();
+    expect(within(sourcePanel).getByText('知识')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索项目知识' }), {
+      target: { value: '发布规则' },
+    });
+    expect(await screen.findByText('系统接口搜索结果的摘要')).toBeInTheDocument();
+    expect(screen.getByText('操作手册搜索结果的摘要')).toBeInTheDocument();
+    expect(screen.getByText('业务规则搜索结果的摘要')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(searchedBases.sort()).toEqual(['kb-business', 'kb-practice', 'kb-system']),
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /业务事实库 · 知识 · 当前生效.*业务规则搜索结果/,
+      }),
+    );
+    expect(await screen.findByText('当前正式发布的正文内容')).toBeInTheDocument();
+    expect(screen.getAllByText(/当前生效 · v1/).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('搜索空状态提供真实的知识类别入口，未命中时说明搜索范围', async () => {
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET') return pageReply([], null);
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
+        return pageReply([], null);
+      if (path === '/api/v1/projects/p1/knowledge-bases' && method === 'GET')
+        return pageReply([searchKnowledgeBase], null);
+      if (path === '/api/v1/knowledge-bases/kb-search/search' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope({ items: [], nextCursor: null, hasMore: false, truncated: false }),
+        };
+      return undefined;
+    });
+
+    renderKnowledge();
+
+    const browseSystem = await screen.findByRole('button', {
+      name: '按问题浏览：系统由什么组成、如何运行？',
+    });
+    expect(screen.getByText('不确定关键词？按知识类别浏览')).toBeInTheDocument();
+    fireEvent.click(browseSystem);
+    expect(browseSystem).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索项目知识' }), {
+      target: { value: '不存在的内容' },
+    });
+    expect(await screen.findByText('没有找到匹配的已发布知识')).toBeInTheDocument();
+    expect(screen.getByText('搜索范围：业务事实库 · 系统事实库 · 角色实践库')).toBeInTheDocument();
+    expect(screen.getByText(/清除搜索后按知识类别浏览/)).toBeInTheDocument();
+  });
+
+  it('选择知识库后显示集合上下文，并可返回全部知识', async () => {
+    const bases = [
+      {
+        id: 'kb-business-context',
+        projectId: 'p1',
+        key: 'business-context',
+        name: '业务事实资料',
+        kind: 'BUSINESS',
+        visibility: 'PROJECT',
+        version: 1,
+        authzVersion: 1,
+        publicationApproverUserId: 'user-1',
+        publicationApproverRoleId: null,
+        archivedAt: null,
+      },
+    ];
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET') return pageReply([], null);
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
+        return pageReply([], null);
+      if (path === '/api/v1/projects/p1/knowledge-bases' && method === 'GET')
+        return pageReply(bases, null);
+      return undefined;
+    });
+
+    renderKnowledge();
+    fireEvent.click(await screen.findByRole('button', { name: /业务事实库/ }));
+
+    const context = await screen.findByTestId('knowledge-collection-context');
+    expect(within(context).getByRole('heading', { name: '业务事实库' })).toBeInTheDocument();
+    expect(within(context).getByText('规则为什么这样定？')).toBeInTheDocument();
+    expect(within(context).getByText('业务事实资料')).toBeInTheDocument();
+    expect(within(context).getByText('0 篇符合当前筛选')).toBeInTheDocument();
+
+    fireEvent.click(within(context).getByRole('button', { name: '查看全部知识' }));
+    expect(screen.queryByTestId('knowledge-collection-context')).not.toBeInTheDocument();
+  });
+
+  it('搜索结果按服务端状态显示候选和历史语义', async () => {
+    const results = [
+      searchResult('doc-candidate', 'rev-candidate', '候选搜索结果', 'CANDIDATE'),
+      searchResult('doc-history', 'rev-history', '历史搜索结果', 'WITHDRAWN'),
+    ];
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET') return pageReply([], null);
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
+        return pageReply([], null);
+      if (path === '/api/v1/projects/p1/knowledge-bases' && method === 'GET')
+        return pageReply([searchKnowledgeBase], null);
+      if (path === '/api/v1/knowledge-bases/kb-search/search' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope({ items: results, nextCursor: null, hasMore: false, truncated: false }),
+        };
+      return undefined;
+    });
+
+    renderKnowledge();
+    fireEvent.change(await screen.findByRole('textbox', { name: '搜索项目知识' }), {
+      target: { value: '版本' },
+    });
+    expect(await screen.findByText('候选搜索结果')).toBeInTheDocument();
+    expect(screen.getByText('历史搜索结果')).toBeInTheDocument();
+    expect(screen.getByText(/候选 · 尚未生效/)).toBeInTheDocument();
+    expect(screen.getByText(/历史版本 · 已撤回/)).toBeInTheDocument();
+  });
+
+  it('搜索结果详情迟到时切换项目不会追加旧文档或打开正文', async () => {
+    const projectTwo = { ...project, id: 'p2', key: 'OPS', name: 'Ops' };
+    const p1Document = knowledgeDocumentFor('doc-search-p1', 'P1 旧搜索文档');
+    const p2Document = knowledgeDocumentFor('doc-search-p2', 'P2 文档');
+    const delayed = deferred<StubReply>();
+    const mock = mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project, projectTwo]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET') return pageReply([], null);
+      if (path === '/api/v1/projects/p2/documents' && method === 'GET')
+        return pageReply([p2Document], null);
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
+        return pageReply([], null);
+      if (path === '/api/v1/projects/p2/requirements' && method === 'GET')
+        return pageReply([], null);
+      if (path === '/api/v1/projects/p1/knowledge-bases' && method === 'GET')
+        return pageReply([searchKnowledgeBase], null);
+      if (path === '/api/v1/projects/p2/knowledge-bases' && method === 'GET')
+        return pageReply([], null);
+      if (path === '/api/v1/knowledge-bases/kb-search/search' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope({
+            items: [searchResult('doc-search-p1', 'rev-doc-search-p1', 'P1 搜索结果')],
+            nextCursor: null,
+            hasMore: false,
+            truncated: false,
+          }),
+        };
+      if (path === '/api/v1/documents/doc-search-p1' && method === 'GET') return delayed.promise;
+      return undefined;
+    });
+
+    renderKnowledge();
+    fireEvent.change(await screen.findByRole('textbox', { name: '搜索项目知识' }), {
+      target: { value: '搜索' },
+    });
+    expect(await screen.findByText('P1 搜索结果 摘要')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /P1 搜索结果/ }));
+
+    fireEvent.change(screen.getByLabelText('选择项目'), { target: { value: 'p2' } });
+    expect((await screen.findAllByText('P2 文档')).length).toBeGreaterThan(0);
+
+    delayed.resolve({ status: 200, body: envelope(p1Document) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText('P1 旧搜索文档')).not.toBeInTheDocument();
+    expect(
+      mock.mock.calls.some(
+        ([url]) => pathOf(String(url)) === '/api/v1/document-revisions/rev-doc-search-p1/content',
+      ),
+    ).toBe(false);
+  });
+
+  it('新搜索结果会使迟到的旧详情失效', async () => {
+    const documentA = knowledgeDocumentFor('doc-search-a', '打开 A 文档');
+    const documentB = knowledgeDocumentFor('doc-search-b', '打开 B 文档');
+    const delayedA = deferred<StubReply>();
+    const mock = mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET') return pageReply([], null);
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
+        return pageReply([], null);
+      if (path === '/api/v1/projects/p1/knowledge-bases' && method === 'GET')
+        return pageReply([searchKnowledgeBase], null);
+      if (path === '/api/v1/knowledge-bases/kb-search/search' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope({
+            items: [
+              searchResult('doc-search-a', 'rev-doc-search-a', '搜索结果 A'),
+              searchResult('doc-search-b', 'rev-doc-search-b', '搜索结果 B'),
+            ],
+            nextCursor: null,
+            hasMore: false,
+            truncated: false,
+          }),
+        };
+      if (path === '/api/v1/documents/doc-search-a' && method === 'GET') return delayedA.promise;
+      if (path === '/api/v1/documents/doc-search-b' && method === 'GET')
+        return { status: 200, body: envelope(documentB) };
+      if (path === '/api/v1/document-revisions/rev-doc-search-b/content' && method === 'GET')
+        return contentReply('rev-doc-search-b', '# B 正文');
+      return undefined;
+    });
+
+    renderKnowledge();
+    fireEvent.change(await screen.findByRole('textbox', { name: '搜索项目知识' }), {
+      target: { value: '搜索结果' },
+    });
+    expect(await screen.findByText('搜索结果 A 摘要')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /搜索结果 A/ }));
+    fireEvent.click(screen.getByRole('button', { name: /搜索结果 B/ }));
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: 'B 正文',
+      }),
+    ).toBeInTheDocument();
+    delayedA.resolve({ status: 200, body: envelope(documentA) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText('打开 A 文档')).not.toBeInTheDocument();
+    expect(screen.queryByText('# A 正文')).not.toBeInTheDocument();
+    expect(
+      mock.mock.calls.some(
+        ([url]) => pathOf(String(url)) === '/api/v1/document-revisions/rev-doc-search-a/content',
+      ),
+    ).toBe(false);
+  });
+
+  it('卸载后迟到的搜索详情不会继续读取旧正文', async () => {
+    const documentA = knowledgeDocumentFor('doc-search-unmount', '卸载后的旧文档');
+    const delayed = deferred<StubReply>();
+    const mock = mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET') return pageReply([], null);
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
+        return pageReply([], null);
+      if (path === '/api/v1/projects/p1/knowledge-bases' && method === 'GET')
+        return pageReply([searchKnowledgeBase], null);
+      if (path === '/api/v1/knowledge-bases/kb-search/search' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope({
+            items: [searchResult('doc-search-unmount', 'rev-doc-search-unmount', '卸载搜索结果')],
+            nextCursor: null,
+            hasMore: false,
+            truncated: false,
+          }),
+        };
+      if (path === '/api/v1/documents/doc-search-unmount' && method === 'GET')
+        return delayed.promise;
+      return undefined;
+    });
+
+    const view = renderKnowledge();
+    fireEvent.change(await screen.findByRole('textbox', { name: '搜索项目知识' }), {
+      target: { value: '卸载' },
+    });
+    expect(await screen.findByText('卸载搜索结果 摘要')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /卸载搜索结果/ }));
+    view.unmount();
+
+    delayed.resolve({ status: 200, body: envelope(documentA) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      mock.mock.calls.some(
+        ([url]) =>
+          pathOf(String(url)) === '/api/v1/document-revisions/rev-doc-search-unmount/content',
+      ),
+    ).toBe(false);
+  });
+
+  it('系统上下游关系只在系统事实库视图中显示', async () => {
+    const bases = [
+      {
+        id: 'kb-system',
+        projectId: 'p1',
+        key: 'anything',
+        name: '架构资料',
+        kind: 'SYSTEM',
+        visibility: 'PROJECT',
+        version: 1,
+        authzVersion: 1,
+        publicationApproverUserId: 'user-1',
+        publicationApproverRoleId: null,
+        archivedAt: null,
+      },
+    ];
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET') return pageReply([], null);
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
+        return pageReply([], null);
+      if (path === '/api/v1/projects/p1/knowledge-bases' && method === 'GET')
+        return pageReply(bases, null);
+      if (path === '/api/v1/projects/p1/units' && method === 'GET')
+        return { status: 200, body: envelope([]) };
+      if (path === '/api/v1/projects/p1/unit-dependencies' && method === 'GET')
+        return { status: 200, body: envelope([]) };
+      return undefined;
+    });
+
+    renderKnowledge();
+    expect(screen.queryByTestId('knowledge-system-relations')).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: /系统事实库/ }));
+    expect(await screen.findByTestId('knowledge-system-relations')).toBeInTheDocument();
+    expect(await screen.findByText('当前项目还没有已声明的系统上下游关系。')).toBeInTheDocument();
   });
 });

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Workflows } from './Workflows';
@@ -11,6 +11,7 @@ import {
   mockFetch,
   pathOf,
   useProject,
+  type StubReply,
 } from '../test-utils';
 
 const project = { id: 'p1', key: 'DEMO', name: 'Demo', version: 7 };
@@ -35,6 +36,16 @@ function packageFor(roleKey: string, version = '1.0.0') {
 const allPackages = roles.map((role) => packageFor(role.key));
 
 const DIGEST = 'd'.repeat(64);
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 function baseHandler(
   overrides: {
@@ -98,6 +109,22 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
     expect(screen.getByText(DIGEST)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '发布（需要二次验证）' })).toBeEnabled();
     expect(screen.queryByText('缺少角色包')).not.toBeInTheDocument();
+  });
+
+  it('JSON 语法错误包含行列位置和原始解析原因', async () => {
+    mockFetch(baseHandler());
+    render(
+      <MemoryRouter>
+        <Workflows />
+      </MemoryRouter>,
+    );
+
+    const editor = await screen.findByLabelText('流程定义 JSON');
+    fireEvent.change(editor, { target: { value: '{\n  invalid' } });
+    fireEvent.click(screen.getByRole('button', { name: '校验并准备发布' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/第 2 行第/);
+    expect(screen.getByRole('alert')).toHaveTextContent(/JSON/);
   });
 
   it('缺少角色包时明确列出角色，并且不进入可发布状态', async () => {
@@ -176,6 +203,7 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
     fireEvent.click(await screen.findByRole('button', { name: '确认发布流程' }));
 
     expect(await screen.findByText(/流程 standard 已发布/)).toBeInTheDocument();
+    expect(localStorage.getItem('workmesh.workflowDraft.p1')).toBeNull();
 
     const previewCall = mock.mock.calls.find(
       ([url, init]) =>
@@ -240,6 +268,137 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
     expect(inlineError).toHaveAttribute('role', 'alert');
   });
 
+  it('服务端拒绝后仍可修复 JSON 并重新校验通过', async () => {
+    const core = baseHandler();
+    let validationAttempts = 0;
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init);
+      if (path === '/api/v1/projects/p1/workflow-definitions/validate' && method === 'POST') {
+        validationAttempts += 1;
+        return validationAttempts === 1
+          ? {
+              status: 200,
+              body: envelope({
+                valid: false,
+                issues: [
+                  { path: 'steps[0].key', code: 'E_STEP_KEY', message: '步骤 key 不能为空' },
+                ],
+                digest: null,
+              }),
+            }
+          : {
+              status: 200,
+              body: envelope({ valid: true, issues: [], digest: DIGEST }),
+            };
+      }
+      return core(url, init);
+    });
+    render(
+      <MemoryRouter>
+        <Workflows />
+      </MemoryRouter>,
+    );
+
+    await loadTemplateAndValidate();
+    expect(await screen.findByText(/校验未通过：1 项问题/)).toBeInTheDocument();
+    const editor = screen.getByLabelText('流程定义 JSON');
+    const repaired = JSON.parse((editor as HTMLTextAreaElement).value) as {
+      steps: Array<Record<string, unknown>>;
+    };
+    repaired.steps[0].key = 'repaired-step';
+    fireEvent.change(editor, { target: { value: JSON.stringify(repaired, null, 2) } });
+    expect(editor).not.toHaveAttribute('aria-invalid', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: '校验并准备发布' }));
+    expect(await screen.findByText('通过')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '发布（需要二次验证）' })).toBeEnabled();
+    expect(validationAttempts).toBe(2);
+  });
+
+  it('发布遇到 CAS 冲突时保留本地草稿并展示服务端错误', async () => {
+    const core = baseHandler();
+    const mock = mockFetch((url, init) => {
+      const base = core(url, init);
+      if (base) return base;
+      const path = pathOf(url);
+      const method = methodOf(init);
+      if (path === '/api/v1/auth/action-previews' && method === 'POST')
+        return {
+          status: 200,
+          body: envelope({
+            binding: bodyOf(init),
+            actionDigest: 'a'.repeat(64),
+            display: {
+              action: 'WORKFLOW_CONFIG_PUBLISH',
+              targetType: 'WORKFLOW_DEFINITION',
+              targetId: 'standard',
+              expectedVersion: 7,
+              projectId: 'p1',
+              roleSlot: null,
+            },
+          }),
+        };
+      if (path === '/api/v1/auth/confirmation-tickets' && method === 'POST')
+        return {
+          status: 200,
+          body: envelope({
+            ticketId: 'ticket-cas',
+            ticketSecret: 'secret-cas',
+            expiresAt: '2026-11-02T23:00:00.000Z',
+            actionDigest: 'a'.repeat(64),
+          }),
+        };
+      if (path === '/api/v1/projects/p1/workflow-definitions/standard/publish' && method === 'POST')
+        return {
+          status: 409,
+          body: {
+            error: {
+              code: 'PROJECT_VERSION_CONFLICT',
+              message: '项目版本已变化，请刷新后重试。',
+              requestId: 'req-cas',
+            },
+          },
+        };
+      return undefined;
+    });
+    render(
+      <MemoryRouter>
+        <Workflows />
+      </MemoryRouter>,
+    );
+
+    await loadTemplateAndValidate();
+    expect(await screen.findByText('通过')).toBeInTheDocument();
+    const editor = screen.getByLabelText('流程定义 JSON');
+    const draft = JSON.parse((editor as HTMLTextAreaElement).value) as Record<string, unknown>;
+    draft.title = 'CAS 草稿';
+    fireEvent.change(editor, { target: { value: JSON.stringify(draft, null, 2) } });
+    fireEvent.click(screen.getByRole('button', { name: '校验并准备发布' }));
+    expect(await screen.findByText('通过')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(localStorage.getItem('workmesh.workflowDraft.p1')).toContain('standard'),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: '发布（需要二次验证）' }));
+    fireEvent.change(await screen.findByLabelText('确认密码'), { target: { value: 'pw-cas' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证密码并签发票据' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认发布流程' }));
+
+    const error = await screen.findByRole('alert');
+    expect(error).toHaveTextContent(
+      '[PROJECT_VERSION_CONFLICT] 项目版本已变化，请刷新后重试。 · requestId req-cas',
+    );
+    expect(localStorage.getItem('workmesh.workflowDraft.p1')).toContain('standard');
+    expect(screen.queryByText(/流程 standard 已发布/)).not.toBeInTheDocument();
+    expect(
+      mock.mock.calls.some(
+        ([url, request]) =>
+          pathOf(String(url)) === '/api/v1/projects/p1/workflow-definitions/standard/publish' &&
+          methodOf(request ?? {}) === 'POST',
+      ),
+    ).toBe(true);
+  });
+
   it('刷新后恢复本地未发布草稿，并可以主动放弃', async () => {
     localStorage.setItem(
       'workmesh.workflowDraft.p1',
@@ -264,5 +423,42 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
     fireEvent.click(screen.getByRole('button', { name: '放弃草稿' }));
     expect(localStorage.getItem('workmesh.workflowDraft.p1')).toBeNull();
     expect(screen.queryByText(/已恢复上次未发布的草稿/)).not.toBeInTheDocument();
+  });
+
+  it('流程定义仍在读取时显示骨架与 role=status，不先渲染空态', async () => {
+    const definitions = deferred<StubReply>();
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init);
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/roles' && method === 'GET')
+        return { status: 200, body: envelope(roles) };
+      if (path === '/api/v1/projects/p1/role-packages' && method === 'GET')
+        return { status: 200, body: envelope({ items: [], nextCursor: null }) };
+      if (path === '/api/v1/projects/p1/workflow-definitions' && method === 'GET')
+        return definitions.promise;
+      return undefined;
+    });
+
+    render(
+      <MemoryRouter>
+        <Workflows />
+      </MemoryRouter>,
+    );
+
+    const indicator = await screen.findByText('正在加载流程定义…');
+    expect(indicator.closest('[role="status"]')).not.toBeNull();
+    expect(indicator.closest('[aria-busy="true"]')).not.toBeNull();
+    expect(document.querySelectorAll('.wm-skeleton-row').length).toBeGreaterThan(0);
+    expect(
+      screen.queryByText('还没有已发布的流程定义，先载入标准模板并发布。'),
+    ).not.toBeInTheDocument();
+
+    definitions.resolve({ status: 200, body: envelope({ items: [], nextCursor: null }) });
+    expect(
+      await screen.findByText('还没有已发布的流程定义，先载入标准模板并发布。'),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('正在加载流程定义…')).not.toBeInTheDocument());
   });
 });

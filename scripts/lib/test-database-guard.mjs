@@ -31,7 +31,8 @@ export async function resolveTestDatabase() {
       ok: false,
       rejection: {
         code: 'TEST_DATABASE_GUARD_UNAVAILABLE',
-        message: 'packages/shared dist is missing; run `corepack pnpm --filter @workmesh/shared build` first',
+        message:
+          'packages/shared dist is missing; run `pnpm --filter @workmesh/shared build` first',
       },
     };
   }
@@ -42,7 +43,8 @@ export async function resolveTestDatabase() {
       ok: false,
       rejection: {
         code: env ? 'TEST_ENV_INVALID' : 'TEST_ENV_MISSING',
-        message: 'WORKMESH_TEST_ENV must be set explicitly to local or ci before any database suite runs',
+        message:
+          'WORKMESH_TEST_ENV must be set explicitly to local or ci before any database suite runs',
       },
     };
   }
@@ -52,12 +54,16 @@ export async function resolveTestDatabase() {
       ok: false,
       rejection: {
         code: 'TEST_DATABASE_URL_MISSING',
-        message: 'WORKMESH_TEST_DATABASE_URL must be set explicitly; falling back to DATABASE_URL is forbidden',
+        message:
+          'WORKMESH_TEST_DATABASE_URL must be set explicitly; falling back to DATABASE_URL is forbidden',
       },
     };
   }
 
-  const allowUsers = env === 'local' && !process.env.WORKMESH_TEST_DATABASE_USERS ? [localUser()].filter(Boolean) : undefined;
+  const allowUsers =
+    env === 'local' && !process.env.WORKMESH_TEST_DATABASE_USERS
+      ? [localUser()].filter(Boolean)
+      : undefined;
   const result = guard.checkTestDatabase({ allowUsers });
   return result.ok
     ? { ok: true, target: result.target, describe: guard.describeTestDatabaseTarget(result.target) }

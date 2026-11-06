@@ -19,6 +19,7 @@ import {
   isImplStep,
 } from '../lib/workflowInstance';
 import { Modal } from './Modal';
+import { InlineLoading, SkeletonLines } from './Skeleton';
 
 interface WorkflowInstanceDialogProps {
   open: boolean;
@@ -160,7 +161,6 @@ export function WorkflowInstanceDialog({
     externalId: '',
     defaultBranch: 'main',
   });
-  const [repoBusy, setRepoBusy] = useState(false);
   const [repoError, setRepoError] = useState('');
   /** 流程定义加载 / 校验失败（读不到修订、没有步骤）。 */
   const [error, setError] = useState('');
@@ -168,6 +168,17 @@ export function WorkflowInstanceDialog({
   const [submitError, setSubmitError] = useState('');
   const [submitErrorSection, setSubmitErrorSection] = useState<SectionKey | null>(null);
   const [busy, setBusy] = useState(false);
+
+  /**
+   * 仓库与验收依据（需求详情）的加载进度：首次打开必须等它们读完再渲染表单，
+   * 否则会先闪一个「项目还没有登记代码仓库」的空表单，用户可能据此重复登记仓库。
+   * 重新打开同一需求时键相同，直接复用已加载数据，不再用加载态盖住表单。
+   */
+  const requirementId = requirement?.id ?? '';
+  const requirementProjectId = requirement?.projectId ?? '';
+  const contextKey = requirementId ? `${requirementId}:${requirementProjectId}` : '';
+  const [contextLoadedKey, setContextLoadedKey] = useState('');
+  const contextLoading = Boolean(requirement) && contextLoadedKey !== contextKey;
 
   /** 表单控件与分组节点的 ref 映射：缺项跳转时据此滚动 + 聚焦。 */
   const fieldRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -212,12 +223,12 @@ export function WorkflowInstanceDialog({
   // 仓库范围与验收条目来自项目与需求本身，与流程修订无关，打开时各取一次。
   // 两个请求互不阻塞：仓库取不到只影响 IMPL 步骤，验收取不到就当没有 PRD。
   useEffect(() => {
-    if (!open || !requirement) return;
+    if (!open || !requirementId) return;
     let alive = true;
     setRepoError('');
     Promise.allSettled([
-      repositoryApi.list(requirement.projectId),
-      requirementApi.detail(requirement.projectId, requirement.id),
+      repositoryApi.list(requirementProjectId),
+      requirementApi.detail(requirementProjectId, requirementId),
     ]).then(([repoResult, detailResult]) => {
       if (!alive) return;
       if (repoResult.status === 'fulfilled') setRepositories(repoResult.value);
@@ -225,11 +236,13 @@ export function WorkflowInstanceDialog({
       if (detailResult.status === 'fulfilled')
         setAcceptanceKeys(detailResult.value.acceptanceKeys ?? []);
       else setAcceptanceKeys([]);
+      // 无论成功失败都结束加载：失败状态由 repoError / 空验收兜底，不能一直停在加载态。
+      setContextLoadedKey(`${requirementId}:${requirementProjectId}`);
     });
     return () => {
       alive = false;
     };
-  }, [open, requirement?.id, requirement?.projectId]);
+  }, [open, requirementId, requirementProjectId]);
 
   useEffect(() => {
     // 关闭弹窗时保留 revision 与已填内容，便于失败后直接重试。
@@ -412,13 +425,14 @@ export function WorkflowInstanceDialog({
   const ready = requiredCount > 0 && missingCount === 0;
 
   const canSubmit = Boolean(
-    requirement && revision && !busy && missingCount === 0 && steps.length > 0,
+    requirement && revision && !busy && !contextLoading && missingCount === 0 && steps.length > 0,
   );
 
   /** footer 的禁用原因：只说差多少，不重复缺项原文（长表单里已经列过一次）。 */
   const disabledReason = useMemo(() => {
     if (busy) return '';
     if (!revision) return '正在读取流程定义，读完才能提交。';
+    if (contextLoading) return '正在读取项目仓库与验收依据，读完才能提交。';
     if (steps.length === 0) return '该流程定义没有步骤，无法创建实例。';
     if (!requirement) return '还没有选择需求。';
     if (missingCount === 0) return '';
@@ -439,7 +453,19 @@ export function WorkflowInstanceDialog({
       );
     if (conflictCount > 0) parts.push(`存在 ${conflictCount} 处自审冲突`);
     return `还不能提交：${parts.join('；')}`;
-  }, [busy, revision, steps.length, requirement, missingItems, missingCount, conflicts.length]);
+  }, [
+    busy,
+    revision,
+    contextLoading,
+    steps.length,
+    requirement,
+    missingItems,
+    missingCount,
+    conflicts.length,
+  ]);
+
+  /** 流程定义相关区段在未读完 / 读失败时的统一说明，避免一直显示“正在读取”。 */
+  const revisionNote = error ? '流程定义读取失败，无法继续。' : '正在读取流程定义…';
 
   function registerField(targetId: string) {
     return (element: HTMLElement | null) => {
@@ -485,35 +511,9 @@ export function WorkflowInstanceDialog({
 
   async function registerRepository() {
     if (!requirement) return;
-    const owner = repoForm.owner.trim();
-    const name = repoForm.name.trim();
-    if (!owner || !name) {
-      setRepoError('仓库 owner 与 name 都要填。');
-      return;
-    }
-    setRepoBusy(true);
-    setRepoError('');
-    try {
-      const created = await repositoryApi.create(requirement.projectId, {
-        owner,
-        name,
-        externalId: repoForm.externalId.trim() || `${owner}/${name}`,
-        defaultBranch: repoForm.defaultBranch.trim() || undefined,
-      });
-      setRepositories((current) => [...current, created]);
-      setRepoSelect((current) => {
-        const next = { ...current };
-        for (const step of implSteps) {
-          next[step.key] = [...new Set([...(next[step.key] ?? []), created.id])];
-        }
-        return next;
-      });
-      setRepoForm({ owner: '', name: '', externalId: '', defaultBranch: 'main' });
-    } catch (caught) {
-      setRepoError(formatApiError(caught));
-    } finally {
-      setRepoBusy(false);
-    }
+    // T2 之后仓库登记必须走 /workspace 的声明 + 票据流程；
+    // 此旧弹窗不再直接写 provider externalId，也不再做 owner/name 兜底。
+    setRepoError('请先在“接入与工作区”声明仓库，再重新打开此对话框。');
   }
 
   async function submit() {
@@ -559,6 +559,7 @@ export function WorkflowInstanceDialog({
       title="初始化流程实例"
       description={requirement ? `${requirement.code} · ${requirement.title}` : ''}
       size="lg"
+      busy={busy}
       onClose={onClose}
       footer={
         <>
@@ -571,7 +572,7 @@ export function WorkflowInstanceDialog({
             取消
           </button>
           <button className="primary" onClick={() => void submit()} disabled={!canSubmit}>
-            {busy ? '创建中…' : '确认创建'}
+            {busy ? '提交中…' : '确认创建'}
           </button>
         </>
       }
@@ -590,6 +591,12 @@ export function WorkflowInstanceDialog({
             该项目还没有已发布的流程定义。先到「流程」页发布，再回来初始化实例。
           </p>
         </section>
+      ) : !error && (!revision || contextLoading) ? (
+        /* 流程定义 / 仓库 / 验收依据任一未读完：整段正文先给 loading，不渲染半成品表单。 */
+        <div>
+          <InlineLoading label={!revision ? '正在读取流程定义…' : '正在读取项目仓库与验收依据…'} />
+          <SkeletonLines lines={revision ? 3 : 4} />
+        </div>
       ) : (
         <div className="wm-wf">
           {revision && steps.length > 0 ? (
@@ -630,9 +637,9 @@ export function WorkflowInstanceDialog({
                 </div>
               )}
             </section>
-          ) : !revision && !error ? (
+          ) : !revision ? (
             <p className="modal-note" aria-live="polite">
-              正在读取流程定义…
+              {revisionNote}
             </p>
           ) : null}
 
@@ -663,7 +670,7 @@ export function WorkflowInstanceDialog({
                   onClick={() => void submit()}
                   disabled={busy}
                 >
-                  {busy ? '创建中…' : '重试提交'}
+                  {busy ? '提交中…' : '重试提交'}
                 </button>
               </div>
             </div>
@@ -780,7 +787,7 @@ export function WorkflowInstanceDialog({
               </div>
             ) : (
               <p className="wm-wf-section__note">
-                {revision ? '没有可绑定的步骤。' : '正在读取流程定义…'}
+                {revision ? '没有可绑定的步骤。' : revisionNote}
               </p>
             )}
           </section>
@@ -795,7 +802,7 @@ export function WorkflowInstanceDialog({
               仓库和代码来源
             </h3>
             {!revision ? (
-              <p className="wm-wf-section__note">正在读取流程定义…</p>
+              <p className="wm-wf-section__note">{revisionNote}</p>
             ) : implSteps.length === 0 ? (
               <p className="wm-wf-section__note">
                 当前流程没有需要代码仓库的 IMPL 步骤，不需要选择仓库。
@@ -818,7 +825,7 @@ export function WorkflowInstanceDialog({
                       aria-invalid="true"
                       aria-describedby={repoEmptyErrorId}
                       value={repoForm.owner}
-                      placeholder="例如 yesgoo"
+                      placeholder="输入 locator 后到“接入与工作区”声明"
                       onChange={(event) =>
                         setRepoForm((current) => ({ ...current, owner: event.target.value }))
                       }
@@ -834,7 +841,7 @@ export function WorkflowInstanceDialog({
                       aria-invalid="true"
                       aria-describedby={repoEmptyErrorId}
                       value={repoForm.name}
-                      placeholder="例如 yifanfan"
+                      placeholder="仓库 name（仅展示）"
                       onChange={(event) =>
                         setRepoForm((current) => ({ ...current, name: event.target.value }))
                       }
@@ -864,7 +871,7 @@ export function WorkflowInstanceDialog({
                       id={`${ID_PREFIX}-repo-external`}
                       aria-label="GitHub 仓库 ID"
                       value={repoForm.externalId}
-                      placeholder="留空则用 owner/name"
+                      placeholder="provider 外部 ID（登记已迁移到接入与工作区）"
                       onChange={(event) =>
                         setRepoForm((current) => ({
                           ...current,
@@ -877,12 +884,8 @@ export function WorkflowInstanceDialog({
                 <p className="wm-wf-field-error" id={repoEmptyErrorId}>
                   ⚠ 需要先登记代码仓库：IMPL 步骤必须声明仓库范围，登记后会自动带入所有 IMPL 步骤。
                 </p>
-                <button
-                  className="ghost"
-                  onClick={() => void registerRepository()}
-                  disabled={repoBusy}
-                >
-                  {repoBusy ? '登记中…' : '登记仓库'}
+                <button className="ghost" onClick={() => void registerRepository()}>
+                  登记仓库
                 </button>
                 {repoError && (
                   <p className="modal-error" role="alert">
@@ -974,7 +977,7 @@ export function WorkflowInstanceDialog({
 
             <h4 className="wm-wf-subsection__title">审批槽审批人</h4>
             {!revision ? (
-              <p className="wm-wf-section__note">正在读取流程定义…</p>
+              <p className="wm-wf-section__note">{revisionNote}</p>
             ) : slots.length > 0 ? (
               <div className="table-scroll">
                 <table className="data-table">
@@ -1060,7 +1063,7 @@ export function WorkflowInstanceDialog({
 
             <h4 className="wm-wf-subsection__title">验收条目归属</h4>
             {!revision ? (
-              <p className="wm-wf-section__note">正在读取流程定义…</p>
+              <p className="wm-wf-section__note">{revisionNote}</p>
             ) : acceptanceKeys.length > 0 ? (
               <div className="table-scroll">
                 <table className="data-table">

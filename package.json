@@ -5,9 +5,23 @@
   "type": "module",
   "description": "Evidence-driven project collaboration hub for local AI agents",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/async-artisan/workmesh.git"
+  },
+  "homepage": "https://github.com/async-artisan/workmesh#readme",
+  "bugs": {
+    "url": "https://github.com/async-artisan/workmesh/issues"
+  },
+  "keywords": [
+    "agent-workflow",
+    "auditability",
+    "human-in-the-loop",
+    "project-collaboration"
+  ],
   "engines": {
-    "node": ">=20.0.0",
-    "pnpm": ">=8.0.0"
+    "node": ">=20.19.0",
+    "pnpm": ">=10.28.2 <11"
   },
   "scripts": {
     "workmesh": "node apps/cli/dist/index.js",
@@ -25,14 +39,16 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,mts,js,jsx,json,md,yml,yaml}\"",
     "db:generate": "pnpm --filter @workmesh/api db:generate",
     "db:push": "pnpm --filter @workmesh/api db:push",
-    "test:integration": "bash scripts/test-integration.sh",
-    "test:isolated-prisma": "pnpm --filter @workmesh/shared build && node scripts/lib/isolated-prisma.mjs",
+    "test:integration": "node scripts/test-integration.mjs",
+    "test:integration:runner": "node --test scripts/test-integration.test.mjs",
+    "test:isolated-prisma": "pnpm --filter @workmesh/shared build && node --test scripts/lib/isolated-prisma-paths.test.mjs && node scripts/lib/isolated-prisma.mjs",
     "test:check-database": "pnpm --filter @workmesh/shared build && node scripts/lib/check-test-database.mjs",
     "test:contracts": "pnpm --filter @workmesh/shared build && node scripts/test-contracts.mjs",
-    "test:e2e": "pnpm --filter @workmesh/shared build && node scripts/test-e2e.mjs",
+    "test:e2e": "node scripts/test-e2e.mjs",
     "test:github-live": "node scripts/test-github-live.mjs",
     "test:browser": "pnpm --filter @workmesh/shared build && pnpm --filter @workmesh/api build && pnpm --filter @workmesh/web build && pnpm test:browser:run",
-    "test:browser:run": "node scripts/test-browser.mjs"
+    "test:browser:run": "node scripts/test-browser.mjs",
+    "test:ui-review": "pnpm exec playwright test --config playwright.ui-review.config.ts"
   },
   "lint-staged": {
     "*.{ts,tsx,mts}": [

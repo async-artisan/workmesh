@@ -1,17 +1,21 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { V1IdempotencyRepository, V1OperationRecord } from './v1-idempotency';
+import type { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
 
 @Injectable()
 export class V1IdempotencyPrismaRepository implements V1IdempotencyRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findOperation(input: {
-    projectScopeKey: string;
-    principalScopeKey: string;
-    key: string;
-  }): Promise<V1OperationRecord | null> {
-    return this.prisma.idempotentOperation.findUnique({
+  async findOperation(
+    input: {
+      projectScopeKey: string;
+      principalScopeKey: string;
+      key: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ): Promise<V1OperationRecord | null> {
+    return (tx ?? this.prisma).idempotentOperation.findUnique({
       where: {
         projectScopeKey_principalScopeKey_key: {
           projectScopeKey: input.projectScopeKey,

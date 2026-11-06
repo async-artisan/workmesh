@@ -3,6 +3,7 @@ import { authApi } from '../api/auth';
 import { formatApiError } from '../api/client';
 import { reviewApi } from '../api/resources';
 import { Modal } from './Modal';
+import { InlineLoading } from './Skeleton';
 
 /** 批量批准的一条评审：槽位、版本都来自当前工作台快照，提交时服务端逐条校验。 */
 export interface BatchReviewTarget {
@@ -136,9 +137,8 @@ export function BatchReviewApprove({
       open={open}
       title="批量批准"
       description={`将对 ${targets.length} 条评审提交「批准」；每条仍需通过服务端版本与票据校验。`}
-      onClose={() => {
-        if (!busy) onClose();
-      }}
+      busy={busy}
+      onClose={onClose}
       footer={
         results ? (
           <button className="primary" onClick={onClose}>
@@ -178,7 +178,16 @@ export function BatchReviewApprove({
           )}
         </div>
       ) : (
-        <div className="wm-batch-review">
+        <div className="wm-batch-review" aria-busy={busy}>
+          {busy && (
+            <InlineLoading
+              label={
+                progress
+                  ? `正在逐条签票并提交（${progress.current}/${progress.total}）…`
+                  : '正在提交批量批准…'
+              }
+            />
+          )}
           <ul className="detail-list">
             {targets.map((target) => (
               <li key={target.reviewId}>{target.label}</li>

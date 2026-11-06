@@ -2524,7 +2524,7 @@ a:focus:not(:focus-visible) {
   font-weight: 500;
 }
 
-.form-grid .field input,
+.form-grid .field input:not([type='checkbox']):not([type='radio']),
 .form-grid .field textarea,
 .form-grid .field select {
   width: 100%;
@@ -2546,7 +2546,7 @@ a:focus:not(:focus-visible) {
   resize: vertical;
 }
 
-.form-grid .field input:focus,
+.form-grid .field input:not([type='checkbox']):not([type='radio']):focus,
 .form-grid .field textarea:focus,
 .form-grid .field select:focus {
   outline: none;
@@ -4183,7 +4183,7 @@ button.logo {
   font-weight: 500;
 }
 
-.signoff-section .field input,
+.signoff-section .field input:not([type='checkbox']):not([type='radio']),
 .signoff-section .field textarea,
 .signoff-section .field select {
   width: 100%;
@@ -4202,7 +4202,7 @@ button.logo {
   resize: vertical;
 }
 
-.signoff-section .field input:focus,
+.signoff-section .field input:not([type='checkbox']):not([type='radio']):focus,
 .signoff-section .field textarea:focus,
 .signoff-section .field select:focus {
   outline: none;

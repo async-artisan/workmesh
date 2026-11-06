@@ -85,6 +85,7 @@ type KnowledgeBaseRow = {
   projectId: string;
   key: string;
   name: string;
+  kind: string;
   visibility: 'PROJECT' | 'RESTRICTED';
   version: number;
   authzVersion: number;
@@ -110,6 +111,7 @@ function knowledgeBaseView(row: KnowledgeBaseRow): V1KnowledgeBaseView {
     projectId: row.projectId,
     key: row.key,
     name: row.name,
+    kind: row.kind,
     visibility: row.visibility,
     version: row.version,
     authzVersion: row.authzVersion,
@@ -551,6 +553,8 @@ export class V1KnowledgeBasePrismaRepository implements V1KnowledgeBaseRepositor
 
   async searchKnowledgeBase(input: {
     knowledgeBaseId: string;
+    knowledgeBaseName: string;
+    knowledgeBaseKind: string;
     q: string;
     limit: number;
     cursor: string | null;
@@ -579,7 +583,7 @@ export class V1KnowledgeBasePrismaRepository implements V1KnowledgeBaseRepositor
         },
         orderBy: { id: 'asc' },
         take: SEARCH_BATCH + 1,
-        select: { id: true, currentPublishedRevisionId: true },
+        select: { id: true, kind: true, currentPublishedRevisionId: true },
       });
       const page = rows.slice(0, SEARCH_BATCH);
       const more = rows.length > SEARCH_BATCH;
@@ -609,8 +613,13 @@ export class V1KnowledgeBasePrismaRepository implements V1KnowledgeBaseRepositor
         const excerpt = searchExcerptOf(revision.title, revision.bodyBytes, input.q);
         if (excerpt === null) continue;
         items.push({
+          knowledgeBaseId: input.knowledgeBaseId,
+          knowledgeBaseName: input.knowledgeBaseName,
+          knowledgeBaseKind: input.knowledgeBaseKind,
           revisionId: revision.id,
           documentId: revision.documentId,
+          documentKind: row.kind,
+          status: 'PUBLISHED',
           title: revision.title,
           excerpt,
           sha256: revision.sha256,
@@ -669,6 +678,7 @@ export class V1KnowledgeBasePrismaRepository implements V1KnowledgeBaseRepositor
       projectId: true,
       key: true,
       name: true,
+      kind: true,
       visibility: true,
       version: true,
       authzVersion: true,

@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { createFirstRunIdentity, createFirstRunProjectKey } from './first-run-demo-key.mjs';
 
 const require = createRequire(import.meta.url);
 const shared = require('../packages/shared/dist/index.cjs');
@@ -69,6 +70,20 @@ const workflow = {
 };
 
 const checks = [
+  [
+    'first-run project key matches API format',
+    () => /^[A-Z]{2,6}$/.test(createFirstRunProjectKey(() => 25)),
+  ],
+  [
+    'first-run identities remain unique within one clock tick',
+    () => {
+      let nextId = 0;
+      const uuid = () => `00000000-0000-4000-8000-${String(++nextId).padStart(12, '0')}`;
+      const first = createFirstRunIdentity({ uuid, projectKey: () => 'AAAAAA' });
+      const second = createFirstRunIdentity({ uuid, projectKey: () => 'BBBBBB' });
+      return first.email !== second.email && first.runId !== second.runId;
+    },
+  ],
   [
     'protocol constants',
     () =>

@@ -3,12 +3,15 @@ import type { ActionBindingInput } from '../api/auth';
 import { invitationApi, type CreatedInvitationView, type RoleView } from '../api/resources';
 import { ConfirmationPrompt } from './ConfirmationPrompt';
 import { Modal } from './Modal';
+import { InlineLoading } from './Skeleton';
 
 export interface InviteMemberDialogProps {
   open: boolean;
   projectId: string | null;
   projectVersion: number | null;
   roles: RoleView[];
+  /** 角色还在页面层加载：弹窗先给加载态，不能显示成「项目还没有业务角色」。 */
+  rolesLoading?: boolean;
   onClose: () => void;
 }
 
@@ -28,6 +31,7 @@ export function InviteMemberDialog({
   projectId,
   projectVersion,
   roles,
+  rolesLoading = false,
   onClose,
 }: InviteMemberDialogProps) {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
@@ -35,6 +39,7 @@ export function InviteMemberDialog({
   const [hours, setHours] = useState(DEFAULT_HOURS);
   const [promptOpen, setPromptOpen] = useState(false);
   const [created, setCreated] = useState<CreatedInvitationView | null>(null);
+  const [copyBusy, setCopyBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -84,12 +89,15 @@ export function InviteMemberDialog({
   }
 
   async function copyLink() {
-    if (!link) return;
+    if (!link || copyBusy) return;
+    setCopyBusy(true);
     try {
       await navigator.clipboard.writeText(link);
       setError('');
     } catch {
       setError('复制失败，请手动选中链接复制。');
+    } finally {
+      setCopyBusy(false);
     }
   }
 
@@ -107,12 +115,21 @@ export function InviteMemberDialog({
               <button className="ghost" onClick={onClose}>
                 关闭
               </button>
-              <button className="primary" onClick={() => void copyLink()}>
-                复制链接
+              <button className="primary" onClick={() => void copyLink()} disabled={copyBusy}>
+                {copyBusy ? '复制中…' : '复制链接'}
               </button>
             </>
           ) : (
             <>
+              {!binding && (
+                <p className="modal-foot-note" aria-live="polite">
+                  {rolesLoading
+                    ? '正在读取业务角色…'
+                    : activeRoles.length === 0
+                      ? '项目还没有可用的业务角色，先创建角色后才能生成邀请链接。'
+                      : '至少选择一个业务角色后才能生成邀请链接。'}
+                </p>
+              )}
               <button className="ghost" onClick={onClose}>
                 取消
               </button>
@@ -146,27 +163,31 @@ export function InviteMemberDialog({
             <div className="field">
               <span>授予的业务角色</span>
               <div className="role-chips">
-                {activeRoles.map((role) => {
-                  const checked = selectedKeys.includes(role.key);
-                  return (
-                    <label key={role.key} className={`chip${checked ? ' is-active' : ''}`}>
-                      <input
-                        type="checkbox"
-                        aria-label={`邀请角色 ${role.key}`}
-                        checked={checked}
-                        onChange={(event) =>
-                          setSelectedKeys((current) =>
-                            event.target.checked
-                              ? [...new Set([...current, role.key])]
-                              : current.filter((key) => key !== role.key),
-                          )
-                        }
-                      />
-                      {role.title}
-                    </label>
-                  );
-                })}
-                {activeRoles.length === 0 && <span className="muted">项目还没有业务角色。</span>}
+                {rolesLoading && <InlineLoading label="正在读取业务角色…" />}
+                {!rolesLoading &&
+                  activeRoles.map((role) => {
+                    const checked = selectedKeys.includes(role.key);
+                    return (
+                      <label key={role.key} className={`chip${checked ? ' is-active' : ''}`}>
+                        <input
+                          type="checkbox"
+                          aria-label={`邀请角色 ${role.key}`}
+                          checked={checked}
+                          onChange={(event) =>
+                            setSelectedKeys((current) =>
+                              event.target.checked
+                                ? [...new Set([...current, role.key])]
+                                : current.filter((key) => key !== role.key),
+                            )
+                          }
+                        />
+                        {role.title}
+                      </label>
+                    );
+                  })}
+                {!rolesLoading && activeRoles.length === 0 && (
+                  <span className="muted">项目还没有业务角色。</span>
+                )}
               </div>
             </div>
 
@@ -210,6 +231,7 @@ export function InviteMemberDialog({
         }
         binding={binding}
         submitLabel="生成链接"
+        busyLabel="邀请中…"
         onClose={() => setPromptOpen(false)}
         onConfirmed={create}
       />

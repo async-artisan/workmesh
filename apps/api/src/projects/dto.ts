@@ -61,6 +61,9 @@ export class ProjectRoleChangeDto {
 /**
  * 代码仓库登记：externalId 使用厂商稳定 ID（GitHub 数值仓库 ID），
  * 仓库改名不影响身份；重复登记同一 (adapter, externalId) 返回 409。
+ *
+ * T2 起 provider 登记补齐高风险写规则：人审票据 + 幂等键 + `Project.version` CAS。
+ * human-declared 来源不再使用本接口，改用 `/repositories/declarations`。
  */
 export class CreateProjectRepositoryDto {
   @IsIn(['github']) adapter!: 'github';
@@ -72,6 +75,36 @@ export class CreateProjectRepositoryDto {
   @IsString() @MinLength(1) @MaxLength(120) name!: string;
 
   @IsOptional() @IsString() @MaxLength(200) defaultBranch?: string;
+
+  /** 项目共享配置版本（Project.version）：仓库写操作统一用它做 CAS。 */
+  @IsInt() @Min(1) expectedProjectVersion!: number;
+
+  @ValidateNested() @Type(() => ConfirmationDto) confirmation!: ConfirmationDto;
+}
+
+/** 既有 DELETE 归档接口的请求体：路径不变，补齐票据与版本 CAS。 */
+export class ArchiveProjectRepositoryDto {
+  @IsInt() @Min(1) expectedProjectVersion!: number;
+
+  @ValidateNested() @Type(() => ConfirmationDto) confirmation!: ConfirmationDto;
+}
+
+/**
+ * HUMAN 声明的受控 locator。locator 原样进入票据摘要（用户批准的就是它），
+ * 服务端再用保守规范化结果做 locator 去重与展示字段推导。
+ */
+export class DeclareRepositoryDto {
+  @IsInt() @Min(1) expectedProjectVersion!: number;
+
+  @IsString() @MinLength(1) @MaxLength(500) locator!: string;
+
+  /** 显式别名请求：把 locator 绑到同项目内该仓库；冲突时 409 LOCATOR_ALREADY_BOUND。 */
+  @IsOptional() @IsUUID() targetRepositoryId?: string;
+
+  /** 仅作展示；不参与身份判定、locator 匹配或唯一键。 */
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(120) displayName?: string;
+
+  @ValidateNested() @Type(() => ConfirmationDto) confirmation!: ConfirmationDto;
 }
 
 /** 自定义业务角色：key 创建后不可变，否则工作流、角色包与历史引用会断链。 */

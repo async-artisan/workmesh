@@ -16,6 +16,23 @@ import type { V1AuthRepository, V1CliAuthorizationRecord } from './v1-auth.repos
 export const CLI_AUTHORIZATION_TTL_MS = 10 * 60 * 1000;
 export const CLI_INTERVAL_SECONDS = 5;
 
+/** 设备元数据列宽（与 schema.prisma 的 VarChar 长度一致）。 */
+export const DEVICE_NAME_MAX = 80;
+export const DEVICE_PLATFORM_MAX = 60;
+export const CLIENT_VERSION_MAX = 30;
+export const CLIENT_IP_MAX = 64;
+
+/**
+ * 归一化 CLI 头部/来源 IP：非字符串、空白或超长一律处理为可安全入库的值。
+ * 空 -> undefined，超长截断（不因客户端头部畸形而让授权请求 400）。
+ */
+export function sanitizeDeviceValue(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed.length > maxLength ? trimmed.slice(0, maxLength) : trimmed;
+}
+
 const USER_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const NO_PROOF = V1_ERROR_CODES.AUTH_INVALID;
 /** 签发的 Agent 凭据最长有效天数。 */
@@ -74,6 +91,9 @@ export class V1CliAuthorizationService {
     codeChallengeMethod: string;
     credentialSecretHash: string;
     ip: string;
+    deviceName?: string;
+    devicePlatform?: string;
+    clientVersion?: string;
     now?: Date;
   }): Promise<Record<string, unknown>> {
     const now = input.now ?? new Date();
@@ -119,6 +139,10 @@ export class V1CliAuthorizationService {
       codeChallengeMethod: 'S256',
       credentialSecretHash: input.credentialSecretHash,
       expiresAt: new Date(now.getTime() + CLI_AUTHORIZATION_TTL_MS),
+      deviceName: sanitizeDeviceValue(input.deviceName, DEVICE_NAME_MAX),
+      devicePlatform: sanitizeDeviceValue(input.devicePlatform, DEVICE_PLATFORM_MAX),
+      clientVersion: sanitizeDeviceValue(input.clientVersion, CLIENT_VERSION_MAX),
+      clientIp: sanitizeDeviceValue(input.ip, CLIENT_IP_MAX),
     });
     return {
       authorizationId: request.id,

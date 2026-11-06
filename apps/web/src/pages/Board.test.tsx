@@ -1,9 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Board } from './Board';
 import { setCsrfToken } from '../api/client';
-import { envelope, methodOf, mockFetch, pathOf, useProject } from '../test-utils';
+import { envelope, methodOf, mockFetch, pathOf, useProject, type StubReply } from '../test-utils';
 
 const project = { id: 'p1', key: 'DEMO', name: 'Demo', version: 1 };
 
@@ -136,5 +136,46 @@ describe('Board（只读看板）', () => {
     const activeColumns = document.querySelectorAll('.board-col.is-mobile-active');
     expect(activeColumns).toHaveLength(1);
     expect(activeColumns[0]?.textContent).toContain('进行中');
+  });
+
+  it('首屏显示看板骨架与加载状态；刷新时保留已有卡片并提示加载中', async () => {
+    const pendingReplies: Array<(reply: StubReply) => void> = [];
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/board' && method === 'GET')
+        return new Promise<StubReply>((resolve) => {
+          pendingReplies.push(resolve);
+        });
+      return undefined;
+    });
+
+    render(
+      <MemoryRouter>
+        <Board />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/正在加载看板/);
+    expect(screen.getByTestId('board-loading')).toHaveAttribute('aria-busy', 'true');
+    expect(document.querySelectorAll('.wm-skeleton-lines').length).toBeGreaterThan(0);
+    expect(screen.queryByText('暂无任务')).not.toBeInTheDocument();
+    expect(screen.queryByText('该项目还没有任务。')).not.toBeInTheDocument();
+
+    pendingReplies[0]!({ status: 200, body: envelope(snapshot) });
+    expect((await screen.findAllByText('未开始')).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('board-loading')).not.toBeInTheDocument();
+
+    // 刷新：已加载的卡片不清空，同时给出按钮与内联加载反馈。
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    expect(screen.getAllByText('未开始').length).toBeGreaterThan(0);
+    expect(await screen.findByText(/正在刷新看板/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '加载中…' })).toBeDisabled();
+
+    pendingReplies[1]!({ status: 200, body: envelope(snapshot) });
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: '刷新' })).toBeEnabled();
   });
 });

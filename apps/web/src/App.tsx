@@ -5,11 +5,7 @@ import { ApiError, SESSION_EXPIRED_EVENT, formatApiError } from './api/client';
 import { authApi, bootstrapSession } from './api/auth';
 import { activityApi, notificationApi, type ActivityItem } from './api/resources';
 import { getWorkbenchSnapshot, invalidateWorkbenchSnapshot } from './lib/workbenchSnapshot';
-import {
-  countUnreadActivity,
-  markActivitySeen,
-  readActivityLastSeenAt,
-} from './lib/activitySeen';
+import { countUnreadActivity, markActivitySeen, readActivityLastSeenAt } from './lib/activitySeen';
 import { ACTION_LABELS, labelFor } from './lib/labels';
 import { formatDateTime } from './lib/datetime';
 import { useAuthStore } from './store/auth';
@@ -18,6 +14,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ErrorState } from './components/ErrorState';
 import { PageState } from './components/PageState';
 import { ToastHost } from './components/ToastHost';
+import { ProjectContextBoundary } from './components/ProjectContextBoundary';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { toast } from './store/toast';
@@ -34,6 +31,9 @@ const Pipeline = lazy(() => import('./pages/Pipeline').then((m) => ({ default: m
 const Projects = lazy(() => import('./pages/Projects').then((m) => ({ default: m.Projects })));
 const ProjectDetail = lazy(() =>
   import('./pages/ProjectDetail').then((m) => ({ default: m.ProjectDetail })),
+);
+const ProjectWorkspace = lazy(() =>
+  import('./pages/ProjectWorkspace').then((m) => ({ default: m.ProjectWorkspace })),
 );
 const Requirements = lazy(() =>
   import('./pages/Requirements').then((m) => ({ default: m.Requirements })),
@@ -692,13 +692,10 @@ export function App() {
                       const path = activityPath(item);
                       const content = (
                         <>
-                          <span className="status-tag">
-                            {labelFor(ACTION_LABELS, item.action)}
-                          </span>
+                          <span className="status-tag">{labelFor(ACTION_LABELS, item.action)}</span>
                           <span>{item.projectName ?? '—'}</span>
                           <small>
-                            {item.actor?.email ?? '系统'} ·{' '}
-                            {formatDateTime(item.createdAt)}
+                            {item.actor?.email ?? '系统'} · {formatDateTime(item.createdAt)}
                           </small>
                         </>
                       );
@@ -793,47 +790,52 @@ export function App() {
 
         <main className="content-area" id="main-content" tabIndex={-1} ref={mainRef}>
           <h1 className="visually-hidden">当前页面：{findNav(location.pathname).key}</h1>
-          <ErrorBoundary key={location.pathname}>
-            <Suspense fallback={pageLoading}>
-              {location.pathname === '/' ? (
-                <Workbench />
-              ) : projectMatch ? (
-                <ProjectDetail projectId={projectMatch.params.projectId ?? ''} />
-              ) : location.pathname === '/projects' ? (
-                <Projects />
-              ) : location.pathname === '/pipeline' ? (
-                <Pipeline />
-              ) : location.pathname === '/requirements' ? (
-                <Requirements />
-              ) : requirementMatch ? (
-                <RequirementDetail requirementId={requirementMatch.params.requirementId ?? ''} />
-              ) : location.pathname === '/workflows' ? (
-                <Workflows />
-              ) : location.pathname === '/knowledge' ? (
-                <Knowledge />
-              ) : location.pathname === '/prd' ? (
-                <Prds />
-              ) : location.pathname === '/reviews' ? (
-                legacyReviewId ? (
-                  <Navigate to={`/reviews/${encodeURIComponent(legacyReviewId)}`} replace />
+          <ProjectContextBoundary>
+            <ErrorBoundary key={location.pathname}>
+              <Suspense fallback={pageLoading}>
+                {location.pathname === '/' ? (
+                  <Workbench />
+                ) : projectMatch ? (
+                  <ProjectDetail projectId={projectMatch.params.projectId ?? ''} />
+                ) : location.pathname === '/projects' ? (
+                  <Projects />
+                ) : location.pathname === '/workspace' ? (
+                  <ProjectWorkspace />
+                ) : location.pathname === '/pipeline' ? (
+                  <Pipeline />
+                ) : location.pathname === '/requirements' ? (
+                  <Requirements />
+                ) : requirementMatch ? (
+                  <RequirementDetail requirementId={requirementMatch.params.requirementId ?? ''} />
+                ) : location.pathname === '/workflows' ? (
+                  <Workflows />
+                ) : location.pathname === '/knowledge' ? (
+                  <Knowledge />
+                ) : location.pathname === '/prd' ? (
+                  <Prds />
+                ) : location.pathname === '/reviews' ? (
+                  legacyReviewId ? (
+                    <Navigate to={`/reviews/${encodeURIComponent(legacyReviewId)}`} replace />
+                  ) : (
+                    <Reviews />
+                  )
+                ) : reviewMatch ? (
+                  <ReviewDecision reviewId={reviewMatch.params.reviewId ?? ''} />
+                ) : location.pathname === '/board' ? (
+                  <Board />
+                ) : location.pathname === '/roles' ? (
+                  <Roles />
+                ) : location.pathname === '/authorization' ||
+                  location.pathname === '/cli/authorize' ? (
+                  <Authorization />
+                ) : location.pathname === '/profile' ? (
+                  <Profile />
                 ) : (
-                  <Reviews />
-                )
-              ) : reviewMatch ? (
-                <ReviewDecision reviewId={reviewMatch.params.reviewId ?? ''} />
-              ) : location.pathname === '/board' ? (
-                <Board />
-              ) : location.pathname === '/roles' ? (
-                <Roles />
-              ) : location.pathname === '/authorization' ? (
-                <Authorization />
-              ) : location.pathname === '/profile' ? (
-                <Profile />
-              ) : (
-                <section className="page-card">页面不存在。</section>
-              )}
-            </Suspense>
-          </ErrorBoundary>
+                  <section className="page-card">页面不存在。</section>
+                )}
+              </Suspense>
+            </ErrorBoundary>
+          </ProjectContextBoundary>
         </main>
       </div>
       <ToastHost />

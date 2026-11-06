@@ -25,7 +25,7 @@
 
 .pipeline-summary-label {
   color: #64748b;
-  font-size: 10px;
+  font-size: var(--wm-text-xs);
   white-space: nowrap;
 }
 
@@ -40,14 +40,22 @@
   border-radius: 999px;
   background: #cbd5e1;
 }
-.pipeline-segments i.is-done { background: #10b981; }
-.pipeline-segments i.is-active { background: #06b6d4; }
-.pipeline-segments i.is-blocked { background: #e11d48; }
-.pipeline-segments i.is-skipped { background: #94a3b8; }
+.pipeline-segments i.is-done {
+  background: #10b981;
+}
+.pipeline-segments i.is-active {
+  background: #06b6d4;
+}
+.pipeline-segments i.is-blocked {
+  background: #e11d48;
+}
+.pipeline-segments i.is-skipped {
+  background: #94a3b8;
+}
 
 .pipeline-summary-count {
   color: #0f172a;
-  font-size: 11px;
+  font-size: var(--wm-text-xs);
 }
 
 .pipeline-summary-next {
@@ -59,15 +67,68 @@
 }
 .pipeline-summary-next > span {
   color: #64748b;
-  font-size: 10px;
+  font-size: var(--wm-text-xs);
   white-space: nowrap;
 }
 .pipeline-summary-next strong {
-  overflow: hidden;
   color: #0e7490;
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: var(--wm-text-sm);
+  overflow-wrap: anywhere;
+}
+
+/* 首屏可执行信息：阶段、责任人、阻塞原因、下一步都用可读文本表达。 */
+.pipeline-summary-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  flex: 1 1 100%;
+  gap: 8px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.pipeline-summary-facts > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--wm-space-2) 9px;
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-sm);
+  background: var(--wm-color-surface-subtle);
+}
+
+.pipeline-summary-facts b {
+  color: var(--wm-color-text-muted);
+  font-size: var(--wm-text-xs);
+  font-weight: 500;
+}
+
+.pipeline-summary-facts strong {
+  color: var(--wm-color-text-primary);
+  font-size: var(--wm-text-md);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-summary-action {
+  align-self: stretch;
+  min-height: 40px;
+  padding: 6px 10px;
+  font-size: var(--wm-text-sm);
+}
+
+.pipeline-summary-count {
+  color: var(--wm-color-text-primary);
+  font-size: var(--wm-text-xs);
+}
+
+.pipeline-summary-next > span {
+  color: var(--wm-color-text-muted);
+  font-size: var(--wm-text-xs);
+}
+
+.pipeline-summary-next strong {
+  color: var(--wm-color-accent-text);
+  font-size: var(--wm-text-sm);
 }
 
 .pipeline-toggle {
@@ -80,7 +141,7 @@
   border-radius: 999px;
   background: #fff;
   color: #0f172a;
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 .pipeline-toggle:hover {
@@ -88,11 +149,11 @@
   color: #0e7490;
 }
 .pipeline-toggle:focus-visible {
-  outline: 2px solid #0891b2;
+  outline: var(--wm-focus-width) solid var(--wm-color-focus-ring);
   outline-offset: 2px;
 }
 .pipeline-toggle svg {
-  transition: transform .18s ease;
+  transition: transform 0.18s ease;
 }
 .pipeline-toggle[aria-expanded='true'] svg {
   transform: rotate(180deg);
@@ -117,14 +178,38 @@
   user-select: none;
 }
 
-.wm-role-avatar.is-product { background: linear-gradient(145deg, #dbeafe, #93c5fd); color: #1e3a8a; }
-.wm-role-avatar.is-ui { background: linear-gradient(145deg, #ede9fe, #c4b5fd); color: #5b21b6; }
-.wm-role-avatar.is-frontend { background: linear-gradient(145deg, #cffafe, #67e8f9); color: #155e75; }
-.wm-role-avatar.is-backend { background: linear-gradient(145deg, #e0e7ff, #a5b4fc); color: #3730a3; }
-.wm-role-avatar.is-engineering { background: linear-gradient(145deg, #ccfbf1, #5eead4); color: #134e4a; }
-.wm-role-avatar.is-qa { background: linear-gradient(145deg, #dcfce7, #86efac); color: #166534; }
-.wm-role-avatar.is-ops { background: linear-gradient(145deg, #fef3c7, #fcd34d); color: #92400e; }
-.wm-role-avatar.is-lead { background: linear-gradient(145deg, #fb923c, #ea580c); color: #fff7ed; }
+.wm-role-avatar.is-product {
+  background: linear-gradient(145deg, #dbeafe, #93c5fd);
+  color: #1e3a8a;
+}
+.wm-role-avatar.is-ui {
+  background: linear-gradient(145deg, #ede9fe, #c4b5fd);
+  color: #5b21b6;
+}
+.wm-role-avatar.is-frontend {
+  background: linear-gradient(145deg, #cffafe, #67e8f9);
+  color: #155e75;
+}
+.wm-role-avatar.is-backend {
+  background: linear-gradient(145deg, #e0e7ff, #a5b4fc);
+  color: #3730a3;
+}
+.wm-role-avatar.is-engineering {
+  background: linear-gradient(145deg, #ccfbf1, #5eead4);
+  color: #134e4a;
+}
+.wm-role-avatar.is-qa {
+  background: linear-gradient(145deg, #dcfce7, #86efac);
+  color: #166534;
+}
+.wm-role-avatar.is-ops {
+  background: linear-gradient(145deg, #fef3c7, #fcd34d);
+  color: #92400e;
+}
+.wm-role-avatar.is-lead {
+  background: linear-gradient(145deg, #fb923c, #ea580c);
+  color: #fff7ed;
+}
 
 /* 流程图内的尺寸：与原先图片占位一致。 */
 .pipeline-robot .wm-role-avatar,
@@ -155,6 +240,12 @@
     flex: 1 1 100%;
     order: 3;
   }
+  .pipeline-summary-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pipeline-summary-facts > span {
+    padding: var(--wm-space-2) 8px;
+  }
   .pipeline-robot .wm-role-avatar,
   .pipeline-leader .wm-role-avatar {
     width: 64px;
@@ -168,8 +259,201 @@
   }
 }
 
+@media (max-width: 390px) {
+  .pipeline-summary-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* #27：流程图中的辅助信息至少 12px；短编号仍由 monospace 标签承载。 */
+.pipeline-summary-label,
+.pipeline-summary-next > span,
+.pipeline-team-stats span,
+.pipeline-stage-step,
+.pipeline-leader-status,
+.pipeline-member-status,
+.pipeline-task-lane h4,
+.pipeline-task-lane h4 small,
+.pipeline-task-lane > p,
+.pipeline-task-card-top,
+.pipeline-task-card strong,
+.pipeline-task-card-owner span,
+.pipeline-task-card-owner small {
+  font-size: var(--wm-text-xs);
+}
+
+.pipeline-task-card strong {
+  font-size: var(--wm-text-md);
+}
+
+/* 标题、负责人、角色和证据均是操作信息，不能被省略号隐藏。 */
+.pipeline-task-card strong,
+.pipeline-task-card-owner span {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.pipeline-task-card-top {
+  flex-wrap: wrap;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-task-card-top b {
+  font-size: var(--wm-text-xs);
+}
+
+.pipeline-task-card-top em {
+  font-size: var(--wm-text-xs);
+}
+
+@media (max-width: 640px) {
+  /* 轨道是唯一允许横向滚动的区域，页面主体保持可读宽度。 */
+  .requirement-pipeline {
+    overflow-x: visible;
+  }
+
+  .pipeline-stage-rail {
+    display: flex;
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 2px 2px 8px;
+    scroll-snap-type: x proximity;
+  }
+
+  .pipeline-stage-step {
+    flex: 0 0 112px;
+    scroll-snap-align: start;
+  }
+
+  .pipeline-stage-rail:focus-visible,
+  .pipeline-team-members:focus-visible {
+    outline: var(--wm-focus-width) solid var(--wm-color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .pipeline-task-lanes {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  .pipeline-task-lane {
+    min-width: 0;
+  }
+
+  .pipeline-task-card {
+    min-height: 112px;
+  }
+
+  .pipeline-team-members {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .pipeline-team-members {
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    padding-bottom: 8px;
+  }
+
+  .pipeline-member {
+    flex: 0 0 120px;
+  }
+
+  .pipeline-wires {
+    display: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .pipeline-toggle svg { transition: none; }
+  .pipeline-toggle svg {
+    transition: none;
+  }
+}
+
+/* #26：流程团队区进入 token 迁移阶段。旧 ui-v4 规则继续提供兼容默认值，
+ * 这里集中覆盖本页面实际使用的表面、边框、字号与焦点令牌，便于后续删除旧重复层。 */
+.requirement-pipeline .pipeline-team-stats span {
+  border-color: var(--wm-color-border);
+  background: var(--wm-color-surface);
+  color: var(--wm-color-text-muted);
+  font-size: var(--wm-text-xs);
+}
+
+.requirement-pipeline .pipeline-team-stats b {
+  color: var(--wm-color-text-primary);
+  font-size: var(--wm-text-sm);
+}
+
+.requirement-pipeline .pipeline-stage-step {
+  border: 1px solid var(--wm-color-border);
+  background: var(--wm-color-surface-muted);
+  color: var(--wm-color-text-muted);
+  font-size: var(--wm-text-xs);
+}
+
+.requirement-pipeline .pipeline-chip {
+  border-color: var(--wm-color-border);
+  background: var(--wm-color-surface);
+  color: var(--wm-color-text-secondary);
+  font-size: var(--wm-text-xs);
+}
+
+.requirement-pipeline .pipeline-chip.is-lead {
+  border-color: var(--wm-color-text-primary);
+  background: var(--wm-color-text-primary);
+  color: var(--wm-color-text-inverse);
+}
+
+.requirement-pipeline .pipeline-member-no {
+  border-color: var(--wm-color-border-strong);
+  background: var(--wm-color-surface);
+  color: var(--wm-color-text-secondary);
+  font-size: var(--wm-text-xs);
+}
+
+.requirement-pipeline .pipeline-task-card-top em {
+  font-size: var(--wm-text-xs);
+}
+
+.requirement-pipeline .pipeline-stage-step.is-done {
+  border-color: var(--wm-color-success-border);
+  background: var(--wm-color-success-soft);
+  color: var(--wm-color-success);
+}
+
+.requirement-pipeline .pipeline-stage-step.is-active {
+  border-color: var(--wm-color-accent-border);
+  background: var(--wm-color-accent-soft);
+  color: var(--wm-color-accent-text);
+}
+
+.requirement-pipeline .pipeline-stage-step.is-blocked {
+  border-color: var(--wm-color-danger-border);
+  background: var(--wm-color-danger-soft);
+  color: var(--wm-color-danger);
+}
+
+.requirement-pipeline .pipeline-task-lane {
+  border-color: var(--wm-color-border);
+  border-radius: var(--wm-radius-md);
+  background: var(--wm-color-surface-subtle);
+}
+
+.requirement-pipeline .pipeline-task-card {
+  border-color: var(--wm-color-border);
+  border-radius: var(--wm-radius-md);
+  background: var(--wm-color-surface);
+  color: var(--wm-color-text-secondary);
+  box-shadow: var(--wm-shadow-sm);
+}
+
+.requirement-pipeline .pipeline-task-card:focus-visible,
+.requirement-pipeline .pipeline-person-card:focus-visible,
+.requirement-pipeline .pipeline-stage-step:focus-visible {
+  outline: var(--wm-focus-width) solid var(--wm-color-focus-ring);
+  outline-offset: 2px;
 }
 
 /* 本地机器人头像：图片铺满圆形徽标，加载失败时才显示首字。 */

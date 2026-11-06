@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@workmesh/shared';
 import { V1AccountService } from './v1-account.service';
-import type { V1AuthRepository, V1CredentialRecord } from './v1-auth.repository';
+import type {
+  V1AuthRepository,
+  V1CredentialDeviceRecord,
+  V1CredentialRecord,
+} from './v1-auth.repository';
 
 const now = new Date('2026-11-01T00:00:00.000Z');
 const OWN_CREDENTIAL = '11111111-1111-4111-8111-111111111111';
@@ -31,6 +35,7 @@ function repository() {
     [OWN_CREDENTIAL, credential()],
     [OTHER_CREDENTIAL, credential({ id: OTHER_CREDENTIAL, userId: 'user-2' })],
   ]);
+  const devices = new Map<string, V1CredentialDeviceRecord>();
   const revocations: Revocation[] = [];
   const listedFor: string[] = [];
 
@@ -56,7 +61,13 @@ function repository() {
     async revokeSession() {},
     async listCredentials(userId) {
       listedFor.push(userId);
-      return [...credentials.values()].filter((item) => item.userId === userId);
+      return [...credentials.values()]
+        .filter((item) => item.userId === userId)
+        .map((item) => ({
+          ...item,
+          createdAt: now,
+          device: devices.get(item.id) ?? null,
+        }));
     },
     async revokeCredential(credentialId, userId, revokedAt) {
       const target = credentials.get(credentialId);
@@ -97,7 +108,7 @@ function repository() {
       return 1;
     },
   };
-  return { repo, revocations, listedFor, service: new V1AccountService(repo) };
+  return { repo, revocations, listedFor, devices, service: new V1AccountService(repo) };
 }
 
 function human(): Principal {
@@ -170,5 +181,50 @@ describe('V1AccountService.revokeCredential', () => {
       code: 'HUMAN_SESSION_REQUIRED',
     });
     expect(listedFor).toEqual([]);
+  });
+});
+
+describe('V1AccountService.listCredentials device metadata', () => {
+  it('returns the existing fields plus createdAt and the linked device', async () => {
+    const { service, devices } = repository();
+    devices.set(OWN_CREDENTIAL, {
+      name: 'build-box',
+      platform: 'win32 10.0.19045',
+      clientVersion: '1.2.3',
+      ip: '203.0.113.9',
+      clientName: 'workmesh-setup',
+      authorizedAt: now,
+    });
+
+    const items = await service.listCredentials(human());
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      id: OWN_CREDENTIAL,
+      name: 'cli',
+      projectId: 'project-1',
+      roleId: 'role-1',
+      scopes: ['task:read'],
+      expiresAt: credential().expiresAt,
+      revokedAt: null,
+      createdAt: now,
+      device: {
+        name: 'build-box',
+        platform: 'win32 10.0.19045',
+        clientVersion: '1.2.3',
+        ip: '203.0.113.9',
+        clientName: 'workmesh-setup',
+        authorizedAt: now,
+      },
+    });
+  });
+
+  it('returns device: null for a credential without a linked authorization request', async () => {
+    const { service } = repository();
+
+    const items = await service.listCredentials(human());
+
+    expect(items[0]).toHaveProperty('createdAt', now);
+    expect(items[0]).toMatchObject({ device: null });
   });
 });

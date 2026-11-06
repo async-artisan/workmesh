@@ -417,7 +417,10 @@ describe('Roles ACL 主体管理与布局', () => {
 
     const list = await screen.findByTestId('roles-member-card-list');
     expect(within(list).getByText('Alice')).toBeInTheDocument();
-    expect(within(list).getByText('成员版本 v1')).toBeInTheDocument();
+    const aliceCard = within(list).getByText('Alice').closest('[data-testid="roles-member-card"]');
+    expect(aliceCard).not.toBeNull();
+    fireEvent.click(within(aliceCard as HTMLElement).getByText('查看业务角色与版本'));
+    expect(within(aliceCard as HTMLElement).getByText('成员版本：v3')).toBeInTheDocument();
     const manageButtons = within(list).getAllByRole('button', { name: '管理角色' });
     expect(manageButtons.length).toBeGreaterThan(0);
     expect(manageButtons[0]).toBeEnabled();

@@ -150,78 +150,81 @@ export function Projects() {
               onAction={openCreate}
             />
           ) : (
-      <div className="table-card">
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>项目名称</th>
-                <th>Key</th>
-                <th>描述</th>
-                <th>版本</th>
-                <th>待办</th>
-                <th className="col-actions">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {projects.map((project) => (
-                <tr key={project.id}>
-                  <td>
-                    <button
-                      type="button"
-                      className="link-btn"
-                      aria-label={`进入项目 ${project.name}`}
-                      onClick={() => openWithProject(project.id, `/projects/${project.id}`)}
-                    >
-                      {project.name}
-                    </button>
-                  </td>
-                  <td>
-                    <span className="status-tag">{project.key}</span>
-                  </td>
-                  <td>
-                    <span className="cell-truncate" title={project.description ?? ''}>
-                      {project.description || '—'}
-                    </span>
-                  </td>
-                  <td className="cell-num">v{project.version}</td>
-                  <td className="cell-num">
-                    <button
-                      className="link-btn"
-                      aria-label={`查看 ${project.name} 的待办`}
-                      onClick={() => navigate(`/?project=${encodeURIComponent(project.id)}`)}
-                    >
-                      {todoCounts[project.id] ?? 0}
-                    </button>
-                  </td>
-                  <td className="col-actions">
-                    <div className="cell-actions row-actions">
-                      <button
-                        className="ghost"
-                        onClick={() => openWithProject(project.id, `/projects/${project.id}`)}
-                      >
-                        进入项目
-                      </button>
-                      <button
-                        className="ghost"
-                        onClick={() => openWithProject(project.id, '/roles')}
-                      >
-                        角色 / ACL
-                      </button>
-                      <button className="ghost" onClick={() => openWithProject(project.id, '/prd')}>
-                        文档
-                      </button>
-                      <button className="danger" onClick={() => setPendingArchive(project)}>
-                        归档
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            <div className="table-card">
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>项目名称</th>
+                      <th>Key</th>
+                      <th>描述</th>
+                      <th>版本</th>
+                      <th>待办</th>
+                      <th className="col-actions">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projects.map((project) => (
+                      <tr key={project.id}>
+                        <td>
+                          <button
+                            type="button"
+                            className="link-btn"
+                            aria-label={`进入项目 ${project.name}`}
+                            onClick={() => openWithProject(project.id, `/projects/${project.id}`)}
+                          >
+                            {project.name}
+                          </button>
+                        </td>
+                        <td>
+                          <span className="status-tag">{project.key}</span>
+                        </td>
+                        <td>
+                          <span className="cell-truncate" title={project.description ?? ''}>
+                            {project.description || '—'}
+                          </span>
+                        </td>
+                        <td className="cell-num">v{project.version}</td>
+                        <td className="cell-num">
+                          <button
+                            className="link-btn"
+                            aria-label={`查看 ${project.name} 的待办`}
+                            onClick={() => navigate(`/?project=${encodeURIComponent(project.id)}`)}
+                          >
+                            {todoCounts[project.id] ?? 0}
+                          </button>
+                        </td>
+                        <td className="col-actions">
+                          <div className="cell-actions row-actions">
+                            <button
+                              className="ghost"
+                              onClick={() => openWithProject(project.id, `/projects/${project.id}`)}
+                            >
+                              进入项目
+                            </button>
+                            <button
+                              className="ghost"
+                              onClick={() => openWithProject(project.id, '/roles')}
+                            >
+                              角色 / ACL
+                            </button>
+                            <button
+                              className="ghost"
+                              onClick={() => openWithProject(project.id, '/prd')}
+                            >
+                              文档
+                            </button>
+                            <button className="danger" onClick={() => setPendingArchive(project)}>
+                              归档
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
         </>
       )}
@@ -231,6 +234,7 @@ export function Projects() {
         title="新建项目"
         description="创建时会生成默认知识库与六个业务角色，创建者获得 OWNER 管理身份。"
         size="md"
+        busy={busy}
         onClose={() => setCreateOpen(false)}
         footer={
           <>

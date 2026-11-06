@@ -54,11 +54,28 @@ function Stop-Started([object[]]$Processes) { foreach($item in $Processes){if($i
 function Test-OwnPostgres([string]$DataPath,[int]$Port) {
   $pidFile=Join-Path $DataPath 'postmaster.pid'
   if(!(Test-Path -LiteralPath (Join-Path $DataPath 'PG_VERSION')) -or !(Test-Path -LiteralPath $pidFile)){return $false}
-  $lines=Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue
-  if($lines.Count -lt 4 -or [int]$lines[3] -ne $Port){return $false}
-  if([System.IO.Path]::GetFullPath($lines[1]) -ine [System.IO.Path]::GetFullPath($DataPath)){return $false}
-  & $pgCtl status -D $DataPath *> $null
-  return $LASTEXITCODE -eq 0
+  try {
+    $lines=@(Get-Content -LiteralPath $pidFile -ErrorAction Stop)
+    [int]$serverPid=0
+    [int]$serverPort=0
+    if($lines.Count -lt 4 -or -not [int]::TryParse(([string]$lines[0]).Trim(), [ref]$serverPid) -or $serverPid -le 0 -or -not [int]::TryParse(([string]$lines[3]).Trim(), [ref]$serverPort) -or $serverPort -ne $Port){return $false}
+    if([System.IO.Path]::GetFullPath(([string]$lines[1]).Trim()) -ine [System.IO.Path]::GetFullPath($DataPath)){return $false}
+    & $pgCtl status -D $DataPath *> $null
+    if($LASTEXITCODE -ne 0){return $false}
+
+    # pg_ctl status confirms the data directory, while this bounded retry confirms
+    # that the same postmaster PID owns the configured TCP listener.
+    $deadline=(Get-Date).AddSeconds(5)
+    do {
+      $listeners=@(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+      foreach($listener in $listeners){
+        if([int]$listener.OwningProcess -eq $serverPid){return $true}
+      }
+      if((Get-Date) -ge $deadline){break}
+      Start-Sleep -Milliseconds 200
+    } while($true)
+    return $false
+  } catch { return $false }
 }
 
 if(Test-Path -LiteralPath $stateFile){
@@ -76,11 +93,11 @@ if($running -and -not (Test-OwnPostgres $pgData $pgPort)){throw "PostgreSQL port
 New-Item -ItemType Directory -Force -Path (Join-Path $dataRoot 'logs') | Out-Null
 if(-not $running){
   $pgStart=Start-Process -FilePath $pgCtl -ArgumentList @('-D',(Quote-Arg $pgData),'-o',(Quote-Arg "-p $pgPort"),'-l',(Quote-Arg (Join-Path $dataRoot 'logs\postgres.log')),'start') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $dataRoot 'logs\pg-start.log') -RedirectStandardError (Join-Path $dataRoot 'logs\pg-start.err.log')
-  if(-not $pgStart.WaitForExit(60000)){throw 'Timed out starting bundled PostgreSQL.'}
-  if($pgStart.ExitCode -ne 0){throw 'Failed to start bundled PostgreSQL. See logs\pg-start.err.log.'}
-  Start-Sleep -Seconds 2
+  $pgExited=$pgStart.WaitForExit(60000)
+  if(-not $pgExited){throw 'Timed out starting bundled PostgreSQL.'}
+  if($null -ne $pgStart.ExitCode -and $pgStart.ExitCode -ne 0){throw "Failed to start bundled PostgreSQL (exit $($pgStart.ExitCode)). See logs\pg-start.err.log."}
 }
-if(-not (Get-NetTCPConnection -LocalPort $pgPort -State Listen -ErrorAction SilentlyContinue)){throw "PostgreSQL is not healthy on port $pgPort."}
+if(-not (Test-OwnPostgres $pgData $pgPort)){throw "PostgreSQL is not healthy for this data directory on port $pgPort."}
 $apiOutLog=Join-Path $dataRoot 'logs\api.log';$apiErrLog=Join-Path $dataRoot 'logs\api.err.log';$webOutLog=Join-Path $dataRoot 'logs\web.log';$webErrLog=Join-Path $dataRoot 'logs\web.err.log'
 New-Item -ItemType Directory -Force -Path (Join-Path $dataRoot 'logs') | Out-Null
 $apiArgs=@( (Quote-Arg $api) )

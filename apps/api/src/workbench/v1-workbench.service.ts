@@ -183,7 +183,8 @@ export class V1WorkbenchService {
     return rows.flatMap((row) => {
       const project = projectById.get(row.projectId);
       if (!project || !row.dueAt) return [];
-      const dueTime = row.dueAt instanceof Date ? row.dueAt.getTime() : new Date(row.dueAt).getTime();
+      const dueTime =
+        row.dueAt instanceof Date ? row.dueAt.getTime() : new Date(row.dueAt).getTime();
       return [
         {
           slotId: row.id,

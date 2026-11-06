@@ -8,6 +8,11 @@ interface ModalProps {
   description?: string;
   size?: ModalSize;
   variant?: 'dialog' | 'drawer';
+  /**
+   * 有异步提交在飞行中：锁定所有关闭入口（关闭按钮 / 遮罩点击 / Esc），
+   * 避免提交进行中被误关丢失结果；卡片同时标记 aria-busy 供读屏感知。
+   */
+  busy?: boolean;
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
@@ -65,6 +70,7 @@ export function Modal({
   description,
   size = 'md',
   variant = 'dialog',
+  busy = false,
   onClose,
   children,
   footer,
@@ -111,6 +117,8 @@ export function Modal({
       if (event.isComposing || legacyKeyCode === 229) return;
 
       if (event.key === 'Escape') {
+        // 提交进行中不允许关闭：否则用户既看不到结果，也可能在别处重复提交。
+        if (busy) return;
         event.stopPropagation();
         onCloseRef.current();
         return;
@@ -134,7 +142,7 @@ export function Modal({
     // capture：先于页面/组件内部的冒泡处理器执行，避免冒泡顺序影响。
     document.addEventListener('keydown', onKeyDown, { capture: true });
     return () => document.removeEventListener('keydown', onKeyDown, { capture: true });
-  }, [open, isHighestLayer]);
+  }, [open, isHighestLayer, busy]);
 
   if (!open) return null;
 
@@ -142,12 +150,16 @@ export function Modal({
     <div
       className={`modal-layer${variant === 'drawer' ? ' is-drawer' : ''}`}
       role="presentation"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+      onMouseDown={(e) => {
+        // 提交进行中点击遮罩不关闭：与 Esc 保持一致，避免半途丢失结果。
+        if (!busy && e.target === e.currentTarget) onClose();
+      }}
     >
       <div
         className={`modal-card modal-${size}${variant === 'drawer' ? ' is-drawer' : ''}`}
         role="dialog"
         aria-modal="true"
+        aria-busy={busy || undefined}
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
@@ -162,7 +174,13 @@ export function Modal({
               </p>
             )}
           </div>
-          <button type="button" className="modal-close" aria-label="关闭弹窗" onClick={onClose}>
+          <button
+            type="button"
+            className="modal-close"
+            aria-label="关闭弹窗"
+            disabled={busy}
+            onClick={onClose}
+          >
             <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
               <path
                 d="M5 5l10 10M15 5L5 15"
@@ -212,6 +230,7 @@ export function ConfirmDialog({
       title={title}
       description={description}
       size="sm"
+      busy={busy}
       onClose={onCancel}
       footer={
         <>

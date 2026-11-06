@@ -11,6 +11,7 @@ import {
   mockFetch,
   pathOf,
   useProject,
+  type StubReply,
 } from '../test-utils';
 
 const review = {
@@ -157,6 +158,10 @@ describe('Reviews（槽位 / digest / 版本，权限由服务端拒绝）', () 
     expect(screen.getByText('v4')).toBeInTheDocument();
     expect(screen.getByText('owner')).toBeInTheDocument();
     expect(screen.getByText('未决定')).toBeInTheDocument();
+    const digestToggle = screen.getByRole('button', { name: /对象摘要 sha256-subject/ });
+    expect(digestToggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(digestToggle);
+    expect(screen.getByLabelText('对象摘要完整值')).toHaveTextContent('sha256-subject');
 
     const decideButton = screen.getByRole('button', { name: '作出决定' });
     expect(decideButton).toBeEnabled();
@@ -754,7 +759,10 @@ describe('Reviews（≤720px 收件箱卡片列表）', () => {
     expect(within(card).getByText('摘要 sha256-sub')).toBeInTheDocument();
     expect(within(card).getByText('— · v4')).toBeInTheDocument();
     // 收件箱视图切换与计数保持可用
-    expect(screen.getByRole('button', { name: '待我评审' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '待我评审' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     expect(screen.getByRole('button', { name: '已决定' })).toBeInTheDocument();
     expect(screen.getByText('已显示 1 条')).toBeInTheDocument();
     expect(screen.getByText('已加载全部')).toBeInTheDocument();
@@ -808,7 +816,10 @@ describe('Reviews（已决定历史）', () => {
       const path = pathOf(url);
       const method = methodOf(init ?? {});
       if (path === '/api/v1/projects' && method === 'GET')
-        return { status: 200, body: envelope([{ id: 'p1', key: 'DEMO', name: 'Demo', version: 1 }]) };
+        return {
+          status: 200,
+          body: envelope([{ id: 'p1', key: 'DEMO', name: 'Demo', version: 1 }]),
+        };
       if (path === '/api/v1/projects/p1/review-requests' && method === 'GET') {
         listUrls.push(String(url));
         const status = new URL(String(url), 'http://localhost').searchParams.get('status');
@@ -879,5 +890,48 @@ describe('Reviews（已决定历史）', () => {
     expect(listUrls.some((url) => url.includes('status=CHANGES_REQUESTED'))).toBe(true);
     expect(listUrls.some((url) => url.includes('status=REJECTED'))).toBe(true);
     expect(screen.queryByRole('button', { name: '加载更多' })).not.toBeInTheDocument();
+  });
+});
+
+describe('Reviews（加载反馈）', () => {
+  beforeEach(() => {
+    setCsrfToken('csrf-1');
+    useProject('p1');
+  });
+
+  afterEach(() => {
+    setCsrfToken(null);
+    localStorage.clear();
+  });
+
+  it('首次加载显示收件箱骨架与可读加载状态，不先渲染空态或 0 条计数', async () => {
+    let release: (reply: StubReply) => void = () => {};
+    const pending = new Promise<StubReply>((resolve) => {
+      release = resolve;
+    });
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope(PROJECTS) };
+      if (path === '/api/v1/projects/p1/review-requests' && method === 'GET') return pending;
+      return undefined;
+    });
+
+    renderReviewInbox();
+
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent(/正在加载/);
+    expect(document.querySelectorAll('.wm-skeleton-row').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('reviews-table')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByText('当前没有待评审请求。')).not.toBeInTheDocument();
+    expect(screen.queryByText('已显示 0 条')).not.toBeInTheDocument();
+    expect(screen.queryByText('已加载全部')).not.toBeInTheDocument();
+
+    release({ status: 200, body: envelope(inboxPage([reviewWith('review-a')], null, false)) });
+
+    expect(await screen.findByText('review-a')).toBeInTheDocument();
+    expect(screen.getByText('已显示 1 条')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
   });
 });

@@ -64,7 +64,7 @@ async function main() {
     ...environment(), NODE_ENV: 'test', WORKMESH_TEST_ENV: 'local', WORKMESH_TEST_DATABASE_USERS: user,
     WORKMESH_TEST_DATABASE_URL: url, WORKMESH_V1_DATABASE_URL: url,
     WORKMESH_COOKIE_MODE: 'LOCAL_INSECURE', WORKMESH_PUBLIC_ORIGIN: 'http://127.0.0.1:5173',
-    WORKMESH_POC_MODEL: cli.model, WORKMESH_POC_OUTPUT: path.resolve(root, cli.output),
+    WORKMESH_POC_LIVE: '1', WORKMESH_POC_MODEL: cli.model, WORKMESH_POC_OUTPUT: path.resolve(root, cli.output),
     PRISMA_HIDE_UPDATE_MESSAGE: 'true', CHECKPOINT_DISABLE: '1',
   };
   let pgStarted = false;
@@ -116,7 +116,11 @@ async function main() {
     }
     if (stopped) {
       const canonical = await realpath(work);
-      if (path.dirname(canonical) !== tempParent || !path.basename(canonical).startsWith('workmesh-api-agent-http-')) throw new Error('Refusing unexpected cleanup path.');
+      if (path.dirname(canonical) !== tempParent || !path.basename(canonical).startsWith('workmesh-api-agent-http-')) {
+        // This invariant protects cleanup from deleting an unexpected path.
+        // eslint-disable-next-line no-unsafe-finally
+        throw new Error('Refusing unexpected cleanup path.');
+      }
       await rm(canonical, { recursive: true, force: true });
     }
     process.stdout.write(`${JSON.stringify({ phase: 'cleanup', isolatedPostgresStopped: stopped, temporaryClusterRemoved: stopped, testExitCode })}\n`);

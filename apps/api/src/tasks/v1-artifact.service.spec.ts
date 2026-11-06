@@ -825,7 +825,7 @@ describe('V1ArtifactService.getArtifactContent 完整证据边界', () => {
 
   it('无正文/GIT_REF/完整性不符都返回 CONTENT_UNAVAILABLE', async () => {
     const repo = new InMemoryArtifactRepo();
-    const { set, sha } = await hostedSet();
+    const { set } = await hostedSet();
     repo.sets.set(set.id, set);
     const { service } = build(repo, new InMemoryTaskRepo(), new InMemoryAuthz());
 

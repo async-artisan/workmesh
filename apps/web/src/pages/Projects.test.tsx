@@ -113,7 +113,8 @@ describe('Projects（项目列表 / 创建 / 归档）', () => {
     mockFetch((url, init) => {
       if (pathOf(url) === '/api/v1/projects' && methodOf(init ?? {}) === 'GET') {
         reads += 1;
-        if (reads === 1) return { status: 500, body: { error: { code: 'INTERNAL', message: 'db down' } } };
+        if (reads === 1)
+          return { status: 500, body: { error: { code: 'INTERNAL', message: 'db down' } } };
         return { status: 200, body: envelope([project]) };
       }
       return undefined;

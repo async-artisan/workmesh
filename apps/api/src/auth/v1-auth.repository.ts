@@ -28,6 +28,22 @@ export type V1CredentialRecord = {
   user: V1AuthUser;
 };
 
+/** 凭据关联的 CLI 授权请求上的设备元数据；老凭据没有关联行时为 null。 */
+export type V1CredentialDeviceRecord = {
+  name: string | null;
+  platform: string | null;
+  clientVersion: string | null;
+  ip: string | null;
+  clientName: string | null;
+  authorizedAt: Date | null;
+};
+
+/** 用户中心凭据列表项：在基础凭据字段上附加创建时间与设备元数据。 */
+export type V1CredentialListRecord = V1CredentialRecord & {
+  createdAt: Date;
+  device: V1CredentialDeviceRecord | null;
+};
+
 export type V1SessionCreateInput = {
   id: string;
   userId: string | null;
@@ -80,6 +96,10 @@ export type V1CliAuthorizationCreateInput = {
   codeChallengeMethod: string;
   credentialSecretHash: string;
   expiresAt: Date;
+  deviceName?: string;
+  devicePlatform?: string;
+  clientVersion?: string;
+  clientIp?: string;
 };
 
 export type V1CliApproveInput = {
@@ -119,7 +139,7 @@ export interface V1AuthRepository {
   createSession(input: V1SessionCreateInput): Promise<void>;
   updateSessionCsrf(sessionId: string, csrfTokenHash: string): Promise<void>;
   revokeSession(sessionId: string, revokedAt: Date): Promise<void>;
-  listCredentials(userId: string): Promise<V1CredentialRecord[]>;
+  listCredentials(userId: string): Promise<V1CredentialListRecord[]>;
   revokeCredential(credentialId: string, userId: string, revokedAt: Date): Promise<boolean>;
   createCredential(input: V1CredentialCreateInput): Promise<V1CredentialRecord>;
   createCliAuthorization(input: V1CliAuthorizationCreateInput): Promise<V1CliAuthorizationRecord>;

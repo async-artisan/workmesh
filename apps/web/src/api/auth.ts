@@ -61,6 +61,28 @@ export interface ConfirmationTicketView {
   actionDigest: string;
 }
 
+/** 凭据对应的授权设备元数据；旧凭据没有记录时为 null，历史记录可能只有部分字段。 */
+export interface AgentCredentialDeviceView {
+  name: string | null;
+  platform: string | null;
+  clientVersion: string | null;
+  ip: string | null;
+  clientName: string | null;
+  authorizedAt: string | null;
+}
+
+export interface AgentCredentialView {
+  id: string;
+  name: string;
+  projectId: string;
+  roleId: string;
+  scopes: string[];
+  expiresAt: string;
+  revokedAt: string | null;
+  createdAt: string;
+  device: AgentCredentialDeviceView | null;
+}
+
 export const authApi = {
   login: async (data: { email: string; password: string }) => {
     await apiRequest('/auth/login', { method: 'POST', body: data });
@@ -77,18 +99,7 @@ export const authApi = {
     invalidateProjects();
   },
   me: () => apiRequest<Record<string, unknown>>('/auth/me'),
-  credentials: () =>
-    apiRequest<
-      Array<{
-        id: string;
-        name: string;
-        projectId: string;
-        roleId: string;
-        scopes: string[];
-        expiresAt: string;
-        revokedAt: string | null;
-      }>
-    >('/auth/credentials'),
+  credentials: () => apiRequest<AgentCredentialView[]>('/auth/credentials'),
   revokeCredential: (credentialId: string) =>
     apiRequest<{ revoked: true }>(`/auth/credentials/${encodeURIComponent(credentialId)}`, {
       method: 'DELETE',

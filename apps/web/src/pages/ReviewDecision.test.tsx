@@ -407,6 +407,8 @@ describe('ReviewDecision（证据 + 一次确认 + 回执）', () => {
       'href',
       `https://github.com/nz_erp/backend/commit/${commit}`,
     );
+    fireEvent.click(screen.getByRole('button', { name: /完整 commit bbbbbbbb/ }));
+    expect(screen.getByLabelText('完整 commit完整值')).toHaveTextContent(commit);
     expect(screen.getByText(/commit-has-requirement-code：包含 YFF-001/)).toBeInTheDocument();
     expect(screen.getByText('GitHub Actions 引用（未核验）')).toHaveAttribute(
       'href',

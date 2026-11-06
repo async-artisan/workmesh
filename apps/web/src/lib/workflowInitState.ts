@@ -9,12 +9,7 @@ import type { WorkflowDefinitionView } from '../api/resources';
  */
 
 export type WorkflowInitKind =
-  | 'LOADING'
-  | 'UNPUBLISHED'
-  | 'NOT_CREATED'
-  | 'CREATE_FAILED'
-  | 'NO_PERMISSION'
-  | 'EXISTS';
+  'LOADING' | 'UNPUBLISHED' | 'NOT_CREATED' | 'CREATE_FAILED' | 'NO_PERMISSION' | 'EXISTS';
 
 export interface WorkflowInitAdmin {
   name?: string | null;

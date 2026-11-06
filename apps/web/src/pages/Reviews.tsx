@@ -8,6 +8,8 @@ import { DelegationsPanel } from '../components/DelegationsPanel';
 import type { DecisionSummaryData } from '../components/DecisionSummary';
 import { Modal } from '../components/Modal';
 import { ProjectSelect } from '../components/ProjectSelect';
+import { FullValueDisclosure } from '../components/FullValueDisclosure';
+import { InlineLoading, SkeletonLines, TableSkeletonRows } from '../components/Skeleton';
 import { useProjectContext } from '../hooks/useProjectContext';
 import {
   DECISION_LABELS,
@@ -130,6 +132,7 @@ export function Reviews() {
   const [review, setReview] = useState<ReviewView | null>(null);
   const [reviews, setReviews] = useState<ReviewView[]>([]);
   const [listLoading, setListLoading] = useState(false);
+  const [loadedListKey, setLoadedListKey] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -145,13 +148,20 @@ export function Reviews() {
   // 所有收件箱列表请求共享的代号；只有代号最新的响应允许写回列表状态。
   const listRequestRef = useRef(0);
   const narrowList = useNarrowList();
-  const inboxEmptyText = listLoading
-    ? '加载中…'
-    : error
-      ? '加载失败，请重试。'
-      : scope === 'decided'
-        ? '最近没有已决定的评审。'
-        : '当前没有待评审请求。';
+  // 「项目 + 收件箱范围」决定列表内容是否还是同一份：变了就显示骨架，不变（刷新）就保留旧行。
+  const listKey = `${projectId ?? ''}|${scope}`;
+  const listKeyRef = useRef(listKey);
+  const firstLoad =
+    Boolean(projectId) &&
+    !reviewId &&
+    scope !== 'delegations' &&
+    (loadedListKey !== listKey || (listLoading && reviews.length === 0));
+  const showInboxLoading = firstLoad || listLoading;
+  const inboxEmptyText = error
+    ? '加载失败，请重试。'
+    : scope === 'decided'
+      ? '最近没有已决定的评审。'
+      : '当前没有待评审请求。';
 
   useEffect(() => {
     let alive = true;
@@ -160,6 +170,10 @@ export function Reviews() {
     listRequestRef.current = requestId;
     setError('');
     setLoadMoreError('');
+    const currentKey = `${projectId ?? ''}|${scope}`;
+    // 切项目 / 切换收件箱范围才清空旧行；刷新（reloadToken）保留已显示的数据。
+    const scopeChanged = listKeyRef.current !== currentKey;
+    listKeyRef.current = currentKey;
     if (!reviewId) {
       setReview(null);
       if (!projectId) {
@@ -168,12 +182,13 @@ export function Reviews() {
         setHasMore(false);
         setListLoading(false);
         setLoadingMore(false);
+        setLoadedListKey(null);
         return () => {
           alive = false;
         };
       }
-      // 首屏（含切项目、刷新、返回收件箱）一律从第一页重新加载，游标与列表同时重置。
-      setReviews([]);
+      // 首屏（含切项目、刷新、返回收件箱）一律从第一页重新加载，游标重置但不清空已显示的行。
+      if (scopeChanged) setReviews([]);
       setNextCursor(null);
       setHasMore(false);
       setListLoading(true);
@@ -184,6 +199,7 @@ export function Reviews() {
         setNextCursor(null);
         setHasMore(false);
         setListLoading(false);
+        setLoadedListKey(null);
         return () => {
           alive = false;
         };
@@ -208,13 +224,13 @@ export function Reviews() {
           // 服务端没有 total，只能用游标 / hasMore 判断是否还有下一页，绝不伪造总数。
           setHasMore(Boolean(page.nextCursor) || Boolean(page.hasMore));
           setNotice('');
+          setLoadedListKey(currentKey);
         })
         .catch((caught: unknown) => {
           if (!alive || requestId !== listRequestRef.current) return;
-          setReviews([]);
-          setNextCursor(null);
-          setHasMore(false);
+          // 刷新失败保留已显示的列表，只在顶部提示错误；首屏失败时用错误空态替代一直转圈。
           setError(formatApiError(caught));
+          setLoadedListKey(currentKey);
         })
         .finally(() => {
           if (alive && requestId === listRequestRef.current) setListLoading(false);
@@ -244,13 +260,17 @@ export function Reviews() {
   }, [reviewId, projectId, reloadToken, scope]);
 
   /**
-   * 刷新 / 切项目：先清空列表与游标，再触发首屏重新加载（effect 统一负责请求与竞态）。
+   * 刷新：保留已显示的列表，只在列表头部提示加载中；切项目时传 clearRows 清掉别的项目的行。
+   * 请求与竞态统一由上面的 effect 负责。
    */
-  function resetInbox() {
+  function resetInbox(options?: { clearRows?: boolean }) {
     listRequestRef.current = nextListRequestId(listRequestRef.current);
-    setReviews([]);
-    setNextCursor(null);
-    setHasMore(false);
+    if (options?.clearRows) {
+      setReviews([]);
+      setNextCursor(null);
+      setHasMore(false);
+      setLoadedListKey(null);
+    }
     setLoadingMore(false);
     setLoadMoreError('');
     setListLoading(true);
@@ -366,13 +386,20 @@ export function Reviews() {
           </p>
         </div>
         <div className="page-actions">
-          <ProjectSelect onChange={resetInbox} onCreateProject={() => navigate('/projects')} />
+          <ProjectSelect
+            onChange={() => resetInbox({ clearRows: true })}
+            onCreateProject={() => navigate('/projects')}
+          />
           {reviewId ? (
             <button className="ghost" onClick={backToInbox}>
               返回待评审
             </button>
           ) : (
-            <button className="ghost" disabled={!projectId || listLoading} onClick={resetInbox}>
+            <button
+              className="ghost"
+              disabled={!projectId || listLoading}
+              onClick={() => resetInbox()}
+            >
               {listLoading ? '加载中…' : '刷新'}
             </button>
           )}
@@ -397,8 +424,11 @@ export function Reviews() {
                 : scope === 'decided'
                   ? '已决定历史'
                   : '待评审收件箱'}
-              <small>{scope === 'delegations' ? '' : reviews.length}</small>
+              {!firstLoad && <small>{scope === 'delegations' ? '' : reviews.length}</small>}
             </h3>
+            {showInboxLoading && (
+              <InlineLoading label={firstLoad ? '正在加载收件箱…' : '正在刷新收件箱…'} />
+            )}
             <span className="card-head-actions">
               <button
                 type="button"
@@ -429,39 +459,68 @@ export function Reviews() {
           {scope === 'delegations' ? (
             <DelegationsPanel projectId={projectId} />
           ) : narrowList ? (
-            <ul className="wm-mobile-card-list" data-testid="reviews-card-list">
-              {reviews.map((item) => (
-                <li key={item.id} className="wm-mobile-card" data-testid="review-card">
-                  <div className="wm-mobile-card-head">
-                    <span className="status-tag">{labelFor(REVIEW_KIND_LABELS, item.kind)}</span>
-                    <span className="status-tag">
-                      {labelFor(REVIEW_STATUS_LABELS, item.status)}
-                    </span>
-                  </div>
-                  <p className="wm-mobile-card-title">
-                    {item.requirement
-                      ? `${item.requirement.code} · ${item.requirement.title}`
-                      : item.id.slice(0, 8)}
-                  </p>
-                  <p className="wm-mobile-card-meta">
-                    {item.subjectLabel
-                      ? labelFor(STEP_LABELS, item.subjectLabel)
-                      : `摘要 ${item.subjectDigest.slice(0, 10)}`}
-                  </p>
-                  <p className="wm-mobile-card-meta">
-                    {item.role?.title ?? '—'} · v{item.version}
-                  </p>
-                  <div className="wm-mobile-card-actions">
-                    <button className="ghost" onClick={() => openReview(item)}>
-                      打开评审
-                    </button>
-                  </div>
-                </li>
-              ))}
-              {reviews.length === 0 && <li className="wm-mobile-empty">{inboxEmptyText}</li>}
+            <ul
+              className="wm-mobile-card-list"
+              data-testid="reviews-card-list"
+              aria-busy={showInboxLoading || undefined}
+            >
+              {firstLoad ? (
+                Array.from({ length: 4 }, (_, index) => (
+                  <li className="wm-mobile-card" key={index} aria-hidden="true">
+                    <SkeletonLines lines={2} />
+                  </li>
+                ))
+              ) : (
+                <>
+                  {reviews.map((item) => (
+                    <li key={item.id} className="wm-mobile-card" data-testid="review-card">
+                      <div className="wm-mobile-card-head">
+                        <span className="status-tag">
+                          {labelFor(REVIEW_KIND_LABELS, item.kind)}
+                        </span>
+                        <span className="status-tag">
+                          {labelFor(REVIEW_STATUS_LABELS, item.status)}
+                        </span>
+                      </div>
+                      <p className="wm-mobile-card-title">
+                        {item.requirement
+                          ? `${item.requirement.code} · ${item.requirement.title}`
+                          : item.id.slice(0, 8)}
+                      </p>
+                      <p className="wm-mobile-card-meta">
+                        {item.subjectLabel
+                          ? labelFor(STEP_LABELS, item.subjectLabel)
+                          : `摘要 ${item.subjectDigest.slice(0, 10)}`}
+                      </p>
+                      <p className="wm-mobile-card-meta">
+                        {item.role?.title ?? '—'} · v{item.version}
+                      </p>
+                      <p className="wm-mobile-card-meta">
+                        负责人：服务端未提供负责人 · 责任角色：{item.role?.title ?? '状态待确认'}
+                      </p>
+                      <p className="wm-mobile-card-meta">下一步：打开评审</p>
+                      <details className="wm-mobile-card-details">
+                        <summary>查看评审元数据</summary>
+                        <p className="wm-mobile-card-meta">评审对象标识：{item.subjectDigest}</p>
+                        <p className="wm-mobile-card-meta">版本：v{item.version}</p>
+                      </details>
+                      <div className="wm-mobile-card-actions">
+                        <button className="ghost" onClick={() => openReview(item)}>
+                          打开评审
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                  {reviews.length === 0 && <li className="wm-mobile-empty">{inboxEmptyText}</li>}
+                </>
+              )}
             </ul>
           ) : (
-            <div className="table-scroll" data-testid="reviews-table">
+            <div
+              className="table-scroll"
+              data-testid="reviews-table"
+              aria-busy={showInboxLoading || undefined}
+            >
               <table className="data-table">
                 <thead>
                   <tr>
@@ -473,43 +532,49 @@ export function Reviews() {
                   </tr>
                 </thead>
                 <tbody>
-                  {reviews.map((item) => {
-                    return (
-                      <tr key={item.id}>
-                        <td>{labelFor(REVIEW_KIND_LABELS, item.kind)}</td>
-                        <td>
-                          <strong>
-                            {item.requirement
-                              ? `${item.requirement.code} · ${item.requirement.title}`
-                              : item.id.slice(0, 8)}
-                          </strong>
-                          <div className="task-row-meta">
-                            {item.subjectLabel
-                              ? labelFor(STEP_LABELS, item.subjectLabel)
-                              : `摘要 ${item.subjectDigest.slice(0, 10)}`}
-                          </div>
-                        </td>
-                        <td>
-                          {item.role?.title ?? '—'}
-                          <span className="cell-mono"> · v{item.version}</span>
-                        </td>
-                        <td>
-                          <span className="status-tag">
-                            {labelFor(REVIEW_STATUS_LABELS, item.status)}
-                          </span>
-                        </td>
-                        <td className="col-actions">
-                          <button className="ghost" onClick={() => openReview(item)}>
-                            打开评审
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {reviews.length === 0 && (
-                    <tr className="table-empty">
-                      <td colSpan={5}>{inboxEmptyText}</td>
-                    </tr>
+                  {firstLoad ? (
+                    <TableSkeletonRows rows={5} columns={5} />
+                  ) : (
+                    <>
+                      {reviews.map((item) => {
+                        return (
+                          <tr key={item.id}>
+                            <td>{labelFor(REVIEW_KIND_LABELS, item.kind)}</td>
+                            <td>
+                              <strong>
+                                {item.requirement
+                                  ? `${item.requirement.code} · ${item.requirement.title}`
+                                  : item.id.slice(0, 8)}
+                              </strong>
+                              <div className="task-row-meta">
+                                {item.subjectLabel
+                                  ? labelFor(STEP_LABELS, item.subjectLabel)
+                                  : `摘要 ${item.subjectDigest.slice(0, 10)}`}
+                              </div>
+                            </td>
+                            <td>
+                              {item.role?.title ?? '—'}
+                              <span className="cell-mono"> · v{item.version}</span>
+                            </td>
+                            <td>
+                              <span className="status-tag">
+                                {labelFor(REVIEW_STATUS_LABELS, item.status)}
+                              </span>
+                            </td>
+                            <td className="col-actions">
+                              <button className="ghost" onClick={() => openReview(item)}>
+                                打开评审
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {reviews.length === 0 && (
+                        <tr className="table-empty">
+                          <td colSpan={5}>{inboxEmptyText}</td>
+                        </tr>
+                      )}
+                    </>
                   )}
                 </tbody>
               </table>
@@ -517,7 +582,7 @@ export function Reviews() {
           )}
           {scope !== 'delegations' && (
             <div className="table-foot">
-              <small>已显示 {reviews.length} 条</small>
+              {!firstLoad && <small>已显示 {reviews.length} 条</small>}
               {scope === 'decided' ? (
                 <small>已通过 / 要求修改 / 已驳回各取最近一页，按决定时间倒序</small>
               ) : loadMoreError ? (
@@ -584,12 +649,16 @@ export function Reviews() {
                     </td>
                     <td className="cell-num">v{review.version}</td>
                     <td>
-                      <span
-                        className="cell-mono cell-truncate"
-                        data-testid="review-subject-digest"
-                        title={review.subjectDigest}
-                      >
-                        {review.subjectDigest}
+                      <span data-testid="review-subject-digest">
+                        <FullValueDisclosure
+                          label="对象摘要"
+                          value={review.subjectDigest}
+                          preview={
+                            review.subjectDigest.length > 32
+                              ? `${review.subjectDigest.slice(0, 12)}…`
+                              : review.subjectDigest
+                          }
+                        />
                       </span>
                     </td>
                     <td>
@@ -709,7 +778,15 @@ export function Reviews() {
                         <span className="cell-mono cell-truncate">{decision.approvalSlotId}</span>
                       </td>
                       <td>
-                        <span className="cell-mono cell-truncate">{decision.subjectDigest}</span>
+                        <FullValueDisclosure
+                          label="对象摘要"
+                          value={decision.subjectDigest}
+                          preview={
+                            decision.subjectDigest.length > 32
+                              ? `${decision.subjectDigest.slice(0, 12)}…`
+                              : decision.subjectDigest
+                          }
+                        />
                       </td>
                       <td>{decision.comment || '—'}</td>
                       <td>{formatDateTime(decision.createdAt)}</td>

@@ -1,9 +1,13 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { CliError } from './errors';
 import { parsePlatform, platformFromParts, type Platform } from './platform';
-import { hostSupported as hostSupportedPlatform } from './private-fs';
+import {
+  ensurePrivateDir,
+  hostSupported as hostSupportedPlatform,
+  writePrivateFile,
+} from './private-fs';
 
 export const CONFIG_SCHEMA_VERSION = '1.0';
 export const CLI_VERSION = '1.0.0';
@@ -177,13 +181,11 @@ export async function loadWorkspace(dir: string): Promise<WorkspaceConfig> {
   return parseWorkspaceConfig(parsed);
 }
 
-/** 原子写入工作区配置：临时文件 + 同目录 rename。 */
+/** 原子写入工作区配置：临时文件 + 同目录 rename；0600 文件 / 0700 目录。 */
 export async function saveWorkspace(dir: string, config: WorkspaceConfig): Promise<string> {
   const path = workspaceConfigPath(dir);
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const temporary = `${path}.${process.pid}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o644 });
-  await rename(temporary, path);
+  await ensurePrivateDir(dirname(path));
+  await writePrivateFile(path, `${JSON.stringify(config, null, 2)}\n`);
   return path;
 }
 

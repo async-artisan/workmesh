@@ -33,6 +33,7 @@ import type {
   V1KnowledgeBaseAccessView,
   V1KnowledgeBaseGrantView,
   V1KnowledgeBaseRepository,
+  V1KnowledgeBaseSearchItem,
   V1KnowledgeBaseView,
   V1KnowledgeGrantInput,
 } from './v1-knowledge-base.repository';
@@ -83,6 +84,7 @@ type StoredGrant = Omit<V1KnowledgeBaseGrantView, 'grantedAt' | 'revokedAt'> & {
 };
 type StoredDocument = {
   id: string;
+  kind: string;
   currentPublishedRevisionId: string | null;
   archivedAt: Date | null;
   knowledgeBaseId: string;
@@ -114,6 +116,7 @@ class MemoryStore implements V1KnowledgeBaseRepository {
     visibility: 'PROJECT' | 'RESTRICTED';
     key: string;
     name: string;
+    kind?: string;
     approverUserId?: string;
     approverRoleId?: string | null;
     version?: number;
@@ -124,6 +127,7 @@ class MemoryStore implements V1KnowledgeBaseRepository {
       projectId: PROJECT_ID,
       key: input.key,
       name: input.name,
+      kind: input.kind ?? 'SYSTEM',
       visibility: input.visibility,
       version: input.version ?? 1,
       authzVersion: input.authzVersion ?? 1,
@@ -151,11 +155,13 @@ class MemoryStore implements V1KnowledgeBaseRepository {
 
   seedDocument(input: {
     id: string;
+    kind?: string;
     publishedRevisionId: string | null;
     archivedAt?: Date | null;
   }): void {
     this.documents.set(input.id, {
       id: input.id,
+      kind: input.kind ?? 'KNOWLEDGE',
       currentPublishedRevisionId: input.publishedRevisionId,
       archivedAt: input.archivedAt ?? null,
       knowledgeBaseId: 'kb-project',
@@ -320,6 +326,7 @@ class MemoryStore implements V1KnowledgeBaseRepository {
       projectId: input.projectId,
       key: input.key,
       name: input.name,
+      kind: 'SYSTEM',
       visibility: input.visibility,
       version: 1,
       authzVersion: 1,
@@ -351,6 +358,7 @@ class MemoryStore implements V1KnowledgeBaseRepository {
       projectId: input.projectId,
       key: input.key,
       name: input.name,
+      kind: 'SYSTEM',
       visibility: input.visibility,
       version: 1,
       authzVersion: 1,
@@ -484,17 +492,13 @@ class MemoryStore implements V1KnowledgeBaseRepository {
 
   async searchKnowledgeBase(input: {
     knowledgeBaseId: string;
+    knowledgeBaseName: string;
+    knowledgeBaseKind: string;
     q: string;
     limit: number;
     cursor: string | null;
   }): Promise<{
-    items: Array<{
-      revisionId: string;
-      documentId: string;
-      title: string;
-      excerpt: string;
-      sha256: string;
-    }>;
+    items: V1KnowledgeBaseSearchItem[];
     nextCursor: string | null;
     hasMore: boolean;
     truncated: boolean;
@@ -510,21 +514,20 @@ class MemoryStore implements V1KnowledgeBaseRepository {
     const start = input.cursor
       ? Number(Buffer.from(input.cursor, 'base64url').toString('utf8'))
       : 0;
-    const matches: Array<{
-      revisionId: string;
-      documentId: string;
-      title: string;
-      excerpt: string;
-      sha256: string;
-    }> = [];
+    const matches: V1KnowledgeBaseSearchItem[] = [];
     for (const document of published) {
       const revision = this.revisions.get(document.currentPublishedRevisionId!);
       if (!revision || revision.documentId !== document.id) continue;
       const excerpt = searchExcerptOf(revision.title, revision.bodyBytes, input.q);
       if (excerpt === null) continue;
       matches.push({
+        knowledgeBaseId: input.knowledgeBaseId,
+        knowledgeBaseName: input.knowledgeBaseName,
+        knowledgeBaseKind: input.knowledgeBaseKind,
         revisionId: revision.id,
         documentId: document.id,
+        documentKind: document.kind,
+        status: 'PUBLISHED',
         title: revision.title,
         excerpt,
         sha256: revision.sha256,
@@ -710,18 +713,21 @@ function seedBase(store: MemoryStore): void {
     id: 'kb-project',
     key: 'project-knowledge',
     name: '项目知识',
+    kind: 'BUSINESS',
     visibility: 'PROJECT',
   });
   store.seedKnowledgeBase({
     id: 'kb-restricted',
     key: 'restricted',
     name: '受限知识',
+    kind: 'SYSTEM',
     visibility: 'RESTRICTED',
   });
   store.seedKnowledgeBase({
     id: 'kb-private',
     key: 'private',
     name: '私库',
+    kind: 'PRACTICE',
     visibility: 'RESTRICTED',
   });
   store.seedGrant({
@@ -750,7 +756,11 @@ function seedBase(store: MemoryStore): void {
     permissions: ['READ', 'PROPOSE'],
   });
 
-  store.seedDocument({ id: 'doc-published', publishedRevisionId: 'rev-published' });
+  store.seedDocument({
+    id: 'doc-published',
+    kind: 'UNDERSTANDING',
+    publishedRevisionId: 'rev-published',
+  });
   store.seedDocument({ id: 'doc-candidate', publishedRevisionId: null });
   store.seedDocument({ id: 'doc-other', publishedRevisionId: 'rev-other' });
   store.seedRevision({
@@ -998,6 +1008,7 @@ describe('V1KnowledgeBaseService', () => {
   it('列表按当前成员可见性过滤，OWNER 可读管理列表', async () => {
     const memberPage = await service.listKnowledgeBases(member, PROJECT_ID, {});
     expect(memberPage.items.map((item) => item.id)).toEqual(['kb-project', 'kb-restricted']);
+    expect(memberPage.items.map((item) => item.kind)).toEqual(['BUSINESS', 'SYSTEM']);
 
     const otherPage = await service.listKnowledgeBases(other, PROJECT_ID, {});
     expect(otherPage.items.map((item) => item.id)).toEqual(['kb-project']);
@@ -1008,6 +1019,7 @@ describe('V1KnowledgeBaseService', () => {
       'kb-restricted',
       'kb-private',
     ]);
+    expect(ownerPage.items.map((item) => item.kind)).toEqual(['BUSINESS', 'SYSTEM', 'PRACTICE']);
   });
 
   it('列表分页 cursor 稳定且不重复', async () => {
@@ -1247,6 +1259,14 @@ describe('V1KnowledgeBaseService', () => {
   it('搜索只命中当前发布修订，忽略候选与未发布文档', async () => {
     const result = await service.search(owner, 'kb-project', { q: 'release' });
     expect(result.items.map((item) => item.documentId)).toEqual(['doc-published']);
+    expect(result.items[0]).toMatchObject({
+      knowledgeBaseId: 'kb-project',
+      knowledgeBaseName: '项目知识',
+      knowledgeBaseKind: 'BUSINESS',
+      documentId: 'doc-published',
+      documentKind: 'UNDERSTANDING',
+      status: 'PUBLISHED',
+    });
     expect(result.items[0]!.excerpt).toContain('release');
     expect(result.hasMore).toBe(false);
     expect(result.truncated).toBe(false);

@@ -114,12 +114,7 @@ describe('BatchReviewApprove（批量批准）', () => {
     const onCompleted = vi.fn();
 
     render(
-      <BatchReviewApprove
-        open
-        targets={targets}
-        onClose={() => {}}
-        onCompleted={onCompleted}
-      />,
+      <BatchReviewApprove open targets={targets} onClose={() => {}} onCompleted={onCompleted} />,
     );
 
     expect(screen.getByText('DEMO-1 · 登录页改版 · 产品 · v2')).toBeInTheDocument();
@@ -183,9 +178,7 @@ describe('BatchReviewApprove（批量批准）', () => {
 
   it('密码为空时直接提示，不发起签票请求', async () => {
     const mock = mockFetch(handler());
-    render(
-      <BatchReviewApprove open targets={targets} onClose={() => {}} onCompleted={() => {}} />,
-    );
+    render(<BatchReviewApprove open targets={targets} onClose={() => {}} onCompleted={() => {}} />);
 
     fireEvent.click(screen.getByRole('button', { name: '验证密码并批量批准' }));
 
@@ -193,6 +186,34 @@ describe('BatchReviewApprove（批量批准）', () => {
     expect(
       mock.mock.calls.filter(([url]) => pathOf(String(url)) === '/api/v1/auth/action-previews'),
     ).toHaveLength(0);
-    await waitFor(() => expect(screen.getByRole('button', { name: '验证密码并批量批准' })).toBeEnabled());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '验证密码并批量批准' })).toBeEnabled(),
+    );
+  });
+
+  it('提交中显示加载状态并禁用批准按钮，避免重复提交', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const inner = handler();
+    mockFetch(async (url, init) => {
+      // 卡住第一张票据的预览请求，模拟慢网络下的批量签票。
+      if (pathOf(url) === '/api/v1/auth/action-previews') await gate;
+      return inner(url, init);
+    });
+
+    render(<BatchReviewApprove open targets={targets} onClose={() => {}} onCompleted={() => {}} />);
+
+    fireEvent.change(screen.getByLabelText(/登录密码/), { target: { value: 'Yff-Demo-2026!' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证密码并批量批准' }));
+
+    expect(await screen.findByText(/正在逐条签票并提交（1\/2）…/)).toBeInTheDocument();
+    const busyButton = screen.getByRole('button', { name: /签票中 1\/2…/ });
+    expect(busyButton).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '验证密码并批量批准' })).not.toBeInTheDocument();
+
+    release();
+    expect(await screen.findByText(/已批准 1 条 · 失败 1 条/)).toBeInTheDocument();
   });
 });

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   DiffTooLargeError,
   MAX_DIFF_CELLS,
-  buildDiffBlocks,
   buildDiffModel,
   countChangeBlocks,
   countDiff,

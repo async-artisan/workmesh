@@ -1,4 +1,6 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
 import {
   V1_ERROR_CODES,
   WorkmeshError,
@@ -7,14 +9,17 @@ import {
   type ActionBinding,
   type Confirmation,
 } from '@workmesh/shared';
+import { V1AuthorizationService, type V1ProjectContext } from '../auth/v1-authorization';
 import type { V1Principal } from '../auth/v1-policy';
 import {
   verifyTicketBinding,
   V1_CONFIRMATION_REPOSITORY,
+  type V1TicketRecord,
   type V1ConfirmationRepository,
 } from '../auth/v1-confirmation';
 import {
   assertReplayable,
+  normalizeRoute,
   requestDigestOf,
   V1_IDEMPOTENCY_REPOSITORY,
   type V1IdempotencyRepository,
@@ -22,13 +27,36 @@ import {
 } from '../common/v1-idempotency';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertProjectWritable } from './project-archive';
-import type { CreateProjectDto, CreateProjectRepositoryDto, UpdateProjectDto } from './dto';
+import type {
+  ArchiveProjectRepositoryDto,
+  CreateProjectDto,
+  CreateProjectRepositoryDto,
+  UpdateProjectDto,
+} from './dto';
 import {
   PROJECT_ROLE_REPOSITORY,
   type ProjectRoleChangeInput,
   type ProjectRoleMutationView,
   type ProjectRoleRepository,
 } from './project-role.repository';
+
+/** 仓库声明/归档与发布共用的写上下文：幂等键、请求摘要来源与票据消费所需信息。 */
+export type ProjectWriteContext = {
+  idempotencyKey: string;
+  method: string;
+  route: string;
+  body: Record<string, unknown>;
+  operationId: string;
+  now: Date;
+  webSessionId: string;
+  userAuthVersion: number;
+};
+
+/** provider 仓库登记的高风险动作名（票据绑定）。 */
+export const REPOSITORY_REGISTER = 'REPOSITORY_REGISTER';
+/** 仓库归档的高风险动作名（票据绑定）。 */
+export const REPOSITORY_ARCHIVE = 'REPOSITORY_ARCHIVE';
+export const PROJECT_REPOSITORY_TARGET = 'PROJECT_REPOSITORY';
 
 /** 预置六个业务角色 key 是初始数据，不是运行时全局枚举。 */
 export const DEFAULT_PROJECT_ROLES: ReadonlyArray<{ key: string; title: string }> = [
@@ -46,22 +74,116 @@ export const PROJECT_ROLE_ASSIGN = 'PROJECT_ROLE_ASSIGN';
 export const PROJECT_ROLE_UNASSIGN = 'PROJECT_ROLE_UNASSIGN';
 export const PROJECT_MEMBER_TARGET = 'PROJECT_MEMBER';
 
-export type ProjectRoleChangeContext = {
-  idempotencyKey: string;
-  method: string;
-  route: string;
-  body: Record<string, unknown>;
-  operationId: string;
-  now: Date;
-  webSessionId: string;
-  userAuthVersion: number;
-};
+export type ProjectRoleChangeContext = ProjectWriteContext;
 
 export type ProjectRoleChangeRequest = {
   expectedVersion: number;
   reason: string;
   confirmation: Confirmation;
 };
+
+export type ProjectRepositoryLocatorView = {
+  id: string;
+  canonicalLocator: string;
+  source: string;
+  declaredAt: string;
+};
+
+export type ProjectRepositoryView = {
+  id: string;
+  identityMode: string;
+  adapter: string | null;
+  externalId: string | null;
+  owner: string;
+  name: string;
+  defaultBranch: string | null;
+  archivedAt: string | null;
+  lastVerifiedStatus: string | null;
+  lastVerifiedAt: string | null;
+  createdAt: string;
+  provider: { adapter: string; externalId: string } | null;
+  locators: ProjectRepositoryLocatorView[];
+};
+
+export type RepositoryWriteResult = ProjectRepositoryView & {
+  projectVersion: number;
+  replayed: boolean;
+};
+
+export type RepositoryArchiveResult = {
+  repositoryId: string;
+  archivedAt: string;
+  projectVersion: number;
+  replayed: boolean;
+};
+
+type RepositoryRow = {
+  id: string;
+  identityMode: string;
+  adapter: string | null;
+  externalId: string | null;
+  owner: string;
+  name: string;
+  defaultBranch: string | null;
+  archivedAt: Date | null;
+  lastVerifiedStatus: string | null;
+  lastVerifiedAt: Date | null;
+  createdAt: Date;
+  locators?: Array<{ id: string; canonicalLocator: string; source: string; declaredAt: Date }>;
+};
+
+const MAX_RETRIES = 3;
+const RETRY_DELAYS = [25, 100, 100];
+const SERIALIZABLE = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable };
+
+function isRetryable(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  if (code === 'P2034') return true;
+  const message = (error as Error | null)?.message ?? '';
+  return message.includes('40001') || message.includes('could not serialize');
+}
+
+export function projectVersionConflict(
+  expectedVersion: number,
+  currentVersion: number,
+): WorkmeshError {
+  return new WorkmeshError(
+    V1_ERROR_CODES.PROJECT_VERSION_CONFLICT,
+    'PROJECT_VERSION_CONFLICT',
+    { expectedVersion, currentVersion },
+    409,
+  );
+}
+
+/** 工作区定义/仓库声明/接入码等新写路径共用的可序列化事务重试。 */
+export async function runWithSerializableRetry<T>(run: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      if (!isRetryable(error) || attempt >= MAX_RETRIES) throw error;
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt] ?? 100));
+    }
+  }
+}
+
+function projectArchived(projectId: string, archivedAt: Date): WorkmeshError {
+  return new WorkmeshError(
+    V1_ERROR_CODES.RESOURCE_CONFLICT,
+    'PROJECT_ARCHIVED',
+    { projectId, archivedAt: archivedAt.toISOString() },
+    409,
+  );
+}
+
+function managerRequired(projectId: string): WorkmeshError {
+  return new WorkmeshError(
+    V1_ERROR_CODES.FORBIDDEN,
+    'PROJECT_MANAGER_REQUIRED',
+    { projectId },
+    403,
+  );
+}
 
 function recordOf(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -76,10 +198,11 @@ function resourceNotFound(message: string, details: Record<string, unknown>): Wo
 @Injectable()
 export class ProjectsService {
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(PROJECT_ROLE_REPOSITORY) private readonly roleRepository: ProjectRoleRepository,
     @Inject(V1_CONFIRMATION_REPOSITORY) private readonly tickets: V1ConfirmationRepository,
     @Inject(V1_IDEMPOTENCY_REPOSITORY) private readonly operations: V1IdempotencyRepository,
+    @Optional() private readonly authorization?: V1AuthorizationService,
   ) {}
 
   async list(userId: string) {
@@ -167,7 +290,19 @@ export class ProjectsService {
     }
   }
 
-  async members(userId: string, projectId: string) {
+  async members(
+    userId: string,
+    projectId: string,
+  ): Promise<
+    Array<{
+      id: string;
+      name: string;
+      email: string;
+      role: string;
+      version: number;
+      roles: Array<{ id: string; key: string; title: string }>;
+    }>
+  > {
     await this.membership(userId, projectId);
     const [rows, assignments] = await Promise.all([
       this.prisma.projectMember.findMany({
@@ -208,7 +343,11 @@ export class ProjectsService {
    * 账号（含被停用的、曾被移除的）悄悄加回项目，事后无处可查。这里补齐这三项；
    * 票据与版本 CAS 仍只有邀请路径具备，文档也不再把本接口当作入口。
    */
-  async addMemberByEmail(userId: string, projectId: string, email: string) {
+  async addMemberByEmail(
+    userId: string,
+    projectId: string,
+    email: string,
+  ): Promise<{ id: string; name: string; email: string; role: string; version: number }> {
     const member = await this.membership(userId, projectId, true);
     if (member.role !== 'OWNER' && member.role !== 'ADMIN')
       throw new NotFoundException('项目不存在');
@@ -595,83 +734,495 @@ export class ProjectsService {
   }
 
   /**
-   * 代码仓库登记：身份用厂商稳定 ID，改名不影响引用。
-   * 同一 (adapter, externalId) 重复登记返回 409；已归档的仓库重新登记即恢复。
+   * 仓库列表：读取权限沿用成员校验；DECLARED 行返回 locator 状态，
+   * PROVIDER 行返回稳定 adapter 身份。`owner/name` 仅是展示字段，不是身份。
    */
   async repositories(userId: string, projectId: string) {
     await this.membership(userId, projectId);
-    return this.prisma.projectRepository.findMany({
+    const rows = await this.prisma.projectRepository.findMany({
       where: { projectId, archivedAt: null },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,
+        identityMode: true,
         adapter: true,
         externalId: true,
         owner: true,
         name: true,
         defaultBranch: true,
+        archivedAt: true,
+        lastVerifiedStatus: true,
+        lastVerifiedAt: true,
         createdAt: true,
+        locators: {
+          where: { revokedAt: null },
+          orderBy: { declaredAt: 'asc' },
+          select: { id: true, canonicalLocator: true, source: true, declaredAt: true },
+        },
       },
     });
+    return rows.map((row) => this.repositoryView(row));
   }
 
+  private repositoryView(row: RepositoryRow): ProjectRepositoryView {
+    return {
+      id: row.id,
+      identityMode: row.identityMode,
+      adapter: row.adapter,
+      externalId: row.externalId,
+      owner: row.owner,
+      name: row.name,
+      defaultBranch: row.defaultBranch,
+      archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
+      lastVerifiedStatus: row.lastVerifiedStatus,
+      lastVerifiedAt: row.lastVerifiedAt ? row.lastVerifiedAt.toISOString() : null,
+      createdAt: row.createdAt.toISOString(),
+      provider:
+        row.identityMode === 'PROVIDER' && row.adapter && row.externalId
+          ? { adapter: row.adapter, externalId: row.externalId }
+          : null,
+      locators: (row.locators ?? []).map((locator) => ({
+        id: locator.id,
+        canonicalLocator: locator.canonicalLocator,
+        source: locator.source,
+        declaredAt: locator.declaredAt.toISOString(),
+      })),
+    };
+  }
+
+  /** 管理类仓库写操作的统一顺序：HUMAN 会话 → 项目上下文（归档 409/非成员 404）→ OWNER/ADMIN。 */
+  private async requireRepositoryWriteAccess(
+    principal: V1Principal,
+    projectId: string,
+  ): Promise<V1ProjectContext> {
+    if (principal.kind !== 'HUMAN' || !principal.sessionId)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.HUMAN_SESSION_REQUIRED,
+        'HUMAN_SESSION_REQUIRED',
+        undefined,
+        403,
+      );
+    if (!this.authorization) throw new Error('AUTHORIZATION_SERVICE_UNAVAILABLE');
+    const access = await this.authorization.resolveProjectContext(principal, projectId, 'write');
+    if (access.membership.role !== 'OWNER' && access.membership.role !== 'ADMIN')
+      throw managerRequired(projectId);
+    return access;
+  }
+
+  /** 幂等回放先于版本/票据校验；同键异摘要单独使用 409 IDEMPOTENCY_DIGEST_CONFLICT。 */
+  private async resolveOperationReplay(
+    principal: V1Principal,
+    projectId: string,
+    context: ProjectWriteContext,
+  ): Promise<{ requestDigest: string; record: V1OperationRecord | null }> {
+    const requestDigest = requestDigestOf({
+      method: context.method,
+      route: context.route,
+      body: context.body,
+    });
+    const record = await this.operations.findOperation({
+      projectScopeKey: projectScopeKey(projectId),
+      principalScopeKey: principalScopeKey(principal),
+      key: context.idempotencyKey,
+    });
+    if (!record) return { requestDigest, record: null };
+    if (
+      record.method.toUpperCase() !== context.method.toUpperCase() ||
+      normalizeRoute(record.route) !== normalizeRoute(context.route)
+    )
+      throw new WorkmeshError(
+        V1_ERROR_CODES.IDEMPOTENCY_CONFLICT,
+        'IDEMPOTENCY_ROUTE_CONFLICT',
+        { operationId: record.id },
+        409,
+      );
+    if (record.requestDigest !== requestDigest)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.IDEMPOTENCY_DIGEST_CONFLICT,
+        'IDEMPOTENCY_DIGEST_CONFLICT',
+        { operationId: record.id },
+        409,
+      );
+    return { requestDigest, record };
+  }
+
+  /**
+   * 代码仓库登记（provider 身份）：身份用厂商稳定 ID，改名不影响引用。
+   * 同一 (adapter, externalId) 重复登记返回 409；已归档的仓库重新登记即恢复。
+   * T2 补齐：人审票据、Idempotency-Key、Project.version CAS、actorStamp 审计与 P2002→409。
+   */
   async createRepository(
-    userId: string,
+    principal: V1Principal,
     projectId: string,
     dto: CreateProjectRepositoryDto,
-    now = new Date(),
-  ) {
-    await this.membership(userId, projectId, true);
-    const existing = await this.prisma.projectRepository.findFirst({
-      where: { projectId, adapter: dto.adapter, externalId: dto.externalId },
-    });
-    if (existing) {
-      if (!existing.archivedAt)
-        throw new WorkmeshError(
-          V1_ERROR_CODES.RESOURCE_CONFLICT,
-          'REPOSITORY_EXISTS',
-          { repositoryId: existing.id },
-          409,
-        );
-      return this.prisma.projectRepository.update({
-        where: { id: existing.id },
-        data: {
-          archivedAt: null,
-          owner: dto.owner,
-          name: dto.name,
-          defaultBranch: dto.defaultBranch ?? existing.defaultBranch,
-        },
-      });
+    context: ProjectWriteContext,
+  ): Promise<RepositoryWriteResult> {
+    const access = await this.requireRepositoryWriteAccess(principal, projectId);
+    const replay = await this.resolveOperationReplay(principal, projectId, context);
+    if (replay.record) {
+      const refs = recordOf(replay.record.resultRefs);
+      const view = recordOf(refs.repository) as unknown as ProjectRepositoryView;
+      return {
+        ...view,
+        projectVersion: Number(refs.projectVersion ?? access.project.version),
+        replayed: true,
+      };
     }
-    return this.prisma.projectRepository.create({
-      data: {
-        projectId,
+    if (access.project.version !== dto.expectedProjectVersion)
+      throw projectVersionConflict(dto.expectedProjectVersion, access.project.version);
+
+    const ticket = await this.requireTicket(dto.confirmation, principal, context, {
+      action: REPOSITORY_REGISTER,
+      projectId,
+      targetType: 'PROJECT',
+      targetId: projectId,
+      expectedVersion: dto.expectedProjectVersion,
+      roleSlot: null,
+      payload: {
         adapter: dto.adapter,
         externalId: dto.externalId,
         owner: dto.owner,
         name: dto.name,
         defaultBranch: dto.defaultBranch ?? null,
-        createdAt: now,
+      },
+    });
+
+    try {
+      return await this.runWithRetry(() =>
+        this.prisma.$transaction(async (tx) => {
+          await this.lockProject(tx, projectId);
+          const project = await tx.project.findUnique({
+            where: { id: projectId },
+            select: { version: true, archivedAt: true },
+          });
+          if (!project) throw resourceNotFound('PROJECT_NOT_FOUND', { projectId });
+          if (project.archivedAt) throw projectArchived(projectId, project.archivedAt);
+          if (project.version !== dto.expectedProjectVersion)
+            throw projectVersionConflict(dto.expectedProjectVersion, project.version);
+
+          const consumed = await this.consumeTicket(tx, ticket, context);
+          if (!consumed)
+            throw new WorkmeshError(
+              V1_ERROR_CODES.CONFIRMATION_USED,
+              'CONFIRMATION_CONSUME_CONFLICT',
+              { ticketId: ticket.id },
+              409,
+            );
+
+          const existing = await tx.projectRepository.findFirst({
+            where: {
+              projectId,
+              identityMode: 'PROVIDER',
+              adapter: dto.adapter,
+              externalId: dto.externalId,
+            },
+          });
+          let row: RepositoryRow;
+          if (existing) {
+            if (!existing.archivedAt)
+              throw new WorkmeshError(
+                V1_ERROR_CODES.RESOURCE_CONFLICT,
+                'REPOSITORY_EXISTS',
+                { repositoryId: existing.id },
+                409,
+              );
+            row = await tx.projectRepository.update({
+              where: { id: existing.id },
+              data: {
+                archivedAt: null,
+                owner: dto.owner,
+                name: dto.name,
+                defaultBranch: dto.defaultBranch ?? existing.defaultBranch,
+              },
+            });
+          } else {
+            row = await tx.projectRepository.create({
+              data: {
+                projectId,
+                identityMode: 'PROVIDER',
+                adapter: dto.adapter,
+                externalId: dto.externalId,
+                owner: dto.owner,
+                name: dto.name,
+                defaultBranch: dto.defaultBranch ?? null,
+              },
+            });
+          }
+
+          const projectVersion = dto.expectedProjectVersion + 1;
+          const bumped = await tx.project.updateMany({
+            where: { id: projectId, version: dto.expectedProjectVersion, archivedAt: null },
+            data: { version: { increment: 1 } },
+          });
+          if (bumped.count !== 1)
+            throw projectVersionConflict(dto.expectedProjectVersion, project.version);
+
+          const view = this.repositoryView({ ...row, locators: [] });
+          await this.recordRepositoryAudit(tx, {
+            principal,
+            context,
+            projectId,
+            access,
+            action: REPOSITORY_REGISTER,
+            repositoryId: row.id,
+            targetVersion: projectVersion,
+            details: {
+              identityMode: 'PROVIDER',
+              adapter: dto.adapter,
+              externalId: dto.externalId,
+              reactivated: Boolean(existing),
+            },
+          });
+          await tx.idempotentOperation.create({
+            data: {
+              id: context.operationId,
+              projectId,
+              projectScopeKey: projectScopeKey(projectId),
+              principalScopeKey: principalScopeKey(principal),
+              key: context.idempotencyKey,
+              method: context.method,
+              route: context.route,
+              requestDigest: replay.requestDigest,
+              resultRefs: { repository: view, projectVersion } as unknown as Prisma.InputJsonValue,
+              responseMetadata: {},
+            },
+          });
+          return { ...view, projectVersion, replayed: false };
+        }, SERIALIZABLE),
+      );
+    } catch (error) {
+      if ((error as { code?: string } | null)?.code === 'P2002')
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_CONFLICT,
+          'REPOSITORY_EXISTS',
+          { adapter: dto.adapter, externalId: dto.externalId },
+          409,
+        );
+      throw error;
+    }
+  }
+
+  /**
+   * 既有 DELETE 归档接口补强：票据 + 幂等 + Project.version CAS + 审计。
+   * 已归档仓库幂等返回原结果；跨项目 404；归档项目 409。
+   */
+  async archiveRepository(
+    principal: V1Principal,
+    projectId: string,
+    repositoryId: string,
+    dto: ArchiveProjectRepositoryDto,
+    context: ProjectWriteContext,
+  ): Promise<RepositoryArchiveResult> {
+    const access = await this.requireRepositoryWriteAccess(principal, projectId);
+    const replay = await this.resolveOperationReplay(principal, projectId, context);
+    if (replay.record) {
+      const refs = recordOf(replay.record.resultRefs);
+      return {
+        repositoryId: String(refs.repositoryId ?? repositoryId),
+        archivedAt: String(refs.archivedAt ?? ''),
+        projectVersion: Number(refs.projectVersion ?? access.project.version),
+        replayed: true,
+      };
+    }
+    if (access.project.version !== dto.expectedProjectVersion)
+      throw projectVersionConflict(dto.expectedProjectVersion, access.project.version);
+
+    const ticket = await this.requireTicket(dto.confirmation, principal, context, {
+      action: REPOSITORY_ARCHIVE,
+      projectId,
+      targetType: PROJECT_REPOSITORY_TARGET,
+      targetId: repositoryId,
+      expectedVersion: dto.expectedProjectVersion,
+      roleSlot: null,
+      payload: { repositoryId },
+    });
+
+    return this.runWithRetry(() =>
+      this.prisma.$transaction(async (tx) => {
+        await this.lockProject(tx, projectId);
+        const project = await tx.project.findUnique({
+          where: { id: projectId },
+          select: { version: true, archivedAt: true },
+        });
+        if (!project) throw resourceNotFound('PROJECT_NOT_FOUND', { projectId });
+        if (project.archivedAt) throw projectArchived(projectId, project.archivedAt);
+        if (project.version !== dto.expectedProjectVersion)
+          throw projectVersionConflict(dto.expectedProjectVersion, project.version);
+
+        const repository = await tx.projectRepository.findFirst({
+          where: { id: repositoryId, projectId },
+          select: { id: true, archivedAt: true },
+        });
+        if (!repository) throw resourceNotFound('REPOSITORY_NOT_FOUND', { repositoryId });
+
+        // 已归档：幂等返回，不再递增项目版本、不重复消费票据、不重复审计。
+        if (repository.archivedAt) {
+          await tx.idempotentOperation.create({
+            data: {
+              id: context.operationId,
+              projectId,
+              projectScopeKey: projectScopeKey(projectId),
+              principalScopeKey: principalScopeKey(principal),
+              key: context.idempotencyKey,
+              method: context.method,
+              route: context.route,
+              requestDigest: replay.requestDigest,
+              resultRefs: {
+                repositoryId,
+                archivedAt: repository.archivedAt.toISOString(),
+                projectVersion: project.version,
+              },
+              responseMetadata: {},
+            },
+          });
+          return {
+            repositoryId,
+            archivedAt: repository.archivedAt.toISOString(),
+            projectVersion: project.version,
+            replayed: false,
+          };
+        }
+
+        const consumed = await this.consumeTicket(tx, ticket, context);
+        if (!consumed)
+          throw new WorkmeshError(
+            V1_ERROR_CODES.CONFIRMATION_USED,
+            'CONFIRMATION_CONSUME_CONFLICT',
+            { ticketId: ticket.id },
+            409,
+          );
+
+        const archived = await tx.projectRepository.update({
+          where: { id: repositoryId },
+          data: { archivedAt: context.now },
+          select: { id: true, archivedAt: true },
+        });
+        // 归档同时撤销活跃 locator：归档仓库不应再占用活跃 locator 唯一键，
+        // 也不能让后续声明无声复用一条已归档仓库。
+        await tx.projectRepositoryLocator.updateMany({
+          where: { repositoryId, projectId, revokedAt: null },
+          data: { revokedAt: context.now, revokedByUserId: principal.userId },
+        });
+        const projectVersion = dto.expectedProjectVersion + 1;
+        const bumped = await tx.project.updateMany({
+          where: { id: projectId, version: dto.expectedProjectVersion, archivedAt: null },
+          data: { version: { increment: 1 } },
+        });
+        if (bumped.count !== 1)
+          throw projectVersionConflict(dto.expectedProjectVersion, project.version);
+
+        await this.recordRepositoryAudit(tx, {
+          principal,
+          context,
+          projectId,
+          access,
+          action: REPOSITORY_ARCHIVE,
+          repositoryId,
+          targetVersion: projectVersion,
+          details: { repositoryId, archivedAt: context.now.toISOString() },
+        });
+        await tx.idempotentOperation.create({
+          data: {
+            id: context.operationId,
+            projectId,
+            projectScopeKey: projectScopeKey(projectId),
+            principalScopeKey: principalScopeKey(principal),
+            key: context.idempotencyKey,
+            method: context.method,
+            route: context.route,
+            requestDigest: replay.requestDigest,
+            resultRefs: {
+              repositoryId,
+              archivedAt: (archived.archivedAt ?? context.now).toISOString(),
+              projectVersion,
+            },
+            responseMetadata: {},
+          },
+        });
+        return {
+          repositoryId,
+          archivedAt: (archived.archivedAt ?? context.now).toISOString(),
+          projectVersion,
+          replayed: false,
+        };
+      }, SERIALIZABLE),
+    );
+  }
+
+  private async lockProject(tx: Prisma.TransactionClient, projectId: string): Promise<void> {
+    const locked = await tx.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${projectId}::uuid FOR UPDATE`,
+    );
+    if (locked.length === 0) throw resourceNotFound('PROJECT_NOT_FOUND', { projectId });
+  }
+
+  /** 条件消费票据：只有未消费、未失效、未过期且属于同一 WebSession 的行才写入。 */
+  private async consumeTicket(
+    tx: Prisma.TransactionClient,
+    ticket: V1TicketRecord,
+    context: ProjectWriteContext,
+  ): Promise<boolean> {
+    const consumed = await tx.$executeRaw(
+      Prisma.sql`UPDATE "workmesh_v1"."ConfirmationTicket"
+        SET "consumedAt" = ${context.now}, "consumedRequestId" = ${randomUUID()}::uuid, "consumedOperationId" = ${context.operationId}::uuid
+        WHERE "id" = ${ticket.id}::uuid
+          AND "secretHash" = ${ticket.secretHash}
+          AND "webSessionId" = ${context.webSessionId}::uuid
+          AND "consumedAt" IS NULL
+          AND "invalidatedAt" IS NULL
+          AND "expiresAt" > ${context.now}`,
+    );
+    return consumed === 1;
+  }
+
+  /** 审计必须带 actorStamp：谁在哪个会话、以什么成员版本批准并执行了这次仓库写操作。 */
+  private async recordRepositoryAudit(
+    tx: Prisma.TransactionClient,
+    input: {
+      principal: V1Principal;
+      context: ProjectWriteContext;
+      projectId: string;
+      access: V1ProjectContext;
+      action: string;
+      repositoryId: string;
+      targetVersion: number;
+      details: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    const stamp = await tx.principalStamp.create({
+      data: {
+        kind: 'HUMAN',
+        userId: input.principal.userId,
+        webSessionId: input.context.webSessionId,
+        projectId: input.projectId,
+        userAuthVersion: input.context.userAuthVersion,
+        memberVersion: input.access.membership.version,
+        scopeSnapshot: [],
+      },
+    });
+    await tx.auditEvent.create({
+      data: {
+        projectId: input.projectId,
+        actorStampId: stamp.id,
+        action: input.action,
+        targetType: PROJECT_REPOSITORY_TARGET,
+        targetId: input.repositoryId,
+        targetVersion: input.targetVersion,
+        outcome: 'SUCCESS',
+        details: input.details as Prisma.InputJsonValue,
       },
     });
   }
 
-  async archiveRepository(
-    userId: string,
-    projectId: string,
-    repositoryId: string,
-    now = new Date(),
-  ) {
-    await this.membership(userId, projectId, true);
-    const repository = await this.prisma.projectRepository.findFirst({
-      where: { id: repositoryId, projectId },
-    });
-    if (!repository) throw resourceNotFound('仓库不存在', { repositoryId });
-    if (repository.archivedAt) return repository;
-    return this.prisma.projectRepository.update({
-      where: { id: repository.id },
-      data: { archivedAt: now },
-    });
+  private async runWithRetry<T>(run: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await run();
+      } catch (error) {
+        if (!isRetryable(error) || attempt >= MAX_RETRIES) throw error;
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt] ?? 100));
+      }
+    }
   }
 
   /**

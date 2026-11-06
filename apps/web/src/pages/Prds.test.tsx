@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Prds } from './Prds';
 import { setCsrfToken } from '../api/client';
 import { utf8ToBase64 } from '../api/resources';
@@ -1014,5 +1014,126 @@ describe('Prds（Agent 候选查看、差异与评审）', () => {
       reason: '内容有误',
       confirmation: { ticketId: 'ticket-1', ticketSecret: 'secret-1' },
     });
+  });
+
+  it('PRD 列表仍在读取时显示骨架与 role=status，不渲染空态或 0 / 0 计数', async () => {
+    const documents = deferred<StubReply>();
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET') return documents.promise;
+      if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
+        return pageReply([], null);
+      return undefined;
+    });
+
+    renderPrds();
+
+    const indicator = await screen.findByText('正在加载 PRD…');
+    expect(indicator.closest('[role="status"]')).not.toBeNull();
+    expect(indicator.closest('[aria-busy="true"]')).not.toBeNull();
+    expect(document.querySelectorAll('.wm-skeleton-row').length).toBeGreaterThan(0);
+    expect(
+      screen.queryByText('该项目还没有 PRD 文档，等待 Product Agent 提交候选。'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('0 / 0')).not.toBeInTheDocument();
+
+    documents.resolve(pageReply([prdDocumentFor('doc-load', '加载完成的 PRD')], null));
+    expect((await screen.findAllByText('加载完成的 PRD')).length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.queryByText('正在加载 PRD…')).not.toBeInTheDocument());
+  });
+
+  it('双版本选择器列出真实版本元数据，并阻止同版本对比', async () => {
+    const race = raceDocument();
+    const mock = mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET')
+        return { status: 200, body: envelope({ items: [race], nextCursor: null }) };
+      if (path.endsWith('/rev-race-a/content')) return contentReply('rev-race-a', '# 候选 A\n- 旧');
+      if (path.endsWith('/rev-race-b/content')) return contentReply('rev-race-b', '# 候选 B\n- 新');
+      if (path.endsWith('/rev-race-pub/content'))
+        return contentReply('rev-race-pub', '# 基线\n- 旧');
+      return undefined;
+    });
+
+    renderPrds();
+    expect(await screen.findByText('候选 A')).toBeInTheDocument();
+    openRevision('候选 A');
+    const oldVersion = await screen.findByRole('combobox', { name: '对比旧版本' });
+    const newVersion = screen.getByRole('combobox', { name: '对比新版本' });
+    expect(
+      within(oldVersion).getByRole('option', { name: /v1 · 基线版本 · 已发布/ }),
+    ).toBeInTheDocument();
+    expect(
+      within(newVersion).getByRole('option', { name: /v3 · 候选 B · 候选/ }),
+    ).toBeInTheDocument();
+    fireEvent.change(oldVersion, { target: { value: 'rev-race-a' } });
+    fireEvent.change(newVersion, { target: { value: 'rev-race-a' } });
+    expect(screen.getByRole('button', { name: '对比所选版本' })).toBeDisabled();
+    fireEvent.change(newVersion, { target: { value: 'rev-race-b' } });
+    fireEvent.click(screen.getByRole('button', { name: '对比所选版本' }));
+    const diff = await screen.findByTestId('prd-diff');
+    expect(diff).toHaveTextContent('新增：# 候选 B');
+    expect(diff).toHaveTextContent('删除：# 候选 A');
+    expect(
+      mock.mock.calls.some(([url]) => pathOf(String(url)).endsWith('/rev-race-b/content')),
+    ).toBe(true);
+  });
+
+  it('旧正文迟到时不能覆盖新选择，项目切换也会清空旧正文与 diff', async () => {
+    const race = raceDocument();
+    const delayedA = deferred<StubReply>();
+    const delayedB = deferred<StubReply>();
+    const projectTwo = { ...project, id: 'p2', key: 'NEXT', name: 'Next project' };
+    const nextDocument = {
+      ...prdDocumentFor('doc-p2', '新项目 PRD'),
+      document: { ...documentDetail.document, id: 'doc-p2', projectId: 'p2', requirementId: null },
+      revisions: [
+        { ...publishedRevision, id: 'rev-p2', documentId: 'doc-p2', title: '新项目 PRD' },
+      ],
+      publishedRevision: {
+        ...publishedRevision,
+        id: 'rev-p2',
+        documentId: 'doc-p2',
+        title: '新项目 PRD',
+      },
+    };
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope([project, projectTwo]) };
+      if (path === '/api/v1/projects/p1/documents' && method === 'GET')
+        return { status: 200, body: envelope({ items: [race], nextCursor: null }) };
+      if (path === '/api/v1/projects/p2/documents' && method === 'GET')
+        return { status: 200, body: envelope({ items: [nextDocument], nextCursor: null }) };
+      if (path.endsWith('/rev-race-a/content')) return delayedA.promise;
+      if (path.endsWith('/rev-race-b/content')) return delayedB.promise;
+      if (path.endsWith('/rev-race-pub/content')) return contentReply('rev-race-pub', '# 基线');
+      if (path.endsWith('/rev-p2/content')) return contentReply('rev-p2', '# 新项目正文');
+      if (path.endsWith('/requirements')) return pageReply([], null);
+      return undefined;
+    });
+
+    renderPrds();
+    expect(await screen.findByText('候选 A')).toBeInTheDocument();
+    openRevision('候选 A');
+    expect(await screen.findByText('正在读取文档正文…')).toBeInTheDocument();
+    openRevision('候选 B');
+    delayedB.resolve(contentReply('rev-race-b', '# 快速 B'));
+    expect((await screen.findAllByText('# 快速 B')).length).toBeGreaterThan(0);
+    delayedA.resolve(contentReply('rev-race-a', '# 迟到 A'));
+    await waitFor(() => expect(screen.getAllByText('# 快速 B').length).toBeGreaterThan(0));
+    expect(screen.queryByText('# 迟到 A')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('选择项目'), { target: { value: 'p2' } });
+    expect((await screen.findAllByText('新项目 PRD')).length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.queryByText('候选 A')).not.toBeInTheDocument());
+    expect(screen.queryByTestId('prd-diff')).not.toBeInTheDocument();
   });
 });

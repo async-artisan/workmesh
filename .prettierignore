@@ -1,6 +1,7 @@
 .runs
 .workbuddy
 .tmp
+.oil-diff
 node_modules
 dist
 coverage

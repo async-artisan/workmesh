@@ -5,6 +5,7 @@ import { hashSecret } from './v1-policy';
 import { V1CliAuthorizationService } from './v1-cli-authorization.service';
 import type {
   V1AuthRepository,
+  V1CliAuthorizationCreateInput,
   V1CliAuthorizationRecord,
   V1CredentialRecord,
 } from './v1-auth.repository';
@@ -42,6 +43,7 @@ function approvedRequest(over: Partial<V1CliAuthorizationRecord> = {}): V1CliAut
 
 class FakeAuthRepository implements V1AuthRepository {
   readonly credentials: V1CredentialRecord[] = [];
+  readonly createdCliInputs: V1CliAuthorizationCreateInput[] = [];
   readonly revoked = new Set<string>();
   markShouldFail = true;
   private request: V1CliAuthorizationRecord;
@@ -79,8 +81,8 @@ class FakeAuthRepository implements V1AuthRepository {
   async createSession(): Promise<void> {}
   async updateSessionCsrf(): Promise<void> {}
   async revokeSession(): Promise<void> {}
-  async listCredentials(): Promise<V1CredentialRecord[]> {
-    return this.credentials;
+  async listCredentials(): Promise<never> {
+    throw new Error('not used');
   }
   async revokeCredential(credentialId: string): Promise<boolean> {
     if (!this.credentials.some((item) => item.id === credentialId)) return false;
@@ -114,8 +116,27 @@ class FakeAuthRepository implements V1AuthRepository {
     this.credentials.push(record);
     return record;
   }
-  async createCliAuthorization(): Promise<never> {
-    throw new Error('not used');
+  async createCliAuthorization(
+    input: V1CliAuthorizationCreateInput,
+  ): Promise<V1CliAuthorizationRecord> {
+    this.createdCliInputs.push(input);
+    return approvedRequest({
+      id: `auth-created-${this.createdCliInputs.length}`,
+      clientName: input.clientName,
+      deviceCodeHash: input.deviceCodeHash,
+      userCodeHash: input.userCodeHash,
+      codeChallenge: input.codeChallenge,
+      codeChallengeMethod: input.codeChallengeMethod,
+      credentialSecretHash: input.credentialSecretHash,
+      status: 'PENDING',
+      version: 1,
+      expiresAt: input.expiresAt,
+      approvedUserId: null,
+      approvedProjectId: null,
+      approvedRoleId: null,
+      approvedScopes: [],
+      approvedExpiresInDays: null,
+    });
   }
   async findCliAuthorizationById(): Promise<V1CliAuthorizationRecord | null> {
     return { ...this.request };
@@ -215,5 +236,71 @@ describe('V1CliAuthorizationService credential issuance recovery', () => {
     expect(extra).toBeDefined();
     expect(repository.revoked.has(extra!.id)).toBe(true);
     expect(repository.revoked.has('cred-existing')).toBe(false);
+  });
+});
+
+describe('V1CliAuthorizationService.create device metadata', () => {
+  const CREATE_BODY = {
+    clientName: 'workmesh-setup',
+    codeChallenge: CODE_CHALLENGE,
+    codeChallengeMethod: 'S256',
+    credentialSecretHash: 'a'.repeat(64),
+  };
+
+  it('persists sanitized device headers and the client ip', async () => {
+    const repository = new FakeAuthRepository(approvedRequest());
+    const service = serviceWith(repository);
+
+    await service.create({
+      ...CREATE_BODY,
+      ip: '203.0.113.9',
+      deviceName: '  build-box  ',
+      devicePlatform: 'win32 10.0.19045',
+      clientVersion: '1.2.3',
+      now: NOW,
+    });
+
+    expect(repository.createdCliInputs).toHaveLength(1);
+    expect(repository.createdCliInputs[0]).toMatchObject({
+      clientName: 'workmesh-setup',
+      deviceName: 'build-box',
+      devicePlatform: 'win32 10.0.19045',
+      clientVersion: '1.2.3',
+      clientIp: '203.0.113.9',
+    });
+  });
+
+  it('drops blank device headers and truncates oversize ones to the column width', async () => {
+    const repository = new FakeAuthRepository(approvedRequest());
+    const service = serviceWith(repository);
+
+    await service.create({
+      ...CREATE_BODY,
+      ip: '203.0.113.9',
+      deviceName: '   ',
+      devicePlatform: 'p'.repeat(100),
+      clientVersion: '',
+      now: NOW,
+    });
+
+    const input = repository.createdCliInputs[0];
+    // 老客户端/畸形头部不能导致授权请求 400 或写库失败。
+    expect(input.deviceName).toBeUndefined();
+    expect(input.clientVersion).toBeUndefined();
+    expect(input.devicePlatform).toBe('p'.repeat(60));
+  });
+
+  it('keeps the authorization request working when no device headers are sent', async () => {
+    const repository = new FakeAuthRepository(approvedRequest());
+    const service = serviceWith(repository);
+
+    await expect(
+      service.create({ ...CREATE_BODY, ip: '203.0.113.9', now: NOW }),
+    ).resolves.toMatchObject({ authorizationId: 'auth-created-1' });
+    const input = repository.createdCliInputs[0];
+    expect(input.deviceName).toBeUndefined();
+    expect(input.devicePlatform).toBeUndefined();
+    expect(input.clientVersion).toBeUndefined();
+    expect(input.clientIp).toBe('203.0.113.9');
   });
 });

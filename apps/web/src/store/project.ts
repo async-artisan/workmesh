@@ -24,6 +24,8 @@ const STORAGE_KEY = 'workmesh.projectId';
  */
 export interface ProjectStoreState {
   projectId: string;
+  /** Explicit URL selection must never silently fall back to another project. */
+  requestedProjectId: string | null;
   projects: ProjectView[];
   loading: boolean;
   loaded: boolean;
@@ -90,7 +92,10 @@ function applyLoaded(list: ProjectView[]): void {
     updatedAt: new Date().toISOString(),
   });
   // localStorage 里的项目 ID 只是记忆：不在本次可访问列表里就回落到第一个可访问项目。
-  if (!list.some((project) => project.id === previous.projectId)) {
+  if (
+    previous.requestedProjectId === null &&
+    !list.some((project) => project.id === previous.projectId)
+  ) {
     useProjectStore.getState().setProjectId(list[0]?.id ?? '');
   }
 }
@@ -105,8 +110,7 @@ function applyFailed(error: unknown): void {
 function requestProjects(): Promise<ProjectView[]> {
   if (inflight) return inflight;
   const requestGeneration = generation;
-  let request: Promise<ProjectView[]>;
-  request = projectApi
+  const request = projectApi
     .list()
     .then((list) => {
       const normalized = Array.isArray(list) ? list : [];
@@ -155,6 +159,7 @@ export function invalidateProjects(): void {
 
 export const useProjectStore = create<ProjectStoreState>((set, get) => ({
   projectId: readStoredProjectId(),
+  requestedProjectId: null,
   projects: [],
   loading: false,
   loaded: false,

@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Workbench } from './Workbench';
 import { setCsrfToken } from '../api/client';
@@ -189,6 +189,123 @@ function renderWorkbench() {
     </MemoryRouter>,
   );
 }
+
+function CurrentUrl() {
+  const location = useLocation();
+  return (
+    <output aria-label="地址">
+      {location.pathname}
+      {location.search}
+    </output>
+  );
+}
+
+describe('工作台优先行动与范围隔离', () => {
+  beforeEach(() => {
+    useProject('p1');
+  });
+  it('显示全部项目范围与真实等待时间，行动入口直达评审', async () => {
+    setup();
+    render(
+      <MemoryRouter>
+        <CurrentUrl />
+        <Workbench />
+      </MemoryRouter>,
+    );
+    const actions = await screen.findByRole('region', { name: '优先行动' });
+    await within(actions).findByText('待审批 · 1');
+    expect(screen.getByText('范围：全部项目')).toBeInTheDocument();
+    expect(within(actions).getByText('最早已等待 3 天')).toBeInTheDocument();
+    expect(within(actions).getAllByText('服务端未提供等待时间').length).toBeGreaterThan(0);
+    fireEvent.click(within(actions).getByRole('button', { name: '打开待审批' }));
+    expect(screen.getByLabelText('地址')).toHaveTextContent('/reviews/review-1');
+  });
+  it('筛选同时更新行动统计，空类别禁用入口；失败不伪装为零件待办', async () => {
+    setup({
+      workbench: (call) => (call === 2 ? SERVER_ERROR : { status: 200, body: envelope(snapshot) }),
+    });
+    renderWorkbench();
+    await screen.findByText(/登录页改版/);
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索待办' }), {
+      target: { value: '支付回调' },
+    });
+    const actions = screen.getByRole('region', { name: '优先行动' });
+    expect(within(actions).getByText('待审批 · 0')).toBeInTheDocument();
+    expect(within(actions).getByRole('button', { name: '打开待审批' })).toBeDisabled();
+    expect(within(actions).getByText('可开工任务 · 1')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    expect(
+      await within(actions).findByText('行动项可能已过期，请刷新后确认。'),
+    ).toBeInTheDocument();
+    expect(within(actions).getByText('可开工任务 · 1')).toBeInTheDocument();
+  });
+  it('切换范围同步URL，旧慢响应不能覆盖新项目，清除旧搜索和选中项', async () => {
+    let resolveOld!: (reply: { status: number; body: unknown }) => void;
+    const old = new Promise<{ status: number; body: unknown }>((resolve) => {
+      resolveOld = resolve;
+    });
+    mockFetch((url) => {
+      const path = pathOf(url);
+      if (path === '/api/v1/projects')
+        return {
+          status: 200,
+          body: envelope([project, { ...project, id: 'p2', key: 'TWO', name: '项目二' }]),
+        };
+      if (path === '/api/v1/activity') return { status: 200, body: envelope({ items: [] }) };
+      if (path === '/api/v1/workbench')
+        return url.includes('projectId=p1') ? old : { status: 200, body: envelope(emptySnapshot) };
+      return undefined;
+    });
+    render(
+      <MemoryRouter initialEntries={['/?projectId=p1']}>
+        <CurrentUrl />
+        <Workbench />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('option', { name: '项目二（TWO）' });
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索待办' }), {
+      target: { value: '旧筛选' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: '项目范围' }), {
+      target: { value: 'p2' },
+    });
+    await screen.findByText('现在没有待办');
+    expect(screen.getByLabelText('地址')).toHaveTextContent('projectId=p2');
+    expect(screen.getByRole('textbox', { name: '搜索待办' })).toHaveValue('');
+    await act(async () => {
+      resolveOld({ status: 200, body: envelope(snapshot) });
+    });
+    expect(screen.queryByText(/登录页改版/)).not.toBeInTheDocument();
+    expect(screen.getByText('范围：项目二')).toBeInTheDocument();
+  });
+  it('新范围失败时旧范围成功不能恢复旧列表', async () => {
+    let resolveOld!: (reply: { status: number; body: unknown }) => void;
+    const old = new Promise<{ status: number; body: unknown }>((resolve) => {
+      resolveOld = resolve;
+    });
+    mockFetch((url) => {
+      if (pathOf(url) === '/api/v1/projects') return { status: 200, body: envelope([project]) };
+      if (pathOf(url) === '/api/v1/workbench')
+        return url.includes('projectId=p1') ? old : SERVER_ERROR;
+      if (pathOf(url) === '/api/v1/activity') return { status: 200, body: envelope({ items: [] }) };
+      return undefined;
+    });
+    render(
+      <MemoryRouter initialEntries={['/?projectId=p1']}>
+        <Workbench />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('option', { name: 'Demo（DEMO）' });
+    fireEvent.change(screen.getByRole('combobox', { name: '项目范围' }), { target: { value: '' } });
+    await screen.findByText('工作台加载失败');
+    await act(async () => {
+      resolveOld({ status: 200, body: envelope(snapshot) });
+    });
+    expect(screen.getByText('工作台加载失败')).toBeInTheDocument();
+    expect(screen.queryByText(/登录页改版/)).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '优先行动' })).toHaveTextContent('无法读取行动项');
+  });
+});
 
 describe('Workbench（跨项目待办聚合）', () => {
   beforeEach(() => {

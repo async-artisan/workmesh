@@ -1,7 +1,13 @@
 name: Dependency security
 on:
   pull_request:
-    paths: ['**/package.json', pnpm-lock.yaml, .github/workflows/security.yml]
+    paths:
+      - '**/package.json'
+      - pnpm-lock.yaml
+      - docker/**
+      - docker-compose*.yml
+      - .dockerignore
+      - .github/workflows/security.yml
   push:
     branches: [main]
   schedule:
@@ -13,13 +19,13 @@ jobs:
   production-dependencies:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
         with:
           version: 10.28.2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: 20.19
+          node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm audit --prod --audit-level=moderate
@@ -27,8 +33,47 @@ jobs:
         if: always()
         run: pnpm audit --json > dependency-audit.json
         continue-on-error: true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: dependency-audit
           path: dependency-audit.json
+
+  container-image:
+    name: Scan production container image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Build image for scanning
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          load: true
+          tags: workmesh:security-${{ github.sha }}
+
+      - name: Scan image for critical vulnerabilities
+        uses: aquasecurity/trivy-action@1f0aa582c8c8f5f7639610d6d38baddfea4fdcee # v0.9.2
+        with:
+          image-ref: workmesh:security-${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Upload container scan report
+        # Forked pull requests receive a read-only token and cannot upload to
+        # GitHub code scanning. The image scan still runs and enforces its exit code.
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@f3bbb05694c2f74569081c28664c0866d64dec21 # v4.39.3
+        with:
+          sarif_file: trivy-results.sarif
