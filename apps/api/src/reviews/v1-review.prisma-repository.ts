@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
-import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
+import { V1_ERROR_CODES, WorkmeshError, workflowStepDisplayNameOf } from '@workmesh/shared';
 import { normalizeRoute } from '../common/v1-idempotency';
 import { assertWorkflowInstanceActive } from '../tasks/v1-task-consistency-policy';
 import { PrismaClient as V1PrismaClient } from '../../../node_modules/.prisma/workmesh-v1-client';
@@ -102,6 +102,7 @@ const REVIEW_SNAPSHOT_INCLUDE = {
       role: { select: { id: true, key: true, title: true } },
       instance: {
         select: {
+          definitionRevisionId: true,
           requirement: { select: { id: true, code: true, title: true } },
         },
       },
@@ -181,6 +182,7 @@ function toSnapshot(
     })),
     requirement,
     subjectLabel: review.documentRevision?.title ?? review.task?.stepKey ?? null,
+    stepDisplayName: null,
     role: review.task?.role ?? null,
     subject:
       document && review.documentRevision
@@ -205,7 +207,19 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
       where: { id: reviewId },
       include: REVIEW_SNAPSHOT_INCLUDE,
     });
-    return review ? toSnapshot(review) : null;
+    if (!review) return null;
+    const snapshot = toSnapshot(review);
+    if (review.task?.instance.definitionRevisionId) {
+      const revision = await this.prisma.workflowRevision.findFirst({
+        where: { id: review.task.instance.definitionRevisionId, projectId: review.projectId },
+        select: { definition: true },
+      });
+      snapshot.stepDisplayName = workflowStepDisplayNameOf(
+        revision?.definition,
+        review.task.stepKey,
+      );
+    }
+    return snapshot;
   }
 
   async hasActiveDelegation(slotId: string, userId: string): Promise<boolean> {
@@ -387,9 +401,35 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
       });
       for (const requirement of requirements) requirementById.set(requirement.id, requirement);
     }
+    const revisionIds = [
+      ...new Set(
+        page.flatMap((row) =>
+          row.task?.instance.definitionRevisionId ? [row.task.instance.definitionRevisionId] : [],
+        ),
+      ),
+    ];
+    const revisions = revisionIds.length
+      ? await this.prisma.workflowRevision.findMany({
+          where: { id: { in: revisionIds }, projectId: query.projectId },
+          select: { id: true, definition: true },
+        })
+      : [];
+    const definitionByRevision = new Map(
+      revisions.map((revision) => [revision.id, revision.definition]),
+    );
+    const snapshots = page.map((row) => {
+      const snapshot = toSnapshot(row, requirementById);
+      snapshot.stepDisplayName = row.task?.instance.definitionRevisionId
+        ? workflowStepDisplayNameOf(
+            definitionByRevision.get(row.task.instance.definitionRevisionId),
+            row.task.stepKey,
+          )
+        : null;
+      return snapshot;
+    });
     const last = page[page.length - 1];
     return {
-      items: page.map((row) => toSnapshot(row, requirementById)),
+      items: snapshots,
       nextCursor:
         hasMore && last ? encodeReviewCursor({ createdAt: last.createdAt, id: last.id }) : null,
       hasMore,
@@ -2072,6 +2112,20 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
         { reviewId },
         404,
       );
-    return toSnapshot(review);
+    const snapshot = toSnapshot(review);
+    if (review.task?.instance.definitionRevisionId) {
+      const revision = await tx.workflowRevision.findFirst({
+        where: {
+          id: review.task.instance.definitionRevisionId,
+          projectId: review.projectId,
+        },
+        select: { definition: true },
+      });
+      snapshot.stepDisplayName = workflowStepDisplayNameOf(
+        revision?.definition,
+        review.task.stepKey,
+      );
+    }
+    return snapshot;
   }
 }

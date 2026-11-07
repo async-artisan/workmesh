@@ -285,10 +285,26 @@ export class V1AccountService {
     input: V1PasswordAttemptInput & { password: string; now?: Date },
   ): Promise<V1UserRecord> {
     const now = input.now ?? new Date();
-    await this.consumeRate('password-verify-session', input.sessionId, 5, RATE_WINDOW_15M, now);
+    const reservation = await this.repository.reservePasswordRateWindow({
+      kind: 'password-verify-session',
+      keyHash: hashSecret(input.sessionId),
+      now,
+      windowMs: RATE_WINDOW_15M,
+      limit: 5,
+    });
+    if (!reservation) {
+      const remainingMs = RATE_WINDOW_15M - (now.getTime() % RATE_WINDOW_15M);
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RATE_LIMITED,
+        '请求过于频繁',
+        { retryAfterSeconds: Math.ceil(remainingMs / 1000), window: 'password-verify-session' },
+        429,
+      );
+    }
     const user = await this.repository.findUser(input.userId);
     if (!user || !user.isActive) throw authInvalid();
     if (!(await bcrypt.compare(input.password, user.passwordHash))) throw authInvalid();
+    await this.repository.releasePasswordRateWindow(reservation);
     return user;
   }
 

@@ -5,10 +5,7 @@
   "turns": null,
   "toolCalls": 5,
   "elapsedMs": 22691,
-  "testExitCodes": [
-    1,
-    0
-  ],
+  "testExitCodes": [1, 0],
   "events": [
     {
       "tool": "read_file",

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   compileWorkflowDefinition,
   validateWorkflowDefinition,
+  workflowStepDisplayNameOf,
   type WorkflowPackageLock,
 } from './workflow';
 import type { RolePackageManifest } from './schemas';
@@ -72,6 +73,88 @@ describe('workflow semantic validation', () => {
       steps: [{ key: 'release', roleKey: 'ops', kind: 'RELEASE', deps: [] }],
     });
     expect(result.issues.map((issue) => issue.code)).toContain('WORKFLOW_OUTPUT_KINDS_INVALID');
+  });
+  it('validates optional displayName and resolves it without changing legacy fallback data', () => {
+    const named = validateWorkflowDefinition({
+      ...base,
+      steps: [{ ...base.steps[0], displayName: '  发布验收  ' }],
+    });
+    expect(named.valid).toBe(true);
+    expect(
+      workflowStepDisplayNameOf(
+        { steps: [{ key: 'release', displayName: '发布验收' }] },
+        'release',
+      ),
+    ).toBe('发布验收');
+    expect(workflowStepDisplayNameOf(base, 'release')).toBeNull();
+    expect(workflowStepDisplayNameOf(base, 'missing')).toBeNull();
+    expect(
+      workflowStepDisplayNameOf({ steps: [{ key: 'release', displayName: null }] }, 'release'),
+    ).toBeNull();
+    expect(
+      workflowStepDisplayNameOf({ steps: [{ key: 'release', displayName: 12 }] }, 'release'),
+    ).toBeNull();
+    expect(validateWorkflowDefinition(base).valid).toBe(true);
+    const padded = {
+      ...base,
+      steps: [{ ...base.steps[0], displayName: '  发布验收  ' }],
+    };
+    const before = JSON.stringify(padded);
+    expect(workflowStepDisplayNameOf(padded, 'release')).toBe('  发布验收  ');
+    expect(validateWorkflowDefinition(padded).valid).toBe(true);
+    expect(JSON.stringify(padded)).toBe(before);
+    const blank = validateWorkflowDefinition({
+      ...base,
+      steps: [{ ...base.steps[0], displayName: '   ' }],
+    });
+    expect(blank.issues).toContainEqual(
+      expect.objectContaining({
+        path: '/steps/0/displayName',
+        code: 'WORKFLOW_STEP_DISPLAY_NAME_INVALID',
+      }),
+    );
+    const tooLong = validateWorkflowDefinition({
+      ...base,
+      steps: [{ ...base.steps[0], displayName: 'a'.repeat(121) }],
+    });
+    expect(tooLong.issues.map((issue) => issue.code)).toContain(
+      'WORKFLOW_STEP_DISPLAY_NAME_INVALID',
+    );
+  });
+  it.each([null, 1, true, {}, [], undefined])(
+    'rejects present non-string displayName %s',
+    (displayName) => {
+      const result = validateWorkflowDefinition({
+        ...base,
+        steps: [{ ...base.steps[0], displayName }],
+      });
+      expect(result.valid).toBe(false);
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({
+          path: '/steps/0/displayName',
+          code: 'WORKFLOW_STEP_DISPLAY_NAME_INVALID',
+        }),
+      );
+    },
+  );
+  it('counts displayName length as Unicode code points after trimming', () => {
+    expect(
+      validateWorkflowDefinition({
+        ...base,
+        steps: [{ ...base.steps[0], displayName: `  ${'🚀'.repeat(120)}  ` }],
+      }).valid,
+    ).toBe(true);
+    expect(
+      validateWorkflowDefinition({
+        ...base,
+        steps: [{ ...base.steps[0], displayName: '🚀'.repeat(121) }],
+      }).issues,
+    ).toContainEqual(
+      expect.objectContaining({
+        path: '/steps/0/displayName',
+        code: 'WORKFLOW_STEP_DISPLAY_NAME_INVALID',
+      }),
+    );
   });
 });
 

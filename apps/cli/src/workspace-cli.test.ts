@@ -127,11 +127,12 @@ afterEach(() => {
 });
 
 describe('workspace 命令面', () => {
-  it('暴露 init/discover/bind/status/migrate，参数面包含 --json 与 --root', () => {
+  it('暴露 init/recover/discover/bind/status/migrate，参数面包含 --json 与 --root', () => {
     const program = buildProgram();
     const workspace = program.commands.find((command) => command.name() === 'workspace');
     expect(workspace?.commands.map((command) => command.name())).toEqual([
       'init',
+      'recover',
       'discover',
       'bind',
       'status',

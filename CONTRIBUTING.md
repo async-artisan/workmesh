@@ -2,6 +2,10 @@
 
 WorkMesh 欢迎缺陷报告、文档修订和代码贡献。项目仍处于早期阶段；仓库中的规划、单元测试通过和真实部署验证是不同层次的证据，提交时请分别说明。
 
+第一次参与请先阅读 [开始使用](docs/getting-started.md) 和 [支持矩阵](docs/support-matrix.md)，再按本文运行验证。项目的决策、发布和维护者交接规则见 [治理说明](GOVERNANCE.md)；安全问题请按 [安全政策](SECURITY.md) 处理。
+
+如果你尚不确定问题应开 issue 还是讨论，先看[社区入口](docs/community/README.md)和[issue 分流口径](docs/community/triage.md)。路线图是无日期承诺的工作顺序；运行时和 API 兼容边界见[版本与兼容性说明](docs/community/compatibility.md)。
+
 ## 开发环境
 
 - 使用 Node.js 20.19 或更新的兼容版本；CI 当前使用 20.19。
@@ -38,6 +42,19 @@ pnpm test:contracts
 pnpm --filter @workmesh/api test:coverage
 pnpm build
 ```
+
+按变更范围补充门禁：
+
+| 变更范围                   | 还必须执行                                                                                                                            |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| API、数据库或认证          | `pnpm test:e2e` 或 `pnpm test:integration`；schema 变更提交迁移，并在隔离数据库上执行迁移漂移和恢复核对                               |
+| Web、路由或交互            | `pnpm test:browser`；涉及响应式布局时附上受影响视口的结果；涉及键盘、焦点、语义或可读性时说明实际检查方法和结果                       |
+| Docker、部署或运行配置     | 提供临时、非生产的 `POSTGRES_PASSWORD` 后运行 `docker compose config`；可用时构建 `docker/Dockerfile`，并记录健康检查、密钥和端口边界 |
+| 共享协议、错误码或生成文件 | `pnpm test:contracts`，同步所有消费者和生成脚本                                                                                       |
+
+对 Web 交互变更，优先验证受影响流程的键盘操作、焦点顺序、可访问名称和错误提示；不能只凭自动化扫描声称符合无障碍标准。新增或变更浏览器支持结论、性能/容量结论时，按[质量基线记录模板](docs/testing/quality-baseline-template.md)记录环境、commit、方法、结果和限制。模板用于留证，不代表浏览器、辅助技术或生产场景已经验收；没有实测时应明确标记为“未验证”。
+
+如果本机缺少 Docker、PostgreSQL 或浏览器依赖，请在 PR 中写明未执行的命令和原因；不要把未运行的门禁描述为通过。维护者会依据最终 commit 的远端 CI 结果决定是否合并。
 
 `test:coverage` 使用 API 配置中的 80% 行覆盖率门槛。测试全部通过并不代表覆盖率达标；报告失败时保留原始结果，不通过删除被测文件或降低门槛掩盖缺口。
 

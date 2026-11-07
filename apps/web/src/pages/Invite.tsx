@@ -31,7 +31,6 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
   const [needsLogin, setNeedsLogin] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -147,8 +146,6 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
   }
 
   if (joined) {
-    const role = joined.roleKeys[0] ?? 'product';
-    const setupCommand = `workmesh setup --role ${role} --api ${window.location.origin}/api/v1 --project ${joined.projectId}`;
     return (
       <section className="auth-card">
         <span className="eyebrow">邀请已接受</span>
@@ -156,21 +153,17 @@ export function Invite({ token: tokenProp }: { token?: string } = {}) {
         <p className="muted">
           角色：{joined.roleKeys.join('、') || '（无）'}。工作台已经可以打开。
         </p>
-        <label>
-          如果你要用本地 Agent 干活，先在服务器 /download 取 CLI，再运行：
-          <input value={setupCommand} readOnly aria-label="CLI 初始化命令" />
-        </label>
+        <p className="muted">
+          如需让本地 Agent 参与项目，请进入项目接入页生成一次性接入码，选择角色、终端和本地目录，
+          再复制 workspace init --join 预览命令。邀请链接用于加入项目，接入码用于本机绑定； Agent
+          仍需在浏览器完成设备授权。
+        </p>
         <button
           className="ghost"
           type="button"
-          onClick={() => {
-            navigator.clipboard
-              .writeText(setupCommand)
-              .then(() => setCopied(true))
-              .catch(() => setCopied(false));
-          }}
+          onClick={() => navigate(`/workspace?projectId=${encodeURIComponent(joined.projectId)}`)}
         >
-          {copied ? '已复制' : '复制命令'}
+          配置本地 Agent 接入
         </button>
         <button className="primary" type="button" onClick={() => navigate('/', { replace: true })}>
           进入工作台

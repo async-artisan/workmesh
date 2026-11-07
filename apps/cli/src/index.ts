@@ -40,6 +40,8 @@ import {
 } from './product';
 import { installRolePackage } from './roles';
 import { runSetup } from './setup';
+import { assertDoctorReady, renderDoctor, runDoctor } from './doctor';
+import { runWorkspaceRecover, type WorkspaceRecoverReport } from './workspace-recover';
 import { confirmFileStore } from './consent';
 import {
   beginOperation,
@@ -65,7 +67,11 @@ import {
   runMigrationInspect,
   runMigrationResolve,
 } from './workspace-migrate';
-import { runWorkspaceInit, type WorkspaceInitResult } from './workspace-init';
+import {
+  runWorkspaceInit,
+  type WorkspaceInitResult,
+  type WorkspaceInitStage,
+} from './workspace-init';
 
 type Options = Record<string, unknown>;
 type Connection = {
@@ -79,6 +85,28 @@ type Connection = {
 };
 
 const DESCRIPTION = 'WorkMesh command line tools';
+const INIT_STAGE_LABELS: Record<WorkspaceInitStage, string> = {
+  PREFLIGHT: '检查本机环境和服务',
+  CONSENT: '确认本地凭据存储',
+  LOCK: '取得初始化锁',
+  ENROLLMENT: '校验并消费接入码',
+  AUTHORIZATION: '等待浏览器授权',
+  DEFINITION: '读取并校验项目定义',
+  WORKSPACE: '保存工作区配置',
+  INDEX: '登记本机工作区索引',
+  CACHE: '保存定义缓存',
+  COMPLETE: '接入完成',
+};
+
+function renderWorkspaceRecovery(result: WorkspaceRecoverReport): void {
+  console.log(`初始化恢复：${result.state}（${result.mode}）`);
+  console.log(
+    `配置一致=${result.checks.workspace}；索引一致=${result.checks.userIndex}；计划摘要一致=${result.checks.planDigest}`,
+  );
+  for (const reason of result.reasonCodes) console.log(`提示：${reason}`);
+  for (const file of result.writes) console.log(`已处理：${file}`);
+  console.log(`下一步：${result.nextAction}`);
+}
 
 /**
  * commander 12 把 `--credential-store` 存成 `credentialStore`，只认 camelCase。
@@ -109,7 +137,7 @@ function listOf(options: Options, key: string): string[] {
 function withIO(command: Command): Command {
   return command
     .option('--json', 'machine readable output', false)
-    .option('--dir <dir>', 'workspace directory (defaults to cwd)')
+    .option('--dir <dir>', '业务工作目录（默认当前目录）')
     .option('--config-home <dir>', 'absolute user config root (default ~/.workmesh)')
     .option('--api <base>', 'platform base ending in /api/v1 (defaults to workspace config)');
 }
@@ -340,10 +368,8 @@ function buildProgram(): Command {
 
   program.action(() => {
     console.log('WorkMesh 连接本地 AI 与项目协作事实，不替你自动批准。');
-    console.log(
-      '1. workmesh roles install --package <dir> --project <uuid> --host <codex|claude-code> --api <base>',
-    );
-    console.log('2. workmesh auth login --credential-store file');
+    console.log('1. 在项目工作区页面选择 Shell、角色和本地目录，复制单行接入命令。');
+    console.log('2. workspace init 默认预览；确认后加 --apply，在浏览器批准设备授权。');
     console.log('3. workmesh claim --task <uuid> --json');
     console.log(
       '4. workmesh context --task <uuid> --claim <uuid> --expected-version <n> --materialize --json',
@@ -526,10 +552,10 @@ function buildProgram(): Command {
   withIO(
     program
       .command('setup')
-      .description('一条命令完成设备授权与角色包安装（登录仍在浏览器批准）')
+      .description('安装角色资源并完成设备授权；首次接入优先使用 workspace init')
       .requiredOption('--role <key>', '业务角色 key，例如 backend')
       .option('--host <host>', 'codex | claude-code')
-      .option('--project <id>', '项目 UUID；缺省用授权返回的项目')
+      .option('--project <id>', '项目 UUID；首次兼容 setup 必填，已有绑定时可省略')
       .option('--package <dir>', '显式角色包目录（默认从随包 roles/ 解析）')
       .option('--credential-store <kind>', '显式同意本地文件凭据存储')
       .option('--timeout <seconds>', '设备授权等待秒数'),
@@ -551,6 +577,18 @@ function buildProgram(): Command {
       packageDir: str(raw, 'package'),
       timeoutMs: timeoutSeconds ? Math.floor(timeoutSeconds * 1000) : undefined,
       consent: store === 'file' ? async () => undefined : confirmFileStore,
+      preflight: async () =>
+        assertDoctorReady(
+          await runDoctor({
+            workspaceDir: workspaceDirOf(io),
+            configHome: configHome(str(io, 'config-home')),
+            api: str(io, 'api'),
+            role: str(raw, 'role'),
+            packageDir: str(raw, 'package'),
+            online: true,
+            probeStorage: true,
+          }),
+        ),
     });
     emitLocal(command, result, () => {
       console.log(`已就绪：${result.roleKey} @ 项目 ${result.projectId}`);
@@ -1441,9 +1479,38 @@ function buildProgram(): Command {
     });
   });
 
+  withIO(
+    program
+      .command('doctor')
+      .description('集中检查接入环境（默认只读，不登录、不消费接入码）')
+      .option('--role <key>', '检查所选角色的内置资源，例如 frontend')
+      .option('--package <dir>', '仅自定义角色包需要显式目录')
+      .option('--online', 'GET 检查平台服务就绪状态', false)
+      .option('--check-storage', '用临时文件验证凭据目录的权限能力，检查后移除', false),
+  ).action(async (raw: Options, command: Command) => {
+    const io = optionsOf(command);
+    const result = await runDoctor({
+      workspaceDir: workspaceDirOf(io),
+      configHome: configHome(str(io, 'config-home')),
+      api: str(io, 'api'),
+      role: str(raw, 'role'),
+      packageDir: str(raw, 'package'),
+      online: flag(raw, 'online'),
+      probeStorage: flag(raw, 'check-storage'),
+    });
+    if (!result.ok)
+      throw new CliError('PREFLIGHT_FAILED', '环境诊断存在阻塞项。', {
+        exitCode: 2,
+        details: { doctor: result },
+      });
+    emitLocal(command, result, () => {
+      for (const line of renderDoctor(result)) console.log(line);
+    });
+  });
+
   const workspaceCommand = program
     .command('workspace')
-    .description('项目工作区：init / discover / bind / status / migrate（v1↔v2 五态）');
+    .description('项目工作区：init / discover / bind / status / recover / migrate');
 
   function workspaceRootOf(options: Options, raw: Options): string {
     return str(raw, 'root') ?? workspaceDirOf(options);
@@ -1483,11 +1550,27 @@ function buildProgram(): Command {
       yes: flag(raw, 'yes'),
       clientName: str(raw, 'client-name'),
       timeoutMs: timeoutSeconds ? Math.floor(timeoutSeconds * 1000) : undefined,
+      preflight: async () =>
+        assertDoctorReady(
+          await runDoctor({
+            workspaceDir: resolve(workspaceRootOf(io, raw)),
+            configHome: configHome(str(io, 'config-home')),
+            api,
+            role: str(raw, 'role'),
+            online: true,
+            probeStorage: true,
+            checkPackage: false,
+          }),
+        ),
+      onStage: (stage) => {
+        if (!jsonMode(command)) process.stderr.write(`接入阶段：${INIT_STAGE_LABELS[stage]}\n`);
+      },
     });
     emitLocal(command, result, () => {
       if (result.mode === 'plan') {
         console.log(`接入计划（${result.platform.origin}${result.platform.apiBasePath}）`);
         console.log(`角色：${result.role}  宿主：${result.host}`);
+        console.log(`业务工作目录：${resolve(workspaceRootOf(io, raw))}`);
         console.log('将写入：');
         for (const path of result.wouldWrite) console.log(`  ${path}`);
         console.log(result.nextAction);
@@ -1498,6 +1581,9 @@ function buildProgram(): Command {
       );
       console.log(`workspaceId ${result.workspaceId}`);
       console.log(
+        `业务工作目录：${resolve(workspaceRootOf(io, raw))}；角色：${str(raw, 'role')}；宿主：${str(raw, 'host') ?? 'codex'}`,
+      );
+      console.log(
         `定义 revision ${result.definition.revisionId}（digest ${result.definition.digest}）`,
       );
       console.log(`仓库映射 ${result.repositories.length} 条（${result.layoutKind}）`);
@@ -1506,6 +1592,31 @@ function buildProgram(): Command {
       for (const warning of result.warnings) console.log(`提示：${warning}`);
       console.log(result.verificationText);
       for (const next of result.nextActions) console.log(`下一步：${next}`);
+    });
+  });
+
+  withIO(
+    workspaceCommand
+      .command('recover')
+      .description('只读检查中断初始化；--apply 仅清理精确匹配且已提交的 pending 记录')
+      .option('--root <dir>', '工作区根目录（默认 --dir 或 cwd）')
+      .option('--apply', '验证配置、用户索引和计划摘要后清理已提交记录，不消费接入码', false),
+  ).action(async (raw: Options, command: Command) => {
+    const io = optionsOf(command);
+    const result = await runWorkspaceRecover({
+      root: workspaceRootOf(io, raw),
+      configHome: configHome(str(io, 'config-home')),
+      apply: flag(raw, 'apply'),
+    });
+    if (!['NO_PENDING', 'COMMITTED_PENDING', 'CLEANED'].includes(result.state))
+      throw new CliError(
+        'WORKSPACE_RECOVERY_BLOCKED',
+        '初始化恢复需要处理诊断项；本次没有清理 pending。',
+        { exitCode: result.state === 'LOCKED' ? 5 : 6, details: { recovery: result } },
+      );
+    emitLocal(command, result, () => {
+      console.log(`业务工作目录：${resolve(workspaceRootOf(io, raw))}`);
+      renderWorkspaceRecovery(result);
     });
   });
 
@@ -1609,6 +1720,8 @@ function buildProgram(): Command {
     });
     emitLocal(command, result, () => {
       console.log(`工作区状态：${result.state}  freshness ${result.freshness}`);
+      console.log(`业务工作目录：${resolve(workspaceRootOf(io, raw))}`);
+      if (result.roleKey) console.log(`角色：${result.roleKey}`);
       if (result.projectId) console.log(`项目：${result.projectId}`);
       if (result.platform)
         console.log(`平台：${result.platform.origin}${result.platform.apiBasePath}`);
@@ -1774,6 +1887,11 @@ function report(error: CliError, json: boolean): void {
     console.log(JSON.stringify(errorEnvelopeOf(error, requestId)));
   }
   process.stderr.write(`错误 ${error.code}：${error.message}\n`);
+  if (!json && error.code === 'PREFLIGHT_FAILED' && error.details?.doctor)
+    for (const line of renderDoctor(error.details.doctor as Awaited<ReturnType<typeof runDoctor>>))
+      process.stderr.write(`${line}\n`);
+  if (!json && error.code === 'WORKSPACE_RECOVERY_BLOCKED' && error.details?.recovery)
+    renderWorkspaceRecovery(error.details.recovery as WorkspaceRecoverReport);
   if (error.requestId) process.stderr.write(`requestId ${error.requestId}\n`);
   if (
     error.code === 'AUTH_REQUIRED' ||
@@ -1783,7 +1901,7 @@ function report(error: CliError, json: boolean): void {
     process.stderr.write('下一步：workmesh auth login --credential-store file\n');
   if (error.code === 'CONFIG_NOT_FOUND')
     process.stderr.write(
-      '下一步：新接入运行 workmesh workspace init --join <code> --root <dir> --api <base> --role <role>；或运行 workmesh roles install ...（v1）\n',
+      '下一步：从项目工作区页面复制 workspace init --join 接入命令（默认预览，--apply 才授权并写入）；已有绑定使用 auth login。\n',
     );
   if (error.code === 'WORKSPACE_DUAL_CONFIG')
     process.stderr.write(
@@ -1798,9 +1916,11 @@ function report(error: CliError, json: boolean): void {
   if (error.code === 'WORKSPACE_OFFLINE_UNVERIFIED')
     process.stderr.write('下一步：联网执行 workmesh workspace bind，或先在线刷新定义缓存\n');
   if (error.code === 'WORKSPACE_ALREADY_BOUND')
-    process.stderr.write('下一步：workmesh workspace status（P0a 不提供 --rebind）\n');
+    process.stderr.write('下一步：workmesh workspace status；已有绑定无需重新消费接入码。\n');
   if (error.code === 'WORKSPACE_INIT_IN_PROGRESS')
-    process.stderr.write('下一步：等待另一个 init 结束；若接入码已消费，请回 Web 重新生成\n');
+    process.stderr.write(
+      '下一步：workmesh workspace recover（只读检查，不删除活动锁、不重复消费接入码）。\n',
+    );
 }
 
 export { buildProgram, readOption };

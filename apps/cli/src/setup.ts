@@ -1,4 +1,4 @@
-import { access } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deviceLogin } from './auth';
@@ -30,6 +30,7 @@ export type SetupOptions = {
   clientName?: string;
   timeoutMs?: number;
   consent?: () => Promise<void>;
+  preflight?: () => Promise<void>;
   onPrompt?: (prompt: { url: string; userCode: string; expiresAt: string }) => void;
   onNotice?: (text: string) => void;
   login?: Login;
@@ -56,7 +57,10 @@ export type SetupResult = {
  * → 仓库内 packages/role-packages/roles（开发态）→ 当前目录的 roles/。
  * 找不到就把搜过的路径全部列出来，避免“报错但不说去哪找”。
  */
-export function defaultRoleRoots(execPath: string = process.execPath): string[] {
+export function defaultRoleRoots(
+  execPath: string = process.execPath,
+  modulePath: string = fileURLToPath(import.meta.url),
+): string[] {
   const roots: string[] = [];
   const fromEnv = process.env.WORKMESH_ROLES_DIR;
   if (fromEnv) roots.push(resolve(fromEnv));
@@ -64,27 +68,24 @@ export function defaultRoleRoots(execPath: string = process.execPath): string[] 
   // distribution root: runtime/node.exe, app/cli/index.js, roles/<role>/.
   roots.push(resolve(dirname(execPath), '..', 'roles'));
   roots.push(resolve(dirname(execPath), 'roles'));
-  roots.push(
-    resolve(
-      dirname(fileURLToPath(import.meta.url)),
-      '..',
-      '..',
-      '..',
-      'packages',
-      'role-packages',
-      'roles',
-    ),
-  );
+  // Locate resources from the CLI as well as Node: users can run an extracted
+  // CLI with their own Node, whose installation is unrelated to this release.
+  const moduleDir = dirname(modulePath);
+  roots.push(resolve(moduleDir, '..', 'roles'));
+  roots.push(resolve(moduleDir, '..', '..', 'roles'));
+  roots.push(resolve(moduleDir, '..', '..', '..', 'roles'));
+  roots.push(resolve(moduleDir, '..', '..', '..', 'packages', 'role-packages', 'roles'));
   roots.push(resolve(process.cwd(), 'roles'));
   return [...new Set(roots)];
 }
 
-async function exists(path: string): Promise<boolean> {
+async function isFile(path: string): Promise<boolean> {
   try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
+    return (await stat(path)).isFile();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return false;
+    throw error;
   }
 }
 
@@ -92,18 +93,37 @@ export async function resolveRolePackageDir(
   role: string,
   input: { packageDir?: string; rolesRoot?: string; roots?: string[] } = {},
 ): Promise<string> {
+  const roots = input.roots ?? (input.rolesRoot ? [resolve(input.rolesRoot)] : defaultRoleRoots());
   if (input.packageDir) {
     const dir = resolve(input.packageDir);
-    if (!(await exists(join(dir, 'manifest.json'))))
-      throw new CliError('PACKAGE_MANIFEST_INVALID', `${dir} 下没有 manifest.json`);
+    if (!(await isFile(join(dir, 'manifest.json')))) {
+      let directoryExists = false;
+      try {
+        directoryExists = (await stat(dir)).isDirectory();
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
+      }
+      const candidates: string[] = [];
+      for (const root of roots) {
+        const candidate = join(root, role);
+        if (await isFile(join(candidate, 'manifest.json'))) candidates.push(candidate);
+      }
+      const hint = candidates.length
+        ? `；找到同角色包：${candidates[0]}。确认后修正 --package，或移除 --package 使用内置包`
+        : '；请检查 --package，应指向包含 manifest.json 的角色包目录';
+      throw new CliError(
+        directoryExists ? 'PACKAGE_MANIFEST_INVALID' : 'PACKAGE_NOT_FOUND',
+        (directoryExists ? `${dir} 下没有 manifest.json` : `角色包目录不存在：${dir}`) + hint,
+      );
+    }
     return dir;
   }
-  const roots = input.roots ?? (input.rolesRoot ? [resolve(input.rolesRoot)] : defaultRoleRoots());
   const searched: string[] = [];
   for (const root of roots) {
     const dir = join(root, role);
     searched.push(dir);
-    if (await exists(join(dir, 'manifest.json'))) return dir;
+    if (await isFile(join(dir, 'manifest.json'))) return dir;
   }
   throw new CliError(
     'PACKAGE_NOT_FOUND',
@@ -162,6 +182,7 @@ export async function runSetup(input: SetupOptions): Promise<SetupResult> {
     );
   const platform: Platform = resolvePlatform(workspace, input.api);
 
+  if (input.preflight) await input.preflight();
   if (input.consent) await input.consent();
   const login = input.login ?? deviceLogin;
   const granted = await login({

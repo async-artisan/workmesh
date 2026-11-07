@@ -45,7 +45,15 @@ for (const width of [1440, 1024, 640, 390]) {
 
     for (const route of ['/prd?projectId=p1', '/knowledge?projectId=p1']) {
       await page.goto(route);
-      await readable(page.locator('.task-row-meta').filter({ hasText: '已发布 v1' }).first());
+      if (route.startsWith('/knowledge?')) {
+        const metadata = page.locator('.collection-document-meta').first();
+        const status = metadata.locator('.collection-document-status');
+        await expect(status).toHaveText('当前生效 · v1');
+        await readable(metadata);
+        await readable(status);
+      } else {
+        await readable(page.locator('.task-row-meta').filter({ hasText: '已发布 v1' }).first());
+      }
       await noPageOverflow(page);
     }
 

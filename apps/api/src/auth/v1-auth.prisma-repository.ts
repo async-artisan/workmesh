@@ -11,6 +11,7 @@ import type {
   V1CredentialCreateInput,
   V1CredentialListRecord,
   V1CredentialRecord,
+  V1PasswordRateReservation,
   V1RateWindowInput,
   V1SessionCreateInput,
   V1SessionRecord,
@@ -450,5 +451,32 @@ export class V1AuthPrismaRepository implements V1AuthRepository {
       RETURNING "attempts"
     `);
     return rows[0]?.attempts ?? 1;
+  }
+
+  /** Failed and in-flight password checks share a bounded, atomically reserved budget. */
+  async reservePasswordRateWindow(
+    input: V1RateWindowInput & { limit: number },
+  ): Promise<V1PasswordRateReservation | null> {
+    const windowStart = new Date(Math.floor(input.now.getTime() / input.windowMs) * input.windowMs);
+    const expiresAt = new Date(windowStart.getTime() + input.windowMs);
+    const rows = await this.prisma.$queryRaw<Array<{ windowStart: Date }>>(Prisma.sql`
+      INSERT INTO "workmesh_v1"."AuthRateWindow" ("id", "kind", "keyHash", "windowStart", "attempts", "expiresAt")
+      VALUES (gen_random_uuid(), ${input.kind}, ${input.keyHash}, ${windowStart}, 1, ${expiresAt})
+      ON CONFLICT ("kind", "keyHash", "windowStart")
+      DO UPDATE SET "attempts" = "AuthRateWindow"."attempts" + 1
+      WHERE "AuthRateWindow"."attempts" < ${input.limit}
+      RETURNING "windowStart"
+    `);
+    return rows[0]
+      ? { kind: input.kind, keyHash: input.keyHash, windowStart: rows[0].windowStart }
+      : null;
+  }
+
+  /** Only release this successful check; never erase concurrent failures or a newer window. */
+  async releasePasswordRateWindow(reservation: V1PasswordRateReservation): Promise<void> {
+    await this.prisma.authRateWindow.updateMany({
+      where: { ...reservation, attempts: { gt: 0 } },
+      data: { attempts: { decrement: 1 } },
+    });
   }
 }

@@ -15,9 +15,14 @@ for (const kind of ['prd', 'knowledge'] as const) {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto(`/${kind}?projectId=p1`);
     if (kind === 'knowledge') {
-      const documentRow = page.getByRole('row').filter({ hasText: '验收文档 v1' }).first();
-      await documentRow.getByRole('button', { name: '版本与评审（当前）', exact: true }).click();
-      await page
+      const documentCard = page
+        .locator('.collection-document-item')
+        .filter({ hasText: '验收文档 v1' })
+        .first();
+      await documentCard.getByRole('button', { name: /^(查看版本|版本与评审（当前）)$/ }).click();
+      const governance = page.locator('.knowledge-governance-panel');
+      await expect(governance).toHaveAttribute('open', '');
+      await governance
         .getByRole('row')
         .filter({ hasText: '验收文档 v2' })
         .getByRole('button', { name: '查看正文', exact: true })
@@ -142,7 +147,11 @@ for (const width of [1440, 1024, 640, 390]) {
         await page.getByRole('button', { name: '关闭弹窗', exact: true }).click();
       }
       if (path.startsWith('/knowledge?')) {
-        const hint = page.locator('.knowledge-search-browse-copy span');
+        const hint = page
+          .getByRole('region', { name: '浏览三类知识', exact: true })
+          .locator('.knowledge-collection-docs')
+          .first();
+        await expect(hint).toHaveText('1 篇可浏览文档');
         await expect(hint).toBeVisible();
         expect(
           await hint.evaluate((element) => parseFloat(getComputedStyle(element).fontSize)),
@@ -188,6 +197,7 @@ for (const width of [1440, 1024, 640, 390]) {
         await expect(rail.locator('[aria-current="step"]')).toContainText('开发');
         const taskTitle = page.locator('.pipeline-task-card strong').first();
         await expect(taskTitle).toBeVisible();
+        await expect(taskTitle).toHaveText('后端交付');
         expect(
           await taskTitle.evaluate((element) => ({
             fontSize: parseFloat(getComputedStyle(element).fontSize),

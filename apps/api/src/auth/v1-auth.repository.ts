@@ -129,6 +129,13 @@ export type V1RateWindowInput = {
   windowMs: number;
 };
 
+/** One occupied password-verification slot in its original fixed window. */
+export type V1PasswordRateReservation = {
+  kind: string;
+  keyHash: string;
+  windowStart: Date;
+};
+
 export interface V1AuthRepository {
   findSession(sessionId: string): Promise<V1SessionRecord | null>;
   findCredential(credentialId: string): Promise<V1CredentialRecord | null>;
@@ -166,6 +173,10 @@ export interface V1AuthRepository {
     now: Date,
   ): Promise<V1CliAuthorizationRecord | null>;
   bumpRateWindow(input: V1RateWindowInput): Promise<number>;
+  reservePasswordRateWindow(
+    input: V1RateWindowInput & { limit: number },
+  ): Promise<V1PasswordRateReservation | null>;
+  releasePasswordRateWindow(reservation: V1PasswordRateReservation): Promise<void>;
 }
 
 export function parseAgentBearerToken(

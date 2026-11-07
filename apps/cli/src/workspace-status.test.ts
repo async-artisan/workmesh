@@ -96,6 +96,20 @@ function onlineFactory(parsed: Awaited<ReturnType<typeof parseWorkspaceRevision>
 }
 
 describe('workspace status 本地只读诊断', () => {
+  it('存在中断 pending 时报告恢复诊断，保持只读且不给重复消费建议', async () => {
+    const root = await makeTempDir('wm-status-pending-');
+    const home = await makeTempDir('wm-home-');
+    await mkdir(join(root, '.workmesh', 'local'), { recursive: true });
+    await writeFile(join(root, '.workmesh', 'local', 'pending-init.json'), '{interrupted');
+    const before = await snapshotTree(root);
+    const homeBefore = await snapshotTree(home);
+    const report = await runWorkspaceStatus({ root, configHome: home });
+    expect(report.initRecovery).toMatchObject({ state: 'INVALID_PENDING', cleanupAllowed: false });
+    expect(report.nextAction).toContain('保留记录');
+    expect(await snapshotTree(root)).toEqual(before);
+    expect(await snapshotTree(home)).toEqual(homeBefore);
+  });
+
   it('无 --online 时 freshness=LOCAL_ONLY，不宣称 online，零写入', async () => {
     const { root, home } = await boundWorkspace();
     const before = await snapshotTree(root);

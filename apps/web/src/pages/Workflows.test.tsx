@@ -78,8 +78,40 @@ function baseHandler(
   };
 }
 
-async function loadTemplateAndValidate() {
+const NAMED_STEP_FIELDS = {
+  displayName: '产品方案',
+  vendorConfig: { retained: 'step extension' },
+};
+const UNKNOWN_CONFIG = { retained: 'definition extension' };
+
+function addNamedStepFields() {
+  const editor = screen.getByLabelText('流程定义 JSON') as HTMLTextAreaElement;
+  const definition = JSON.parse(editor.value) as {
+    steps: Array<Record<string, unknown>>;
+    unknownConfig?: unknown;
+  };
+  Object.assign(definition.steps[0], NAMED_STEP_FIELDS);
+  definition.unknownConfig = UNKNOWN_CONFIG;
+  fireEvent.change(editor, { target: { value: JSON.stringify(definition, null, 2) } });
+  return definition;
+}
+
+function expectNamedStepFields(definition: unknown) {
+  expect(definition).toMatchObject({
+    steps: expect.arrayContaining([expect.objectContaining(NAMED_STEP_FIELDS)]),
+    unknownConfig: UNKNOWN_CONFIG,
+  });
+}
+
+function readSavedDraftDefinition() {
+  const draft = localStorage.getItem('workmesh.workflowDraft.p1');
+  expect(draft).not.toBeNull();
+  return JSON.parse((JSON.parse(draft ?? '{}') as { text: string }).text) as unknown;
+}
+
+async function loadTemplateAndValidate(withDisplayName = false) {
   fireEvent.click(await screen.findByRole('button', { name: '载入标准模板' }));
+  if (withDisplayName) addNamedStepFields();
   fireEvent.click(screen.getByRole('button', { name: '校验并准备发布' }));
 }
 
@@ -194,7 +226,8 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
       </MemoryRouter>,
     );
 
-    await loadTemplateAndValidate();
+    await loadTemplateAndValidate(true);
+    await waitFor(() => expectNamedStepFields(readSavedDraftDefinition()));
     fireEvent.click(await screen.findByRole('button', { name: '发布（需要二次验证）' }));
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
@@ -233,6 +266,7 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
         methodOf(init ?? {}) === 'POST',
     );
     const publishBody = bodyOf(publishCall?.[1] ?? {});
+    expectNamedStepFields(publishBody.definition);
     expect(publishBody.expectedVersion).toBe(7);
     expect(publishBody.expectedCurrentRevision).toBe(0);
     expect(publishBody.confirmation).toEqual({ ticketId: 'ticket-1', ticketSecret: 'secret-1' });
@@ -371,14 +405,12 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
     await loadTemplateAndValidate();
     expect(await screen.findByText('通过')).toBeInTheDocument();
     const editor = screen.getByLabelText('流程定义 JSON');
-    const draft = JSON.parse((editor as HTMLTextAreaElement).value) as Record<string, unknown>;
+    const draft = addNamedStepFields() as Record<string, unknown>;
     draft.title = 'CAS 草稿';
     fireEvent.change(editor, { target: { value: JSON.stringify(draft, null, 2) } });
     fireEvent.click(screen.getByRole('button', { name: '校验并准备发布' }));
     expect(await screen.findByText('通过')).toBeInTheDocument();
-    await waitFor(() =>
-      expect(localStorage.getItem('workmesh.workflowDraft.p1')).toContain('standard'),
-    );
+    await waitFor(() => expectNamedStepFields(readSavedDraftDefinition()));
     fireEvent.click(await screen.findByRole('button', { name: '发布（需要二次验证）' }));
     fireEvent.change(await screen.findByLabelText('确认密码'), { target: { value: 'pw-cas' } });
     fireEvent.click(screen.getByRole('button', { name: '验证密码并签发票据' }));
@@ -389,6 +421,14 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
       '[PROJECT_VERSION_CONFLICT] 项目版本已变化，请刷新后重试。 · requestId req-cas',
     );
     expect(localStorage.getItem('workmesh.workflowDraft.p1')).toContain('standard');
+    expectNamedStepFields(readSavedDraftDefinition());
+    expectNamedStepFields(JSON.parse((editor as HTMLTextAreaElement).value));
+    const failedPublish = mock.mock.calls.find(
+      ([url, request]) =>
+        pathOf(String(url)) === '/api/v1/projects/p1/workflow-definitions/standard/publish' &&
+        methodOf(request ?? {}) === 'POST',
+    );
+    expectNamedStepFields(bodyOf(failedPublish?.[1] ?? {}).definition);
     expect(screen.queryByText(/流程 standard 已发布/)).not.toBeInTheDocument();
     expect(
       mock.mock.calls.some(
@@ -400,15 +440,16 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
   });
 
   it('刷新后恢复本地未发布草稿，并可以主动放弃', async () => {
-    localStorage.setItem(
-      'workmesh.workflowDraft.p1',
-      JSON.stringify({
-        text: '{"workflowKey":"draft-only","steps":[]}',
-        expectedCurrentRevision: 2,
-        savedAt: Date.now(),
-      }),
-    );
     mockFetch(baseHandler());
+    const initial = render(
+      <MemoryRouter>
+        <Workflows />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: '载入标准模板' }));
+    const definition = addNamedStepFields();
+    await waitFor(() => expectNamedStepFields(readSavedDraftDefinition()));
+    initial.unmount();
     render(
       <MemoryRouter>
         <Workflows />
@@ -417,7 +458,14 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
 
     expect(await screen.findByText(/已恢复上次未发布的草稿/)).toBeInTheDocument();
     const editor = screen.getByLabelText('流程定义 JSON');
-    expect(editor).toHaveValue('{"workflowKey":"draft-only","steps":[]}');
+    expect(JSON.parse((editor as HTMLTextAreaElement).value)).toEqual(definition);
+    expectNamedStepFields(JSON.parse((editor as HTMLTextAreaElement).value));
+    fireEvent.click(screen.getByRole('button', { name: '结构化编辑' }));
+    expect(screen.getByLabelText('步骤 1 显示名称')).toHaveValue(NAMED_STEP_FIELDS.displayName);
+    fireEvent.click(screen.getByRole('button', { name: '高级 JSON' }));
+    expectNamedStepFields(
+      JSON.parse((screen.getByLabelText('流程定义 JSON') as HTMLTextAreaElement).value),
+    );
     expect(screen.getByText('未发布草稿')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '放弃草稿' }));

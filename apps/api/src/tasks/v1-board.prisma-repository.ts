@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { workflowStepDisplayNameOf } from '@workmesh/shared';
 import { type V1BoardCard, type V1BoardRepository } from './v1-board.repository';
 
 @Injectable()
@@ -14,6 +15,7 @@ export class V1BoardPrismaRepository implements V1BoardRepository {
         role: { select: { key: true, title: true } },
         instance: {
           select: {
+            definitionRevisionId: true,
             requirement: { select: { id: true, code: true, title: true } },
           },
         },
@@ -25,12 +27,34 @@ export class V1BoardPrismaRepository implements V1BoardRepository {
       include: { user: { select: { email: true } } },
     });
     const claimByTask = new Map(claims.map((c) => [c.taskId, c]));
+    const revisionIds = [
+      ...new Set(
+        tasks.flatMap((task) =>
+          task.instance.definitionRevisionId ? [task.instance.definitionRevisionId] : [],
+        ),
+      ),
+    ];
+    const revisions = revisionIds.length
+      ? await this.prisma.workflowRevision.findMany({
+          where: { id: { in: revisionIds }, projectId },
+          select: { id: true, definition: true },
+        })
+      : [];
+    const definitionByRevision = new Map(
+      revisions.map((revision) => [revision.id, revision.definition]),
+    );
     return tasks.map((task) => {
       const claim = claimByTask.get(task.id);
       return {
         taskId: task.id,
         projectId: task.projectId,
         stepKey: task.stepKey,
+        stepDisplayName: task.instance.definitionRevisionId
+          ? workflowStepDisplayNameOf(
+              definitionByRevision.get(task.instance.definitionRevisionId),
+              task.stepKey,
+            )
+          : null,
         roleId: task.roleId,
         requirementId: task.instance.requirement.id,
         requirementCode: task.instance.requirement.code,

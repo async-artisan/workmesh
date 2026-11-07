@@ -12,6 +12,7 @@ concurrency:
 # The job uploads a build artifact and creates a draft GitHub Release. It never
 # publishes the workspace packages to npm.
 permissions:
+  actions: read
   contents: write
   id-token: write
   attestations: write
@@ -20,7 +21,7 @@ jobs:
   package:
     name: Package Windows x64 release
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Check out tag
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -36,17 +37,14 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
-      - name: Validate release tag
+      - name: Validate release versions and successful candidate CI
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if ($env:GITHUB_REF_NAME -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$') {
-            throw "Release tag '$env:GITHUB_REF_NAME' is not a SemVer tag such as v1.2.3 or v1.2.3-rc.1."
-          }
-          $package = Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json
+          & node scripts/verify-release.mjs $env:GITHUB_REF_NAME --verify-ci
+          if ($LASTEXITCODE -ne 0) { throw 'Release candidate validation failed; inspect the same-SHA main CI runs before retrying.' }
           $tagVersion = $env:GITHUB_REF_NAME.Substring(1)
-          if ([string]$package.version -ne $tagVersion) {
-            throw "Release tag $env:GITHUB_REF_NAME does not match root package.json version $($package.version)."
-          }
           "WORKMESH_RELEASE_VERSION=$tagVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install dependencies
@@ -102,8 +100,8 @@ jobs:
           if (-not (Test-Path -LiteralPath $cliChecksum)) { throw "CLI checksum was not produced: $cliChecksum" }
 
           $artifactRoot = Join-Path $releaseRoot 'artifacts'
-          if (Test-Path -LiteralPath $artifactRoot) { Remove-Item -LiteralPath $artifactRoot -Recurse -Force }
-          New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
+          if (Test-Path -LiteralPath $artifactRoot) { throw 'Release artifact directory already exists; refusing to overwrite it.' }
+          New-Item -ItemType Directory -Path $artifactRoot -ErrorAction Stop | Out-Null
           Copy-Item -LiteralPath $boxZip -Destination (Join-Path $artifactRoot 'workmesh-box-win-x64.zip')
           Copy-Item -LiteralPath $boxChecksum -Destination (Join-Path $artifactRoot 'workmesh-box-win-x64.zip.sha256')
           Copy-Item -LiteralPath $cliZip -Destination (Join-Path $artifactRoot 'workmesh-cli-win-x64.zip')
@@ -182,13 +180,13 @@ jobs:
           Add-Content -LiteralPath (Join-Path $artifactRoot 'SHA256SUMS.txt') -Value ($sbomHash + '  workmesh-dependencies.cdx.json') -Encoding ASCII
           Write-Host "Wrote dependency SBOM with $($components.Count) components."
 
-      - name: Verify release archives can be installed
+      - name: Verify archive contents and packaged CLI smoke
         shell: pwsh
         run: |
           $artifactRoot = Join-Path $env:GITHUB_WORKSPACE 'release\artifacts'
           $smokeRoot = Join-Path $env:RUNNER_TEMP 'workmesh-release-smoke'
-          if (Test-Path -LiteralPath $smokeRoot) { Remove-Item -LiteralPath $smokeRoot -Recurse -Force }
-          New-Item -ItemType Directory -Path $smokeRoot -Force | Out-Null
+          if (Test-Path -LiteralPath $smokeRoot) { throw 'Release smoke directory already exists; refusing to overwrite it.' }
+          New-Item -ItemType Directory -Path $smokeRoot -ErrorAction Stop | Out-Null
           $boxRoot = Join-Path $smokeRoot 'box'
           $cliRoot = Join-Path $smokeRoot 'cli'
           Expand-Archive -LiteralPath (Join-Path $artifactRoot 'workmesh-box-win-x64.zip') -DestinationPath $boxRoot -Force
@@ -209,6 +207,60 @@ jobs:
           & $cliNode $cliEntry --version
           if ($LASTEXITCODE -ne 0) { throw "Packaged CLI --version failed with exit code $LASTEXITCODE." }
           Write-Host 'Archive extraction and packaged CLI smoke checks passed.'
+
+      - name: Download pinned artifact scanner
+        id: syft
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          syft-version: v1.57.0
+
+      - name: Scan actual Box and CLI archive contents
+        shell: pwsh
+        env:
+          ARTIFACT_SCANNER_EXE: ${{ steps.syft.outputs.cmd }}
+        run: |
+          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE 'release\artifacts'
+          $smokeRoot = Join-Path $env:RUNNER_TEMP 'workmesh-release-smoke'
+          $sbomRoot = Join-Path $env:GITHUB_WORKSPACE 'release\artifact-sbom'
+          & git diff --quiet HEAD --
+          if ($LASTEXITCODE -ne 0) { throw 'Tracked source changed during the release build; refusing a clean-source SBOM declaration.' }
+          $untrackedSource = @(& git ls-files --others --exclude-standard -- . ':(exclude)release/**')
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect untracked source before declaring the build clean.' }
+          if ($untrackedSource.Count -gt 0) { throw 'Unexpected untracked files outside release outputs; refusing a clean-source SBOM declaration.' }
+          & .\scripts\release-artifact-sbom.ps1 -SyftExe $env:ARTIFACT_SCANNER_EXE -BoxRoot (Join-Path $smokeRoot 'box') -CliRoot (Join-Path $smokeRoot 'cli') -BoxZip (Join-Path $artifactRoot 'workmesh-box-win-x64.zip') -CliZip (Join-Path $artifactRoot 'workmesh-cli-win-x64.zip') -OutputDir $sbomRoot -Version $env:WORKMESH_RELEASE_VERSION -Commit $env:GITHUB_SHA -SourceTreeState clean
+          foreach ($file in (Get-ChildItem -LiteralPath $sbomRoot -File)) {
+            if ($file.Extension -notin @('.json', '.yaml')) { continue }
+            $target = Join-Path $artifactRoot $file.Name
+            if (Test-Path -LiteralPath $target) { throw "Duplicate release asset name: $($file.Name)" }
+            Copy-Item -LiteralPath $file.FullName -Destination $target
+          }
+          $checksums = Get-ChildItem -LiteralPath $artifactRoot -File |
+            Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
+            Sort-Object Name |
+            ForEach-Object {
+              (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $_.Name
+            }
+          $checksums | Set-Content -LiteralPath (Join-Path $artifactRoot 'SHA256SUMS.txt') -Encoding ASCII
+          Write-Host 'Artifact SBOM drafts were generated. Bundled JavaScript and embedded runtime components still require the documented completeness review.'
+
+      - name: Validate actual Box install and recovery lifecycle
+        shell: pwsh
+        run: |
+          $boxZip = Join-Path $env:GITHUB_WORKSPACE 'release\artifacts\workmesh-box-win-x64.zip'
+          $expectedHash = (Get-FileHash -LiteralPath $boxZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $validationRoot = Join-Path $env:RUNNER_TEMP 'workmesh-release-lifecycle'
+          & .\scripts\test-release-box.ps1 -BoxZip $boxZip -ExpectedSha256 $expectedHash -OutputDir $validationRoot
+
+      - name: Upload Box lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: workmesh-${{ github.ref_name }}-box-lifecycle
+          path: |
+            ${{ runner.temp }}/workmesh-release-lifecycle/summary.json
+            ${{ runner.temp }}/workmesh-release-lifecycle/logs/*
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Attest release archives
         uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3

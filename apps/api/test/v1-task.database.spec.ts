@@ -300,6 +300,93 @@ suite('PostgreSQL task ownership and transactional writes', () => {
     expect(op).not.toBeNull();
   });
 
+  it('projects the optional step display name from the task instance revision', async () => {
+    const stepKey = 'named-step';
+    const namedDefinition = await db.workflowDefinition.create({
+      data: { projectId, workflowKey: `named-${randomUUID()}` },
+    });
+    const original = await db.workflowRevision.create({
+      data: {
+        projectId,
+        definitionId: namedDefinition.id,
+        revision: 1,
+        digest: 'e'.repeat(64),
+        compiledRules: {},
+        definition: { steps: [{ key: stepKey, kind: 'DELIVERY', outputKinds: ['IMPL'] }] },
+      },
+    });
+    const legacyInstance = await db.workflowInstance.create({
+      data: {
+        projectId,
+        definitionId: namedDefinition.id,
+        definitionRevisionId: original.id,
+        requirementId,
+        retiredAt: new Date(),
+      },
+    });
+    const row = await db.task.create({
+      data: {
+        projectId,
+        workflowInstanceId: legacyInstance.id,
+        stepKey,
+        roleId,
+        responsibleUserId: userId,
+      },
+    });
+    const stored = await repository.findTask(row.id);
+    // The legacy revision has no displayName, so callers keep their existing key/label fallback.
+    expect(stored?.stepDisplayName).toBeNull();
+
+    const namedRevision = await db.workflowRevision.create({
+      data: {
+        projectId,
+        definitionId: namedDefinition.id,
+        revision: 2,
+        digest: 'd'.repeat(64),
+        compiledRules: {},
+        definition: {
+          steps: [
+            {
+              key: stepKey,
+              displayName: '实现工作',
+              kind: 'DELIVERY',
+              outputKinds: ['IMPL'],
+            },
+          ],
+        },
+      },
+    });
+    const namedInstance = await db.workflowInstance.create({
+      data: {
+        projectId,
+        definitionId: namedDefinition.id,
+        definitionRevisionId: namedRevision.id,
+        requirementId,
+        retiredAt: new Date(),
+      },
+    });
+    const namedTask = await db.task.create({
+      data: {
+        projectId,
+        workflowInstanceId: namedInstance.id,
+        stepKey,
+        roleId,
+        responsibleUserId: userId,
+      },
+    });
+    expect(await repository.findTask(namedTask.id)).toMatchObject({
+      stepKey,
+      stepDisplayName: '实现工作',
+    });
+    expect((await repository.findTask(row.id))?.stepDisplayName).toBeNull();
+    expect(
+      await db.workflowRevision.findUniqueOrThrow({ where: { id: original.id } }),
+    ).toMatchObject({
+      definition: original.definition,
+      digest: original.digest,
+    });
+  });
+
   it('rejects stale generations and an already active claim without another write', async () => {
     const input = await owned();
     await expect(claim(input.taskId)).rejects.toMatchObject({ message: 'BASELINE_STALE' });

@@ -11,8 +11,6 @@ interface ProjectSelectProps {
   onChange?: (projectId: string) => void;
   /** 空态主操作：当前页面能创建项目时才传；不传时说明等待原因，不留死胡同。 */
   onCreateProject?: () => void;
-  /** 空态次操作：当前页面能接受邀请时才传。 */
-  onAcceptInvite?: () => void;
 }
 
 const NO_ENTRY_HINT = '当前页面没有提供创建或邀请入口，请联系项目管理员，或前往项目列表创建项目。';
@@ -26,7 +24,6 @@ export function ProjectSelect({
   className,
   onChange,
   onCreateProject,
-  onAcceptInvite,
 }: ProjectSelectProps) {
   const {
     projects,
@@ -93,9 +90,7 @@ export function ProjectSelect({
           description="你可以创建项目；如已有项目管理员邀请你，请打开管理员发送的邀请链接加入已有项目。"
           actionLabel={onCreateProject ? '创建项目' : undefined}
           onAction={onCreateProject}
-          secondaryActionLabel={onAcceptInvite ? '接受邀请' : undefined}
-          onSecondaryAction={onAcceptInvite}
-          hint={onCreateProject || onAcceptInvite ? undefined : NO_ENTRY_HINT}
+          hint={onCreateProject ? undefined : NO_ENTRY_HINT}
         />
       </div>
     );

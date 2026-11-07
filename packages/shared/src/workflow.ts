@@ -4,6 +4,25 @@ import type { RolePackageManifest } from './schemas';
 
 export type WorkflowIssue = { path: string; code: string; message: string };
 
+/** Human-facing label kept in the immutable workflow revision; never a task identifier. */
+export type WorkflowStepDisplayName = string;
+export const WORKFLOW_STEP_DISPLAY_NAME_MAX_LENGTH = 120;
+
+/** Resolve a configured label only. Legacy UI labels and the step key remain caller fallbacks. */
+export function workflowStepDisplayNameOf(definition: unknown, stepKey: string): string | null {
+  if (!definition || typeof definition !== 'object' || Array.isArray(definition)) return null;
+  const steps = (definition as { steps?: unknown }).steps;
+  if (!Array.isArray(steps)) return null;
+  const step = steps.find(
+    (candidate) =>
+      candidate &&
+      typeof candidate === 'object' &&
+      !Array.isArray(candidate) &&
+      (candidate as { key?: unknown }).key === stepKey,
+  ) as { displayName?: unknown } | undefined;
+  return typeof step?.displayName === 'string' ? step.displayName : null;
+}
+
 export function validateWorkflowDefinition(value: unknown): {
   valid: boolean;
   issues: WorkflowIssue[];
@@ -62,6 +81,19 @@ export function validateWorkflowDefinition(value: unknown): {
         message: 'step key is duplicated',
       });
     else stepKeys.add(key);
+    if ('displayName' in step) {
+      const displayName = step.displayName;
+      if (
+        typeof displayName !== 'string' ||
+        displayName.trim().length === 0 ||
+        Array.from(displayName.trim()).length > WORKFLOW_STEP_DISPLAY_NAME_MAX_LENGTH
+      )
+        issues.push({
+          path: `/steps/${index}/displayName`,
+          code: 'WORKFLOW_STEP_DISPLAY_NAME_INVALID',
+          message: `步骤显示名称去除首尾空格后必须为 1–${WORKFLOW_STEP_DISPLAY_NAME_MAX_LENGTH} 个字符`,
+        });
+    }
     if (!Array.isArray(step.outputKinds))
       issues.push({
         path: `/steps/${index}/outputKinds`,

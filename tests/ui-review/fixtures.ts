@@ -21,6 +21,7 @@ export const requirement = {
 export const task = {
   id: 'task-1',
   stepKey: 'backend-impl',
+  stepDisplayName: '后端交付',
   role: { key: 'backend', title: '后端' },
   responsibleUser: { id: 'fixture-user', email: 'fixture@example.test' },
   version: 2,
@@ -96,6 +97,7 @@ export const snapshot = {
       requirement: { code: 'DEMO-001', title: requirement.title },
       role: { key: 'backend', title: '后端' },
       stepKey: 'backend-impl',
+      stepDisplayName: '后端交付',
       executionStatus: 'OPEN',
       workStatus: 'ACTIVE',
       ageSeconds: null,
@@ -207,7 +209,7 @@ export async function installReviewFixtures(page: Page) {
           revision: 1,
           digest: 'fixture',
           definition: {
-            steps: [{ key: 'backend-impl', roleKey: 'backend', deps: [] }],
+            steps: [{ key: 'backend-impl', displayName: '后端交付', roleKey: 'backend', deps: [] }],
             roleSlots: [],
           },
         });

@@ -118,6 +118,7 @@ export function Knowledge() {
   const [knowledgeBasesError, setKnowledgeBasesError] = useState('');
   const [activeCollection, setActiveCollection] = useState<KnowledgeBaseKind | null>(null);
   const [projectSearch, setProjectSearch] = useState('');
+  const [projectSearchScope, setProjectSearchScope] = useState<KnowledgeBaseKind | ''>('');
   const [searchResults, setSearchResults] = useState<KnowledgeBaseSearchItem[]>([]);
   const [searchState, setSearchState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [searchError, setSearchError] = useState('');
@@ -169,6 +170,7 @@ export function Knowledge() {
   const readerRef = useRef<HTMLDivElement | null>(null);
 
   const selected = docs.find((item) => item.document.id === selectedId) ?? null;
+  const isReadingDocument = Boolean(content);
   /** 首次加载（还没有任何文档结果）：表格用骨架行，不渲染空态与 0/0 计数。 */
   const docsInitialLoading = Boolean(projectId) && !docsLoaded && docs.length === 0;
   const requirementLabel = (id: string | null | undefined): string => {
@@ -237,6 +239,17 @@ export function Knowledge() {
         : [],
     [activeCollection, knowledgeBases],
   );
+
+  const projectSearchBases = useMemo(
+    () =>
+      projectSearchScope
+        ? knowledgeBases.filter((knowledgeBase) => knowledgeBase.kind === projectSearchScope)
+        : knowledgeBases,
+    [knowledgeBases, projectSearchScope],
+  );
+  const projectSearchScopeLabel = projectSearchScope
+    ? collectionTitle(projectSearchScope)
+    : '全部可访问知识库';
 
   const collectionFilteredDocs = useMemo(
     () =>
@@ -484,7 +497,7 @@ export function Knowledge() {
       setSearchError(knowledgeBasesError || '知识库列表暂时无法读取，无法开始搜索。');
       return;
     }
-    if (knowledgeBases.length === 0) {
+    if (projectSearchBases.length === 0) {
       setSearchState('ready');
       return;
     }
@@ -492,7 +505,7 @@ export function Knowledge() {
     setSearchState('loading');
     const timer = window.setTimeout(() => {
       void Promise.allSettled(
-        knowledgeBases.map((knowledgeBase) =>
+        projectSearchBases.map((knowledgeBase) =>
           knowledgeBaseApi.search(knowledgeBase.id, { q, limit: 50 }),
         ),
       ).then((settled) => {
@@ -502,7 +515,7 @@ export function Knowledge() {
         const failures: string[] = [];
         let truncated = false;
         settled.forEach((result, index) => {
-          const knowledgeBase = knowledgeBases[index];
+          const knowledgeBase = projectSearchBases[index];
           if (result.status === 'rejected') {
             failures.push(knowledgeBase?.name ?? '一个知识库');
             return;
@@ -530,7 +543,8 @@ export function Knowledge() {
   }, [
     projectId,
     projectSearch,
-    knowledgeBases,
+    projectSearchBases,
+    projectSearchScope,
     knowledgeBasesState,
     knowledgeBasesError,
     searchRetry,
@@ -799,6 +813,8 @@ export function Knowledge() {
               setSelectedId('');
               setContent(null);
               setContentLoading(false);
+              setProjectSearch('');
+              setProjectSearchScope('');
               setCompareOldId('');
               setCompareNewId('');
             }}
@@ -851,10 +867,8 @@ export function Knowledge() {
         </div>
       )}
       <section className="knowledge-search-panel" aria-labelledby="knowledge-search-title">
-        <div className="knowledge-search-copy">
-          <span className="knowledge-eyebrow">项目知识入口</span>
+        <div className="knowledge-search-copy sr-only">
           <h3 id="knowledge-search-title">在项目内搜索已发布知识</h3>
-          <p>搜索会覆盖当前可访问的知识库，并返回内容摘要与所属类别。</p>
         </div>
         <label className="knowledge-search-field">
           <span className="sr-only">搜索项目知识</span>
@@ -874,33 +888,24 @@ export function Knowledge() {
             </button>
           )}
         </label>
-        {!projectSearch.trim() && projectId && knowledgeBasesState === 'ready' && (
-          <div className="knowledge-search-browse">
-            <div className="knowledge-search-browse-copy">
-              <strong>不确定关键词？按知识类别浏览</strong>
-              <span>搜索覆盖当前项目内你可访问的知识库，默认查找已发布内容。</span>
-            </div>
-            <div className="knowledge-search-browse-actions" aria-label="按知识类别浏览">
-              {COLLECTIONS.map((collection) => (
-                <button
-                  key={collection.kind}
-                  type="button"
-                  className={
-                    activeCollection === collection.kind
-                      ? 'knowledge-search-category is-active'
-                      : 'knowledge-search-category'
-                  }
-                  aria-label={`按问题浏览：${collection.question}`}
-                  aria-pressed={activeCollection === collection.kind}
-                  onClick={() => setActiveCollection(collection.kind)}
-                >
-                  <span aria-hidden="true">{collection.title}</span>
-                  <small>{collection.question}</small>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        <label className="knowledge-search-scope">
+          <span>搜索范围</span>
+          <select
+            aria-label="知识搜索范围"
+            value={projectSearchScope}
+            onChange={(event) =>
+              setProjectSearchScope(event.target.value as KnowledgeBaseKind | '')
+            }
+            disabled={!projectId || knowledgeBasesState !== 'ready'}
+          >
+            <option value="">全部可访问知识库</option>
+            {COLLECTIONS.map((collection) => (
+              <option key={collection.kind} value={collection.kind}>
+                {collection.title}
+              </option>
+            ))}
+          </select>
+        </label>
         {projectSearch.trim() && (
           <div className="knowledge-search-results" aria-live="polite">
             {searchState === 'loading' && <InlineLoading label="正在搜索可访问的知识库…" />}
@@ -930,16 +935,18 @@ export function Knowledge() {
               <div className="knowledge-empty knowledge-search-empty" role="status">
                 <strong>没有找到匹配的已发布知识</strong>
                 <span>
-                  已搜索当前项目内可访问的知识库。可以更换关键词，或清除搜索后按知识类别浏览。
+                  可以更换关键词或搜索范围，再试一次。搜索只覆盖当前项目内你可访问的知识库。
                 </span>
                 <span className="knowledge-search-empty-scope">
-                  搜索范围：业务事实库 · 系统事实库 · 角色实践库
+                  搜索范围：{projectSearchScopeLabel}
                 </span>
               </div>
             )}
             {searchResults.length > 0 && (
               <>
-                <p className="knowledge-results-heading">搜索结果 · {searchResults.length} 条</p>
+                <p className="knowledge-results-heading">
+                  搜索结果 · {searchResults.length} 条 · {projectSearchScopeLabel}
+                </p>
                 <div className="knowledge-result-list">
                   {searchResults.map((result) => (
                     <button
@@ -976,142 +983,103 @@ export function Knowledge() {
         )}
       </section>
 
-      <section className="knowledge-collections" aria-labelledby="knowledge-collections-title">
-        <div className="knowledge-section-heading">
-          <div>
-            <span className="knowledge-eyebrow">按问题找知识</span>
-            <h3 id="knowledge-collections-title">浏览三类知识</h3>
-          </div>
-          <button
-            type="button"
-            className={activeCollection === null ? 'ghost is-active' : 'ghost'}
-            aria-pressed={activeCollection === null}
-            onClick={() => setActiveCollection(null)}
-          >
-            查看全部
-          </button>
-        </div>
-        <div className="knowledge-collection-grid">
-          {COLLECTIONS.map((collection) => {
-            const collectionBases = knowledgeBases.filter((item) => item.kind === collection.kind);
-            const baseIds = new Set(collectionBases.map((item) => item.id));
-            const collectionDocs = docs.filter((item) =>
-              baseIds.has(item.document.knowledgeBaseId),
-            );
-            // The document endpoint is ordered by its server-provided update order. Keep that
-            // order intact so the card's "最近更新" label remains truthful even when the newest
-            // item is still a candidate revision.
-            const recentDocs = collectionDocs.slice(0, 2);
-            const unavailable = knowledgeBasesState === 'error' && collectionBases.length === 0;
-            return (
-              <article
-                key={collection.kind}
-                className={`knowledge-collection-card knowledge-collection-${collection.kind.toLowerCase()}${activeCollection === collection.kind ? ' is-selected' : ''}`}
-              >
-                <button
-                  type="button"
-                  className="knowledge-collection-card-main"
-                  aria-pressed={activeCollection === collection.kind}
-                  onClick={() => setActiveCollection(collection.kind)}
+      {!activeCollection && !isReadingDocument && (
+        <section className="knowledge-collections" aria-labelledby="knowledge-collections-title">
+          <h3 id="knowledge-collections-title" className="sr-only">
+            浏览三类知识
+          </h3>
+          <div className="knowledge-collection-grid">
+            {COLLECTIONS.map((collection) => {
+              const collectionBases = knowledgeBases.filter(
+                (item) => item.kind === collection.kind,
+              );
+              const baseIds = new Set(collectionBases.map((item) => item.id));
+              const collectionDocs = docs.filter((item) =>
+                baseIds.has(item.document.knowledgeBaseId),
+              );
+              // The document endpoint is ordered by its server-provided update order. Keep that
+              // order intact so the card's "最近更新" label remains truthful even when the newest
+              // item is still a candidate revision.
+              const recentDocs = collectionDocs.slice(0, 2);
+              const unavailable = knowledgeBasesState === 'error' && collectionBases.length === 0;
+              return (
+                <article
+                  key={collection.kind}
+                  className={`knowledge-collection-card knowledge-collection-${collection.kind.toLowerCase()}${activeCollection === collection.kind ? ' is-selected' : ''}`}
                 >
-                  <span className="knowledge-collection-topline">
-                    <span className="knowledge-collection-marker" aria-hidden="true">
-                      {collection.marker}
+                  <button
+                    type="button"
+                    className="knowledge-collection-card-main"
+                    aria-pressed={activeCollection === collection.kind}
+                    onClick={() => setActiveCollection(collection.kind)}
+                  >
+                    <span className="knowledge-collection-topline">
+                      <span className="knowledge-collection-marker" aria-hidden="true">
+                        {collection.marker}
+                      </span>
+                      <span className="knowledge-collection-title">{collection.title}</span>
+                      <span className="knowledge-collection-arrow" aria-hidden="true">
+                        ↗
+                      </span>
                     </span>
-                    <span className="knowledge-collection-title">{collection.title}</span>
-                    <span className="knowledge-collection-arrow" aria-hidden="true">
-                      ↗
+                    <strong className="knowledge-collection-question">{collection.question}</strong>
+                    <span className="knowledge-collection-docs">
+                      {knowledgeBasesState === 'loading' || docsInitialLoading
+                        ? '正在读取…'
+                        : unavailable
+                          ? '类别信息暂时无法读取'
+                          : collectionBases.length === 0
+                            ? '当前没有可浏览的此类内容'
+                            : `${collectionDocs.length} 篇可浏览文档`}
                     </span>
-                  </span>
-                  <strong className="knowledge-collection-question">{collection.question}</strong>
-                  <span className="knowledge-collection-examples">{collection.examples}</span>
-                  <span className="knowledge-collection-docs">
-                    {knowledgeBasesState === 'loading' || docsInitialLoading
-                      ? '正在读取…'
-                      : unavailable
-                        ? '类别信息暂时无法读取'
-                        : collectionBases.length === 0
-                          ? '当前没有可浏览的此类内容'
-                          : `${collectionDocs.length} 篇可浏览文档`}
-                  </span>
-                  <span className="knowledge-collection-action">浏览此类文档</span>
-                </button>
-                {recentDocs.length > 0 && (
-                  <div className="knowledge-featured-docs">
-                    <span className="knowledge-featured-caption">最近更新</span>
-                    {recentDocs.map((item) => {
-                      const revision = item.publishedRevision ?? item.revisions[0];
-                      return (
-                        <button
-                          type="button"
-                          className="knowledge-featured-item"
-                          key={item.document.id}
-                          onClick={() => openDocument(item)}
-                          disabled={!revision}
-                        >
-                          <span>{revision?.title ?? '未命名文档'}</span>
-                          <small>
-                            {item.publishedRevision
-                              ? `当前生效 · v${item.publishedRevision.seq} · 阅读`
-                              : revision
-                                ? `候选 · 尚未生效 · 查看`
-                                : '暂无可读取版本'}
-                          </small>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </article>
-            );
-          })}
-        </div>
-        {knowledgeBasesState === 'error' && knowledgeBasesError && (
-          <p className="kb-notice" role="status">
-            {knowledgeBasesError}
-          </p>
-        )}
-      </section>
+                  </button>
+                  {recentDocs.length > 0 && (
+                    <details className="knowledge-featured-docs">
+                      <summary className="knowledge-featured-caption">最近更新</summary>
+                      {recentDocs.map((item) => {
+                        const revision = item.publishedRevision ?? item.revisions[0];
+                        return (
+                          <button
+                            type="button"
+                            className="knowledge-featured-item"
+                            key={item.document.id}
+                            onClick={() => openDocument(item)}
+                            disabled={!revision}
+                          >
+                            <span>{revision?.title ?? '未命名文档'}</span>
+                            <small>
+                              {item.publishedRevision
+                                ? `当前生效 · v${item.publishedRevision.seq} · 阅读`
+                                : revision
+                                  ? `候选 · 尚未生效 · 查看`
+                                  : '暂无可读取版本'}
+                            </small>
+                          </button>
+                        );
+                      })}
+                    </details>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+          {knowledgeBasesState === 'error' && knowledgeBasesError && (
+            <p className="kb-notice" role="status">
+              {knowledgeBasesError}
+            </p>
+          )}
+        </section>
+      )}
 
-      {activeCollection && activeCollectionInfo && (
+      {activeCollection && activeCollectionInfo && !isReadingDocument && (
         <section
           className={`knowledge-collection-context knowledge-collection-${activeCollection.toLowerCase()}`}
           aria-labelledby="knowledge-collection-context-title"
           data-testid="knowledge-collection-context"
         >
           <div className="knowledge-collection-context-copy">
-            <span className="knowledge-eyebrow">当前知识集合</span>
             <h3 id="knowledge-collection-context-title">{activeCollectionInfo.title}</h3>
             <p className="knowledge-collection-context-question">{activeCollectionInfo.question}</p>
-            <p className="knowledge-collection-context-examples">{activeCollectionInfo.examples}</p>
-          </div>
-          <div className="knowledge-collection-context-details">
-            <p>
-              <strong>浏览范围</strong>
-              <span>当前项目中你有权访问的{activeCollectionInfo.title}</span>
-            </p>
-            <p>
-              <strong>库内知识库</strong>
-              <span>
-                {knowledgeBasesState === 'loading'
-                  ? '正在读取知识库…'
-                  : knowledgeBasesState === 'error' && activeCollectionBases.length === 0
-                    ? '知识库范围暂时无法确认'
-                    : activeCollectionBases.length > 0
-                      ? activeCollectionBases.map((base) => base.name).join('、')
-                      : '当前没有可浏览的此类知识库'}
-              </span>
-            </p>
-            <p>
-              <strong>当前列表</strong>
-              <span>
-                {docsLoading
-                  ? '正在读取文档…'
-                  : documentIndexFailed
-                    ? `${collectionFilteredDocs.length} 篇已读取，列表可能不完整`
-                    : `${collectionFilteredDocs.length} 篇符合当前筛选`}
-              </span>
-            </p>
           </div>
           <button
             type="button"
@@ -1120,16 +1088,41 @@ export function Knowledge() {
           >
             查看全部知识
           </button>
+          <details className="knowledge-collection-context-more">
+            <summary>集合信息</summary>
+            <p className="knowledge-collection-context-examples">{activeCollectionInfo.examples}</p>
+            <div className="knowledge-collection-context-details">
+              <p>
+                <strong>浏览范围</strong>
+                <span>当前项目中你有权访问的{activeCollectionInfo.title}</span>
+              </p>
+              <p>
+                <strong>库内知识库</strong>
+                <span>
+                  {knowledgeBasesState === 'loading'
+                    ? '正在读取知识库…'
+                    : knowledgeBasesState === 'error' && activeCollectionBases.length === 0
+                      ? '知识库范围暂时无法确认'
+                      : activeCollectionBases.length > 0
+                        ? activeCollectionBases.map((base) => base.name).join('、')
+                        : '当前没有可浏览的此类知识库'}
+                </span>
+              </p>
+              <p>
+                <strong>当前列表</strong>
+                <span>
+                  {docsLoading
+                    ? '正在读取文档…'
+                    : documentIndexFailed
+                      ? `${collectionFilteredDocs.length} 篇已读取，列表可能不完整`
+                      : `${collectionFilteredDocs.length} 篇符合当前筛选`}
+                </span>
+              </p>
+            </div>
+          </details>
         </section>
       )}
 
-      {activeCollection === 'SYSTEM' && (
-        <KnowledgeSystemRelations
-          projectId={projectId}
-          loadUnits={projectApi.units}
-          loadDependencies={projectApi.unitDependencies}
-        />
-      )}
       {selected &&
         (query.trim() !== '' || kindFilter !== '' || activeCollection !== null) &&
         !collectionFilteredDocs.some((item) => item.document.id === selected.document.id) && (
@@ -1138,7 +1131,173 @@ export function Knowledge() {
           </p>
         )}
 
-      {docs.length > 0 && (
+      {!isReadingDocument && (
+        <div className="table-card">
+          <div className="card-head">
+            <h3>
+              文档
+              <small>
+                {docsInitialLoading
+                  ? '加载中…'
+                  : `${collectionFilteredDocs.length} / ${docs.length}`}
+              </small>
+            </h3>
+            <div className="knowledge-table-scope" aria-live="polite">
+              <span className="knowledge-scope-label">当前范围</span>
+              {activeCollection ? (
+                <button
+                  type="button"
+                  className="knowledge-scope-chip"
+                  onClick={() => setActiveCollection(null)}
+                  aria-label={`移除${collectionTitle(activeCollection)}范围`}
+                >
+                  {collectionTitle(activeCollection)} ×
+                </button>
+              ) : (
+                <span className="knowledge-scope-chip is-all">全部知识库</span>
+              )}
+            </div>
+            <div className="card-head-actions req-list-tools">
+              {docsLoading && (
+                <InlineLoading label={docsInitialLoading ? '正在加载文档…' : '正在刷新文档…'} />
+              )}
+              {requirementIndexLoading && !docsLoading && (
+                <InlineLoading label="正在读取需求索引…" />
+              )}
+              <input
+                aria-label="搜索文档"
+                placeholder="筛选当前列表（标题 / 需求 / 类型）"
+                title="仅筛选当前已加载文档的标题、类型、版本与需求关联，不搜索正文。"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              <select
+                aria-label="文档类型筛选"
+                value={kindFilter}
+                onChange={(event) => setKindFilter(event.target.value)}
+              >
+                <option value="">全部类型</option>
+                {Object.entries(KIND_LABELS).map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="collection-document-list" aria-label="文档列表">
+            {docsInitialLoading ? (
+              <div className="collection-document-loading">
+                <SkeletonLines lines={5} />
+              </div>
+            ) : visibleDocs.length > 0 ? (
+              visibleDocs.map((item) => {
+                const latest = item.publishedRevision ?? item.revisions[0] ?? null;
+                const knowledgeBase = knowledgeBaseForDocument(item.document, knowledgeBases);
+                return (
+                  <article
+                    key={item.document.id}
+                    className={`collection-document-item${selectedId === item.document.id ? ' is-selected' : ''}`}
+                  >
+                    <button
+                      type="button"
+                      className="collection-document-body"
+                      onClick={() => openDocument(item)}
+                      disabled={!latest}
+                    >
+                      <strong className="collection-document-title">
+                        {latest?.title ?? '未命名文档'}
+                      </strong>
+                      <span className="collection-document-meta">
+                        <span>
+                          {knowledgeBase ? collectionTitle(knowledgeBase.kind) : '类别暂不可用'}
+                        </span>
+                        <span>{knowledgeBase?.name ?? '知识库名称暂不可用'}</span>
+                        <span>{KIND_LABELS[item.document.kind]}</span>
+                        <span
+                          className={item.publishedRevision ? 'collection-document-status' : ''}
+                        >
+                          {item.publishedRevision
+                            ? `当前生效 · v${item.publishedRevision.seq}`
+                            : latest
+                              ? `候选 · 尚未生效 · v${latest.seq}`
+                              : '暂无正文'}
+                        </span>
+                      </span>
+                    </button>
+                    <div className="collection-document-actions">
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={() => openDocument(item)}
+                        disabled={!latest}
+                      >
+                        {item.publishedRevision
+                          ? '阅读当前版本'
+                          : latest
+                            ? '查看最新候选'
+                            : '暂无正文'}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => openDocumentGovernance(item.document.id)}
+                      >
+                        {selectedId === item.document.id ? '版本与评审（当前）' : '查看版本'}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })
+            ) : (
+              <p className="collection-document-empty" role="status">
+                {!projectId
+                  ? '先选择项目。'
+                  : docs.length === 0 && documentIndexError
+                    ? '文档列表读取失败或未完整加载，暂时无法判断是否有文档。'
+                    : docs.length === 0
+                      ? '该项目还没有文档，等待本地 Agent 提交候选。'
+                      : '没有匹配的文档，清空搜索或类型筛选。'}
+              </p>
+            )}
+          </div>
+          {collectionFilteredDocs.length > PAGE_SIZE && (
+            <div className="table-pagination">
+              <span>
+                第 {page} / {pageCount} 页 · 共 {collectionFilteredDocs.length} 条
+              </span>
+              <div>
+                <button
+                  className="ghost"
+                  disabled={page <= 1}
+                  onClick={() => setPage((value) => Math.max(1, value - 1))}
+                >
+                  上一页
+                </button>
+                <button
+                  className="ghost"
+                  disabled={page >= pageCount}
+                  onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeCollection === 'SYSTEM' && !isReadingDocument && (
+        <details className="collection-relations">
+          <summary>查看系统关系</summary>
+          <KnowledgeSystemRelations
+            projectId={projectId}
+            loadUnits={projectApi.units}
+            loadDependencies={projectApi.unitDependencies}
+          />
+        </details>
+      )}
+      {docs.length > 0 && !isReadingDocument && (
         <details className="knowledge-governance-note">
           <summary>了解知识内容如何产生</summary>
           <div className="page-card muted">
@@ -1149,262 +1308,86 @@ export function Knowledge() {
         </details>
       )}
 
-      {!docsLoading && !docsInitialLoading && docs.length === 0 && !documentIndexFailed && (
-        <div className="table-card knowledge-agent-guide" data-testid="knowledge-agent-guide">
-          <div className="card-head">
-            <h3>如何让 Agent 产出第一份文档</h3>
-          </div>
-          <div className="page-card muted">
-            <p
-              role={rolesState === 'loading' ? 'status' : undefined}
-              aria-busy={rolesState === 'loading'}
-            >
-              <strong>当前项目可用角色：</strong>
-              {rolesState === 'loading'
-                ? '正在读取角色…'
-                : rolesState === 'error'
-                  ? '角色读取失败，暂时无法判断可用角色。'
-                  : roles.length === 0
-                    ? '当前项目没有可用业务角色。'
-                    : roles.map((role) => (
-                        <span className="status-tag" key={role.id}>
-                          {role.title}
-                          {role.key ? `（${role.key}）` : ''}
-                        </span>
-                      ))}
-            </p>
-            <p
-              role={readyState === 'loading' ? 'status' : undefined}
-              aria-busy={readyState === 'loading'}
-            >
-              <strong>可开工任务：</strong>
-              {readyState === 'loading' ? (
-                '正在读取可开工任务…'
-              ) : readyState === 'error' ? (
-                '可开工任务读取失败，请稍后重试或打开工作台。'
-              ) : readyTasks.length === 0 ? (
-                '当前项目没有可开工任务。'
-              ) : (
-                <>
-                  {readyTasks.length} 项可开工任务。{' '}
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() =>
-                      navigate(`/?type=ready&project=${encodeURIComponent(projectId)}`)
-                    }
-                  >
-                    查看可开工任务
-                  </button>
-                </>
-              )}
-            </p>
-            <p>
-              <strong>CLI 初始化与任务流程：</strong>
-              <code>workmesh auth login</code>
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => {
-                  void navigator.clipboard
-                    ?.writeText('workmesh auth login')
-                    .then(() => setCommandCopied(true))
-                    .catch(() => setCommandCopied(false));
-                }}
+      {!isReadingDocument &&
+        !docsLoading &&
+        !docsInitialLoading &&
+        docs.length === 0 &&
+        !documentIndexFailed && (
+          <details className="table-card knowledge-agent-guide" data-testid="knowledge-agent-guide">
+            <summary className="card-head">如何让 Agent 产出第一份文档</summary>
+            <div className="page-card muted">
+              <p
+                role={rolesState === 'loading' ? 'status' : undefined}
+                aria-busy={rolesState === 'loading'}
               >
-                {commandCopied ? '已复制' : '复制初始化命令'}
-              </button>
-            </p>
-            <p className="page-sub">
-              认领：<code>workmesh claim --task &lt;taskId&gt; --json</code>；读取上下文：
-              <code>
-                workmesh context --task &lt;taskId&gt; --claim &lt;claimId&gt; --expected-version
-                &lt;n&gt; --materialize --json
-              </code>
-              ；交付：<code>workmesh deliver ...</code>（参数见 CLI 帮助）。文档仍由 Agent
-              生成和提交，本页不提供手工创建文档入口。
-            </p>
-          </div>
-        </div>
-      )}
-
-      <div className="table-card">
-        <div className="card-head">
-          <h3>
-            文档
-            <small>
-              {docsInitialLoading ? '加载中…' : `${collectionFilteredDocs.length} / ${docs.length}`}
-            </small>
-          </h3>
-          <div className="knowledge-table-scope" aria-live="polite">
-            <span className="knowledge-scope-label">当前范围</span>
-            {activeCollection ? (
-              <button
-                type="button"
-                className="knowledge-scope-chip"
-                onClick={() => setActiveCollection(null)}
-                aria-label={`移除${collectionTitle(activeCollection)}范围`}
-              >
-                {collectionTitle(activeCollection)} ×
-              </button>
-            ) : (
-              <span className="knowledge-scope-chip is-all">全部知识库</span>
-            )}
-          </div>
-          <div className="card-head-actions req-list-tools">
-            {docsLoading && (
-              <InlineLoading label={docsInitialLoading ? '正在加载文档…' : '正在刷新文档…'} />
-            )}
-            {requirementIndexLoading && !docsLoading && <InlineLoading label="正在读取需求索引…" />}
-            <input
-              aria-label="搜索文档"
-              placeholder="搜索标题 / 需求"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            <select
-              aria-label="文档类型筛选"
-              value={kindFilter}
-              onChange={(event) => setKindFilter(event.target.value)}
-            >
-              <option value="">全部类型</option>
-              {Object.entries(KIND_LABELS).map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>知识库</th>
-                <th>类型</th>
-                <th>文档 / 最新版本</th>
-                <th>绑定需求</th>
-                <th>文档版本</th>
-                <th>候选</th>
-                <th className="col-actions">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {docsInitialLoading ? (
-                <TableSkeletonRows rows={5} columns={7} />
-              ) : (
-                <>
-                  {visibleDocs.map((item) => {
-                    const latest = item.publishedRevision ?? item.revisions[0] ?? null;
-                    const knowledgeBase = knowledgeBaseForDocument(item.document, knowledgeBases);
-                    return (
-                      <tr
-                        key={item.document.id}
-                        className={selectedId === item.document.id ? 'is-selected' : undefined}
-                      >
-                        <td>
-                          <span className="knowledge-source-stack">
-                            <span className="status-tag knowledge-source-tag">
-                              {knowledgeBase ? collectionTitle(knowledgeBase.kind) : '类别暂不可用'}
-                            </span>
-                            <small>{knowledgeBase?.name ?? '知识库名称暂不可用'}</small>
+                <strong>当前项目可用角色：</strong>
+                {rolesState === 'loading'
+                  ? '正在读取角色…'
+                  : rolesState === 'error'
+                    ? '角色读取失败，暂时无法判断可用角色。'
+                    : roles.length === 0
+                      ? '当前项目没有可用业务角色。'
+                      : roles.map((role) => (
+                          <span className="status-tag" key={role.id}>
+                            {role.title}
+                            {role.key ? `（${role.key}）` : ''}
                           </span>
-                        </td>
-                        <td>
-                          <span className="status-tag">{KIND_LABELS[item.document.kind]}</span>
-                        </td>
-                        <td>
-                          {latest ? (
-                            <button
-                              type="button"
-                              className="knowledge-document-link"
-                              onClick={() => openDocument(item)}
-                            >
-                              {latest.title}
-                            </button>
-                          ) : (
-                            <strong>未命名文档</strong>
-                          )}
-                          <div className="task-row-meta">
-                            {item.publishedRevision
-                              ? `已发布 v${item.publishedRevision.seq}`
-                              : latest
-                                ? `最新候选 v${latest.seq}`
-                                : '还没有修订'}
-                          </div>
-                        </td>
-                        <td>{requirementLabel(item.document.requirementId)}</td>
-                        <td className="cell-num">v{item.document.version}</td>
-                        <td className="cell-num">
-                          {
-                            item.revisions.filter((revision) => revision.state === 'CANDIDATE')
-                              .length
-                          }
-                        </td>
-                        <td className="col-actions">
-                          <button
-                            className="primary"
-                            onClick={() => openDocument(item)}
-                            disabled={!latest}
-                          >
-                            {item.publishedRevision
-                              ? '阅读当前版本'
-                              : latest
-                                ? '查看最新候选'
-                                : '暂无正文'}
-                          </button>
-                          <button
-                            className="ghost"
-                            onClick={() => openDocumentGovernance(item.document.id)}
-                          >
-                            {selectedId === item.document.id ? '版本与评审（当前）' : '查看版本'}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {visibleDocs.length === 0 && (
-                    <tr className="table-empty">
-                      <td colSpan={7}>
-                        {!projectId
-                          ? '先选择项目。'
-                          : docs.length === 0 && documentIndexError
-                            ? '文档列表读取失败或未完整加载，暂时无法判断是否有文档。'
-                            : docs.length === 0
-                              ? '该项目还没有文档，等待本地 Agent 提交候选。'
-                              : '没有匹配的文档，清空搜索或类型筛选。'}
-                      </td>
-                    </tr>
-                  )}
-                </>
-              )}
-            </tbody>
-          </table>
-        </div>
-        {collectionFilteredDocs.length > PAGE_SIZE && (
-          <div className="table-pagination">
-            <span>
-              第 {page} / {pageCount} 页 · 共 {collectionFilteredDocs.length} 条
-            </span>
-            <div>
-              <button
-                className="ghost"
-                disabled={page <= 1}
-                onClick={() => setPage((value) => Math.max(1, value - 1))}
+                        ))}
+              </p>
+              <p
+                role={readyState === 'loading' ? 'status' : undefined}
+                aria-busy={readyState === 'loading'}
               >
-                上一页
-              </button>
-              <button
-                className="ghost"
-                disabled={page >= pageCount}
-                onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
-              >
-                下一页
-              </button>
+                <strong>可开工任务：</strong>
+                {readyState === 'loading' ? (
+                  '正在读取可开工任务…'
+                ) : readyState === 'error' ? (
+                  '可开工任务读取失败，请稍后重试或打开工作台。'
+                ) : readyTasks.length === 0 ? (
+                  '当前项目没有可开工任务。'
+                ) : (
+                  <>
+                    {readyTasks.length} 项可开工任务。{' '}
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() =>
+                        navigate(`/?type=ready&project=${encodeURIComponent(projectId)}`)
+                      }
+                    >
+                      查看可开工任务
+                    </button>
+                  </>
+                )}
+              </p>
+              <p>
+                <strong>CLI 初始化与任务流程：</strong>
+                <code>workmesh auth login</code>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    void navigator.clipboard
+                      ?.writeText('workmesh auth login')
+                      .then(() => setCommandCopied(true))
+                      .catch(() => setCommandCopied(false));
+                  }}
+                >
+                  {commandCopied ? '已复制' : '复制初始化命令'}
+                </button>
+              </p>
+              <p className="page-sub">
+                认领：<code>workmesh claim --task &lt;taskId&gt; --json</code>；读取上下文：
+                <code>
+                  workmesh context --task &lt;taskId&gt; --claim &lt;claimId&gt; --expected-version
+                  &lt;n&gt; --materialize --json
+                </code>
+                ；交付：<code>workmesh deliver ...</code>（参数见 CLI 帮助）。文档仍由 Agent
+                生成和提交，本页不提供手工创建文档入口。
+              </p>
             </div>
-          </div>
+          </details>
         )}
-      </div>
 
       {contentLoading && !content && (
         <div className="table-card" data-testid="knowledge-content-loading">
@@ -1419,13 +1402,20 @@ export function Knowledge() {
       {content && (
         <div className="table-card knowledge-workspace-reader" ref={readerRef} tabIndex={-1}>
           <div className="card-head">
-            <h3>
-              {contentRevision?.title ?? selected?.publishedRevision?.title ?? '文档内容'}
-              <small>{contentVersionLabel}</small>
-            </h3>
-            <span className="card-head-actions">
-              <small className="cell-mono">sha256 {content.sha256}</small>
-            </span>
+            <div className="knowledge-reader-heading">
+              <nav className="knowledge-reader-breadcrumb" aria-label="当前位置">
+                <button type="button" className="ghost" onClick={() => selectDocument('')}>
+                  ← 返回{activeCollection ? collectionTitle(activeCollection) : '知识库'}
+                </button>
+                <span aria-hidden="true">/</span>
+                <span>{activeCollection ? collectionTitle(activeCollection) : '全部知识库'}</span>
+                {selectedKnowledgeBase && <span>{selectedKnowledgeBase.name}</span>}
+              </nav>
+              <h3>
+                {contentRevision?.title ?? selected?.publishedRevision?.title ?? '文档内容'}
+                <small>{contentVersionLabel}</small>
+              </h3>
+            </div>
           </div>
           <MarkdownReader text={content.text} />
           {content.baseText !== undefined && (
@@ -1495,6 +1485,12 @@ export function Knowledge() {
                       : '未记录理解基线'}
                 </dd>
               </div>
+              {content && (
+                <div>
+                  <dt>正文 SHA-256</dt>
+                  <dd className="knowledge-integrity-hash">{content.sha256}</dd>
+                </div>
+              )}
             </dl>
           </details>
           <div className="table-scroll">

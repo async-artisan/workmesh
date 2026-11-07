@@ -5,10 +5,13 @@
 ## 使用与部署
 
 - [项目介绍与快速开始](../README.md)：产品边界、能力和最短运行路径。
+- [开始使用](getting-started.md)：面向第一次使用者的最短启动、CLI 闭环和验证路径。
 - [本地运行](local-dev.md)：Windows 开发环境与本机演示说明。
 - [一个盒子](box.md)：运行检查、备份、恢复及安装边界。
 - [部署说明](deployment.md)：服务端配置、数据库迁移与启动。
+- [运行保障](operations.md)：健康探针、优雅停机、日志、指标、备份恢复和生产观测边界。
 - [发布与升级验收](releasing.md)：发布前检查与升级边界。
+- [支持矩阵](support-matrix.md)：运行时、平台、制品和运营场景的支持口径。
 - [API 清单](api.md)：现行接口、权限和操作约定。
 - [角色包构建与安装](../packages/role-packages/README.md)：维护、构建和安装六个内置角色包。
 
@@ -18,7 +21,28 @@
 - [开发计划](dev-plan.md)：尚未完成的功能与后续工作。
 - [外部阻塞项](../BLOCKED.md)：仍需外部环境、目标或证据的工作。
 
+## 运营与验收模板
+
+- [GitHub 仓库设置核验](operations/github-settings-verification.md)：由管理员记录实际设置和证据。
+- [维护职责与交接矩阵](operations/maintenance-roles.md)：指定维护、发布、恢复和安全响应责任人。
+- [运维演练记录模板](operations/game-day-record-template.md)：记录迁移、备份恢复、回滚和故障演练。
+- [外部团队验收记录](operations/external-team-acceptance-template.md)：记录真实外部团队的授权、过程和签字。
+- [安全事件响应记录](security/incident-response-template.md)：在受控系统记录分级、修复、披露和复盘。
+- [2026-11-07 依赖审计记录](security/dependency-audit-2026-11-07.md)：工作区审计、实际制品版本及尚未关闭的处置要求。
+
 测试结果以具体报告记录的日期、环境与版本为准；文档存在不等于该能力已实现或已通过验收。
+
+## 贡献与治理
+
+- [社区入口与路线图](community/README.md)：选择提问/报告渠道，并查看路线图、issue 分流和兼容性口径。
+- [路线图](community/roadmap.md)：按阶段列出项目当前方向，不承诺发布日期。
+- [Issue 分流](community/triage.md)：报告缺陷、功能提案和维护者排序依据。
+- [版本与兼容性](community/compatibility.md)：运行时基线、制品边界、迁移和弃用口径。
+- [贡献指南](../CONTRIBUTING.md)：开发环境、验证命令、提交和 PR 约定。
+- [治理说明](../GOVERNANCE.md)：日常决策、发布决定、争议处理和维护者交接。
+- [维护者](../MAINTAINERS.md)：当前维护入口、职责和联系路径。
+- [安全政策](../SECURITY.md)：漏洞报告、披露和部署者责任。
+- [社区行为准则](../CODE_OF_CONDUCT.md)：参与 issue、PR 和讨论时适用的规则。
 
 ## 架构与设计
 
@@ -33,8 +57,12 @@
 
 ## 验收记录
 
+- [质量基线记录模板](testing/quality-baseline-template.md)：记录无障碍、浏览器兼容性、性能与容量验收；模板本身不是验收结果。
 - [2026-11-03 工程整改验证](testing/remediation-verification-2026-11-03.md)。
 - [2026-11-03 本机部署与团队使用验收](testing/team-acceptance-2026-11-03.md)。
+- [2026-11-07 制品 SBOM 验证](testing/artifact-sbom-validation-2026-11-07.md)：实际 ZIP 输入绑定、部分组件清单及完整覆盖缺口。
+- [2026-11-07 Windows Box 生命周期验证](testing/box-lifecycle-validation-2026-11-07.md)：真实 ZIP 安装、冷启动、备份与恢复，以及检查器回归和证据边界。
+- [2026-11-07 浏览器 QA 人工验收](testing/browser-qa-acceptance-2026-11-07.md)：真实 Agent 交付、浏览器密码签字与持久化，以及仍未完成的实现和发布范围。
 
 ## 参考与历史
 

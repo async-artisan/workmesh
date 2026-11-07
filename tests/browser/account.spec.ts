@@ -10,9 +10,10 @@ test('real registration, cookie session, lazy pages, reload and logout', async (
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/register');
-  await page.getByLabel('姓名', { exact: true }).fill('Browser acceptance');
+  await page.getByLabel('姓名（可选）', { exact: true }).fill('Browser acceptance');
   await page.getByLabel('邮箱', { exact: true }).fill(email);
   await page.getByLabel('密码', { exact: true }).fill(password);
+  await page.getByLabel('确认密码', { exact: true }).fill(password);
   await page.getByRole('button', { name: '注册', exact: true }).click();
   await expect(page.getByRole('button', { name: `账号菜单：${email}` })).toBeVisible();
   const session = (await context.cookies()).find((cookie) => cookie.name === 'wm_session');

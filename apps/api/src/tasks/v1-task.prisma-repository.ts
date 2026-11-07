@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
-import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
+import { V1_ERROR_CODES, WorkmeshError, workflowStepDisplayNameOf } from '@workmesh/shared';
 import { PrismaClient as V1PrismaClient } from '../../../node_modules/.prisma/workmesh-v1-client';
 type V1TransactionClient = Omit<
   V1PrismaClient,
@@ -56,7 +56,8 @@ export class V1TaskPrismaRepository implements V1TaskRepository {
         };
       }
     }
-    return this.toSnapshot(task, currentClaim);
+    const stepDisplayName = await this.stepDisplayNameFor(this.prisma, task);
+    return this.toSnapshot(task, currentClaim, stepDisplayName);
   }
 
   async findWorkflowStepContract(taskId: string) {
@@ -422,12 +423,14 @@ export class V1TaskPrismaRepository implements V1TaskRepository {
       currentClaimId: string | null;
     },
     currentClaim: V1TaskSnapshot['currentClaim'],
+    stepDisplayName: string | null = null,
   ): V1TaskSnapshot {
     return {
       id: task.id,
       projectId: task.projectId,
       workflowInstanceId: task.workflowInstanceId,
       stepKey: task.stepKey,
+      stepDisplayName,
       roleId: task.roleId,
       responsibleUserId: task.responsibleUserId,
       version: task.version,
@@ -458,6 +461,23 @@ export class V1TaskPrismaRepository implements V1TaskRepository {
         };
       }
     }
-    return this.toSnapshot(task, currentClaim);
+    const stepDisplayName = await this.stepDisplayNameFor(tx, task);
+    return this.toSnapshot(task, currentClaim, stepDisplayName);
+  }
+
+  private async stepDisplayNameFor(
+    client: Pick<PrismaService, 'workflowInstance' | 'workflowRevision'>,
+    task: { workflowInstanceId: string; projectId: string; stepKey: string },
+  ): Promise<string | null> {
+    const instance = await client.workflowInstance.findUnique({
+      where: { id: task.workflowInstanceId },
+      select: { definitionRevisionId: true },
+    });
+    if (!instance?.definitionRevisionId) return null;
+    const revision = await client.workflowRevision.findFirst({
+      where: { id: instance.definitionRevisionId, projectId: task.projectId },
+      select: { definition: true },
+    });
+    return workflowStepDisplayNameOf(revision?.definition, task.stepKey);
   }
 }

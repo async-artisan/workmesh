@@ -13,10 +13,7 @@
     "turns": 5,
     "toolCalls": 4,
     "elapsedMs": 5818,
-    "testExitCodes": [
-      1,
-      0
-    ]
+    "testExitCodes": [1, 0]
   },
   "http": {
     "readyTaskFound": true,
@@ -60,10 +57,7 @@
     "turns": 5,
     "toolCalls": 4,
     "elapsedMs": 5818,
-    "testExitCodes": [
-      1,
-      0
-    ],
+    "testExitCodes": [1, 0],
     "error": null,
     "assistantResponses": [
       {

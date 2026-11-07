@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { Principal } from '@workmesh/shared';
+import { workflowStepDisplayNameOf, type Principal } from '@workmesh/shared';
 import { V1AuthorizationService } from '../auth/v1-authorization';
 import { PrismaService } from '../prisma/prisma.service';
 import { V1ReviewService } from '../reviews/v1-review.service';
@@ -21,6 +21,7 @@ export type WorkbenchReviewItem = {
   projectName: string;
   requirement: WorkbenchRequirement | null;
   subjectLabel: string;
+  stepDisplayName?: string | null;
   role: WorkbenchRole | null;
   slots: Array<{
     id: string;
@@ -63,6 +64,7 @@ export type WorkbenchReadyTaskItem = {
   requirement: WorkbenchRequirement | null;
   role: { key: string; title: string } | null;
   stepKey: string;
+  stepDisplayName?: string | null;
   executionStatus: string;
   workStatus: string;
   ageSeconds: number | null;
@@ -258,7 +260,7 @@ export class V1WorkbenchService {
     if (items.length === 0) return [];
 
     const reviewIds = items.map((item) => item.id);
-    const revisionIds = [
+    const documentRevisionIds = [
       ...new Set(
         items.flatMap((item) => (item.documentRevisionId ? [item.documentRevisionId] : [])),
       ),
@@ -273,9 +275,9 @@ export class V1WorkbenchService {
         where: { id: { in: reviewIds } },
         select: { id: true, createdAt: true },
       }),
-      revisionIds.length
+      documentRevisionIds.length
         ? this.prisma.documentRevision.findMany({
-            where: { id: { in: revisionIds } },
+            where: { id: { in: documentRevisionIds } },
             select: { id: true, title: true, document: { select: { requirementId: true } } },
           })
         : Promise.resolve([]),
@@ -287,7 +289,10 @@ export class V1WorkbenchService {
               stepKey: true,
               roleId: true,
               instance: {
-                select: { requirement: { select: { code: true, title: true } } },
+                select: {
+                  definitionRevisionId: true,
+                  requirement: { select: { code: true, title: true } },
+                },
               },
             },
           })
@@ -341,8 +346,24 @@ export class V1WorkbenchService {
       : [];
 
     const createdAtById = new Map(createdRows.map((row) => [row.id, row.createdAt]));
-    const revisionById = new Map(revisions.map((revision) => [revision.id, revision]));
+    const documentRevisionById = new Map(revisions.map((revision) => [revision.id, revision]));
     const taskById = new Map(tasks.map((task) => [task.id, task]));
+    const workflowRevisionIds = [
+      ...new Set(
+        tasks.flatMap((task) =>
+          task.instance.definitionRevisionId ? [task.instance.definitionRevisionId] : [],
+        ),
+      ),
+    ];
+    const workflowRevisions = workflowRevisionIds.length
+      ? await this.prisma.workflowRevision.findMany({
+          where: { id: { in: workflowRevisionIds }, projectId: project.id },
+          select: { id: true, definition: true },
+        })
+      : [];
+    const workflowDefinitionByRevision = new Map(
+      workflowRevisions.map((revision) => [revision.id, revision.definition]),
+    );
     const artifactSetById = new Map(artifactSets.map((set) => [set.id, set]));
     const roleById = new Map(roles.map((role) => [role.id, role]));
     const documentRequirementById = new Map(
@@ -351,7 +372,7 @@ export class V1WorkbenchService {
 
     return items.map((item) => {
       const revision = item.documentRevisionId
-        ? revisionById.get(item.documentRevisionId)
+        ? documentRevisionById.get(item.documentRevisionId)
         : undefined;
       const task = item.taskId ? taskById.get(item.taskId) : undefined;
       const artifactSet = item.artifactSetId ? artifactSetById.get(item.artifactSetId) : undefined;
@@ -399,6 +420,12 @@ export class V1WorkbenchService {
         projectName: project.name,
         requirement: requirement ? { code: requirement.code, title: requirement.title } : null,
         subjectLabel: revision?.title ?? task?.stepKey ?? item.kind,
+        stepDisplayName: task?.instance.definitionRevisionId
+          ? workflowStepDisplayNameOf(
+              workflowDefinitionByRevision.get(task.instance.definitionRevisionId),
+              task.stepKey,
+            )
+          : null,
         role: role ? { id: role.id, key: role.key, title: role.title } : null,
         slots,
         ageSeconds: ageSecondsOf(createdAtById.get(item.id)),
@@ -508,11 +535,32 @@ export class V1WorkbenchService {
         id: true,
         stepKey: true,
         roleId: true,
-        instance: { select: { requirement: { select: { code: true, title: true } } } },
+        instance: {
+          select: {
+            definitionRevisionId: true,
+            requirement: { select: { code: true, title: true } },
+          },
+        },
         role: { select: { key: true, title: true } },
       },
     });
     const taskById = new Map(tasks.map((task) => [task.id, task]));
+    const workflowRevisionIds = [
+      ...new Set(
+        tasks.flatMap((task) =>
+          task.instance.definitionRevisionId ? [task.instance.definitionRevisionId] : [],
+        ),
+      ),
+    ];
+    const workflowRevisions = workflowRevisionIds.length
+      ? await this.prisma.workflowRevision.findMany({
+          where: { id: { in: workflowRevisionIds }, projectId: project.id },
+          select: { id: true, definition: true },
+        })
+      : [];
+    const workflowDefinitionByRevision = new Map(
+      workflowRevisions.map((revision) => [revision.id, revision.definition]),
+    );
 
     return items.map((item) => {
       const task = taskById.get(item.id);
@@ -524,6 +572,12 @@ export class V1WorkbenchService {
         requirement: task?.instance.requirement ?? null,
         role: task?.role ?? null,
         stepKey: item.stepKey,
+        stepDisplayName: task?.instance.definitionRevisionId
+          ? workflowStepDisplayNameOf(
+              workflowDefinitionByRevision.get(task.instance.definitionRevisionId),
+              item.stepKey,
+            )
+          : null,
         executionStatus: item.executionStatus,
         workStatus: item.workStatus,
         ageSeconds: null,

@@ -167,7 +167,7 @@ export async function loadWorkspace(dir: string): Promise<WorkspaceConfig> {
     if (code === 'ENOENT')
       throw new CliError(
         'CONFIG_NOT_FOUND',
-        `未找到 ${path}；请先运行 workmesh roles install --package <dir> --project <uuid> --host <codex|claude-code> --api <base>`,
+        `未找到 ${path}；首次接入请从项目工作区页面复制 workmesh workspace init --join 命令；仅登录不会创建项目绑定。`,
       );
     if (code === 'EACCES') throw new CliError('CONFIG_SCHEMA_UNSUPPORTED', `无权读取 ${path}`);
     throw new CliError('CONFIG_SCHEMA_UNSUPPORTED', `无法读取 ${path}`);

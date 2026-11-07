@@ -1,9 +1,10 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sha256Bytes } from '@workmesh/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildProgram, main, readOption, reviewSubjectOf } from './index';
+import { snapshotTree } from './workspace-fixtures';
 
 const PROJECT = '2f6c1c4b-6b0e-4f5d-9c2d-2b1b4b0f9b4a';
 const API = 'https://workmesh.example.com/api/v1';
@@ -122,6 +123,8 @@ describe('CLI command surface', () => {
       'receipt',
       'changes',
       'product',
+      'doctor',
+      'workspace',
     ])
       expect(names).toContain(expected);
     for (const legacy of [
@@ -134,7 +137,6 @@ describe('CLI command surface', () => {
       'ack',
       'spec-version',
       'init',
-      'doctor',
       'approve',
     ])
       expect(names).not.toContain(legacy);
@@ -158,7 +160,8 @@ describe('CLI command surface', () => {
     const lines = capture();
     expect(await main([])).toBe(0);
     expect(lines.join('\n')).toContain('WorkMesh');
-    expect(lines.join('\n')).toContain('auth login --credential-store file');
+    expect(lines.join('\n')).toContain('workspace init 默认预览');
+    expect(lines.join('\n')).not.toContain('roles install --package');
   });
 
   it('--version 返回 0', async () => {
@@ -212,5 +215,82 @@ describe('CLI command surface', () => {
     expect(parsed.data.reused).toBe(false);
     expect(parsed.data.lockPath).toContain('lock.json');
     expect(parsed.meta.requestId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+});
+
+describe('接入诊断 CLI 边界', () => {
+  it.each([
+    ['pending-init.json', 6, 'INVALID_PENDING'],
+    ['init.lock', 5, 'LOCKED'],
+  ] as const)('恢复 %s 返回非零且只输出一份 JSON，保留诊断文件', async (file, exitCode, state) => {
+    const root = await mkdtemp(join(tmpdir(), 'wm-cli-recover-'));
+    const home = join(root, 'user-home');
+    const local = join(root, '.workmesh', 'local');
+    await mkdir(local, { recursive: true });
+    await writeFile(join(local, file), 'invalid or owned by another command');
+    const before = await snapshotTree(root);
+    const lines = capture();
+    vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    expect(
+      await main([
+        'workspace',
+        'recover',
+        '--root',
+        root,
+        '--config-home',
+        home,
+        '--apply',
+        '--json',
+      ]),
+    ).toBe(exitCode);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toMatchObject({
+      error: { code: 'WORKSPACE_RECOVERY_BLOCKED', details: { recovery: { state, writes: [] } } },
+    });
+    expect(await snapshotTree(root)).toEqual(before);
+  });
+
+  it('init 命令的预检失败不消费码、不创建绑定或凭据', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'wm-cli-preflight-'));
+    const home = join(root, 'user-home');
+    const before = await snapshotTree(root);
+    const network = vi.fn(async () => new Response('{}', { status: 503 }));
+    vi.stubGlobal('fetch', network);
+    const lines = capture();
+    vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      expect(
+        await main([
+          'workspace',
+          'init',
+          '--join',
+          'valid-preview-code',
+          '--root',
+          root,
+          '--api',
+          API,
+          '--role',
+          'backend',
+          '--host',
+          'codex',
+          '--config-home',
+          home,
+          '--apply',
+          '--yes',
+          '--json',
+        ]),
+      ).toBe(2);
+      expect(network).toHaveBeenCalledOnce();
+      expect((network.mock.calls[0] as unknown as [string])[0]).toBe(
+        'https://workmesh.example.com/api/health/ready',
+      );
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]!)).toMatchObject({
+        error: { code: 'PREFLIGHT_FAILED', details: { enrollmentConsumed: false } },
+      });
+      expect(await snapshotTree(root)).toEqual(before);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

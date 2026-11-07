@@ -17,6 +17,7 @@ const snapshot = {
           taskId: 'task-open',
           projectId: 'p1',
           stepKey: 'implement',
+          stepDisplayName: '客户功能实现',
           roleId: 'role-backend',
           executionStatus: 'OPEN',
           workStatus: null,
@@ -96,6 +97,7 @@ describe('Board（只读看板）', () => {
     );
 
     expect((await screen.findAllByText('未开始')).length).toBeGreaterThan(0);
+    expect(screen.getByText('客户功能实现')).toBeInTheDocument();
     expect(screen.getAllByText('进行中').length).toBeGreaterThan(0);
     // 看板不提供依赖/评审信息：OPEN 任务只能显示「状态待确认」，不能写成「待认领」。
     expect(screen.getAllByText('状态待确认').length).toBeGreaterThan(0);

@@ -20,6 +20,7 @@ export type V1TaskSnapshot = {
   projectId: string;
   workflowInstanceId: string;
   stepKey: string;
+  stepDisplayName?: string | null;
   roleId: string;
   responsibleUserId: string;
   version: number;

@@ -57,6 +57,7 @@ export type V1ReviewSnapshot = {
   /** 人类可读标签；列表接口会补齐，详情接口可能缺省。 */
   requirement?: { id: string; code: string; title: string } | null;
   subjectLabel?: string | null;
+  stepDisplayName?: string | null;
   role?: { id: string; key: string; title: string } | null;
 };
 

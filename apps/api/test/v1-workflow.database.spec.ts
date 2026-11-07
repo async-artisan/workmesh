@@ -126,8 +126,15 @@ suite('PostgreSQL workflow publication and replacement', () => {
       operation: operation(),
     };
   }
-  async function instanceInput(): Promise<V1CreateInstanceInput> {
-    const input = await publication();
+  async function instanceInput(
+    workflowKey = randomUUID(),
+    displayName = 'Implementation',
+  ): Promise<V1CreateInstanceInput> {
+    const input = await publication(workflowKey);
+    input.definition = {
+      title: 'Published fixture',
+      steps: [{ key: 'implementation', displayName }],
+    };
     const published = await repository.publishDefinition(input);
     const definition = await repository.findDefinition(projectId, input.workflowKey);
     seq += 1;
@@ -230,6 +237,7 @@ suite('PostgreSQL workflow publication and replacement', () => {
       expectedRequirementVersion: 2,
       operation: operation(),
     });
+
     expect(second.requirementVersion).toBe(3);
     expect(await repository.findInstance(first.instance.id)).toMatchObject({
       retiredAt: expect.any(Date),
@@ -242,6 +250,25 @@ suite('PostgreSQL workflow publication and replacement', () => {
     expect(await repository.findRequirement(input.requirementId)).toMatchObject({
       version: 3,
       acceptanceKeys: [],
+    });
+  });
+
+  it('keeps each instance step name bound to its immutable workflow revision', async () => {
+    const firstInput = await instanceInput('named-workflow', 'First revision name');
+    const first = await repository.createInstance(firstInput);
+    expect(first.instance.steps[0].stepDisplayName).toBe('First revision name');
+
+    const secondInput = await instanceInput('named-workflow', 'Second revision name');
+    const second = await repository.createInstance(secondInput);
+    expect(second.instance.steps[0].stepDisplayName).toBe('Second revision name');
+    expect(firstInput.definitionRevisionId).not.toBe(secondInput.definitionRevisionId);
+    expect(await repository.findInstance(first.instance.id)).toMatchObject({
+      definitionRevisionId: firstInput.definitionRevisionId,
+      steps: [{ stepKey: 'implementation', stepDisplayName: 'First revision name' }],
+    });
+    expect(await repository.findInstance(second.instance.id)).toMatchObject({
+      definitionRevisionId: secondInput.definitionRevisionId,
+      steps: [{ stepKey: 'implementation', stepDisplayName: 'Second revision name' }],
     });
   });
 

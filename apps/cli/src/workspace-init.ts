@@ -1,6 +1,5 @@
 import { access, constants, rm, stat } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { canonicalJson, sha256Bytes } from '@workmesh/shared';
 import { deviceLogin } from './auth';
 import { V1Client, type FetchLike } from './client';
 import { bearerOf } from './credential-store';
@@ -9,6 +8,7 @@ import { confirmFileStore } from './consent';
 import { CliError, asCliError } from './errors';
 import { parsePlatform, type Platform } from './platform';
 import { ensurePrivateDir, writePrivateFile } from './private-fs';
+import { workspaceInitPlanDigestOf } from './workspace-recover';
 import {
   updateUserIndex,
   upsertUserWorkspace,
@@ -52,6 +52,18 @@ export type WorkspaceInitClientFactory = (options: {
 
 export type WorkspaceInitLogin = typeof deviceLogin;
 
+export type WorkspaceInitStage =
+  | 'PREFLIGHT'
+  | 'CONSENT'
+  | 'LOCK'
+  | 'ENROLLMENT'
+  | 'AUTHORIZATION'
+  | 'DEFINITION'
+  | 'WORKSPACE'
+  | 'INDEX'
+  | 'CACHE'
+  | 'COMPLETE';
+
 export type WorkspaceInitOptions = {
   root: string;
   joinCode: string;
@@ -70,6 +82,10 @@ export type WorkspaceInitOptions = {
   fetch?: FetchLike;
   login?: WorkspaceInitLogin;
   consent?: () => Promise<void>;
+  /** Local capability checks run after arguments/state validation and before consent or code consumption. */
+  preflight?: () => Promise<void>;
+  /** Notices only; callers choose stderr or another sink so JSON stdout stays clean. */
+  onStage?: (stage: WorkspaceInitStage) => void;
   clientFactory?: WorkspaceInitClientFactory;
   onPrompt?: (prompt: { url: string; userCode: string; expiresAt: string }) => void;
   onNotice?: (text: string) => void;
@@ -175,27 +191,55 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-async function assertRootAvailable(root: string): Promise<void> {
+async function assertRootAvailable(
+  root: string,
+  requested: { platform: Platform; role: string; host: WorkspaceHost },
+): Promise<void> {
   const snapshot = await detectWorkspaceState(root);
   if (snapshot.state === 'V1_ONLY') throw v1MigrationRequiredError('workspace init --join');
   if (snapshot.state === 'DUAL_ACTIVE') throw dualConfigError(snapshot);
-  if (snapshot.v2.exists)
+  if (snapshot.v2.exists) {
+    const current = snapshot.v2.value;
+    const mismatch = current
+      ? [
+          ...(current.platform.origin !== requested.platform.origin ||
+          current.platform.apiBasePath !== requested.platform.apiBasePath
+            ? ['platform']
+            : []),
+          ...(current.defaults.roleKey !== requested.role ? ['role'] : []),
+          ...(current.defaults.host !== requested.host ? ['host'] : []),
+        ]
+      : ['invalidConfig'];
     throw new CliError(
       'WORKSPACE_ALREADY_BOUND',
-      `工作区已绑定（${workspaceV2Path(root)} 已存在）；P0a 不提供 --rebind。替换绑定请由用户显式删除本机配置后重新接入。`,
+      `工作区已绑定（${workspaceV2Path(root)} 已存在）；本次未消费接入码、未改写配置。${mismatch.length ? '请求的平台、角色或宿主与现状不一致（或配置无效），请核对工作区。' : '无需重复 init；运行 workspace status 查看现状，若有 pending 运行 workspace recover 预览。'}`,
       {
         details: {
           state: snapshot.state,
+          enrollmentConsumed: false,
+          workspaceId: current?.workspaceId ?? null,
+          projectId: current?.projectId ?? null,
+          platform: current?.platform ?? null,
+          role: current?.defaults.roleKey ?? null,
+          host: current?.defaults.host ?? null,
+          mismatch,
           workspacePath: workspaceRelativeLabel(root, workspaceV2Path(root)),
           nextAction: 'workmesh workspace status',
         },
       },
     );
+  }
   if (await pathExists(pendingInitPath(root)))
     throw new CliError(
       'WORKSPACE_INIT_IN_PROGRESS',
-      '发现先前 init 的 pending 记录；本次未消费接入码。请先检查工作区和用户索引，确认没有 CLI 写入进程后人工处理记录，再重试。',
-      { details: { enrollmentConsumed: false, pendingInit: '.workmesh/local/pending-init.json' } },
+      '发现先前 init 的 pending 记录；本次未消费接入码。先运行 workmesh workspace recover 只读检查提交状态；本命令不会重复消费旧码或删除诊断记录。',
+      {
+        details: {
+          enrollmentConsumed: false,
+          pendingInit: '.workmesh/local/pending-init.json',
+          nextAction: 'workmesh workspace recover --root .',
+        },
+      },
     );
 }
 
@@ -254,22 +298,6 @@ function bindingsFromRevision(
     });
   }
   return bindings;
-}
-
-async function planDigestOf(config: WorkspaceConfigV2, revisionId: string): Promise<string> {
-  const configDigest = await sha256Bytes(
-    new TextEncoder().encode(serializeWorkspaceConfigV2(config)),
-  );
-  return sha256Bytes(
-    new TextEncoder().encode(
-      canonicalJson({
-        workspaceId: config.workspaceId,
-        projectId: config.projectId,
-        definitionRevisionId: revisionId,
-        configDigest,
-      }),
-    ),
-  );
 }
 
 function assertRevisionMatchesEnrollment(
@@ -336,7 +364,7 @@ export async function runWorkspaceInit(
   const joinCode = normalizeJoinCode(options.joinCode);
 
   const preflight = await inspectRoot(root, options.apply);
-  await assertRootAvailable(root);
+  await assertRootAvailable(root, { platform, role, host });
   if (await pathExists(initLockPath(root)))
     throw new CliError(
       'WORKSPACE_INIT_IN_PROGRESS',
@@ -348,7 +376,6 @@ export async function runWorkspaceInit(
         },
       },
     );
-
   const plan: WorkspaceInitPlan = {
     mode: 'plan',
     state: 'NONE',
@@ -370,16 +397,20 @@ export async function runWorkspaceInit(
       '本步骤不消费接入码、不写文件；确认计划后运行 workspace init ... --apply（非交互环境再加 --yes）。',
   };
   if (!options.apply) return plan;
+  options.onStage?.('PREFLIGHT');
+  await options.preflight?.();
 
   const consent =
     options.consent ??
     (async () => {
       if (!options.yes) await confirmFileStore();
     });
+  options.onStage?.('CONSENT');
   await consent();
 
   // Serialize the entire consume/authorize/write sequence for this root. A process
   // that did not acquire the token must never release another process's lock.
+  options.onStage?.('LOCK');
   await ensurePrivateDir(workspaceLocalDir(root));
   const rootLock = await acquireFileLock(initLockPath(root), {
     waitMs: 0,
@@ -398,13 +429,14 @@ export async function runWorkspaceInit(
   let enrollmentConsumed = false;
   try {
     // Another process could have completed after the initial preflight.
-    await assertRootAvailable(root);
+    await assertRootAvailable(root, { platform, role, host });
 
     const createClient = options.clientFactory ?? defaultClientFactory;
     const anonymous = createClient({ platform });
     let enrolled: EnrolledProject;
     try {
       // 匿名消费：不带任何 bearer；接入码一次性、不授予额外权限。
+      options.onStage?.('ENROLLMENT');
       enrolled = (await anonymous.consumeEnrollmentCode(joinCode)).data;
       enrollmentConsumed = true;
     } catch (error) {
@@ -431,6 +463,7 @@ export async function runWorkspaceInit(
     // convert it to a typed cancellation so the consumed one-time enrollment can be reported.
     process.once('SIGINT', onSigint);
     try {
+      options.onStage?.('AUTHORIZATION');
       granted = await login({
         platform,
         configHome: options.configHome,
@@ -480,6 +513,7 @@ export async function runWorkspaceInit(
     let digestMatchesPayload: boolean;
     try {
       // 按接入码绑定的 revisionId 取精确 revision；绝不回退当前 revision。
+      options.onStage?.('DEFINITION');
       const response = await authed.getWorkspaceDefinitionRevision(
         enrolled.projectId,
         enrolled.definitionRevisionId,
@@ -533,7 +567,7 @@ export async function runWorkspaceInit(
     };
     // 写前自校验：schema、路径与摘要均为服务端返回值，不含本机绝对路径。
     parseWorkspaceConfigV2(JSON.parse(serializeWorkspaceConfigV2(config)) as unknown);
-    const planDigest = await planDigestOf(config, revision.revisionId);
+    const planDigest = await workspaceInitPlanDigestOf(config, revision.revisionId);
 
     const pendingPath = pendingInitPath(root);
     let configWritten = false;
@@ -546,6 +580,7 @@ export async function runWorkspaceInit(
             schemaVersion: '1.0',
             workspaceId,
             projectId: enrolled.projectId,
+            platform,
             definitionRevisionId: revision.revisionId,
             definitionDigest: revision.digest,
             planDigest,
@@ -556,6 +591,7 @@ export async function runWorkspaceInit(
         )}\n`,
       );
 
+      options.onStage?.('WORKSPACE');
       await saveWorkspaceConfigV2(root, config);
       configWritten = true;
       if (options.__testFailAt === 'WORKSPACE')
@@ -564,6 +600,7 @@ export async function runWorkspaceInit(
       if (options.__testFailAt === 'INDEX')
         throw new CliError('WORKSPACE_WRITE_FAILED', '注入的写盘失败（用户索引）');
       const canonicalRoot = await canonicalWorkspaceRoot(root);
+      options.onStage?.('INDEX');
       await updateUserIndex(
         options.configHome,
         (index) =>
@@ -588,6 +625,7 @@ export async function runWorkspaceInit(
       // 定义缓存是派生数据：失败只告警，不产生半份 workspace.json。
       let cacheWritten = false;
       try {
+        options.onStage?.('CACHE');
         if (options.__testFailAt === 'CACHE')
           throw new CliError('WORKSPACE_WRITE_FAILED', '注入的定义缓存写入失败');
         await saveDefinitionCache(root, definitionCacheFromRevision(revision, nowIso));
@@ -664,7 +702,7 @@ export async function runWorkspaceInit(
             : failure.code;
         throw new CliError(
           originalCode,
-          `${failure.message}\nworkspace.json 和用户索引已提交并保留；无需重新生成接入码或重新执行 init。请检查配置与索引的一致性，确认没有 CLI 写入进程后检查 .workmesh/local/pending-init.json，确认其属于本次已完成的初始化后手动删除。`,
+          `${failure.message}\nworkspace.json 和用户索引已提交并保留；无需重新生成接入码或重新执行 init。运行 workmesh workspace recover 预览；精确一致且取得全部写锁后，可用 --apply 清理 pending。`,
           {
             status: failure.status,
             exitCode: failure.exitCode,
@@ -677,7 +715,7 @@ export async function runWorkspaceInit(
               rollback: 'none',
               pendingInit: '.workmesh/local/pending-init.json',
               recovery:
-                '配置已提交；核对 workspace.json 和用户索引，确认没有 CLI 写入进程后检查 pending-init.json，确认属于本次已完成的初始化后手动删除。',
+                '配置已提交；运行 workmesh workspace recover 预览，再用 --apply 清理精确匹配的已提交 pending（不会手动删除或自动删除活动锁）。',
             },
           },
         );
@@ -751,6 +789,7 @@ export async function runWorkspaceInit(
   if (rootOperationFailure) throw rootOperationFailure;
   if (!rootOperationResult)
     throw new CliError('WORKSPACE_WRITE_FAILED', '工作区初始化未返回结果。');
+  options.onStage?.('COMPLETE');
   return rootOperationResult;
 }
 

@@ -258,6 +258,7 @@ export function ReviewDecision({
   const [requirement, setRequirement] = useState<RequirementView | null>(null);
   const [task, setTask] = useState<TaskView | null>(null);
   const [taskStepKey, setTaskStepKey] = useState('');
+  const [taskStepDisplayName, setTaskStepDisplayName] = useState<string | null>(null);
   const [repositories, setRepositories] = useState<Awaited<ReturnType<typeof repositoryApi.list>>>(
     [],
   );
@@ -426,6 +427,12 @@ export function ReviewDecision({
       setTask(taskValue);
       setRequirement(requirementDetail.requirement);
       setTaskStepKey(stepKey);
+      setTaskStepDisplayName(
+        requirementDetail.tasks.find((item) => item.id === reviewValue.taskId)?.stepDisplayName ??
+          taskValue.stepDisplayName ??
+          reviewValue.stepDisplayName ??
+          null,
+      );
       setContext('requirement', { status: 'loaded' });
       await loadPrdContext(reviewValue, requirementDetail.requirement.id, alive);
     } catch (caught) {
@@ -450,6 +457,7 @@ export function ReviewDecision({
     setRequirement(null);
     setTask(null);
     setTaskStepKey('');
+    setTaskStepDisplayName(null);
     setRepositories([]);
     setAcceptance([]);
     setContexts({ ...EMPTY_CONTEXTS });
@@ -529,6 +537,7 @@ export function ReviewDecision({
 
   const subjectLabel =
     revision?.title ||
+    taskStepDisplayName?.trim() ||
     (taskStepKey ? (STEP_LABELS[taskStepKey] ?? taskStepKey) : '') ||
     (review?.kind ? labelFor(REVIEW_KIND_LABELS, review.kind) : '评审对象');
   const requirementLabel = requirement ? `${requirement.code} · ${requirement.title}` : '';
@@ -538,6 +547,7 @@ export function ReviewDecision({
       const refreshedTask = await taskApi.get(taskId);
       setTask(refreshedTask);
       setTaskStepKey(refreshedTask.stepKey);
+      setTaskStepDisplayName(refreshedTask.stepDisplayName ?? review?.stepDisplayName ?? null);
 
       try {
         const instance = await workflowApi.instance(refreshedTask.workflowInstanceId);
@@ -546,6 +556,12 @@ export function ReviewDecision({
         setTaskStepKey(
           requirementDetail.tasks.find((item) => item.id === taskId)?.stepKey ??
             refreshedTask.stepKey,
+        );
+        setTaskStepDisplayName(
+          requirementDetail.tasks.find((item) => item.id === taskId)?.stepDisplayName ??
+            refreshedTask.stepDisplayName ??
+            review?.stepDisplayName ??
+            null,
         );
       } catch {
         // 需求上下文是补充信息；保留已刷新的任务状态。
@@ -1649,7 +1665,11 @@ export function ReviewDecision({
             <div className="detail-card">
               <h3>任务上下文</h3>
               <ul className="detail-list">
-                <li>步骤：{labelFor(STEP_LABELS, taskStepKey || task.stepKey)}</li>
+                <li>
+                  步骤：
+                  {taskStepDisplayName?.trim() ||
+                    labelFor(STEP_LABELS, taskStepKey || task.stepKey)}
+                </li>
                 {review?.role && (
                   <li>
                     角色：{review.role.title}（{review.role.key}）

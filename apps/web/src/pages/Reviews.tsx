@@ -489,7 +489,9 @@ export function Reviews() {
                       </p>
                       <p className="wm-mobile-card-meta">
                         {item.subjectLabel
-                          ? labelFor(STEP_LABELS, item.subjectLabel)
+                          ? item.taskId && item.stepDisplayName?.trim()
+                            ? item.stepDisplayName.trim()
+                            : labelFor(STEP_LABELS, item.subjectLabel)
                           : `摘要 ${item.subjectDigest.slice(0, 10)}`}
                       </p>
                       <p className="wm-mobile-card-meta">
@@ -548,7 +550,9 @@ export function Reviews() {
                               </strong>
                               <div className="task-row-meta">
                                 {item.subjectLabel
-                                  ? labelFor(STEP_LABELS, item.subjectLabel)
+                                  ? item.taskId && item.stepDisplayName?.trim()
+                                    ? item.stepDisplayName.trim()
+                                    : labelFor(STEP_LABELS, item.subjectLabel)
                                   : `摘要 ${item.subjectDigest.slice(0, 10)}`}
                               </div>
                             </td>

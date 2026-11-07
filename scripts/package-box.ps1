@@ -18,7 +18,6 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
   $rootPackage = Get-Content -LiteralPath (Join-Path $root 'package.json') -Raw | ConvertFrom-Json
   $Version = [string]$rootPackage.version
 }
-if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') { throw "Invalid release version: $Version" }
 $releasePath = [System.IO.Path]::GetFullPath($OutputDir)
 function Require-Path([string]$Path, [string]$Label) { if (-not (Test-Path -LiteralPath $Path)) { throw "$Label not found: $Path" } }
 function Copy-Tree([string]$Source, [string]$Destination) {
@@ -30,15 +29,19 @@ function Run([string]$Command, [string[]]$Arguments) {
   & $Command @Arguments
   if ($LASTEXITCODE -ne 0) { throw "Command failed ($LASTEXITCODE): $Command $($Arguments -join ' ')" }
 }
+Require-Path $NodeExe 'Node executable'
+$releaseVerifier = Join-Path $scriptRoot 'verify-release.mjs'
+Require-Path $releaseVerifier 'Release version verifier'
+Run $NodeExe @($releaseVerifier,"v$Version")
 if ($Force -and (Test-Path -LiteralPath $releasePath)) { Remove-Item -LiteralPath $releasePath -Recurse -Force }
 if (Test-Path -LiteralPath $releasePath) { throw "Output directory exists: $releasePath" }
-Require-Path $NodeExe 'Node executable'
 Require-Path $PostgresRoot 'PostgreSQL directory'
 Require-Path (Join-Path $PostgresRoot 'bin\postgres.exe') 'PostgreSQL server'
 Require-Path (Join-Path $PostgresRoot 'bin\initdb.exe') 'PostgreSQL initdb'
 Require-Path (Join-Path $PostgresRoot 'bin\pg_dump.exe') 'PostgreSQL pg_dump'
 if (-not $SkipBuild) {
   Run 'pnpm' @('--filter','@workmesh/shared','build')
+  Run 'pnpm' @('--filter','@workmesh/role-packages','build')
   Run 'pnpm' @('--filter','@workmesh/api','build')
   Run 'pnpm' @('--filter','@workmesh/web','build')
   Run 'pnpm' @('--filter','@workmesh/cli','build')
@@ -109,6 +112,9 @@ Copy-Item -LiteralPath $NodeExe -Destination "$cliStage\runtime\node.exe" -Force
 Set-Content -LiteralPath "$cliStage\package.json" -Encoding ASCII -Value '{"private":true,"type":"module"}'
 Set-Content -LiteralPath "$cliStage\workmesh.cmd" -Encoding ASCII -Value '@echo off'
 Add-Content -LiteralPath "$cliStage\workmesh.cmd" -Encoding ASCII -Value '"%~dp0runtime\node.exe" "%~dp0app\cli\index.js" %*'
+# Validate the staged distribution, including package bytes and setup from an
+# unrelated business directory, before publishing the downloadable archive.
+Run $NodeExe @((Join-Path $scriptRoot 'verify-cli-package.mjs'), $cliStage)
 $cliZip = "$downloads\workmesh-cli-win-x64.zip"
 Compress-Archive -Path "$cliStage\*" -DestinationPath $cliZip -Force
 $cliHash = (Get-FileHash $cliZip -Algorithm SHA256).Hash.ToLowerInvariant()

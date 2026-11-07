@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 
 type MarkdownReaderProps = {
   text: string;
@@ -179,13 +179,25 @@ function inlineContent(value: string, keyPrefix: string): ReactNode[] {
   return nodes;
 }
 
-function renderBlocks(blocks: MarkdownBlock[], keyPrefix: string): ReactNode[] {
+function renderBlocks(
+  blocks: MarkdownBlock[],
+  keyPrefix: string,
+  headingIdPrefix?: string,
+): ReactNode[] {
   return blocks.map((block, index) => {
     const key = `${keyPrefix}-${index}`;
     switch (block.type) {
       case 'heading': {
         const Heading = `h${block.level}` as keyof JSX.IntrinsicElements;
-        return <Heading key={key}>{inlineContent(block.text, key)}</Heading>;
+        return (
+          <Heading
+            key={key}
+            id={headingIdPrefix ? `${headingIdPrefix}-${index}` : undefined}
+            tabIndex={-1}
+          >
+            {inlineContent(block.text, key)}
+          </Heading>
+        );
       }
       case 'paragraph':
         return <p key={key}>{inlineContent(block.text, key)}</p>;
@@ -232,9 +244,52 @@ function renderBlocks(blocks: MarkdownBlock[], keyPrefix: string): ReactNode[] {
  */
 export function MarkdownReader({ text, className, ariaLabel = '文档正文' }: MarkdownReaderProps) {
   const classes = ['knowledge-markdown-reader', className].filter(Boolean).join(' ');
+  const headingIdPrefix = useId();
+  const [tocOpen, setTocOpen] = useState(
+    () => typeof window === 'undefined' || !window.matchMedia?.('(max-width: 700px)').matches,
+  );
+  const blocks = parseBlocks(text);
+  const headings = blocks.flatMap((block, index) =>
+    block.type === 'heading'
+      ? [{ id: `${headingIdPrefix}-${index}`, level: block.level, text: block.text }]
+      : [],
+  );
+  const firstLevel = Math.min(...headings.map((heading) => heading.level));
+
+  const goToHeading = (id: string) => {
+    const heading = document.getElementById(id);
+    if (!heading) return;
+    heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    heading.focus({ preventScroll: true });
+  };
+
   return (
-    <article className={classes} aria-label={ariaLabel}>
-      {renderBlocks(parseBlocks(text), 'markdown')}
-    </article>
+    <div className={`knowledge-reader-layout${headings.length >= 2 ? ' has-toc' : ''}`}>
+      <article className={classes} aria-label={ariaLabel}>
+        {renderBlocks(blocks, 'markdown', headingIdPrefix)}
+      </article>
+      {headings.length >= 2 && (
+        <nav className="knowledge-reader-toc" aria-label="本文目录">
+          <details open={tocOpen} onToggle={(event) => setTocOpen(event.currentTarget.open)}>
+            <summary>本文目录</summary>
+            <ol>
+              {headings.map((heading) => (
+                <li
+                  key={heading.id}
+                  style={{ paddingLeft: `${Math.min(heading.level - firstLevel, 3) * 12}px` }}
+                >
+                  <button type="button" onClick={() => goToHeading(heading.id)}>
+                    {heading.text
+                      .replace(/\[([^\]]+)\]\((?:[^()]|\([^()]*\))+\)/g, '$1')
+                      .replace(/(\*\*|__)(.*?)\1/g, '$2')
+                      .replace(/(\*|_|`)(.*?)\1/g, '$2')}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </details>
+        </nav>
+      )}
+    </div>
   );
 }

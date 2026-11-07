@@ -184,6 +184,7 @@ describe('RequirementDetail（需求详情读模型）', () => {
               taskId: 'task-1',
               createdAt: '2026-11-02T00:00:00.000Z',
               subjectLabel: 'backend-impl',
+              stepDisplayName: '后端交付',
               slots: [],
               decisions: [],
             },
@@ -217,6 +218,7 @@ describe('RequirementDetail（需求详情读模型）', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: /评审/ }));
     expect(screen.getByText('任务验收')).toBeInTheDocument();
+    expect(screen.getByText('后端交付')).toBeInTheDocument();
   });
 
   it('流程图点击任务后切到任务页签、定位并临时高亮，且 URL 记录 taskId', async () => {
@@ -324,6 +326,18 @@ describe('RequirementDetail（需求详情读模型）', () => {
     expect(await screen.findAllByText('可立即领取')).not.toHaveLength(0);
     expect(screen.getAllByText('等待前置任务').length).toBeGreaterThan(0);
     expect(screen.getByText(/前置步骤 backend-impl 尚未完成/)).toBeInTheDocument();
+  });
+
+  it('使用实例绑定修订返回的独立步骤名称，未提供时继续回退到既有映射', async () => {
+    mockFetch(
+      handler({
+        body: detail({ tasks: [task({ stepDisplayName: '服务端交付' })] }),
+        withDefinitions: true,
+      }),
+    );
+    renderDetail('/requirements/DEMO-001?tab=tasks');
+    expect(await screen.findByText('服务端交付')).toBeInTheDocument();
+    expect(screen.queryByText('后端实现')).not.toBeInTheDocument();
   });
 
   it('依赖信息不可用时显示「状态待确认」，不显示「可立即领取」', async () => {

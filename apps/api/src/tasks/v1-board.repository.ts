@@ -3,6 +3,7 @@ export interface V1BoardCard {
   taskId: string;
   projectId: string;
   stepKey: string;
+  stepDisplayName?: string | null;
   roleId: string;
   /** 人类可读标签；旧调用方可忽略。 */
   requirementId?: string;

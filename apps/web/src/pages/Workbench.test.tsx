@@ -68,6 +68,7 @@ const snapshot = {
       requirement: { code: 'DEMO-REQ-3', title: '支付回调重试' },
       role: { key: 'backend', title: '后端' },
       stepKey: 'backend-impl',
+      stepDisplayName: '回调实现',
       executionStatus: 'OPEN',
       workStatus: 'ACTIVE',
       ageSeconds: null,
@@ -214,6 +215,7 @@ describe('工作台优先行动与范围隔离', () => {
     );
     const actions = await screen.findByRole('region', { name: '优先行动' });
     await within(actions).findByText('待审批 · 1');
+    expect(screen.getByText(/回调实现/)).toBeInTheDocument();
     expect(screen.getByText('范围：全部项目')).toBeInTheDocument();
     expect(within(actions).getByText('最早已等待 3 天')).toBeInTheDocument();
     expect(within(actions).getAllByText('服务端未提供等待时间').length).toBeGreaterThan(0);

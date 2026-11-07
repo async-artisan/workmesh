@@ -40,7 +40,7 @@ WorkMesh 是面向本地 AI Agent 的证据驱动协作中枢。人类通过浏�
 - **后端开发者**：从 `apps/api/src/auth/v1-auth.service.ts`、`apps/api/src/knowledge/v1-knowledge-base.service.ts`、对应 controller/repository/spec 和 `apps/api/prisma/schema.prisma` 开始。
 - **前端开发者**：从 `apps/web/src/App.tsx`、`apps/web/src/api/client.ts`、`apps/web/src/api/resources.ts`、`apps/web/src/store/` 及 `apps/web/src/pages/` 开始。
 - **CLI/Agent 集成开发者**：从 `apps/cli/src/index.ts`、`apps/cli/src/client.ts`、`apps/cli/src/auth.ts`、`apps/cli/src/config.ts`、`apps/cli/src/context.ts`、`apps/cli/src/deliver.ts` 和 `apps/cli/src/receipts.ts` 开始。
-- **运维人员**：先读 `docs/deployment.md`、`scripts/db-check.sh`、`scripts/db-plan.sh`、`scripts/test-integration.sh`、`scripts/verify.sh`。
+- **运维人员**：先读 `docs/deployment.md`、`scripts/db-check.sh`、`scripts/db-plan.sh`、`scripts/test-integration.mjs`、`scripts/verify.sh`。
 - **未来 AI Agent**：先读仓库根部 `README.md`、`docs/deployment.md`、`docs/phase-status.md`、`docs/api.md`、`spec/SPEC.md` 以及本文第 10、11 节；修改前确认当前工作树和目标环境。
 
 ## 4. System Context / 系统上下文
@@ -198,10 +198,10 @@ pnpm --filter @workmesh/api exec prisma generate --schema prisma/schema.prisma
 
 ### 10.2 数据库与生产部署
 
-Node.js 20+、pnpm 10.28.2、PostgreSQL 15+ 是文档要求。正式连接只使用 `WORKMESH_V1_DATABASE_URL`，迁移前先运行 `scripts/db-check.sh` 与 `scripts/db-plan.sh`，确认目标和回滚策略后再执行：
+Node.js 20.19+、pnpm 10.28.2、PostgreSQL 15+ 是文档要求。正式连接只使用 `WORKMESH_V1_DATABASE_URL`，迁移前先运行 `scripts/db-check.sh` 与 `scripts/db-plan.sh`，确认目标和回滚策略后再执行：
 
 ```bash
-corepack pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/schema.prisma
+pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/schema.prisma
 ```
 
 生产默认 `WORKMESH_COOKIE_MODE=SECURE`，需要 HTTPS 与 `__Host-` Cookie；`LOCAL_INSECURE` 仅用于 loopback 开发。`WORKMESH_PUBLIC_ORIGIN`、`WEB_ORIGIN`、`PORT` 和 `RATE_LIMIT_MAX` 由部署环境注入。API 从 `apps/api/dist/main.js` 启动，Web `dist` 由 TLS 反向代理托管。
@@ -209,8 +209,8 @@ corepack pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/
 ### 10.3 CLI
 
 ```bash
-corepack pnpm --filter @workmesh/cli build
-corepack pnpm workmesh --help
+pnpm --filter @workmesh/cli build
+pnpm workmesh --help
 ```
 
 跨项目使用构建后的 `apps/cli/dist/index.js`。首次初始化执行 `workmesh setup --role backend --host codex --api https://<host>/api/v1 --project <项目UUID>`，完成浏览器设备授权、角色包安装和自检，再按需执行 `claim`、`context`、`deliver`、`review`、`receipt` 和 `changes` 等命令。也可分别使用 `auth login` 与 `roles install`；参数示例见根目录 README 的 CLI 章节。
@@ -220,12 +220,12 @@ corepack pnpm workmesh --help
 ### 11.1 已配置的检查
 
 ```bash
-corepack pnpm --filter @workmesh/api exec tsc --noEmit --incremental false
-corepack pnpm --filter @workmesh/shared test
-corepack pnpm --filter @workmesh/cli test
-corepack pnpm --filter @workmesh/web test
-corepack pnpm test:contracts
-corepack pnpm build
+pnpm --filter @workmesh/api exec tsc --noEmit --incremental false
+pnpm --filter @workmesh/shared test
+pnpm --filter @workmesh/cli test
+pnpm --filter @workmesh/web test
+pnpm test:contracts
+pnpm build
 git diff --check
 ```
 
@@ -236,7 +236,7 @@ git diff --check
 - API：领域 service spec、进程内 Nest HTTP contract、知识权限和发布 e2e spec。
 - Web：Vitest + Testing Library + jsdom，覆盖页面与组件交互。
 - CLI/shared：Vitest，覆盖协议、配置、认证、上下文、收据、角色包和严格 JSON。
-- 隔离数据库：`scripts/test-integration.sh` 默认只读；`--apply-migrations` 是显式数据库写操作。
+- 隔离数据库：`pnpm test:integration` 默认不执行正式迁移（不自动运行 DDL），但集成套件会在通过门禁的隔离测试库中写入测试数据；它不是只读入口。`--apply-migrations` 还会明确对该隔离库应用正式迁移。
 - GitHub live：`scripts/test-github-live.mjs` 已实现显式开启后的只读真实 API 校验、reviews 分页与生产归一化；未配置授权仓库/PR 时跳过。该入口不验证真实 webhook 投递。浏览器验证入口为 `pnpm test:browser`。
 
 ## 12. How to Navigate the Codebase
@@ -305,6 +305,6 @@ git diff --check
 | 前端       | `apps/web/src/App.tsx`、`apps/web/src/api/client.ts`、`apps/web/src/pages/Board.tsx`、`apps/web/vite.config.ts` | 浏览器会话、页面入口、API 客户端和开发代理                                        | 高     |
 | CLI        | `apps/cli/src/index.ts`、`apps/cli/src/client.ts`、`apps/cli/src/auth.ts`、`apps/cli/src/config.ts`             | 命令、设备授权、配置、重试和收据                                                  | 高     |
 | 跨端契约   | `packages/shared/src/index.ts`、`packages/shared/src/strict-json.ts`、`scripts/test-contracts.mjs`              | 严格 JSON、摘要、错误、角色包和流程校验                                           | 高     |
-| 运行部署   | `docs/deployment.md`、`scripts/test-integration.sh`、`scripts/verify.sh`、`package.json`                        | Node/pnpm/Postgres、迁移、构建、测试与部署步骤                                    | 高     |
+| 运行部署   | `docs/deployment.md`、`scripts/test-integration.mjs`、`scripts/verify.sh`、`package.json`                       | Node/pnpm/Postgres、迁移、构建、测试与部署步骤                                    | 高     |
 | 状态/缺口  | `docs/phase-status.md`                                                                                          | 隔离数据库和基础浏览器已有记录，生产与 GitHub live 验收仍有缺口                   | 高     |
 | 工作树状态 | `git status --short --branch`                                                                                   | 修改前识别已有本地变更及当前分支                                                  | 高     |

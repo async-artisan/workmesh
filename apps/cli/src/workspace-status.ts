@@ -8,6 +8,7 @@ import type { WorkspaceConfig } from './config';
 import { findWorkspaceByGitRoot, loadUserIndex } from './user-index';
 import { detectGitRepository, gitRootKey, matchRemoteLocator, type CheckoutKind } from './git';
 import { bindPlatform, canonicalizeLocator } from './workspace-bind';
+import { runWorkspaceRecover, type WorkspaceRecoverReport } from './workspace-recover';
 import {
   detectWorkspaceState,
   dualConfigError,
@@ -99,6 +100,7 @@ export type WorkspaceStatusReport = {
     error: { code: string; message: string } | null;
   } | null;
   v1Migration: { required: true; command: string } | null;
+  initRecovery: WorkspaceRecoverReport | null;
   online: WorkspaceOnlineStatus | null;
   /** 无 --online 时必须是 LOCAL_ONLY；不得把缓存状态写成 online。 */
   freshness: 'LOCAL_ONLY' | 'ONLINE';
@@ -317,6 +319,8 @@ export async function runWorkspaceStatus(
   const snapshot = await detectWorkspaceState(root);
   const now = options.now?.() ?? new Date();
   const generatedAt = now.toISOString();
+  const recovery = await runWorkspaceRecover({ root, configHome: options.configHome });
+  const initRecovery = recovery.pending.exists || recovery.state === 'LOCKED' ? recovery : null;
   const base: WorkspaceStatusReport = {
     mode: 'status',
     state: snapshot.state,
@@ -344,6 +348,7 @@ export async function runWorkspaceStatus(
     repositories: [],
     definitionCache: null,
     v1Migration: null,
+    initRecovery,
     online: null,
     freshness: 'LOCAL_ONLY',
     providerVerification: 'NOT_PERFORMED',
@@ -367,6 +372,7 @@ export async function runWorkspaceStatus(
     return {
       ...base,
       nextAction:
+        initRecovery?.nextAction ??
         '未接入：运行 workmesh workspace init --join <code> --root . --api <base> --role <role>。',
     };
 
@@ -453,7 +459,7 @@ export async function runWorkspaceStatus(
       : null,
     online,
     freshness: online ? 'ONLINE' : 'LOCAL_ONLY',
-    nextAction,
+    nextAction: initRecovery?.nextAction ?? nextAction,
   };
 }
 

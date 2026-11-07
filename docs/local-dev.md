@@ -35,7 +35,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev-local.ps1
 
 **必须用 `127.0.0.1`，不要用 `localhost`**：`apps/api/.env` 里 `WORKMESH_PUBLIC_ORIGIN` / `WEB_ORIGIN` 是精确匹配的 `http://127.0.0.1:5173`，换成 `localhost` 会被 Origin 校验挡掉。
 
-演示账号（`scripts/seed-yff.mjs` 灌进去的），密码统一 `Yff-Demo-2026!`：
+`dev-local.ps1` 不会自动写入演示数据。全新数据库建议先跑仓库自带、无需额外资料的最小首跑：
+
+```powershell
+pnpm --filter @workmesh/shared build
+node scripts/first-run-demo.mjs
+```
+
+脚本会创建一个临时演示账号、项目、流程、任务、交付和人工评审，并在结束时打印账号和项目 ID；然后用它打印的账号登录下面的地址。它只适合自己的隔离开发库，产生的数据不会自动清理。
+
+如果你已经拿到外部的易番番需求正文，也可以运行 `scripts/seed-yff.mjs --phase all` 导入完整的 YFF 演示环境。该脚本依赖仓库外的 `.tmp\yff-req\易番番需求`，全新 checkout 默认没有这些正文；缺少该目录时不要把 seed 失败误认为 API 或 Web 启动失败。
+
+只有完成上述 seed 后，以下账号才存在，密码统一 `Yff-Demo-2026!`：
 
 | 账号                 | 角色                             |
 | -------------------- | -------------------------------- |
@@ -90,10 +101,10 @@ pnpm --filter @workmesh/web dev
 | 管理 | 设备授权 `/authorization` | CLI 设备授权批准（Agent 登录用）                        |
 | 账号 | 用户中心 `/profile`       | 当前会话与 Agent 凭据（创建/吊销）                      |
 
-十分钟走一遍，就能看懂这个产品在做什么：
+导入 YFF 数据后，可以用下面这条路径体验完整页面；仅运行最小首跑时，使用 `first-run-demo.mjs` 打印的账号和项目查看相应流程、交付和评审：
 
-1. 用 `owner@yesgoo.local` 登录，工作台会显示 6 件待办（3 条评审、1 条变更、2 个可开工）。
-2. 进「评审」，打开任意一条 `TASK_ACCEPTANCE`（例如 `YFF-008 成本核算 / impl-fe`），看到的是：谁提交的、哪个槽位、摘要与版本。
+1. 导入 YFF 数据时用 `owner@yesgoo.local` 登录，工作台会显示 6 件待办（3 条评审、1 条变更、2 个可开工）；只跑 `first-run-demo.mjs` 时，使用脚本打印的账号登录。
+2. 进「评审」，打开任意一条 `TASK_ACCEPTANCE`（YFF 示例为 `YFF-008 成本核算 / impl-fe`），查看提交人、审批槽位、摘要与版本。
 3. 点批准。会要求**再输一次密码**换成一次性确认票据——批准、撤销、发布这类高风险动作都这样，票据和动作 + 目标 + 版本 + payload 摘要绑定。前端弹窗不是多此一举。
 4. 回到「需求」看同一需求：流程实例、任务版本、工件与证据卡都在。
 5. 「看板」是只读视图，用来确认任务/交付状态，不会产生写操作。
@@ -120,7 +131,7 @@ pnpm workmesh --config-home .tmp\wm-home auth login --api http://127.0.0.1:3000/
 ## 6. 数据在哪，怎么重置
 
 - PostgreSQL 数据目录：`%LOCALAPPDATA%\workmesh-pg\data`（`persistent: true`，`-Stop` 或重启机器都不丢）。
-- 库 `workmesh`，schema `workmesh_v1`；当前代码包含 12 项迁移，完整应用后有 49 张表（含迁移表）。迁移记录在 `workmesh_v1."_prisma_migrations"`；已有开发库的实际进度请用 `prisma migrate status` 确认。
+- 库 `workmesh`，schema `workmesh_v1`；当前代码包含 20 项迁移。表数量会随迁移和统计口径变化，不把某个历史快照的固定数量当作兼容性承诺；已有开发库的实际进度请用 `prisma migrate status` 确认，并以目标版本的 schema/迁移检查为准。历史验收记录中的 12 项迁移对应当时的代码版本，不代表当前工作树的完整迁移集合。
 - 本机没有系统 `psql`。仓库自带的客户端：`.tmp\pgclient\pgsql\bin\psql.exe`，口令 `workmesh_local`。
 
 想回到干净库：
@@ -184,6 +195,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev-local.ps1
 | `prisma` 生成物缺失（类型全红）                                  | `pnpm db:generate`                                                                                    |
 | 中文日志乱码                                                     | 重定向日志的编码混排，不影响功能；以页面和接口返回为准                                                |
 | `-Stop` 后端口还占着                                             | 旧版本只杀 pnpm 壳；当前版本按进程树 + 端口上的 node 收网，且跳过系统 pid（<= 4）                     |
+
+### Windows 上 Prisma Client 生成失败
+
+如果 `prisma generate`、`pnpm test`、`pnpm type-check` 或 `pnpm build` 报 `EPERM: operation not permitted, rename ... query_engine-windows.dll.node`，检查是否有正在使用同一生成目录的 API、开发监视进程或 Prisma Studio。Windows 可能不允许替换正在加载的引擎文件。确认这些进程属于当前开发环境且可以停止后，停止它们，再重新执行原命令；不要删除数据库或跳过客户端生成来掩盖错误。其他原因也可能导致 `EPERM`，若停止相关进程后仍失败，应保留完整报错并继续排查权限或文件占用。
 
 ### 内置角色包摘要冲突
 

@@ -171,6 +171,12 @@ class FakeAuthRepository implements V1AuthRepository {
     };
     return { ...this.request };
   }
+  async reservePasswordRateWindow(): Promise<never> {
+    throw new Error('not used');
+  }
+  async releasePasswordRateWindow(): Promise<void> {
+    throw new Error('not used');
+  }
   async bumpRateWindow(): Promise<number> {
     return 1;
   }

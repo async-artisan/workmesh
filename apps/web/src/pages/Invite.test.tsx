@@ -82,9 +82,15 @@ function renderInvite() {
         <Route path="/invite/:token" element={<Invite />} />
         <Route path="/" element={<div>工作台首页</div>} />
         <Route path="/login" element={<LoginProbe />} />
+        <Route path="/workspace" element={<WorkspaceProbe />} />
       </Routes>
     </MemoryRouter>,
   );
+}
+
+function WorkspaceProbe() {
+  const location = useLocation();
+  return <p>项目接入页{location.search}</p>;
 }
 
 describe('Invite（邀请接受页）', () => {
@@ -115,9 +121,9 @@ describe('Invite（邀请接受页）', () => {
     fireEvent.click(screen.getByRole('button', { name: '创建账号并加入' }));
 
     expect(await screen.findByText(/已加入「易番番 ERP」/)).toBeInTheDocument();
-    const setup = screen.getByLabelText('CLI 初始化命令') as HTMLInputElement;
-    expect(setup.value).toContain('workmesh setup --role backend');
-    expect(setup.value).toContain('--project p1');
+    expect(screen.queryByLabelText('CLI 初始化命令')).not.toBeInTheDocument();
+    expect(screen.getByText(/复制 workspace init --join 预览命令/)).toBeInTheDocument();
+    expect(screen.queryByText(/workmesh setup/)).not.toBeInTheDocument();
 
     const call = mock.mock.calls.find(
       ([url, init]) =>
@@ -305,6 +311,8 @@ describe('Invite（邀请接受页）', () => {
         pathOf(String(url)) === '/api/v1/invitations/tok-1/join' && methodOf(init ?? {}) === 'POST',
     );
     expect(joinCall).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '配置本地 Agent 接入' }));
+    expect(await screen.findByText('项目接入页?projectId=p1')).toBeInTheDocument();
   });
 
   it('过期邀请直接提示，不显示接受表单', async () => {

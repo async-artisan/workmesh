@@ -848,7 +848,7 @@ export function RequirementDetail({
         return {
           id: task.id,
           stepKey: task.stepKey,
-          title: STEP_LABELS[task.stepKey] ?? task.stepKey,
+          title: task.stepDisplayName?.trim() || STEP_LABELS[task.stepKey] || task.stepKey,
           role: task.role.key,
           roleLabel: task.role.title,
           executionStatus: task.executionStatus,
@@ -1023,17 +1023,19 @@ export function RequirementDetail({
       });
     }
     for (const review of detail.reviews) {
+      const reviewSubjectLabel =
+        (review.taskId && review.stepDisplayName?.trim()) || review.subjectLabel;
       items.push({
         id: `review-${review.id}`,
         kind: '评审',
-        title: `${labelFor(REVIEW_KIND_LABELS, review.kind)} · ${review.subjectLabel}`,
+        title: `${labelFor(REVIEW_KIND_LABELS, review.kind)} · ${reviewSubjectLabel}`,
         at: review.createdAt,
       });
       for (const decision of review.decisions) {
         items.push({
           id: `decision-${decision.id}`,
           kind: '决定',
-          title: `${labelFor(DECISION_LABELS, decision.decision)} · ${review.subjectLabel}`,
+          title: `${labelFor(DECISION_LABELS, decision.decision)} · ${reviewSubjectLabel}`,
           at: decision.createdAt,
           actor: decision.actor?.email,
         });
@@ -1672,7 +1674,8 @@ export function RequirementDetail({
                             <div className="task-row-main">
                               <div className="task-row-top">
                                 <strong id={taskTitleDomId(task.id)} title={task.stepKey}>
-                                  {labelFor(STEP_LABELS, task.stepKey)}
+                                  {task.stepDisplayName?.trim() ||
+                                    labelFor(STEP_LABELS, task.stepKey)}
                                 </strong>
                                 <span
                                   className={`status-tag is-${display.tone}`}
@@ -1916,7 +1919,10 @@ export function RequirementDetail({
                       {detail.reviews.map((review: RequirementReviewDetail) => (
                         <tr key={review.id}>
                           <td>{labelFor(REVIEW_KIND_LABELS, review.kind)}</td>
-                          <td>{review.subjectLabel}</td>
+                          <td>
+                            {(review.taskId && review.stepDisplayName?.trim()) ||
+                              review.subjectLabel}
+                          </td>
                           <td>
                             <span className="status-tag">
                               {labelFor(REVIEW_STATUS_LABELS, review.status)}

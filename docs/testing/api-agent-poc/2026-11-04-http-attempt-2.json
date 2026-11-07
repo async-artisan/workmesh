@@ -18,9 +18,7 @@
     "turns": null,
     "toolCalls": 2,
     "elapsedMs": 23458,
-    "testExitCodes": [
-      1
-    ],
+    "testExitCodes": [1],
     "error": "TOOL_CALL_LIMIT",
     "assistantResponses": [
       {

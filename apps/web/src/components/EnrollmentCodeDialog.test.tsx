@@ -1,9 +1,9 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EnrollmentCodeDialog } from './EnrollmentCodeDialog';
 import { setCsrfToken } from '../api/client';
-import { envelope, methodOf, mockFetch, pathOf } from '../test-utils';
+import { envelope, methodOf, mockFetch, pathOf, type StubHandler } from '../test-utils';
 import type { WorkspaceEnrollmentView } from '../api/resources';
 
 const issued: WorkspaceEnrollmentView = {
@@ -17,6 +17,23 @@ const issued: WorkspaceEnrollmentView = {
 
 function renderDialog(onClose = () => undefined) {
   return render(<EnrollmentCodeDialog open projectId="p1" onClose={onClose} />);
+}
+
+function mockEnrollmentFetch(handler: StubHandler) {
+  return mockFetch((url, init) => {
+    if (pathOf(url) === '/api/v1/projects/p1/roles' && methodOf(init) === 'GET')
+      return {
+        status: 200,
+        body: envelope([
+          { id: 'r-product', projectId: 'p1', key: 'product', title: '产品', isActive: true },
+          { id: 'r-frontend', projectId: 'p1', key: 'frontend', title: '前端', isActive: true },
+          { id: 'r-disabled', projectId: 'p1', key: 'disabled', title: '已停用', isActive: false },
+        ]),
+      };
+    if (pathOf(url) === '/api/v1/projects/p2/roles' && methodOf(init) === 'GET')
+      return { status: 200, body: envelope([]) };
+    return handler(url, init);
+  });
 }
 
 function ClosableDialogHarness() {
@@ -38,7 +55,7 @@ describe('EnrollmentCodeDialog（加载反馈）', () => {
     const issueReply = new Promise<{ status: number; body: unknown }>((resolve) => {
       release = resolve;
     });
-    mockFetch((url, init) => {
+    mockEnrollmentFetch((url, init) => {
       if (pathOf(url) === '/api/v1/projects/p1/workspace-enrollments' && methodOf(init) === 'POST')
         return issueReply;
       return undefined;
@@ -64,7 +81,7 @@ describe('EnrollmentCodeDialog（加载反馈）', () => {
   });
 
   it('已签发后关闭按钮可用', async () => {
-    mockFetch((url, init) => {
+    mockEnrollmentFetch((url, init) => {
       if (pathOf(url) === '/api/v1/projects/p1/workspace-enrollments' && methodOf(init) === 'POST')
         return { status: 201, body: envelope(issued) };
       return undefined;
@@ -84,7 +101,7 @@ describe('EnrollmentCodeDialog（加载反馈）', () => {
     const issueReply = new Promise<{ status: number; body: unknown }>((resolve) => {
       release = resolve;
     });
-    mockFetch((url, init) => {
+    mockEnrollmentFetch((url, init) => {
       if (pathOf(url) === '/api/v1/projects/p1/workspace-enrollments' && methodOf(init) === 'POST')
         return issueReply;
       return undefined;
@@ -112,7 +129,7 @@ describe('EnrollmentCodeDialog（加载反馈）', () => {
     const issueReply = new Promise<{ status: number; body: unknown }>((resolve) => {
       release = resolve;
     });
-    mockFetch((url, init) => {
+    mockEnrollmentFetch((url, init) => {
       if (pathOf(url) === '/api/v1/projects/p1/workspace-enrollments' && methodOf(init) === 'POST')
         return issueReply;
       return undefined;
@@ -139,7 +156,7 @@ describe('EnrollmentCodeDialog（加载反馈）', () => {
     const issueReply = new Promise<{ status: number; body: unknown }>((_resolve, onReject) => {
       reject = onReject;
     });
-    mockFetch((url, init) => {
+    mockEnrollmentFetch((url, init) => {
       if (pathOf(url) === '/api/v1/projects/p1/workspace-enrollments' && methodOf(init) === 'POST')
         return issueReply;
       return undefined;
@@ -159,5 +176,97 @@ describe('EnrollmentCodeDialog（加载反馈）', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByText('late enrollment failure')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '生成接入码' })).toBeEnabled();
+  });
+});
+
+describe('EnrollmentCodeDialog（接入预览命令）', () => {
+  const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  const writeText = vi.fn<(value: string) => Promise<void>>();
+
+  beforeEach(() => {
+    setCsrfToken('csrf-1');
+    writeText.mockReset().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    mockEnrollmentFetch((url, init) => {
+      if (pathOf(url) === '/api/v1/projects/p1/workspace-enrollments' && methodOf(init) === 'POST')
+        return { status: 201, body: envelope(issued) };
+      return undefined;
+    });
+  });
+
+  afterEach(() => {
+    setCsrfToken(null);
+    if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard);
+    else Reflect.deleteProperty(navigator, 'clipboard');
+  });
+
+  async function openIssued() {
+    renderDialog();
+    fireEvent.click(screen.getByRole('button', { name: '生成接入码' }));
+    await screen.findByLabelText('一次性接入码');
+    await screen.findByRole('option', { name: '前端（frontend）' });
+  }
+
+  function configure() {
+    fireEvent.change(screen.getByLabelText('Shell'), { target: { value: 'git-bash' } });
+    fireEvent.change(screen.getByLabelText('Agent 客户端'), { target: { value: 'codex' } });
+    fireEvent.change(screen.getByLabelText('项目角色'), { target: { value: 'frontend' } });
+    fireEvent.change(screen.getByLabelText('本地工作区根目录'), {
+      target: { value: 'G:\\Business Projects\\app' },
+    });
+    fireEvent.change(screen.getByLabelText('WorkMesh API 地址'), {
+      target: { value: 'http://127.0.0.1:3000/api/v1' },
+    });
+  }
+
+  it('不从 Web origin 猜 API，也不默认选角色；补齐字段后可复制预览', async () => {
+    await openIssued();
+    expect(screen.getByLabelText('WorkMesh API 地址')).toHaveValue('');
+    expect(screen.getByLabelText('项目角色')).toHaveValue('');
+    expect(screen.queryByRole('option', { name: '已停用（disabled）' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '复制预览命令' })).toBeDisabled();
+    configure();
+    const command = screen.getByLabelText('CLI 预览命令') as HTMLTextAreaElement;
+    expect(command.value).toContain('workmesh workspace init --join');
+    expect(command.value).toContain('/g/Business Projects/app');
+    expect(command.value).toContain('frontend');
+    expect(command.value).not.toContain('--apply');
+    expect(command.value).not.toContain('--yes');
+    expect(command.value).not.toMatch(/[\r\n]/);
+    fireEvent.click(screen.getByRole('button', { name: '复制预览命令' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(command.value));
+    expect(await screen.findByText(/预览命令已复制/)).toBeInTheDocument();
+    expect(screen.getByText(/workmesh workspace status/)).toBeInTheDocument();
+  });
+
+  it('切换角色和 Shell 后更新命令，不携带默认产品角色', async () => {
+    await openIssued();
+    configure();
+    fireEvent.change(screen.getByLabelText('项目角色'), { target: { value: 'product' } });
+    fireEvent.change(screen.getByLabelText('Shell'), { target: { value: 'powershell' } });
+    const command = screen.getByLabelText('CLI 预览命令') as HTMLTextAreaElement;
+    expect(command.value).toContain('product');
+    expect(command.value).not.toContain('frontend');
+    expect(command.value).toContain('G:');
+    expect(command.value).not.toContain('/g/');
+  });
+
+  it('复制失败时明确提示手动复制，保留命令和一次性码', async () => {
+    writeText.mockRejectedValue(new Error('clipboard denied'));
+    await openIssued();
+    configure();
+    fireEvent.click(screen.getByRole('button', { name: '复制预览命令' }));
+    expect(await screen.findByText('复制失败，请手动选中预览命令复制。')).toBeInTheDocument();
+    expect(screen.getByLabelText('一次性接入码')).toHaveValue(issued.code);
+    expect(screen.getByLabelText('CLI 预览命令')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '复制预览命令' })).toBeEnabled();
+  });
+
+  it('仍可仅复制接入码，缺少 API 时不能复制命令', async () => {
+    await openIssued();
+    fireEvent.click(screen.getByRole('button', { name: '复制接入码' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(issued.code));
+    expect(await screen.findByText(/接入码已复制/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '复制预览命令' })).toBeDisabled();
   });
 });

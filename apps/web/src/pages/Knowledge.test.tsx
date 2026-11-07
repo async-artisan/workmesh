@@ -845,7 +845,7 @@ describe('Knowledge（撤销发布必须带版本与票据）', () => {
     openKnowledgeRevision('第一篇候选');
     expect(await screen.findByText('正在读取文档正文…')).toBeInTheDocument();
 
-    const secondRow = screen.getByText('第二篇知识').closest('tr');
+    const secondRow = screen.getByText('第二篇知识').closest('article');
     expect(secondRow).not.toBeNull();
     fireEvent.click(within(secondRow!).getByRole('button', { name: '阅读当前版本' }));
     expect((await screen.findAllByText('第二篇知识')).length).toBeGreaterThan(0);
@@ -1154,7 +1154,9 @@ describe('Knowledge（撤销发布必须带版本与票据）', () => {
     const indicator = await screen.findByText('正在加载文档…');
     expect(indicator.closest('[role="status"]')).not.toBeNull();
     expect(indicator.closest('[aria-busy="true"]')).not.toBeNull();
-    expect(document.querySelectorAll('.wm-skeleton-row').length).toBeGreaterThan(0);
+    expect(
+      document.querySelectorAll('.collection-document-loading .skeleton-line').length,
+    ).toBeGreaterThan(0);
     expect(
       screen.queryByText('该项目还没有文档，等待本地 Agent 提交候选。'),
     ).not.toBeInTheDocument();
@@ -1275,14 +1277,17 @@ describe('Knowledge（撤销发布必须带版本与票据）', () => {
       within(businessArticle).getByRole('button', { name: /Release notes.*当前生效.*阅读/ }),
     );
     expect(await screen.findByText('当前正式发布的正文内容')).toBeInTheDocument();
-    expect(screen.getAllByText(/当前生效 · v1/).length).toBeGreaterThanOrEqual(2);
-    fireEvent.click(screen.getByRole('button', { name: '版本与评审（当前）' }));
+    expect(screen.getAllByText(/当前生效 · v1/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByLabelText('文档列表')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('版本与评审'));
     fireEvent.click(await screen.findByText('来源与适用信息'));
     const sourcePanel = screen.getByText('来源与适用信息').closest('details');
     if (!sourcePanel) throw new Error('来源面板缺少 details 容器');
     expect(within(sourcePanel).getByText('所属知识库')).toBeInTheDocument();
     expect(within(sourcePanel).getByText('业务规则库')).toBeInTheDocument();
     expect(within(sourcePanel).getByText('知识')).toBeInTheDocument();
+    expect(within(sourcePanel).getByText('sha256-rev-1')).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: '当前位置' })).toHaveTextContent('全部知识库');
 
     fireEvent.change(screen.getByRole('textbox', { name: '搜索项目知识' }), {
       target: { value: '发布规则' },
@@ -1294,16 +1299,29 @@ describe('Knowledge（撤销发布必须带版本与票据）', () => {
       expect(searchedBases.sort()).toEqual(['kb-business', 'kb-practice', 'kb-system']),
     );
 
+    searchedBases.length = 0;
+    fireEvent.change(screen.getByRole('combobox', { name: '知识搜索范围' }), {
+      target: { value: 'BUSINESS' },
+    });
+    await waitFor(() => expect(searchedBases).toEqual(['kb-business']));
+    expect(screen.getByText('搜索结果 · 1 条 · 业务事实库')).toBeInTheDocument();
+    expect(screen.queryByText('系统接口搜索结果')).not.toBeInTheDocument();
+    expect(screen.queryByText('操作手册搜索结果')).not.toBeInTheDocument();
+
     fireEvent.click(
       screen.getByRole('button', {
         name: /业务事实库 · 知识 · 当前生效.*业务规则搜索结果/,
       }),
     );
     expect(await screen.findByText('当前正式发布的正文内容')).toBeInTheDocument();
-    expect(screen.getAllByText(/当前生效 · v1/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText(/当前生效 · v1/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('navigation', { name: '当前位置' })).toHaveTextContent('业务事实库');
+    fireEvent.click(screen.getByRole('button', { name: /返回业务事实库/ }));
+    expect(await screen.findByTestId('knowledge-collection-context')).toBeInTheDocument();
+    expect(screen.queryByText('当前正式发布的正文内容')).not.toBeInTheDocument();
   });
 
-  it('搜索空状态提供真实的知识类别入口，未命中时说明搜索范围', async () => {
+  it('搜索空状态说明范围，搜索范围筛选只查询该类别知识库', async () => {
     mockFetch((url, init) => {
       const path = pathOf(url);
       const method = methodOf(init ?? {});
@@ -1324,19 +1342,16 @@ describe('Knowledge（撤销发布必须带版本与票据）', () => {
 
     renderKnowledge();
 
-    const browseSystem = await screen.findByRole('button', {
-      name: '按问题浏览：系统由什么组成、如何运行？',
-    });
-    expect(screen.getByText('不确定关键词？按知识类别浏览')).toBeInTheDocument();
-    fireEvent.click(browseSystem);
-    expect(browseSystem).toHaveAttribute('aria-pressed', 'true');
-
     fireEvent.change(screen.getByRole('textbox', { name: '搜索项目知识' }), {
       target: { value: '不存在的内容' },
     });
     expect(await screen.findByText('没有找到匹配的已发布知识')).toBeInTheDocument();
-    expect(screen.getByText('搜索范围：业务事实库 · 系统事实库 · 角色实践库')).toBeInTheDocument();
-    expect(screen.getByText(/清除搜索后按知识类别浏览/)).toBeInTheDocument();
+    expect(screen.getByText('搜索范围：全部可访问知识库')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', { name: '知识搜索范围' }), {
+      target: { value: 'SYSTEM' },
+    });
+    expect(await screen.findByText('搜索范围：系统事实库')).toBeInTheDocument();
   });
 
   it('选择知识库后显示集合上下文，并可返回全部知识', async () => {

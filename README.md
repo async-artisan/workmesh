@@ -6,7 +6,7 @@ WorkMesh 让 AI 干的活有人签字、有据可查。团队每个角色在自�
 
 事实 · 证据 · 签字
 
-参与项目：[贡献指南](CONTRIBUTING.md) · [安全政策](SECURITY.md) · [行为准则](CODE_OF_CONDUCT.md) · [变更记录](CHANGELOG.md)。
+参与项目：[贡献指南](CONTRIBUTING.md) · [社区入口与路线图](docs/community/README.md) · [治理说明](GOVERNANCE.md) · [维护者](MAINTAINERS.md) · [安全政策](SECURITY.md) · [行为准则](CODE_OF_CONDUCT.md) · [变更记录](CHANGELOG.md)。
 
 ## 技术栈
 
@@ -27,9 +27,11 @@ pnpm 10.28.2 + Turborepo 的 monorepo：
 - **知识与度量**：三类知识库（BUSINESS / SYSTEM / PRACTICE）字段、流程度量接口 `GET /projects/:id/metrics/flow`。
 - **项目治理**：代码仓库登记、自定义角色、成员与角色指派。
 - **一个盒子**：`workmesh-box status` / `dev` / `backup` / `restore`，三平台共用一份实现（Windows 已实测，Linux/macOS 适配器已实现待验收），见 [docs/box.md](docs/box.md)。
-- **文档**：[文档导航](docs/README.md) · [本地运行](docs/local-dev.md) · [部署说明](docs/deployment.md) · [API 清单](docs/api.md) · [交付状态](docs/phase-status.md) · [开发计划](docs/dev-plan.md)。
+- **文档**：[文档导航](docs/README.md) · [开始使用](docs/getting-started.md) · [本地运行](docs/local-dev.md) · [部署说明](docs/deployment.md) · [支持矩阵](docs/support-matrix.md) · [发布验收](docs/releasing.md) · [API 清单](docs/api.md) · [交付状态](docs/phase-status.md) · [开发计划](docs/dev-plan.md)。
 
 ## 快速开始
+
+新用户建议先看[开始使用](docs/getting-started.md)，了解支持边界和本地演示；社区参与、路线图与 issue 分流见[社区入口](docs/community/README.md)。
 
 本机开发（Windows，一条命令起 PostgreSQL + API + Web）的完整说明见 [docs/local-dev.md](docs/local-dev.md)：
 
@@ -54,7 +56,7 @@ pnpm --filter @workmesh/shared build
 pnpm --filter @workmesh/api exec prisma generate --schema prisma/schema.prisma
 ```
 
-配置 `WORKMESH_V1_DATABASE_URL` 指向显式选择的 PostgreSQL（本地开发的其余配置项见 `apps/api/.env.example`，需要 `WORKMESH_COOKIE_MODE=LOCAL_INSECURE` 才能用 loopback HTTP）。确认目标与回滚方式后按顺序应用迁移（当前 0001–0012）：
+配置 `WORKMESH_V1_DATABASE_URL` 指向显式选择的 PostgreSQL（本地开发的其余配置项见 `.env.example`，需要 `WORKMESH_COOKIE_MODE=LOCAL_INSECURE` 才能用 loopback HTTP）。确认目标与回滚方式后按顺序应用迁移（当前 `0001_init`–`0020_cli_authorization_device`，共 20 项）：
 
 ```bash
 pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/schema.prisma
@@ -79,34 +81,25 @@ API 默认 `http://localhost:3000`（Swagger `/api/docs`），Web 默认 `http:/
 
 ## CLI
 
-构建后从仓库根目录运行：
+业务开发者先登录团队提供的 WorkMesh，进入项目的「工作区」页面（`/workspace`），取得接入码并复制对应 Shell 的单行命令。CLI 可从该平台的 `/download` 获取；本地目录指向自己的业务代码，不是 WorkMesh 源码目录。完整步骤、Shell 路径和故障处理见 [业务项目接入 CLI](docs/cli-onboarding.md)。维护 WorkMesh 的源码构建和数据库迁移另见 [本地运行](docs/local-dev.md)。
 
-```bash
-corepack pnpm --filter @workmesh/cli build
-corepack pnpm workmesh --help
+新接入使用 `workspace init`，默认只预览本机计划。以下双引号中的占位符必须替换；`--api` 使用管理员提供、在项目接入页填写的实际平台 API 基址，不能从业务系统域名或旧开发端口推断：
+
+```text
+workmesh workspace init --join "<一次性接入码>" --root "<业务项目绝对路径>" --role frontend --host codex --api "<平台API基址>"
 ```
 
-`workmesh auth login` 使用浏览器设备授权，凭据保存在 `~/.workmesh`（可用 `--config-home` 覆盖）。业务项目首次使用先安装角色包并绑定项目：`--api` 指向平台，`--host` 只接受 `codex` 或 `claude-code`。仓库自带六个内置角色包，位于 `packages/role-packages/roles/<role>`。
+确认目录、角色、平台和写入计划后，在同一条命令末尾加 `--apply`。此时才消费接入码并进入浏览器设备授权，凭据保存在当前用户的 `~/.workmesh`（可用 `--config-home` 覆盖）。按输出继续 `workspace discover`、`workspace bind` 与 `workspace status`；安装或更新角色资源使用 `workmesh setup --dir "<业务项目绝对路径>" --role frontend --host codex`，六个内置角色随发行包自动查找，通常无需 `--package`。
 
-首次初始化用一条命令即可（登录 + 装角色包 + 自检；登录仍在浏览器批准）：
-
-```bash
-workmesh setup --role backend --host codex --api https://<host>/api/v1 --project <项目UUID>
-```
-
-等价的手工步骤：
-
-```bash
-workmesh roles install --package packages/role-packages/roles/product --project <项目UUID> --api https://<host>/api/v1 --host codex
-```
+`setup --project "<项目UUID>" --api "<平台API基址>" ...` 仍是兼容初始化入口；新项目接入优先采用页面生成的 `workspace init` 命令。已有 v1 `.workmesh/config.json` 时先运行 `workspace migrate --dry-run`，确认后再 `--apply`。`workmesh doctor --dir "<业务项目绝对路径>" --role frontend --api "<平台API基址>" --online` 可在接入前集中检查环境。
 
 之后按角色执行标准作业序列。任务编号来自 `GET /api/v1/projects/:projectId/tasks/ready` 或 Web 工作台；上下文快照创建后，任务版本以服务端返回为准。
 
 ```bash
-workmesh claim --task <taskId>
-workmesh context --task <taskId> --claim <claimId> --expected-version <taskVersion> --materialize
-workmesh deliver --task <taskId> --claim <claimId> --snapshot <snapshotId> --expected-version <taskVersion> --manifest deliver.json
-workmesh review --artifact-set <artifactSetId> --expected-version <artifactSetVersion>
+workmesh claim --task "<taskId>"
+workmesh context --task "<taskId>" --claim "<claimId>" --expected-version "<taskVersion>" --materialize
+workmesh deliver --task "<taskId>" --claim "<claimId>" --snapshot "<snapshotId>" --expected-version "<taskVersion>" --manifest deliver.json
+workmesh review --artifact-set "<artifactSetId>" --expected-version "<artifactSetVersion>"
 workmesh changes
 ```
 
@@ -129,7 +122,7 @@ workmesh changes
 }
 ```
 
-`workmesh review` 只创建人工评审请求；批准、返修、撤销与变更确认都只在 Web 会话中发生，Agent 没有批准路径。全部命令 `--json` 输出 `{data, meta:{requestId}}` 信封，失败输出统一错误 envelope。跨项目使用时把已构建的 `apps/cli/dist/index.js` 放入 PATH（例如 `~/.local/bin/workmesh`），不要在业务项目里用 `pnpm --filter` 执行，它会把工作目录切到 CLI 包目录。
+`workmesh review` 只创建人工评审请求；批准、返修、撤销与变更确认都只在 Web 会话中发生，Agent 没有批准路径。全部命令 `--json` 输出 `{data, meta:{requestId}}` 信封，失败输出统一错误 envelope。发行包的启动器应加入 PATH；源码开发者可从 WorkMesh 仓库构建 `@workmesh/shared` 与 `@workmesh/cli` 后调用 `apps/cli/dist/index.js`。不要在业务项目里用 `pnpm --filter` 执行 CLI，它会把工作目录切到 CLI 包目录。
 
 ## 验证
 
@@ -143,8 +136,8 @@ pnpm build
 git diff --check
 ```
 
-数据库相关套件需要隔离目标：`bash scripts/test-integration.sh`（默认只读，`--apply-migrations` 需单独确认）。构建与单元测试不会创建或修改共享数据库。
+数据库相关套件需要隔离目标：`pnpm test:integration`（默认只读，`--apply-migrations` 需单独确认）。该入口由 Node 驱动，可在 Windows、macOS 和 Linux 使用；构建与单元测试不会创建或修改共享数据库。
 
 ## 当前状态
 
-当前为可自部署的开发版。2026-11-03 已完成 Windows 本机隔离安装、真实 PostgreSQL 迁移与并发集成、三人团队 CLI/Web 交付返修与发布、备份恢复的验收，过程与边界见 [本机部署与团队使用验收报告](docs/testing/team-acceptance-2026-11-03.md)。浏览器操作为本次人工式逐步验收；GitHub live、公网生产配置、远程多机及性能稳定性尚未完成验证，不能据此视为已上线的生产系统。
+当前为可自部署的开发版。2026-11-03 已完成 Windows 本机隔离安装、真实 PostgreSQL 迁移与并发集成、三人团队 CLI/Web 交付返修与发布、备份恢复的验收，过程与边界见 [本机部署与团队使用验收报告](docs/testing/team-acceptance-2026-11-03.md)。仓库已经提供 Windows x64 制品的 draft Release 自动化，但仍需维护者人工验收后发布；浏览器操作为本次人工式逐步验收，GitHub live、公网生产配置、远程多机及性能稳定性尚未完成验证，不能据此视为已上线的生产系统。

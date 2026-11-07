@@ -1,11 +1,13 @@
 # 项目接入、本地工作区与任务上下文设计
 
-> 版本：v1.3 · 日期：2026-11-05 · 状态：待评审设计方案，尚未实施（v1.3 为 v1.2 的契约返修，未开始编码与迁移）。  
+> 版本：v1.3 · 日期：2026-11-05 · 状态：**契约冻结；实现已进入工作树，P0a 尚未验收完成**。当前逐项证据见 [工作区接入与 onboarding 验收记录](../testing/workspace-onboarding-acceptance.md)。
 > 通用设计：适用于单仓库、多仓库、monorepo，以及没有代码 checkout 的产品/业务工作区。易番番（yifanfan）只作为触发问题的验证案例，不是产品模型或实现前提。  
-> 代码核对基线：本次修订读取的工作树 HEAD `6a65a8d`（`566b002` 的后续提交），工作树含其他任务并行未提交改动；本次只修改本文件，未改代码、未执行迁移，不将设计项描述为已实现能力。  
-> 使用边界：以下新增命令、接口、配置和状态均为拟议契约；现有命令明确标注“复用”。运行实例中的任何项目、仓库登记、权限与托管厂商均需接入时核验。
+> 设计修订基线：v1.3 修订时读取的工作树 HEAD `6a65a8d`（`566b002` 的后续提交）；该历史说明描述的是当时设计修订，不代表当前实现状态。
+> 使用边界：本文冻结工作区接入的产品与接口契约；新增命令、接口、配置和状态的契约定义保留在此，实际落地状态与运行证据以本文件顶部状态注记及 [验收记录](../testing/workspace-onboarding-acceptance.md) 为准。现有命令明确标注“复用”。运行实例中的任何项目、仓库登记、权限与托管厂商均需接入时核验。
 > 修订说明（v1.2）：本版只修订设计文档与实施契约，不产生代码、迁移或补丁。新增/重写契约：§7.4（身份字段与数据库约束）、§8.2.1（v2 配置字段与存储边界）、§9.4（离线 bind 缓存）、§13.3（权限/确认/幂等矩阵）、§13.4（版本与 CAS）、§13.5（接入码端到端）、§14.3（命令 × 配置状态与迁移归属）、§16.4（迁移失败恢复）、§17.1（补充失败场景）、§18.1（P0a/P0b 范围修正）、§19.2.1（P0a 新增必过用例）、§21.1（决策与默认）、§24（实施任务与依赖）、§25（P0a 验收闭环）、§26（修订记录）。与 §18/§19 的旧表述冲突时，以 §18.1/§19.2.1/§24/§25 为准。所有结论区分“静态审查认为可行”与“已通过迁移/运行验证”。
 > 返修说明（v1.3）：收敛 v1.2 剩余的五处契约矛盾——同 canonical locator 的复用与 `LOCATOR_ALREADY_BOUND` 边界、接入码必须以已发布定义为前提、发布递增 `definitionVersion` 使旧草稿失效、双配置状态模型、P0a 不核验 provider 的统一口径与 `T8 → T6` 正式依赖。详见 §26。
+
+> 当前状态注记（2026-11-07 收尾；执行时间见验收记录）：上述 v1.3 冻结契约仍是实现与验收基准。T1 隔离迁移已通过；一次性隔离 PostgreSQL 上已有 DB、真实 AppModule HTTP、真实 main 限流，以及同一项目真实 Web→CLI→bind/status、单机双环境、离线四场景和 T8 迁移/恢复证据，范围见验收记录 §12。Windows 部分真实路径/Git 补验通过；真实第二台设备、symlink 权限、UNC、macOS/Linux runner、完整跨平台矩阵及外部环境迁移历史仍缺，当前总结果为 **C / 未完成**。
 
 ## 1. 决策摘要
 
@@ -32,17 +34,17 @@
 
 ### 1.2.1 本版新增决策（v1.2–v1.3）
 
-| 编号 | 决策 | 理由 |
-| ---- | ---- | ---- |
-| D09 | 仓库身份字段与展示字段分离：`identityMode=DECLARED|PROVIDER`；PROVIDER 必须有 `adapter+externalId`，DECLARED 两者必须为 NULL；`owner/name` 仅为展示字段 | 防止用 URL、`owner/name` 或空串冒充稳定厂商 ID；数据库 CHECK 与声明 locator 约束见 §7.4 |
-| D10 | 版本命名统一：`Project.version`（projectVersion）、`ProjectWorkspaceDefinition.version`（definitionVersion）、`ProjectWorkspaceDefinitionRevision.revisionNo`；API 字段为 `expectedProjectVersion` / `expectedDefinitionVersion` | 避免"expectedVersion"在不同接口指不同资源；发布同时校验两个版本 + payload digest（§13.4） |
-| D11 | v1→v2 迁移归入 P0a（窄范围，只迁移 8 个既有字段到 workspace + 用户索引），P0b 只做 session/run 与自动恢复 | `workspace init --join` 只写 v2；若 P0a 同时保留旧命令写 v1，会产生双份配置分叉（§14.3） |
-| D12 | P0a **冻结为不做真实 provider 核验**：`verify` 可不暴露，或仅返回 `UNAVAILABLE/PROVIDER_UNSUPPORTED` 诊断占位；**不调用 provider API、不写 `PROVIDER_VERIFIED`/`lastVerified*`**；真实核验属 P1/P2 adapter 范围 | GitHub adapter 当前未接线、无生产 provider 配置；不能把 DECLARED_MATCH 说成 provider 验证。扩大 P0a 范围需走变更请求，不是开放待决项 |
-| D13 | 接入码只存哈希、不可回放明文；同一 Idempotency-Key 重试返回 `ENROLLMENT_CODE_NOT_REPLAYABLE`，由用户重签并使旧码作废 | 只有哈希才能保证泄露面最小；回放明文需要额外加密存储，P0a 不引入 |
-| D14 | 离线 `bind` 仅在"摘要校验通过的 revision 缓存 + 精确 canonical locator 匹配"时允许；否则拒绝，不按目录名/仓库名猜测 | 离线无法在线核验身份，宽松匹配会制造假绑定（§9.4） |
-| D15 | 接入码只对**已发布定义**签发：未配置项目不能签发/消费；无代码项目先发布 `layout.kind=NONE`。`GET workspace-definition` 仍保留 `NOT_CONFIGURED` 作为只读状态 | 避免"签发禁止、消费/初始化又允许 null revision"两套互斥语义（§13.5） |
-| D16 | 定义发布成功时 `definitionVersion + 1` 并返回新版本。发布前打开、仍持有旧 `expectedDefinitionVersion` 的编辑器，**若使用新的写请求/新的 `Idempotency-Key`** 保存草稿 → 409 `DEFINITION_VERSION_CONFLICT`；相同旧 key + 相同摘要的幂等重放仍返回首次成功响应 | 既让旧编辑器不能覆盖新基线，又不把合法的幂等重放误判为版本冲突（§13.4） |
-| D17 | 本机配置区分 `V1_ONLY / V2_ONLY / MIGRATED / DUAL_ACTIVE / NONE` 五态；`MIGRATED` 的 v1 备份（`config.v1.<ts>.json.bak`）不是活动配置；`DUAL_ACTIVE` 是硬冲突 | "迁移后保留的备份"与"两份同时活动"必须区分，否则适配层和命令行为会分叉（§14.3） |
+| 编号 | 决策                                                                                                                                                                                                                                                        | 理由                                                                                                                                 |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| D09  | 仓库身份字段与展示字段分离：`identityMode=DECLARED                                                                                                                                                                                                          | PROVIDER`；PROVIDER 必须有 `adapter+externalId`，DECLARED 两者必须为 NULL；`owner/name` 仅为展示字段                                 | 防止用 URL、`owner/name` 或空串冒充稳定厂商 ID；数据库 CHECK 与声明 locator 约束见 §7.4 |
+| D10  | 版本命名统一：`Project.version`（projectVersion）、`ProjectWorkspaceDefinition.version`（definitionVersion）、`ProjectWorkspaceDefinitionRevision.revisionNo`；API 字段为 `expectedProjectVersion` / `expectedDefinitionVersion`                            | 避免"expectedVersion"在不同接口指不同资源；发布同时校验两个版本 + payload digest（§13.4）                                            |
+| D11  | v1→v2 迁移归入 P0a（窄范围，只迁移 8 个既有字段到 workspace + 用户索引），P0b 只做 session/run 与自动恢复                                                                                                                                                   | `workspace init --join` 只写 v2；若 P0a 同时保留旧命令写 v1，会产生双份配置分叉（§14.3）                                             |
+| D12  | P0a **冻结为不做真实 provider 核验**：`verify` 可不暴露，或仅返回 `UNAVAILABLE/PROVIDER_UNSUPPORTED` 诊断占位；**不调用 provider API、不写 `PROVIDER_VERIFIED`/`lastVerified*`**；真实核验属 P1/P2 adapter 范围                                             | GitHub adapter 当前未接线、无生产 provider 配置；不能把 DECLARED_MATCH 说成 provider 验证。扩大 P0a 范围需走变更请求，不是开放待决项 |
+| D13  | 接入码只存哈希、不可回放明文；同一 Idempotency-Key 重试返回 `ENROLLMENT_CODE_NOT_REPLAYABLE`，由用户重签并使旧码作废                                                                                                                                        | 只有哈希才能保证泄露面最小；回放明文需要额外加密存储，P0a 不引入                                                                     |
+| D14  | 离线 `bind` 仅在"摘要校验通过的 revision 缓存 + 精确 canonical locator 匹配"时允许；否则拒绝，不按目录名/仓库名猜测                                                                                                                                         | 离线无法在线核验身份，宽松匹配会制造假绑定（§9.4）                                                                                   |
+| D15  | 接入码只对**已发布定义**签发：未配置项目不能签发/消费；无代码项目先发布 `layout.kind=NONE`。`GET workspace-definition` 仍保留 `NOT_CONFIGURED` 作为只读状态                                                                                                 | 避免"签发禁止、消费/初始化又允许 null revision"两套互斥语义（§13.5）                                                                 |
+| D16  | 定义发布成功时 `definitionVersion + 1` 并返回新版本。发布前打开、仍持有旧 `expectedDefinitionVersion` 的编辑器，**若使用新的写请求/新的 `Idempotency-Key`** 保存草稿 → 409 `DEFINITION_VERSION_CONFLICT`；相同旧 key + 相同摘要的幂等重放仍返回首次成功响应 | 既让旧编辑器不能覆盖新基线，又不把合法的幂等重放误判为版本冲突（§13.4）                                                              |
+| D17  | 本机配置区分 `V1_ONLY / V2_ONLY / MIGRATED / DUAL_ACTIVE / NONE` 五态；`MIGRATED` 的 v1 备份（`config.v1.<ts>.json.bak`）不是活动配置；`DUAL_ACTIVE` 是硬冲突                                                                                               | "迁移后保留的备份"与"两份同时活动"必须区分，否则适配层和命令行为会分叉（§14.3）                                                      |
 
 ### 1.3 范围与完成口径
 
@@ -459,6 +461,8 @@ CREATE UNIQUE INDEX "ProjectRepositoryLocator_active_key"
 
 ### 9.4 离线 bind 与 locator 缓存契约（v1.2）
 
+> 实施边界（2026-11-06）：CLI 要求 revision payload 存在并校验 digest，同时核对 project 与 payload/仓库 ID、key、path 的关联。locator 缓存的本地 checksum 可检测未同步更新的更改，但能同时改写缓存与 hash 的主动攻击者不受此保护；旧缓存须在线刷新。离线期间服务端撤销不可知，现无新鲜度 TTL 承诺。若要求可认证的完整性或新鲜度，需要服务端签名或快照协议及相应产品决策；该强保障目前 **BLOCKED**。此说明不放宽下列冻结的精确 locator 与有效缓存要求。
+
 `bind` 的默认行为是**在线**：读取当前已发布定义并由服务端确认仓库与 locator。`--offline` 只有在下列条件全部满足时才允许，禁止用目录名、仓库名或 basename 猜测：
 
 1. 本机已有目标 revision 的缓存 `.workmesh/definitions/<revisionId>.json`，且缓存 `digest` 与服务端定义摘要一致；
@@ -698,19 +702,19 @@ PRD/验收的正式变更沿现有 change 和 snapshot 规则处理；新知识�
 
 > 注（v1.3）：本表为草案。本版以 §13.5 的契约为权威版本：补充 `POST /projects/:id/workspace-enrollments/consume`，明确接入码只对已发布定义签发/消费（`GET workspace-definition` 未配置时仍返回 200 + `NOT_CONFIGURED`，但该状态不能签发接入码）、响应包含 `locators[]`，并把 `verify` 的 P0a 范围冻结为"不做真实 provider 核验"。§13.3 规定权限/票据/幂等，§13.4 规定版本与 CAS。
 
-| 路由                                                           | 权限                                                   | 用途与状态影响                                                                                                                             |
-| -------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /projects/:id/repositories`                               | 当前项目读取权                                         | 复用已有接口；补稳定 adapter 身份和 locator 状态                                                                                           |
-| `POST /projects/:id/repositories`                              | HUMAN 项目管理权限 + 现有高风险/幂等规则               | 登记经适配器解析确认的仓库；不能靠客户端自由填外部 ID 建立代码证据身份                                                                     |
+| 路由                                                           | 权限                                                          | 用途与状态影响                                                                                                                                                                        |
+| -------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /projects/:id/repositories`                               | 当前项目读取权                                                | 复用已有接口；补稳定 adapter 身份和 locator 状态                                                                                                                                      |
+| `POST /projects/:id/repositories`                              | HUMAN 项目管理权限 + 现有高风险/幂等规则                      | 登记经适配器解析确认的仓库；不能靠客户端自由填外部 ID 建立代码证据身份                                                                                                                |
 | `POST /projects/:id/repositories/declarations`                 | HUMAN 项目管理权限 + expectedProjectVersion + Idempotency-Key | 保守规范化 locator 后按稳定身份复用现有 `ProjectRepository` ID（与 key 是否相同无关）；仅"绑到另一仓库的别名冲突"返回 `LOCATOR_ALREADY_BOUND`；追加声明审计，不标记 provider-verified |
-| `POST /projects/:id/repositories/:repoId/verify`               | HUMAN 项目读取权（P0a 也可不暴露）                     | **P0a 不执行真实核验**：不调用 provider API、不写 `PROVIDER_VERIFIED`/`lastVerified*`；若保留端点仅返回 `UNAVAILABLE/PROVIDER_UNSUPPORTED` 占位；真实核验属 P1/P2 adapter |
-| `POST /projects/:id/workspace-enrollments`                     | 活动 HUMAN 项目成员 + 限流（不要求 OWNER/ADMIN）       | 仅在项目已发布定义时签发；码绑定签发时的 revision，不授予成员、知识、仓库或 Agent 权限                                                     |
-| `GET /projects/:id/workspace-definition`                       | 项目读取权                                             | 返回当前已发布定义 revision、digest、仓库/资料引用                                                                                         |
-| `PUT /projects/:id/workspace-definition/draft`                 | HUMAN 项目管理权限                                     | 以 `expectedDefinitionVersion + Idempotency-Key + payload digest` 保存草稿                                                                 |
-| `POST /projects/:id/workspace-definition/validate`             | HUMAN 或只读工具身份                                   | 返回字段、引用、仓库归属、权限和路径规则诊断，不产生已发布定义                                                                             |
-| `POST /projects/:id/workspace-definition/publish`              | HUMAN + 一次性确认票据                                 | 按预期版本/摘要发布不可变 revision，追加审计记录                                                                                           |
-| `GET /projects/:id/workspace-definition/revisions/:revisionId` | 项目读取权                                             | 取得精确 revision；归档仓库/不可访问文档按权限返回清楚的 invalid/forbidden 原因                                                            |
-| 现有 task/context/claim/candidate/deliver 路由                 | 现有身份与权限                                         | 继续作为任务和正式事实权威；不能把客户端 preflight 变成审批                                                                                |
+| `POST /projects/:id/repositories/:repoId/verify`               | HUMAN 项目读取权（P0a 也可不暴露）                            | **P0a 不执行真实核验**：不调用 provider API、不写 `PROVIDER_VERIFIED`/`lastVerified*`；若保留端点仅返回 `UNAVAILABLE/PROVIDER_UNSUPPORTED` 占位；真实核验属 P1/P2 adapter             |
+| `POST /projects/:id/workspace-enrollments`                     | 活动 HUMAN 项目成员 + 限流（不要求 OWNER/ADMIN）              | 仅在项目已发布定义时签发；码绑定签发时的 revision，不授予成员、知识、仓库或 Agent 权限                                                                                                |
+| `GET /projects/:id/workspace-definition`                       | 项目读取权                                                    | 返回当前已发布定义 revision、digest、仓库/资料引用                                                                                                                                    |
+| `PUT /projects/:id/workspace-definition/draft`                 | HUMAN 项目管理权限                                            | 以 `expectedDefinitionVersion + Idempotency-Key + payload digest` 保存草稿                                                                                                            |
+| `POST /projects/:id/workspace-definition/validate`             | HUMAN 或只读工具身份                                          | 返回字段、引用、仓库归属、权限和路径规则诊断，不产生已发布定义                                                                                                                        |
+| `POST /projects/:id/workspace-definition/publish`              | HUMAN + 一次性确认票据                                        | 按预期版本/摘要发布不可变 revision，追加审计记录                                                                                                                                      |
+| `GET /projects/:id/workspace-definition/revisions/:revisionId` | 项目读取权                                                    | 取得精确 revision；归档仓库/不可访问文档按权限返回清楚的 invalid/forbidden 原因                                                                                                       |
+| 现有 task/context/claim/candidate/deliver 路由                 | 现有身份与权限                                                | 继续作为任务和正式事实权威；不能把客户端 preflight 变成审批                                                                                                                           |
 
 实现建议新增一对 `ProjectWorkspaceDefinition` / `ProjectWorkspaceDefinitionRevision` 数据模型，项目最多一条当前定义，历史 revision 不可变；关联项目仓库、有效 Unit 和已发布文档 ID。也可基于评审后的领域模型用独立版本资源替代，但**不要把机器私有绑定塞进 Project 表、知识库正文或成员档案**。
 
@@ -724,17 +728,17 @@ P0 不新增服务端成员机器目录表。若未来确有跨机运维健康�
 
 写操作不得笼统使用同一套规则。以下为 P0a 冻结契约；"票据"指现有 `ConfirmationTicket`（`POST /auth/confirmation-tickets` 签发、`ActionBinding` 绑定、5 分钟、一次性），"key"指 UUID 形态的 `Idempotency-Key`。
 
-| 操作 | 权限 | 确认票据 | Idempotency-Key | 同键重放 | 重复/冲突行为 |
-|---|---|---|---|---|---|
-| 仓库声明 `POST .../repositories/declarations` | HUMAN + 项目 OWNER/ADMIN | **需要**（action `REPOSITORY_DECLARE`） | **必须** | 同 key 返回原 repositoryId/locatorId，不再校验版本/票据 | 同 canonical locator 不同 key → **200 复用**已有 repository（`reused:true`）；仅当显式 alias 且 locator 已绑到**另一**仓库 → 409 `LOCATOR_ALREADY_BOUND`；不创建第二条仓库 |
-| 仓库归档 `DELETE .../repositories/:id`（既有接口） | HUMAN + OWNER/ADMIN | **需要**（P0a 补齐；action `REPOSITORY_ARCHIVE`） | 必须 | 返回原归档结果 | 已归档 → 幂等返回；跨项目 → 404 |
-| 定义草稿保存 `PUT .../workspace-definition/draft` | HUMAN + OWNER/ADMIN | 不需要 | 必须 | **同 key + 同 digest 先回放原响应**；即使当前 `definitionVersion` 已变化，也不改判为版本冲突 | 同 key 不同 digest → 409 `IDEMPOTENCY_DIGEST_CONFLICT`；**新 key** + 旧 `expectedDefinitionVersion` → 409 `DEFINITION_VERSION_CONFLICT` |
-| 定义校验 `POST .../validate` | HUMAN + OWNER/ADMIN（P0a；AGENT 只读工具身份 P0b） | 不需要 | 不需要 | 天然只读，可重复 | 200 且 `valid:false` 返回 issues，不是 HTTP 错误 |
-| 定义发布 `POST .../publish` | HUMAN + OWNER/ADMIN | **需要**（action `WORKSPACE_DEFINITION_PUBLISH`） | **必须** | 返回原 revisionId/revisionNo/digest/**definitionVersion**，先于 CAS 与票据消费 | 版本/摘要不符 → 409；票据无效 → 403；已消费 → 409 `CONFIRMATION_USED`；发布事务内 `definitionVersion+1`；旧编辑器**用新 key/新写请求** + 旧版本 → 409；同 key 同 digest 重放返回原响应 |
-| 接入码签发 `POST .../workspace-enrollments` | **任意活动 HUMAN 项目成员 + 限流**（§21.1 已冻结；码本身不授权） | 不需要（码本身不授权） | **必须** | **不能回放明文码**：返回 409 `ENROLLMENT_CODE_NOT_REPLAYABLE` + enrollmentId；用户重签，旧码作废 | **无已发布定义 → 409 `PROJECT_UNCONFIGURED`**；项目归档 409；限流 429 |
-| 接入码消费 `POST .../workspace-enrollments/consume` | 匿名 + 严格限流；码即凭证 | 不需要 | 不需要（码本身一次性） | 并发消费只有一个成功；其余 409 `ENROLLMENT_CONSUMED` 带 consumedAt | 过期 409 `ENROLLMENT_EXPIRED`；未知码 404 `ENROLLMENT_NOT_FOUND` |
-| 仓库核验 `POST .../repositories/:repoId/verify` | HUMAN 项目读取权 | 不需要 | 不需要 | 天然可重复 | P0a 不暴露，或仅返回 200 + `UNAVAILABLE/PROVIDER_UNSUPPORTED` 占位；**不调用 provider API、不写核验状态**；不得把 DECLARED 显示为已验证 |
-| GET 类 | 活动成员读取 | 不需要 | 不需要 | 天然幂等 | 非成员 404（沿用现有语义） |
+| 操作                                                | 权限                                                             | 确认票据                                          | Idempotency-Key        | 同键重放                                                                                         | 重复/冲突行为                                                                                                                                                                          |
+| --------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 仓库声明 `POST .../repositories/declarations`       | HUMAN + 项目 OWNER/ADMIN                                         | **需要**（action `REPOSITORY_DECLARE`）           | **必须**               | 同 key 返回原 repositoryId/locatorId，不再校验版本/票据                                          | 同 canonical locator 不同 key → **200 复用**已有 repository（`reused:true`）；仅当显式 alias 且 locator 已绑到**另一**仓库 → 409 `LOCATOR_ALREADY_BOUND`；不创建第二条仓库             |
+| 仓库归档 `DELETE .../repositories/:id`（既有接口）  | HUMAN + OWNER/ADMIN                                              | **需要**（P0a 补齐；action `REPOSITORY_ARCHIVE`） | 必须                   | 返回原归档结果                                                                                   | 已归档 → 幂等返回；跨项目 → 404                                                                                                                                                        |
+| 定义草稿保存 `PUT .../workspace-definition/draft`   | HUMAN + OWNER/ADMIN                                              | 不需要                                            | 必须                   | **同 key + 同 digest 先回放原响应**；即使当前 `definitionVersion` 已变化，也不改判为版本冲突     | 同 key 不同 digest → 409 `IDEMPOTENCY_DIGEST_CONFLICT`；**新 key** + 旧 `expectedDefinitionVersion` → 409 `DEFINITION_VERSION_CONFLICT`                                                |
+| 定义校验 `POST .../validate`                        | HUMAN + OWNER/ADMIN（P0a；AGENT 只读工具身份 P0b）               | 不需要                                            | 不需要                 | 天然只读，可重复                                                                                 | 200 且 `valid:false` 返回 issues，不是 HTTP 错误                                                                                                                                       |
+| 定义发布 `POST .../publish`                         | HUMAN + OWNER/ADMIN                                              | **需要**（action `WORKSPACE_DEFINITION_PUBLISH`） | **必须**               | 返回原 revisionId/revisionNo/digest/**definitionVersion**，先于 CAS 与票据消费                   | 版本/摘要不符 → 409；票据无效 → 403；已消费 → 409 `CONFIRMATION_USED`；发布事务内 `definitionVersion+1`；旧编辑器**用新 key/新写请求** + 旧版本 → 409；同 key 同 digest 重放返回原响应 |
+| 接入码签发 `POST .../workspace-enrollments`         | **任意活动 HUMAN 项目成员 + 限流**（§21.1 已冻结；码本身不授权） | 不需要（码本身不授权）                            | **必须**               | **不能回放明文码**：返回 409 `ENROLLMENT_CODE_NOT_REPLAYABLE` + enrollmentId；用户重签，旧码作废 | **无已发布定义 → 409 `PROJECT_UNCONFIGURED`**；项目归档 409；限流 429                                                                                                                  |
+| 接入码消费 `POST .../workspace-enrollments/consume` | 匿名 + 严格限流；码即凭证                                        | 不需要                                            | 不需要（码本身一次性） | 并发消费只有一个成功；其余 409 `ENROLLMENT_CONSUMED` 带 consumedAt                               | 过期 409 `ENROLLMENT_EXPIRED`；未知码 404 `ENROLLMENT_NOT_FOUND`                                                                                                                       |
+| 仓库核验 `POST .../repositories/:repoId/verify`     | HUMAN 项目读取权                                                 | 不需要                                            | 不需要                 | 天然可重复                                                                                       | P0a 不暴露，或仅返回 200 + `UNAVAILABLE/PROVIDER_UNSUPPORTED` 占位；**不调用 provider API、不写核验状态**；不得把 DECLARED 显示为已验证                                                |
+| GET 类                                              | 活动成员读取                                                     | 不需要                                            | 不需要                 | 天然幂等                                                                                         | 非成员 404（沿用现有语义）                                                                                                                                                             |
 
 **声明响应语义**：新建仓库 201；同项目活跃 locator 复用 200（`reused:true`，不创建第二身份）；同 key 重放 200（`replayed:true`）；显式 alias 成功 200（`alias:true`）；alias 目标冲突 409 `LOCATOR_ALREADY_BOUND`。响应含 `repositoryId/locatorId/identityMode/reused/replayed/alias/projectVersion`，不得返回伪造的 provider 身份。
 
@@ -750,20 +754,20 @@ P0 不新增服务端成员机器目录表。若未来确有跨机运维健康�
 
 统一命名（正文、API 字段、数据库列一一对应，不再混用"版本/expectedVersion"）：
 
-| 名称 | 数据库 | 含义 | 何时递增 |
-|---|---|---|---|
-| `projectVersion` | `Project.version` | 项目共享配置版本 | 仓库声明、仓库归档、定义发布、既有项目更新/归档、既有 workflow 发布 |
-| `definitionVersion` | `ProjectWorkspaceDefinition.version` | 定义草稿代数，也是旧编辑器的失效令牌 | 每次成功保存草稿 +1；**每次成功发布也 +1**；首次创建为 1 |
-| `revisionNo` | `ProjectWorkspaceDefinitionRevision.revisionNo` | 已发布定义序号（不可变） | 每次发布 +1；从 1 开始 |
-| `payloadDigest` | Revision.digest / 草稿摘要 | 服务端规范化 payload 的 sha256 | 服务端计算；客户端值只用于声明 |
+| 名称                | 数据库                                          | 含义                                 | 何时递增                                                            |
+| ------------------- | ----------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------- |
+| `projectVersion`    | `Project.version`                               | 项目共享配置版本                     | 仓库声明、仓库归档、定义发布、既有项目更新/归档、既有 workflow 发布 |
+| `definitionVersion` | `ProjectWorkspaceDefinition.version`            | 定义草稿代数，也是旧编辑器的失效令牌 | 每次成功保存草稿 +1；**每次成功发布也 +1**；首次创建为 1            |
+| `revisionNo`        | `ProjectWorkspaceDefinitionRevision.revisionNo` | 已发布定义序号（不可变）             | 每次发布 +1；从 1 开始                                              |
+| `payloadDigest`     | Revision.digest / 草稿摘要                      | 服务端规范化 payload 的 sha256       | 服务端计算；客户端值只用于声明                                      |
 
 API 字段与校验：
 
-| 接口 | 请求字段 | 校验对象 | 成功后的更新 |
-|---|---|---|---|
-| 仓库声明/归档 | `expectedProjectVersion` | `Project.version` | `Project.version + 1` |
-| 保存草稿 | `expectedDefinitionVersion` + `payloadDigest` | `Definition.version`；digest 必须与规范化重算一致 | `Definition.version + 1`、更新 draft |
-| 发布 | `expectedProjectVersion` + `expectedDefinitionVersion` + `payloadDigest` | 三者同时匹配；再校验 revision 内容 | 新建 revision（`revisionNo+1`）；更新 `currentRevisionId/currentRevisionNo`；`Project.version + 1`；**`definitionVersion + 1`**；清空 draft；响应返回新的 `definitionVersion` |
+| 接口          | 请求字段                                                                 | 校验对象                                          | 成功后的更新                                                                                                                                                                  |
+| ------------- | ------------------------------------------------------------------------ | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 仓库声明/归档 | `expectedProjectVersion`                                                 | `Project.version`                                 | `Project.version + 1`                                                                                                                                                         |
+| 保存草稿      | `expectedDefinitionVersion` + `payloadDigest`                            | `Definition.version`；digest 必须与规范化重算一致 | `Definition.version + 1`、更新 draft                                                                                                                                          |
+| 发布          | `expectedProjectVersion` + `expectedDefinitionVersion` + `payloadDigest` | 三者同时匹配；再校验 revision 内容                | 新建 revision（`revisionNo+1`）；更新 `currentRevisionId/currentRevisionNo`；`Project.version + 1`；**`definitionVersion + 1`**；清空 draft；响应返回新的 `definitionVersion` |
 
 幂等回放优先于 CAS：相同 key + 相同摘要的重放返回首次成功响应，不按当前版本重新判定冲突；只有非重放请求才执行 `expectedDefinitionVersion` CAS。发布使旧草稿失效的规则：发布事务必须递增 `definitionVersion`；发布前打开、仍持有旧 `expectedDefinitionVersion` 的编辑器，**使用新的写请求/新的 `Idempotency-Key`** 保存草稿时得到 409 `DEFINITION_VERSION_CONFLICT`，必须重新读取定义/草稿后重载；相同旧 key + 相同摘要的幂等重放仍返回首次成功响应，不重复写入、不重复消费票据、不产生第二条审计。禁止以"payload 相同"为由静默接受旧版本的新写入。发布响应中的 `definitionVersion` 是客户端此后唯一可用的草稿版本基线。
 
@@ -773,10 +777,10 @@ API 字段与校验：
 
 **服务端接口**
 
-| 路由 | 请求 | 响应 | 错误 |
-|---|---|---|---|
-| `POST /projects/:id/workspace-enrollments` | `{ ttlSeconds? }` | 201 `{ enrollmentId, code（仅此一次）, projectId, definitionRevisionId, definitionDigest, expiresAt }` | 401/403；404；409 `PROJECT_UNCONFIGURED`/`PROJECT_ARCHIVED`；429 |
-| `POST /workspace-enrollments/consume` | `{ code }`（匿名，限流） | 200 `{ projectId, projectName, definitionRevisionId, definitionDigest }` | 400/404 `ENROLLMENT_NOT_FOUND`；409 `ENROLLMENT_EXPIRED`/`ENROLLMENT_CONSUMED`；429 |
+| 路由                                       | 请求                     | 响应                                                                                                   | 错误                                                                                |
+| ------------------------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `POST /projects/:id/workspace-enrollments` | `{ ttlSeconds? }`        | 201 `{ enrollmentId, code（仅此一次）, projectId, definitionRevisionId, definitionDigest, expiresAt }` | 401/403；404；409 `PROJECT_UNCONFIGURED`/`PROJECT_ARCHIVED`；429                    |
+| `POST /workspace-enrollments/consume`      | `{ code }`（匿名，限流） | 200 `{ projectId, projectName, definitionRevisionId, definitionDigest }`                               | 400/404 `ENROLLMENT_NOT_FOUND`；409 `ENROLLMENT_EXPIRED`/`ENROLLMENT_CONSUMED`；429 |
 
 签发前置：项目必须存在 **current published definition**；否则 409 `PROJECT_UNCONFIGURED`，无代码项目须先发布 `layout.kind: NONE`。签发时服务端取当前发布 revision 写入 enrollment（客户端不能指定任意 revision），消费与 init 因此不存在 null revision / `NOT_CONFIGURED` 分支。
 
@@ -861,26 +865,26 @@ Owner 不能通过本机目录扫描替全体成员授予代码/知识权限；A
 
 **本机配置五态（v1.3 冻结）**
 
-| 状态 | 判定 | 含义 |
-|---|---|---|
-| `NONE` | 无 `config.json` 也无 `workspace.json` | 未接入 |
-| `V1_ONLY` | 只有 `.workmesh/config.json`（schemaVersion 1.0） | 未迁移 |
-| `V2_ONLY` | 只有 `.workmesh/workspace.json`（2.0），无 v1 `config.json` | 新接入或迁移完成且备份已移走 |
-| `MIGRATED` | 有 `workspace.json`，且 v1 已归档为 `config.v1.<ts>.json.bak` | 迁移成功的正常状态；备份**不是活动配置**，任何命令都不读取 |
-| `DUAL_ACTIVE` | `workspace.json` 与 `config.json` **同时存在且都可解析** | 硬冲突（手工复制、迁移中断等）；禁止任何自动选择 |
+| 状态          | 判定                                                          | 含义                                                       |
+| ------------- | ------------------------------------------------------------- | ---------------------------------------------------------- |
+| `NONE`        | 无 `config.json` 也无 `workspace.json`                        | 未接入                                                     |
+| `V1_ONLY`     | 只有 `.workmesh/config.json`（schemaVersion 1.0）             | 未迁移                                                     |
+| `V2_ONLY`     | 只有 `.workmesh/workspace.json`（2.0），无 v1 `config.json`   | 新接入或迁移完成且备份已移走                               |
+| `MIGRATED`    | 有 `workspace.json`，且 v1 已归档为 `config.v1.<ts>.json.bak` | 迁移成功的正常状态；备份**不是活动配置**，任何命令都不读取 |
+| `DUAL_ACTIVE` | `workspace.json` 与 `config.json` **同时存在且都可解析**      | 硬冲突（手工复制、迁移中断等）；禁止任何自动选择           |
 
 **命令 × 配置状态行为（v1.3 权威）**
 
-| 命令 | `V1_ONLY` | `V2_ONLY` / `MIGRATED` | `DUAL_ACTIVE` | `NONE` |
-|---|---|---|---|---|
-| 旧数据命令 `claim/context/materialize/candidate/deliver/review/changes/product*` | 按 v1 读取（现有行为） | 通过配置适配层按 v2 读取（T5 范围）；忽略 `.bak` | **拒绝**：退出码 5，`WORKSPACE_DUAL_CONFIG`，details 列出两个活动路径与修复命令；不自动选 v2 | `CONFIG_NOT_FOUND`，提示 `workspace init` |
-| `auth login/status/logout` | 现有行为（需要 v1） | 按 v2 的 platform/projectId/defaults.roleKey | 拒绝 `WORKSPACE_DUAL_CONFIG`（`auth status` 也不自动选） | `CONFIG_NOT_FOUND` |
-| `setup` / `roles install` | 拒绝 `WORKSPACE_V1_MIGRATION_REQUIRED` | 写 v2 关联的包/Agent 入口 | 拒绝 `WORKSPACE_DUAL_CONFIG` | 需要显式 `--api/--project`（现有约束） |
-| `workspace init --join` | 拒绝，提示先迁移 | 拒绝 `WORKSPACE_ALREADY_BOUND`（`--rebind` 留 P0b） | 拒绝 `WORKSPACE_DUAL_CONFIG` | 允许（§13.5，且项目须已发布定义） |
-| `workspace status` | 只读：识别 v1，`v1Migration.required=true` | 只读：正常状态；`MIGRATED` 额外显示备份路径 | **只读诊断例外**：报告 `DUAL_ACTIVE` + 两个路径 + `nextAction`，退出码 5；不自动选权威 | 只读：给接入建议 |
-| `workspace discover` | 只读发现 | 只读发现 | **拒绝**：退出码 5，`WORKSPACE_DUAL_CONFIG`；不得从冲突配置推导状态 | 只读：给接入建议 |
-| `workspace bind` | 拒绝（需 v2 + 已发布定义） | 允许（在线；离线按 §9.4） | 拒绝 `WORKSPACE_DUAL_CONFIG` | 拒绝 `WORKSPACE_NOT_CONFIGURED` |
-| `workspace migrate` | dry-run/apply 允许 | `dry-run` 显示"已迁移"；`apply` 返回 0 不写；`MIGRATED` 显示备份 | `--inspect` 只读诊断（不删除）；`--resolve keep-v2` 为用户显式触发的修复例外（仅 v2 校验通过 + journal 条件满足）；其他子命令拒绝 | `CONFIG_NOT_FOUND` |
+| 命令                                                                             | `V1_ONLY`                                  | `V2_ONLY` / `MIGRATED`                                           | `DUAL_ACTIVE`                                                                                                                     | `NONE`                                    |
+| -------------------------------------------------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| 旧数据命令 `claim/context/materialize/candidate/deliver/review/changes/product*` | 按 v1 读取（现有行为）                     | 通过配置适配层按 v2 读取（T5 范围）；忽略 `.bak`                 | **拒绝**：退出码 5，`WORKSPACE_DUAL_CONFIG`，details 列出两个活动路径与修复命令；不自动选 v2                                      | `CONFIG_NOT_FOUND`，提示 `workspace init` |
+| `auth login/status/logout`                                                       | 现有行为（需要 v1）                        | 按 v2 的 platform/projectId/defaults.roleKey                     | 拒绝 `WORKSPACE_DUAL_CONFIG`（`auth status` 也不自动选）                                                                          | `CONFIG_NOT_FOUND`                        |
+| `setup` / `roles install`                                                        | 拒绝 `WORKSPACE_V1_MIGRATION_REQUIRED`     | 写 v2 关联的包/Agent 入口                                        | 拒绝 `WORKSPACE_DUAL_CONFIG`                                                                                                      | 需要显式 `--api/--project`（现有约束）    |
+| `workspace init --join`                                                          | 拒绝，提示先迁移                           | 拒绝 `WORKSPACE_ALREADY_BOUND`（`--rebind` 留 P0b）              | 拒绝 `WORKSPACE_DUAL_CONFIG`                                                                                                      | 允许（§13.5，且项目须已发布定义）         |
+| `workspace status`                                                               | 只读：识别 v1，`v1Migration.required=true` | 只读：正常状态；`MIGRATED` 额外显示备份路径                      | **只读诊断例外**：报告 `DUAL_ACTIVE` + 两个路径 + `nextAction`，退出码 5；不自动选权威                                            | 只读：给接入建议                          |
+| `workspace discover`                                                             | 只读发现                                   | 只读发现                                                         | **拒绝**：退出码 5，`WORKSPACE_DUAL_CONFIG`；不得从冲突配置推导状态                                                               | 只读：给接入建议                          |
+| `workspace bind`                                                                 | 拒绝（需 v2 + 已发布定义）                 | 允许（在线；离线按 §9.4）                                        | 拒绝 `WORKSPACE_DUAL_CONFIG`                                                                                                      | 拒绝 `WORKSPACE_NOT_CONFIGURED`           |
+| `workspace migrate`                                                              | dry-run/apply 允许                         | `dry-run` 显示"已迁移"；`apply` 返回 0 不写；`MIGRATED` 显示备份 | `--inspect` 只读诊断（不删除）；`--resolve keep-v2` 为用户显式触发的修复例外（仅 v2 校验通过 + journal 条件满足）；其他子命令拒绝 | `CONFIG_NOT_FOUND`                        |
 
 **双配置处理规则**
 
@@ -989,19 +993,19 @@ P0 诊断默认留在本机。若未来上报，单独 opt-in，字段 allowlist
 
 ### 17.1 迁移、双配置与接入码的补充恢复行为（v1.3）
 
-| 情况 | 系统行为 | 用户可恢复方式 |
-|---|---|---|
-| 迁移部分执行 | 停止写流量；按 §16.4 先查 `_prisma_migrations` 与实际 catalog，再补齐/撤销/标记；不盲目重跑 | 按诊断结果选择重跑、补偿迁移或备份恢复 |
-| `DUAL_ACTIVE`（v2 + 活动 v1） | 硬冲突：仅 `workspace status`（只读）、`migrate --inspect`（只读不删）、`migrate --resolve keep-v2`（显式修复）例外；`workspace discover` 及其他命令拒绝，退出码 5 `WORKSPACE_DUAL_CONFIG`；不自动选 v2 | 先 `--inspect` 诊断；v2 有效且 journal 满足时 `--resolve keep-v2`（归档 v1，不读 `.bak`）；v2 无效则按指引人工恢复，CLI 不删活动配置 |
-| 迁移中断（v2 尚未成为活动配置） | `--inspect` 只报告 journal 阶段与临时文件；不写不删 | 用户人工清理半成品 v2 回到 `V1_ONLY`，或修复后重新走 apply；不得盲目重跑 |
-| `MIGRATED` 的 `.bak` 被误当配置 | 适配层与所有命令忽略 `*.bak`；status 只展示备份路径 | 无需处理；恢复旧配置必须走显式迁移流程 |
-| 接入码已消费但本机写入失败 | 码不可复用；保留 `pending-init.json` 供诊断，不产生半份 workspace.json | 回 Web 重新生成接入码，再执行一次 init |
-| 同一 Idempotency-Key 重试签发接入码 | 返回 409 `ENROLLMENT_CODE_NOT_REPLAYABLE` + enrollmentId；旧码作废 | 用新 key 重新签发，页面提示"已重新生成" |
-| 两个终端并发消费同一码 | 数据库 CAS 保证只有一个成功；另一个 409 `ENROLLMENT_CONSUMED` 带 consumedAt | 失败的终端改为重新生成码 |
-| 离线 bind 但无有效 locator 缓存 | 拒绝 `WORKSPACE_OFFLINE_UNVERIFIED`；不按目录名/仓库名匹配 | 联网执行 bind，或先在线刷新定义缓存 |
-| 两个管理员并发发布定义 | 一个成功；另一个 409 `PROJECT_VERSION_CONFLICT`/`DEFINITION_VERSION_CONFLICT` | 刷新草稿与项目版本后重试；不覆盖他人 revision |
-| `verify`（P0a） | 端点可不暴露；若暴露只返回占位，且不调用 provider API、不写 `PROVIDER_VERIFIED`/`lastVerified*` | 保持 DECLARED 身份与本机只读；真实核验等待 P1/P2 adapter |
-| 把 DECLARED_MATCH 当成 provider 验证 | 服务端/CLI/Web 均禁止；文案必须显示"未由托管方核验" | 无；属于缺陷，按 T2 修复 |
+| 情况                                 | 系统行为                                                                                                                                                                                                | 用户可恢复方式                                                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| 迁移部分执行                         | 停止写流量；按 §16.4 先查 `_prisma_migrations` 与实际 catalog，再补齐/撤销/标记；不盲目重跑                                                                                                             | 按诊断结果选择重跑、补偿迁移或备份恢复                                                                                               |
+| `DUAL_ACTIVE`（v2 + 活动 v1）        | 硬冲突：仅 `workspace status`（只读）、`migrate --inspect`（只读不删）、`migrate --resolve keep-v2`（显式修复）例外；`workspace discover` 及其他命令拒绝，退出码 5 `WORKSPACE_DUAL_CONFIG`；不自动选 v2 | 先 `--inspect` 诊断；v2 有效且 journal 满足时 `--resolve keep-v2`（归档 v1，不读 `.bak`）；v2 无效则按指引人工恢复，CLI 不删活动配置 |
+| 迁移中断（v2 尚未成为活动配置）      | `--inspect` 只报告 journal 阶段与临时文件；不写不删                                                                                                                                                     | 用户人工清理半成品 v2 回到 `V1_ONLY`，或修复后重新走 apply；不得盲目重跑                                                             |
+| `MIGRATED` 的 `.bak` 被误当配置      | 适配层与所有命令忽略 `*.bak`；status 只展示备份路径                                                                                                                                                     | 无需处理；恢复旧配置必须走显式迁移流程                                                                                               |
+| 接入码已消费但本机写入失败           | 码不可复用；保留 `pending-init.json` 供诊断，不产生半份 workspace.json                                                                                                                                  | 回 Web 重新生成接入码，再执行一次 init                                                                                               |
+| 同一 Idempotency-Key 重试签发接入码  | 返回 409 `ENROLLMENT_CODE_NOT_REPLAYABLE` + enrollmentId；旧码作废                                                                                                                                      | 用新 key 重新签发，页面提示"已重新生成"                                                                                              |
+| 两个终端并发消费同一码               | 数据库 CAS 保证只有一个成功；另一个 409 `ENROLLMENT_CONSUMED` 带 consumedAt                                                                                                                             | 失败的终端改为重新生成码                                                                                                             |
+| 离线 bind 但无有效 locator 缓存      | 拒绝 `WORKSPACE_OFFLINE_UNVERIFIED`；不按目录名/仓库名匹配                                                                                                                                              | 联网执行 bind，或先在线刷新定义缓存                                                                                                  |
+| 两个管理员并发发布定义               | 一个成功；另一个 409 `PROJECT_VERSION_CONFLICT`/`DEFINITION_VERSION_CONFLICT`                                                                                                                           | 刷新草稿与项目版本后重试；不覆盖他人 revision                                                                                        |
+| `verify`（P0a）                      | 端点可不暴露；若暴露只返回占位，且不调用 provider API、不写 `PROVIDER_VERIFIED`/`lastVerified*`                                                                                                         | 保持 DECLARED 身份与本机只读；真实核验等待 P1/P2 adapter                                                                             |
+| 把 DECLARED_MATCH 当成 provider 验证 | 服务端/CLI/Web 均禁止；文案必须显示"未由托管方核验"                                                                                                                                                     | 无；属于缺陷，按 T2 修复                                                                                                             |
 
 ## 18. 渐进实施计划
 
@@ -1010,7 +1014,7 @@ P0 诊断默认留在本机。若未来上报，单独 opt-in，字段 allowlist
 | 阶段                 | 内容                                                                                                                                       | 用户能得到的结果                                                 | 明确不宣称                                  |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- | ------------------------------------------- |
 | P0a：共享接入闭环    | 最小共享 definition revision、human-declared repository locator、接入码、仓库管理页、v2 本机绑定、discover/bind/status；含数据库迁移与回滚 | 成员在不同路径接入同一项目；无 provider 时可以显式声明和本机读取 | 未适配 provider 的自动身份验证/代码评审闭环 |
-| P0b：可靠日常工作    | 自动工作区发现与恢复、session 分离、任务级 required repository、preflight、run/checkpoint、Codex 入口（v1→v2 迁移归 P0a，见 §18.1）     | 目录内恢复项目，多角色共用映射，按任务看缺项                     | 文件存在就代表 Agent 已读取                 |
+| P0b：可靠日常工作    | 自动工作区发现与恢复、session 分离、任务级 required repository、preflight、run/checkpoint、Codex 入口（v1→v2 迁移归 P0a，见 §18.1）        | 目录内恢复项目，多角色共用映射，按任务看缺项                     | 文件存在就代表 Agent 已读取                 |
 | P1：历史知识闭环     | 有来源的 scan/draft/submit、有效知识引用校验、增量来源检查                                                                                 | 历史项目知识能经人工确认后逐步发布和更新                         | 自动把 AI 推断内容当事实                    |
 | P1/P2：托管厂商适配  | adapter interface、按用户需求支持 GitHub/GitLab/自建实例的身份与代码证据                                                                   | 更多开源项目获得正式提交与评审证据闭环                           | 所有托管平台天然受支持                      |
 | P2：可选设备健康视图 | opt-in、可撤销匿名登记                                                                                                                     | 管理员看到匿名状态与最后核验时间                                 | 看到成员路径、源码或秘密                    |
@@ -1023,13 +1027,13 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
 
 §18 原表与实施契约有冲突，以本节为准：
 
-| 阶段 | 范围（修正后） | 用户能得到的结果 | 明确不宣称 |
-|---|---|---|---|
-| P0a：共享接入闭环 | `identityMode/locator` 迁移；最小 definition revision；仓库列表/声明/归档补强；definition 草稿/校验/发布/读取；接入码签发（需已发布定义）+ 消费；CLI v2 配置、`init --join`、`discover/bind/status`、`migrate --dry-run/--apply`；Web 最小页面；数据库迁移与恢复演练 | 成员用接入码在任意路径接入同一项目；无 provider 时显式声明并可本机读取；v1 配置可安全迁移 | 不做真实 provider 核验；不宣称代码证据闭环；不做 session 切换/AGENTS.md |
-| P0b：可靠日常工作 | session 分离与多角色；task-level `requiredRepositoryIds`；preflight；relocate/自动恢复；run/checkpoint；Codex 入口；clone | 目录内恢复项目，多角色共用映射，按任务看缺项 | 文件存在不等于 Agent 已读取 |
-| P1：历史知识闭环 | scan/draft/submit、知识来源校验、增量检查 | 历史知识经人工确认发布 | 不把 AI 推断当事实 |
-| P1/P2：托管厂商适配 | adapter 接线、GitLab/自建实例 | 更多 provider 的正式证据 | 不宣称所有平台天然支持 |
-| P2：设备健康视图 | opt-in 匿名登记 | 管理员看匿名状态 | 不采集路径/源码/秘密 |
+| 阶段                | 范围（修正后）                                                                                                                                                                                                                                                       | 用户能得到的结果                                                                          | 明确不宣称                                                              |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| P0a：共享接入闭环   | `identityMode/locator` 迁移；最小 definition revision；仓库列表/声明/归档补强；definition 草稿/校验/发布/读取；接入码签发（需已发布定义）+ 消费；CLI v2 配置、`init --join`、`discover/bind/status`、`migrate --dry-run/--apply`；Web 最小页面；数据库迁移与恢复演练 | 成员用接入码在任意路径接入同一项目；无 provider 时显式声明并可本机读取；v1 配置可安全迁移 | 不做真实 provider 核验；不宣称代码证据闭环；不做 session 切换/AGENTS.md |
+| P0b：可靠日常工作   | session 分离与多角色；task-level `requiredRepositoryIds`；preflight；relocate/自动恢复；run/checkpoint；Codex 入口；clone                                                                                                                                            | 目录内恢复项目，多角色共用映射，按任务看缺项                                              | 文件存在不等于 Agent 已读取                                             |
+| P1：历史知识闭环    | scan/draft/submit、知识来源校验、增量检查                                                                                                                                                                                                                            | 历史知识经人工确认发布                                                                    | 不把 AI 推断当事实                                                      |
+| P1/P2：托管厂商适配 | adapter 接线、GitLab/自建实例                                                                                                                                                                                                                                        | 更多 provider 的正式证据                                                                  | 不宣称所有平台天然支持                                                  |
+| P2：设备健康视图    | opt-in 匿名登记                                                                                                                                                                                                                                                      | 管理员看匿名状态                                                                          | 不采集路径/源码/秘密                                                    |
 
 关于 `verify`：P0a **冻结为不做真实 provider 核验**（D12）。该端点可不暴露，或仅返回诊断占位（`UNAVAILABLE/PROVIDER_UNSUPPORTED`）；**不调用 provider API、不写 `PROVIDER_VERIFIED`/`lastVerified*`**，不得让 Web/CLI 把 `DECLARED_MATCH` 显示成"已验证"。把真实核验提前到 P0a 属于变更请求：需先完成 adapter 生产注入、token 与错误分类，并新增任务与验收；变更获批前不实现、不宣称。
 
@@ -1137,11 +1141,11 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
 
 以下三项已由产品于 2026-11-05 确认并**冻结**，不再作为未决项；T1/T4/T7 可直接按此实现。
 
-| 已冻结决策 | 最终选择 | 影响任务 |
-|---|---|---|
-| 接入码签发权限 | **任意活动 HUMAN 项目成员可签发，必须限流**；接入码本身不授予成员、仓库、知识或 Agent 权限 | T4、T9（Web 入口） |
-| 离线 bind | **P0a 保留**；仅“摘要有效的 revision 缓存 + 精确 canonical locator 匹配”允许；无缓存、摘要不符、locator 不精确匹配时拒绝，不按目录名、仓库名或路径猜测 | T7 |
-| 定义文档引用 | **不建文档关系表或 FK**；definition payload 保存文档引用；发布时服务端校验、读取时复核 | T1（不建表）、T3（payload 校验/复核）、T9 |
+| 已冻结决策     | 最终选择                                                                                                                                               | 影响任务                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------- |
+| 接入码签发权限 | **任意活动 HUMAN 项目成员可签发，必须限流**；接入码本身不授予成员、仓库、知识或 Agent 权限                                                             | T4、T9（Web 入口）                        |
+| 离线 bind      | **P0a 保留**；仅“摘要有效的 revision 缓存 + 精确 canonical locator 匹配”允许；无缓存、摘要不符、locator 不精确匹配时拒绝，不按目录名、仓库名或路径猜测 | T7                                        |
+| 定义文档引用   | **不建文档关系表或 FK**；definition payload 保存文档引用；发布时服务端校验、读取时复核                                                                 | T1（不建表）、T3（payload 校验/复核）、T9 |
 
 以下默认继续有效，**不阻塞** T1/T2/T3：
 
@@ -1177,6 +1181,7 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
 > 本节是执行顺序与文件归属的权威版本；§18.1 只定义阶段范围。任务编号变化：v1.1 的 10 项拆成 11 项，新增 T6（CLI 接入码初始化）。所有任务不得写入项目名称、仓库目录名或案例名称常量；示例数据只用于测试，不进入默认值或特判（见 §23）。
 
 **T1 领域模型与数据库迁移**
+
 - 目标：冻结并落地 `identityMode`/locator/definition/enrollment 的 schema 与迁移 0016–0019（含手写 CHECK、部分唯一索引、迁移前后校验 SQL）。
 - 前置：§1.2.1 的 D09/D10/D11 已定；§21.1 文档引用已冻结为“不建关系表、payload JSON”；§7.4、§13.4 契约冻结。`owner/name` 按默认展示字段推进，不作为 T1 前置。
 - 修改文件：`apps/api/prisma/schema.prisma`。
@@ -1188,6 +1193,7 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
 - 明确不做：业务 API、locator 数据回填、DROP/RENAME 现有列；**文档关系表或 FK（§21.1 已冻结不建）**。
 
 **T2 仓库声明与既有仓库写路径补强**
+
 - 目标：新增 `declarations`；把既有 create/archive 补齐审计、票据、幂等、CAS、归档项目检查；实现 canonical locator 规范化与稳定身份复用（`LOCATOR_ALREADY_BOUND` 仅用于 alias 冲突/已绑定到另一仓库）。
 - 前置：T1；`owner/name` 按 §21.1 默认实现为可覆盖展示字段（不参与身份）。
 - 修改文件：`apps/api/src/projects/dto.ts`、`projects.controller.ts`、`projects.service.ts`、`projects.module.ts`、`packages/shared/src/errors.ts`。
@@ -1200,6 +1206,7 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
 - 明确不做：provider verify（P0a 不暴露；不调用 provider API、不写核验状态）、Web 页面、证据 join 改造。
 
 **T3 工作区定义生命周期**
+
 - 目标：definition 三表之上的 draft/validate/publish/read 五接口，服务端重算 digest，发布票据 + 双版本 CAS + 幂等；**不实现文档关系表**，payload 内文档引用在发布时校验、读取时复核；审计范围按 §21.1 默认——发布写审计，草稿保存不写审计。
 - 前置：T2（**串行**：共享 `projects.module.ts`、`errors.ts` 与 `Project.version` 语义）。
 - 修改文件：`projects.module.ts`、`packages/shared/src/errors.ts`。
@@ -1211,6 +1218,7 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
 - 明确不做：文档关系表、YAML 导入导出、diff/回滚 UI、session。
 
 **T4 接入码服务端**
+
 - 目标：签发与消费接口、revision 绑定、限流、审计、一次性 CAS；**签发权限已冻结为任意活动 HUMAN 项目成员 + 限流**（§21.1）；**签发要求 current published definition**（否则 409 `PROJECT_UNCONFIGURED`），enrollment 绑定签发时的 revision；重签行为按 §13.3。
 - 前置：T3；§21.1 已冻结签发权限为“任意活动 HUMAN 项目成员 + 限流”。
 - 修改文件：`projects.module.ts`、`packages/shared/src/errors.ts`。
@@ -1221,6 +1229,7 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
 - 明确不做：设备健康、遥测、成员机器登记。
 
 **T5 CLI v2 配置与双读**
+
 - 目标：v2 workspace/用户索引读写、v1 只读适配、配置五态识别、旧命令不破坏。T5 负责配置适配层及其覆盖的**普通命令**与 `workspace status` 只读诊断；`DUAL_ACTIVE` 下普通命令统一拒绝。迁移子命令 `migrate --inspect` 与 `migrate --resolve keep-v2` 属于 T8，其例外行为以 §14.3 为准。`*.bak` 永不作为配置。
 - 前置：T1 字段冻结；可与 T2/T3/T4 并行（不共享文件）。
 - 修改文件：`apps/cli/src/config.ts`、`index.ts`、`errors.ts`。
@@ -1230,6 +1239,7 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
 - 明确不做：init/discover/bind/migrate（后续任务）。
 
 **T6 CLI 接入码初始化（`workspace init --join`）**
+
 - 目标：消费码 → 设备授权 → 按 revisionId 取精确 revision → 校验 digest → 原子写 workspace + 索引；覆盖失败/重试；不存在 `NOT_CONFIGURED` 初始化分支。
 - 前置：T4 + T5 + **T8（T8 必须先于 T6 完成）**。
 - 修改文件：`apps/cli/src/index.ts`、`apps/cli/src/client.ts`。
@@ -1239,6 +1249,7 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
 - 明确不做：bind/discover/status（T7）、session。
 
 **T7 CLI discover/bind/status**
+
 - 目标：git 探测、候选发现、在线 bind、**P0a 离线 bind（已冻结：仅摘要有效的 revision 缓存 + 精确 canonical locator 匹配）**、状态机；无缓存/摘要不符/locator 不精确时拒绝，不按目录名、仓库名或路径猜测；其余按 §9.4。
 - 前置：T6、T2/T3 的读取接口；§21.1 已冻结离线 bind 保留及匹配条件。
 - 修改文件：`index.ts`、`client.ts`。
@@ -1248,6 +1259,7 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
 - 明确不做：relocate、session、preflight、integrate。
 
 **T8 v1→v2 迁移**
+
 - 目标：dry-run/apply、五态模型、`MIGRATED` 与 `DUAL_ACTIVE` 区分、journal、失败恢复；T8 负责 `migrate --inspect`（零写入零删除）与满足 v2 校验 + journal 条件的 `--resolve keep-v2`；只迁移 8 字段。
 - 前置：T5；可与 T2–T4 并行；**完成后 T6 才能开始（T8 → T6）**。
 - 修改文件：`config.ts`、`index.ts`、`workspace-config.ts`。
@@ -1257,6 +1269,7 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
 - 明确不做：`keep-v1` 自动收敛、session/run 迁移、自动发现恢复。
 
 **T9 Web 最小页面**
+
 - 目标：仓库列表/声明、定义草稿/校验/发布、接入码生成与一次性展示；移除 `externalId=owner/name` 兜底。
 - 前置：T2/T3/T4。
 - 修改文件：`apps/web/src/App.tsx`、`nav.ts`、`api/resources.ts`、`App.test.tsx`（均为其他任务在途或共享文件，Web 集成责任人串行处理）。
@@ -1266,6 +1279,7 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
 - 明确不做：实时接入状态、diff/回滚、YAML、项目详情重构。
 
 **T10 集成测试**
+
 - 目标：API DB 级 + CLI 端到端；覆盖 §19.2.1 的 20–29。
 - 前置：T2–T9。
 - 新增文件：`apps/api/test/workspace-*.database.spec.ts`、CLI e2e。
@@ -1274,6 +1288,7 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
 - 明确不做：浏览器 E2E。
 
 **T11 跨平台验收**
+
 - 目标：Windows/macOS/Linux 路径与 git 语义一致。
 - 前置：T7、T8、T10。
 - 新增文件：`docs/testing/workspace-onboarding-acceptance.md`。
@@ -1303,7 +1318,11 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
 7. 负向验收：接入码重复消费、无已发布定义时签发、非成员/撤权/归档/超限签发、发布前旧编辑器**用新 key 新写请求**保存草稿、payload 文档引用越权/归档导致发布失败、离线 bind 无缓存/摘要不符/同名不同 locator、归档项目写、两管理员并发发布、`DUAL_ACTIVE` 下的 `discover`/写操作、DECLARED 冒充 PROVIDER，全部按 §19.2.1 阻断且可解释；另验证发布后携带旧 key 的草稿重放返回原响应，而旧编辑器用新 key 保存得到 409。
 8. 交付仍走现有 `candidate/deliver/review` 通道；P0a 不新增审批通道，也不把本机 preflight 变成审批。
 
-**结论口径**：以上是运行验证计划。在真实 PostgreSQL 迁移、CLI 端到端与跨平台用例执行之前，本设计只能表述为"静态审查认为可行"，不能表述为"已验证"。
+**结论口径（2026-11-06 更新）**：本轮真实 Web 页面已完成同一测试项目的声明、草稿、校验、发布和签码；使用页面实际签发的码，真实 CLI 已完成设备授权、consume、精确 revision/digest 校验、`workspace init --join`、在线 bind 和 status，页面、CLI 与独立只读 SQL 的 projectId、revisionId、digest、projectRepositoryId 及关联一致，且结果为 `DECLARED_MATCH`、`providerVerified=false`。首次设备授权超时、磁盘不足和凭据存储安全检查失败均保留为历史失败，恢复专属隔离 PostgreSQL 与空间后复跑成功；21:32:28–29 的 bind/status 明确使用 Node `v24.22.1`。离线 bind 的精确 locator、无缓存、摘要不符和 locator 不匹配已有同项目单机真实命令结果；T8 迁移/恢复也已有一次性目录演练。真实第二台设备、macOS/Linux/UNC runner 及共享环境迁移历史仍未取得证据，单机双根目录不能冒充双机，孤立通过的测试不能替代整个 §25 闭环，P0a 继续为 **C / 未完成**。locator 快照签名、认证和 TTL 仍是产品/协议待决策，不改变当前冻结范围。
+
+补充实施证据（2026-11-07 收尾）：2026-11-06 21:38–21:39 使用同一页面新签发的码，在第二套全新 root/configHome 完成真实 init、页面设备授权、在线 bind/status（Node24，均 exit 0）。与第一环境共享 projectId/revisionId/digest/projectRepositoryId，独立 workspaceId；两份共享配置导出不含本机绝对文件路径，证据及同套 API/CLI/Web 构建逐文件 SHA-256 见验收记录 §12.2。这是单机双环境，§25.5 的真实机器 B 仍未执行。Windows 两个目标 spec 19/19 与真实中文/空格/大小写别名/显式目录移动/junction 结果见 §12.6；symlink EPERM、UNC 和 macOS/Linux 的缺口保留。此前 §11 的不同项目分段结果继续作为当时证据，不拼接为本次同项目链路。
+
+2026-11-07 08:33 另以同一最终 main 构建和 guard 隔离库补做独立真实 HTTP 负向，7/7通过：未发布/非成员/归档签码、主动伪造PROVIDER字段、合法DECLARED落库、发布后旧编辑器新key拒绝及旧key同摘要回放；逐请求envelope、DB前后计数及先前驱动失败见验收记录§12.8。本轮没有产品源码返修，不把独立负向项目当成上述正向项目，也不改变真实双机/平台/部署历史未完成的结论。
 
 ## 26. 修订记录
 
@@ -1323,4 +1342,9 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
   3. 发布递增 `definitionVersion`：发布事务 `definitionVersion+1` 并在响应返回；旧编辑器用**新 key 新写请求**保存草稿 409，同 key 同 digest 重放仍返回原响应，禁止静默覆盖（§13.3、§13.4、§19.2.1、§24）。
   4. 双配置五态模型：`NONE/V1_ONLY/V2_ONLY/MIGRATED/DUAL_ACTIVE`；`MIGRATED` 的 `.bak` 不是活动配置；`DUAL_ACTIVE` 除 `workspace status`（只读）、`migrate --inspect`（只读不删）、满足条件的 `--resolve keep-v2`（显式修复）外统一拒绝；`workspace discover` 拒绝；新增适配层读取规则（§8.2.1、§14.1、§14.3、§17.1、§19.2.1、§24 T5/T8、§25）。
   5. 统一 P0a 口径：D12 冻结为不做真实 provider verify，从 §21.1 待决项移除；`T8 → T6` 写入正式依赖（§1.2.1、§18.1、§21.1、§24、§25）。
-- 本版仍为待评审设计；所有新增接口、表、命令、状态均为拟议契约，代码中尚不存在（除明确标注"复用"的既有能力）。
+- v1.3 修订时新增接口、表、命令、状态是拟议契约；其后是否落地及其验收证据，以本文件顶部的当前状态注记和验收记录为准。冻结契约与历史决策记录保留，不因实现状态变化而自动变更。
+## 离线 locator 强认证与新鲜度：待产品决策（2026-11-06）
+
+P0a 继续保留 §9.4 的有效 revision 缓存与精确 canonical locator 匹配；本记录不改变冻结范围。服务端 revision digest 对规范化的 definition payload 计算，不覆盖响应中另行返回的仓库 locator、归档状态等元数据。客户端检查 payload 的项目、仓库 key、projectRepositoryId 与缓存元数据的关联以及精确 revision；本地 checksum 可发现未同步修改的损坏，但与缓存同存本机，不能阻止有能力同时改写内容和 checksum 的人。离线时不能知道服务端撤销、归档或 locator 变更，当前没有既定 TTL，也不承诺缓存新鲜度。
+
+如产品需要更强保证，待决方案包括：服务端签名或其他经认证的仓库/locator 快照，将项目、精确 revision、仓库身份、locator 与状态绑定；定义与现有 payload digest 并存的版本化格式和旧客户端兼容策略；确定签名密钥的发布、轮换、失效与验证方式；决定撤销传播、有效期及离线到期后的失败行为；规划旧缓存在线升级和无法联网时的迁移；评估认证过期后无法离线 bind 对可用性的影响。这些是候选方案，尚非已冻结要求；产品和协议决定前不引入新签名格式或 TTL。

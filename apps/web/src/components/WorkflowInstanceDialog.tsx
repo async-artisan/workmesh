@@ -18,6 +18,7 @@ import {
   defaultAcceptanceOwners,
   isImplStep,
 } from '../lib/workflowInstance';
+import { STEP_LABELS } from '../lib/labels';
 import { Modal } from './Modal';
 import { InlineLoading, SkeletonLines } from './Skeleton';
 
@@ -54,6 +55,11 @@ function readSteps(definition: Record<string, unknown>): WorkflowStepDefinition[
 
 function readSlots(definition: Record<string, unknown>): WorkflowSlotDefinition[] {
   return Array.isArray(definition.roleSlots) ? definition.roleSlots.filter(isSlot) : [];
+}
+
+function stepDisplayLabel(step: WorkflowStepDefinition): string {
+  const displayName = typeof step.displayName === 'string' ? step.displayName.trim() : '';
+  return displayName || STEP_LABELS[step.key] || step.key;
 }
 
 /** 表单分组：顺序即页面上从上到下的阅读顺序。 */
@@ -746,7 +752,10 @@ export function WorkflowInstanceDialog({
                       return (
                         <tr key={step.key}>
                           <td>
-                            <span className="cell-mono">{step.key}</span>
+                            <div>{stepDisplayLabel(step)}</div>
+                            <small className="cell-mono">
+                              key: <code>{step.key}</code>
+                            </small>
                           </td>
                           <td>{roleTitle(step.roleKey)}</td>
                           <td>
@@ -905,7 +914,10 @@ export function WorkflowInstanceDialog({
                       aria-describedby={repoMissing ? repoStepErrorId(step.key) : undefined}
                     >
                       <legend className="wm-wf-repo-group__legend">
-                        <span className="cell-mono">{step.key}</span>
+                        <div>{stepDisplayLabel(step)}</div>
+                        <small className="cell-mono">
+                          key: <code>{step.key}</code>
+                        </small>
                       </legend>
                       <div className="role-chips">
                         {repositories.map((repository, index) => {
@@ -1103,7 +1115,7 @@ export function WorkflowInstanceDialog({
                               <option value="">选择步骤</option>
                               {steps.map((step) => (
                                 <option key={step.key} value={step.key}>
-                                  {step.key}（{roleTitle(step.roleKey)}）
+                                  {stepDisplayLabel(step)}（{step.key} · {roleTitle(step.roleKey)}）
                                 </option>
                               ))}
                             </select>

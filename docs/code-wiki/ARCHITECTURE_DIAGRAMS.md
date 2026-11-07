@@ -211,7 +211,7 @@ flowchart LR
   CLIProc["workmesh CLI"] --> APIProc
 ```
 
-**运行前门禁**：`scripts/db-check.sh` 检查当前数据库；`scripts/db-plan.sh` 输出迁移计划；确认目标和回滚方式后才运行 `prisma migrate deploy`。`scripts/test-integration.sh` 默认不迁移，需显式 `--apply-migrations`。
+**运行前门禁**：`scripts/db-check.sh` 检查当前数据库；`scripts/db-plan.sh` 输出迁移计划；确认目标和回滚方式后才运行 `prisma migrate deploy`。`pnpm test:integration` 默认不迁移，需显式 `-- --apply-migrations`。
 
 ## 9. 图册假设与遗漏
 

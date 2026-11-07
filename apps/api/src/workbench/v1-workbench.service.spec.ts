@@ -20,6 +20,7 @@ function createHarness() {
     project: { findMany: vi.fn() },
     reviewRequest: { findMany: vi.fn() },
     documentRevision: { findMany: vi.fn() },
+    workflowRevision: { findMany: vi.fn().mockResolvedValue([]) },
     task: { findMany: vi.fn() },
     artifactSet: { findMany: vi.fn() },
     projectRole: { findMany: vi.fn() },
@@ -45,6 +46,94 @@ function createHarness() {
 describe('V1WorkbenchService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('工作台任务和评审各自按绑定修订显示名称并限定项目', async () => {
+    const { service, prisma, authorization, reviews, changes, ready } = createHarness();
+    prisma.project.findMany.mockResolvedValue([{ id: 'p1', key: 'DEMO', name: 'Demo' }]);
+    authorization.resolveProjectContext.mockResolvedValue({ activeRoleIds: [] });
+    const tasks = ['old', 'new', 'legacy'].map((suffix) => ({
+      id: `task-${suffix}`,
+      stepKey: 'build',
+      roleId: 'role-1',
+      instance: {
+        definitionRevisionId: `revision-${suffix}`,
+        requirement: { code: 'R-1', title: '需求' },
+      },
+      role: { key: 'dev', title: '开发' },
+    }));
+    reviews.listReviews.mockResolvedValue({
+      items: tasks.map((task) => ({
+        id: `review-${task.id}`,
+        taskId: task.id,
+        documentRevisionId: null,
+        artifactSetId: null,
+        kind: 'TASK_ACCEPTANCE',
+        status: 'OPEN',
+        version: 1,
+        slots: [],
+        decisions: [],
+      })),
+      nextCursor: null,
+    });
+    changes.listRecipients.mockResolvedValue({ items: [], nextCursor: null });
+    ready.ready.mockResolvedValue({
+      items: tasks.map((task) => ({
+        id: task.id,
+        stepKey: task.stepKey,
+        executionStatus: 'OPEN',
+        workStatus: 'ACTIVE',
+      })),
+      nextCursor: null,
+      hasMore: false,
+    });
+    prisma.task.findMany.mockResolvedValue(tasks);
+    prisma.workflowRevision.findMany.mockResolvedValue([
+      { id: 'revision-old', definition: { steps: [{ key: 'build', displayName: '旧任务名称' }] } },
+      { id: 'revision-new', definition: { steps: [{ key: 'build', displayName: '新任务名称' }] } },
+      { id: 'revision-legacy', definition: { steps: [{ key: 'build' }] } },
+    ]);
+    prisma.reviewRequest.findMany.mockResolvedValue([]);
+    prisma.projectRole.findMany.mockResolvedValue([]);
+    prisma.approvalSlot.findMany.mockResolvedValue([]);
+    const result = await service.get(principal, 'p1');
+    expect(result.readyTasks.map((item) => item.stepDisplayName)).toEqual([
+      '旧任务名称',
+      '新任务名称',
+      null,
+    ]);
+    expect(result.reviews.map((item) => item.stepDisplayName)).toEqual([
+      '旧任务名称',
+      '新任务名称',
+      null,
+    ]);
+    expect(prisma.workflowRevision.findMany).toHaveBeenCalledTimes(2);
+    for (const [args] of prisma.workflowRevision.findMany.mock.calls) {
+      expect(args).toEqual({
+        where: { id: { in: ['revision-old', 'revision-new', 'revision-legacy'] }, projectId: 'p1' },
+        select: { id: true, definition: true },
+      });
+    }
+  });
+
+  it('工作台不会读取或返回非成员项目的任务名称', async () => {
+    const { service, prisma, reviews, ready } = createHarness();
+    prisma.project.findMany.mockResolvedValue([]);
+    const result = await service.get(principal, 'hidden-project');
+    expect(result.readyTasks).toEqual([]);
+    expect(result.reviews).toEqual([]);
+    expect(prisma.project.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          archivedAt: null,
+          members: { some: { userId: principal.userId, revokedAt: null } },
+          id: 'hidden-project',
+        },
+      }),
+    );
+    expect(prisma.workflowRevision.findMany).not.toHaveBeenCalled();
+    expect(reviews.listReviews).not.toHaveBeenCalled();
+    expect(ready.ready).not.toHaveBeenCalled();
   });
 
   it('聚合三类待办并补齐需求、角色与可签性', async () => {
@@ -132,12 +221,21 @@ describe('V1WorkbenchService', () => {
             id: 'task-1',
             stepKey: 'backend-impl',
             roleId: 'role-backend',
-            instance: { requirement: { code: 'DEMO-REQ-3', title: '支付回调重试' } },
+            instance: {
+              definitionRevisionId: 'workflow-rev-1',
+              requirement: { code: 'DEMO-REQ-3', title: '支付回调重试' },
+            },
             role: { key: 'backend', title: '后端' },
           },
         ];
       },
     );
+    prisma.workflowRevision.findMany.mockResolvedValue([
+      {
+        id: 'workflow-rev-1',
+        definition: { steps: [{ key: 'backend-impl', displayName: '后端实现' }] },
+      },
+    ]);
     prisma.artifactSet.findMany.mockResolvedValue([]);
     prisma.projectRole.findMany.mockResolvedValue([
       { id: 'role-product', key: 'product', title: '产品' },
@@ -174,6 +272,10 @@ describe('V1WorkbenchService', () => {
       code: 'DEMO-REQ-3',
       title: '支付回调重试',
     });
+    expect(result.readyTasks[0].stepDisplayName).toBe('后端实现');
+    expect(prisma.workflowRevision.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: { in: ['workflow-rev-1'] }, projectId: 'p1' } }),
+    );
     expect(result.warnings).toEqual([]);
   });
 

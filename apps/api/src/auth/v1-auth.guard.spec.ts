@@ -94,6 +94,12 @@ function repository(): V1AuthRepository {
     async markCliAuthorizationIssued() {
       return null;
     },
+    async reservePasswordRateWindow() {
+      throw new Error('not used');
+    },
+    async releasePasswordRateWindow() {
+      throw new Error('not used');
+    },
     async bumpRateWindow() {
       return 1;
     },

@@ -101,6 +101,7 @@ export interface ReviewView {
   subject: Record<string, unknown> | null;
   requirement?: { id: string; code: string; title: string } | null;
   subjectLabel?: string | null;
+  stepDisplayName?: string | null;
   role?: { id: string; key: string; title: string } | null;
 }
 
@@ -108,6 +109,7 @@ export interface BoardCard {
   taskId: string;
   projectId: string;
   stepKey: string;
+  stepDisplayName?: string | null;
   roleId: string;
   requirementId?: string;
   requirementCode?: string;
@@ -135,6 +137,7 @@ export interface TaskView {
   projectId: string;
   workflowInstanceId: string;
   stepKey: string;
+  stepDisplayName?: string | null;
   roleId: string;
   responsibleUserId: string;
   version: number;
@@ -298,6 +301,7 @@ export interface RequirementView {
 export interface RequirementTaskDetail {
   id: string;
   stepKey: string;
+  stepDisplayName?: string | null;
   role: { key: string; title: string };
   responsibleUser: { id: string; email: string };
   version: number;
@@ -347,6 +351,7 @@ export interface RequirementReviewDetail {
   taskId: string | null;
   createdAt: string;
   subjectLabel: string;
+  stepDisplayName?: string | null;
   slots: Array<{
     id: string;
     slotKey: string;
@@ -838,7 +843,7 @@ export interface WorkflowInstanceView {
   version: number;
   workStatus: string;
   retiredAt: string | null;
-  steps: Array<Record<string, unknown>>;
+  steps: Array<Record<string, unknown> & { stepKey?: string; stepDisplayName?: string | null }>;
 }
 
 export interface WorkflowDefinitionView {
@@ -881,6 +886,8 @@ export interface RolePackageListItem {
 export interface WorkflowStepDefinition {
   key: string;
   roleKey: string;
+  /** 可选的业务界面显示名称；未设置时按既有步骤映射回退。 */
+  displayName?: string;
   deps?: string[];
   /** PRODUCT | DELIVERY | VERIFY | RELEASE */
   kind?: string;
@@ -1229,6 +1236,7 @@ export interface WorkbenchReviewItem {
   projectName: string;
   requirement: WorkbenchRequirement | null;
   subjectLabel: string;
+  stepDisplayName?: string | null;
   role: WorkbenchRole | null;
   slots: Array<{
     id: string;
@@ -1271,6 +1279,7 @@ export interface WorkbenchReadyTaskItem {
   requirement: WorkbenchRequirement | null;
   role: { key: string; title: string } | null;
   stepKey: string;
+  stepDisplayName?: string | null;
   executionStatus: string;
   workStatus: string;
   ageSeconds: number | null;

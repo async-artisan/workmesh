@@ -323,7 +323,7 @@ export function Board() {
                         title={card.taskId}
                         tabIndex={card.requirementCode ? 0 : undefined}
                         data-task-state={display.kind}
-                        aria-label={`${labelFor(STEP_LABELS, card.stepKey)}，状态：${display.label}`}
+                        aria-label={`${card.stepDisplayName?.trim() || labelFor(STEP_LABELS, card.stepKey)}，状态：${display.label}`}
                         onClick={() => {
                           if (card.requirementCode)
                             navigate(`/requirements/${encodeURIComponent(card.requirementCode)}`);
@@ -337,7 +337,9 @@ export function Board() {
                         }}
                       >
                         <div className="board-card-top">
-                          <span className="board-code">{labelFor(STEP_LABELS, card.stepKey)}</span>
+                          <span className="board-code">
+                            {card.stepDisplayName?.trim() || labelFor(STEP_LABELS, card.stepKey)}
+                          </span>
                           <span className={`status-tag is-${display.tone}`}>{display.label}</span>
                           {showWorkStatus && <span className="status-tag">{workStatusLabel}</span>}
                         </div>

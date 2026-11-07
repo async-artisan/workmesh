@@ -90,8 +90,14 @@ function itemRoleKeys(item: WorkbenchItem): string[] {
 function itemSearchText(item: WorkbenchItem): string {
   const requirement = item.data.requirement;
   const parts = [requirement?.code ?? '', requirement?.title ?? '', item.data.projectName];
-  if (item.type === 'review') parts.push(item.data.subjectLabel, item.data.role?.title ?? '');
-  if (item.type === 'ready') parts.push(item.data.stepKey, item.data.role?.title ?? '');
+  if (item.type === 'review')
+    parts.push(
+      item.data.subjectLabel,
+      item.data.stepDisplayName ?? '',
+      item.data.role?.title ?? '',
+    );
+  if (item.type === 'ready')
+    parts.push(item.data.stepKey, item.data.stepDisplayName ?? '', item.data.role?.title ?? '');
   if (item.type === 'change') parts.push(item.data.changedFields.join(' '));
   return parts.join(' ').toLowerCase();
 }
@@ -122,9 +128,10 @@ function requirementLabel(item: {
   requirement: { code: string; title: string } | null;
   subjectLabel?: string;
   stepKey?: string;
+  stepDisplayName?: string | null;
 }): string {
   if (item.requirement) return `${item.requirement.code} · ${item.requirement.title}`;
-  return item.subjectLabel ?? item.stepKey ?? '未关联需求';
+  return item.subjectLabel ?? item.stepDisplayName?.trim() ?? item.stepKey ?? '未关联需求';
 }
 
 function batchStatusLabel(status: BatchItemStatus): string {
@@ -678,8 +685,8 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
             <span className="wb-row-context">{requirementLabel(review)}</span>
           </div>
           <div className="wb-row-detail">
-            {labelFor(STEP_LABELS, review.subjectLabel)} · {review.role?.title ?? '未指定角色'} ·
-            等待 {ageLabel(review.ageSeconds)}
+            {review.stepDisplayName?.trim() || labelFor(STEP_LABELS, review.subjectLabel)} ·{' '}
+            {review.role?.title ?? '未指定角色'} · 等待 {ageLabel(review.ageSeconds)}
           </div>
           <p className="wb-card-owner">
             状态：{labelFor(REVIEW_STATUS_LABELS, review.status)} · 当前负责人：服务端未提供姓名
@@ -788,7 +795,8 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
             <span className="wb-row-context">{requirementLabel(task)}</span>
           </div>
           <div className="wb-row-detail">
-            {task.role?.title ?? '未指定角色'} · {task.stepKey} · 可开工 · 任务{' '}
+            {task.role?.title ?? '未指定角色'} ·{' '}
+            {task.stepDisplayName?.trim() || labelFor(STEP_LABELS, task.stepKey)} · 可开工 · 任务{' '}
             {task.taskId.slice(0, 8)}
           </div>
           <p className="wb-card-owner">状态：可开工 · 当前负责人：服务端未提供负责人</p>

@@ -136,7 +136,7 @@ type VerifiedResource = {
   bytes: Buffer;
 };
 
-async function verifyResources(
+export async function verifyResources(
   packageDir: string,
   manifest: RolePackageManifest,
 ): Promise<VerifiedResource[]> {

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { V1_ERROR_CODES, WorkmeshError, type Principal } from '@workmesh/shared';
+import { workflowStepDisplayNameOf } from '@workmesh/shared';
 import { V1AuthorizationService } from '../auth/v1-authorization';
 import { affectedRecipients, changedFieldsOf } from '../changes/v1-requirement-change-policy';
 import { PrismaService } from '../prisma/prisma.service';
@@ -224,9 +225,25 @@ export class RequirementsService {
         currentArtifactSetId: true,
         role: { select: { key: true, title: true } },
         responsibleUser: { select: { id: true, email: true } },
-        instance: { select: { id: true } },
+        instance: { select: { id: true, definitionRevisionId: true } },
       },
     });
+    const workflowRevisionIds = [
+      ...new Set(
+        tasks.flatMap((task) =>
+          task.instance.definitionRevisionId ? [task.instance.definitionRevisionId] : [],
+        ),
+      ),
+    ];
+    const workflowRevisions = workflowRevisionIds.length
+      ? await this.prisma.workflowRevision.findMany({
+          where: { id: { in: workflowRevisionIds }, projectId },
+          select: { id: true, definition: true },
+        })
+      : [];
+    const displayNameByRevision = new Map(
+      workflowRevisions.map((revision) => [revision.id, revision.definition]),
+    );
     const taskIds = tasks.map((task) => task.id);
 
     const [artifacts, reviews, changes] = await Promise.all([
@@ -321,6 +338,12 @@ export class RequirementsService {
         return {
           id: task.id,
           stepKey: task.stepKey,
+          stepDisplayName: displayNameByRevision.has(task.instance.definitionRevisionId ?? '')
+            ? workflowStepDisplayNameOf(
+                displayNameByRevision.get(task.instance.definitionRevisionId ?? ''),
+                task.stepKey,
+              )
+            : null,
           role: task.role,
           responsibleUser: task.responsibleUser,
           version: task.version,
@@ -358,6 +381,20 @@ export class RequirementsService {
         taskId: review.taskId,
         createdAt: review.createdAt,
         subjectLabel: review.documentRevision?.title ?? review.task?.stepKey ?? String(review.kind),
+        ...(review.task
+          ? {
+              stepDisplayName: tasks.find((task) => task.id === review.taskId)?.instance
+                .definitionRevisionId
+                ? workflowStepDisplayNameOf(
+                    displayNameByRevision.get(
+                      tasks.find((task) => task.id === review.taskId)!.instance
+                        .definitionRevisionId!,
+                    ),
+                    review.task.stepKey,
+                  )
+                : null,
+            }
+          : {}),
         slots: review.approvalSlots,
         decisions: review.decisions.map((decision) => ({
           id: decision.id,

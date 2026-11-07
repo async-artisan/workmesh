@@ -35,6 +35,7 @@ export type V1WorkflowRevisionView = {
 
 export type V1WorkflowStepView = {
   stepKey: string;
+  stepDisplayName?: string | null;
   roleId: string;
   responsibleUserId: string;
   executionStatus: string;

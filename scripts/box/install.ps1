@@ -44,6 +44,11 @@ function Get-ConnectionParts([string]$Url) {
     AdminUrl = "postgresql://$($match.Groups['user'].Value):$($match.Groups['password'].Value)@$($match.Groups['host'].Value):$($match.Groups['port'].Value)/postgres"
   }
 }
+function Assert-PostgresStartExitCode([object]$ExitCode) {
+  if ($null -ne $ExitCode -and [int]$ExitCode -ne 0) {
+    throw "Failed to start bundled PostgreSQL (exit $ExitCode). See $logs\pg-start.err.log"
+  }
+}
 function Test-OwnPostgres([string]$DataPath) {
   $pidFile=Join-Path $DataPath 'postmaster.pid'
   if (-not (Test-Path -LiteralPath (Join-Path $DataPath 'PG_VERSION')) -or -not (Test-Path -LiteralPath $pidFile)) { return $false }
@@ -124,9 +129,7 @@ if (-not (Get-NetTCPConnection -LocalPort $PgPort -State Listen -ErrorAction Sil
   $pgStart = Start-Process -FilePath (Join-Path $pgBin 'pg_ctl.exe') -ArgumentList @('-D',('"'+$pgData+'"'),'-o',('"-p '+$PgPort+'"'),'-l',('"'+(Join-Path $logs 'postgres.log')+'"'),'start') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $logs 'pg-start.log') -RedirectStandardError (Join-Path $logs 'pg-start.err.log')
   $pgExited = $pgStart.WaitForExit(60000)
   if (-not $pgExited) { throw 'Timed out starting bundled PostgreSQL.' }
-  if ($null -ne $pgStart.ExitCode -and $pgStart.ExitCode -ne 0) {
-    throw "Failed to start bundled PostgreSQL (exit $($pgStart.ExitCode)). See $logs\pg-start.err.log"
-  }
+  Assert-PostgresStartExitCode $pgStart.ExitCode
 }
 if (-not (Test-OwnPostgres $pgData)) { throw "PostgreSQL did not start for this data directory on port $PgPort." }
 

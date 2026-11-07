@@ -1,0 +1,16 @@
+# Scan installed package manifests, including the development tools deliberately
+# shipped with the API. Do not substitute the workspace's declared lock graph.
+check-for-app-update: false
+select-catalogers:
+  - +javascript-package-cataloger
+  - -javascript-lock-cataloger
+  - -github-action-workflow-usage-cataloger
+  - -github-actions-usage-cataloger
+javascript:
+  include-dev-dependencies: true
+  search-remote-licenses: false
+file:
+  metadata:
+    selection: all
+    digests:
+      - sha256

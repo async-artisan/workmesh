@@ -28,7 +28,7 @@ pnpm.cmd --filter @workmesh/api exec vitest run --config vitest.unit.config.mts 
 
 ### 模型到 WorkMesh HTTP API 的真实集成
 
-运行 `scripts/api-agent-poc/verify-http.mjs` 会创建一个随机名称、随机 loopback 端口的一次性 PostgreSQL 集群，在该数据库应用当前迁移，然后只运行 `v1-api-agent.database.spec.ts`。测试进程启动真实 Nest `AppModule`，监听另一个临时 loopback 端口。它不连接当前开发用的 5432 数据库或 3000 API。
+运行 `scripts/api-agent-poc/verify-http.mjs` 会创建一个随机名称、随机 loopback 端口的一次性 PostgreSQL 集群，在该数据库应用当前迁移，然后只运行 `v1-api-agent.database.spec.ts`。该专用入口会为测试子进程自动设置 `WORKMESH_POC_LIVE=1`，明确 opt in 真实模型 POC；普通 API integration 不设置这个变量，因此会跳过真实模型套件。测试进程启动真实 Nest `AppModule`，监听另一个临时 loopback 端口。它不连接当前开发用的 5432 数据库或 3000 API。
 
 复现命令：
 
@@ -36,7 +36,7 @@ pnpm.cmd --filter @workmesh/api exec vitest run --config vitest.unit.config.mts 
 node scripts/api-agent-poc/verify-http.mjs
 ```
 
-默认需要本机 Ollama 和 `qwen2.5:14b`；可用 `--model <name>` 指定模型，或用 `--pg-bin <directory>` 指定 PostgreSQL 二进制目录。脚本清理自己创建的临时集群；若服务停止失败会保留目录并报告路径，不会停止其他数据库服务。
+默认需要本机 Ollama 和 `qwen2.5:14b`；可用 `--model <name>` 指定模型，或用 `--pg-bin <directory>` 指定 PostgreSQL 二进制目录。脚本清理自己创建的临时集群；若服务停止失败会保留目录并报告路径，不会停止其他数据库服务。直接运行该 spec 时，必须显式设置 `WORKMESH_POC_LIVE=1`，并同时满足隔离测试数据库 guard；只有这两个条件都成立才会启动真实模型测试。
 
 HUMAN 通过真实注册会话创建项目，并走真实 CLI device authorization 的查看、批准和轮询流程签发最小权限 Agent 凭据。工作流、需求、任务和角色资源为了聚焦执行协议，直接通过 Prisma 写入这个一次性测试数据库；这不是工作流发布 API 的端到端覆盖。随后模型客户端通过 HTTP 执行 ready → claim → context snapshot → resource hydration/hash 校验 → 本地 Ollama 工具循环 → HOSTED IMPL artifact delivery → 读取自动创建的 review。保存的模型工具事件记录了 `read_file` → `run_tests` → `write_file` → `run_tests`，真实测试退出码为 `[1, 0]`。
 
@@ -73,16 +73,16 @@ node scripts/api-agent-poc/runtime.mjs --provider ollama --model qwen2.5:14b --o
 
 增加完成后的答复阶段与按阶段收窄工具列表后，以同一个本机模型重新运行，当前运行器版本的成功证据保存在 `docs/testing/api-agent-poc/2026-11-04-local-retry-2.json`：
 
-| 项目 | 观察到的结果 |
-| --- | --- |
-| 宿主最终判定 | `ok: true`；脚本进程退出码 0 |
-| 模型交互 | 5 轮，约 8 秒；这是一次本机样例，不是性能基准 |
-| 工具请求 | 4 次，执行器每轮只向模型提供当前阶段允许的一种工具 |
-| 实际执行顺序 | `read_file` → `run_tests` → `write_file` → `run_tests` |
-| 真实测试退出码 | 先 1，后 0；失败输出含 `CASE_FAILED` 断言，成功输出显示测试通过 |
-| 读文件证明 | 初始提示不含随机 canary；最终回复及修复后的源码均保留了正确值 |
-| 最终答复 | 非空；最终一轮不再提供工具，模型未继续请求执行 |
-| 可复查内容 | 每轮模型的工具请求、拒绝原因、实际工具参数、stdout/stderr、初始与最终源码 SHA-256、最终源码、可信测试 SHA-256 |
+| 项目           | 观察到的结果                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------- |
+| 宿主最终判定   | `ok: true`；脚本进程退出码 0                                                                                  |
+| 模型交互       | 5 轮，约 8 秒；这是一次本机样例，不是性能基准                                                                 |
+| 工具请求       | 4 次，执行器每轮只向模型提供当前阶段允许的一种工具                                                            |
+| 实际执行顺序   | `read_file` → `run_tests` → `write_file` → `run_tests`                                                        |
+| 真实测试退出码 | 先 1，后 0；失败输出含 `CASE_FAILED` 断言，成功输出显示测试通过                                               |
+| 读文件证明     | 初始提示不含随机 canary；最终回复及修复后的源码均保留了正确值                                                 |
+| 最终答复       | 非空；最终一轮不再提供工具，模型未继续请求执行                                                                |
+| 可复查内容     | 每轮模型的工具请求、拒绝原因、实际工具参数、stdout/stderr、初始与最终源码 SHA-256、最终源码、可信测试 SHA-256 |
 
 模型实际写入的函数为：
 

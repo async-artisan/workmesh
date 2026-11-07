@@ -201,13 +201,32 @@ describe('WorkflowInstanceDialog（初始化流程实例的可推进性）', () 
   });
 
   it('五个分组标题都存在', async () => {
-    renderDialog({ definition: baseDefinition, repositories: [repository] });
+    renderDialog({
+      definition: {
+        ...baseDefinition,
+        steps: [
+          { key: 'prd', roleKey: 'product', displayName: '产品方案', deps: [] },
+          {
+            key: 'impl',
+            roleKey: 'frontend',
+            displayName: '前端交付',
+            deps: ['prd'],
+            outputKinds: ['IMPL'],
+          },
+        ],
+      },
+      repositories: [repository],
+    });
 
     expect(await screen.findByRole('heading', { name: '基本信息' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '步骤责任人' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '仓库和代码来源' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '评审与验收' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '发布配置' })).toBeInTheDocument();
+    expect(screen.getByText('产品方案')).toBeInTheDocument();
+    expect(screen.getAllByText('前端交付').length).toBeGreaterThan(0);
+    expect(screen.getByText('prd', { selector: 'code' })).toBeInTheDocument();
+    expect(screen.getAllByText('impl', { selector: 'code' }).length).toBeGreaterThan(0);
 
     // 发布配置是只读摘要：流程 key、修订号与 digest 前 12 位，没有新增输入。
     const publishSection = screen.getByRole('region', { name: '发布配置' });

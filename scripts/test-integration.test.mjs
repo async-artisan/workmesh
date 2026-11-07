@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import test from 'node:test';
 import { parseArguments } from './test-integration.mjs';
 import { resolvePnpmEntry } from './lib/pnpm-runner.mjs';
@@ -53,10 +54,24 @@ test('pnpm resolver selects only the version pinned by the root package', () => 
     assert.equal(resolvePnpmEntry(rootManifest, { npm_execpath: fakePnpm }), fakePnpm);
 
     writeFileSync(manifest, JSON.stringify({ name: 'pnpm', version: '9.0.0' }));
-    assert.throws(
-      () => resolvePnpmEntry(rootManifest, { npm_execpath: fakePnpm }),
-      /Could not resolve the repository-pinned pnpm 10\.28\.2/,
-    );
+    const originalExistsSync = fs.existsSync;
+    const fixtureRoot = resolve(temporaryDirectory);
+    fs.existsSync = (candidate, ...args) => {
+      const candidatePath = resolve(candidate);
+      const isInsideFixture =
+        candidatePath === fixtureRoot || candidatePath.startsWith(`${fixtureRoot}${sep}`);
+      return isInsideFixture ? originalExistsSync(candidate, ...args) : false;
+    };
+    syncBuiltinESMExports();
+    try {
+      assert.throws(
+        () => resolvePnpmEntry(rootManifest, { npm_execpath: fakePnpm }),
+        /Could not resolve the repository-pinned pnpm 10\.28\.2/,
+      );
+    } finally {
+      fs.existsSync = originalExistsSync;
+      syncBuiltinESMExports();
+    }
     writeFileSync(manifest, JSON.stringify({ name: 'pnpm', version: '10.28.2' }));
     writeFileSync(rootManifest, JSON.stringify({ packageManager: 'pnpm@latest' }));
     assert.throws(

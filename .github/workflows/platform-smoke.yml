@@ -1,6 +1,8 @@
 name: Platform smoke
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -50,3 +52,18 @@ jobs:
 
       - name: Run CLI tests
         run: pnpm --filter @workmesh/cli test
+
+      - name: Test CLI distribution inventory guards
+        run: node --test scripts/verify-cli-package.test.mjs
+
+      - name: Test bundled PostgreSQL ownership guards (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\scripts\box\postgres-ownership.test.ps1
+
+      - name: Test release artifact and lifecycle guards (PowerShell 7)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          .\scripts\release-artifact-sbom.test.ps1
+          .\scripts\test-release-box.test.ps1

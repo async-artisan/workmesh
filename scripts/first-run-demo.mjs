@@ -14,17 +14,11 @@
  * Usage: node scripts/first-run-demo.mjs
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createFirstRunIdentity } from './first-run-demo-key.mjs';
+import { prepareFirstRunWorkflow } from './lib/first-run-workflow.mjs';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = process.env.WORKMESH_API ?? 'http://127.0.0.1:3000';
 const ORIGIN = process.env.WORKMESH_ORIGIN ?? 'http://127.0.0.1:5173';
-
-const { usedWorkflowRoleKeys } = await import(
-  new URL(`file://${join(root, 'packages/shared/dist/index.js').replace(/\\/g, '/')}`)
-);
 
 const cookieJar = new Map();
 let csrfToken = '';
@@ -53,7 +47,7 @@ async function call(method, path, options = {}) {
   const cookies = [...cookieJar.entries()].map(([name, value]) => `${name}=${value}`).join('; ');
   if (cookies) headers.Cookie = cookies;
   if (csrfToken && method !== 'GET') headers['X-CSRF-Token'] = csrfToken;
-  if (options.idempotency) headers['Idempotency-Key'] = options.idempotency;
+  if (method !== 'GET') headers['Idempotency-Key'] = options.idempotency ?? randomUUID();
 
   const response = await fetch(`${BASE}${path}`, {
     method,
@@ -109,139 +103,35 @@ const roleIdByKey = new Map(
   roles.filter((role) => role.isActive).map((role) => [role.key, role.id]),
 );
 
-const packages = await step(
-  'read builtin role packages',
-  async () => (await call('GET', `/api/v1/projects/${project.id}/role-packages?limit=100`)).items,
-);
-
-/**
- * 首跑用最小流程（impl -> release），而不是标准五步流程：
- * 标准流程的 impl 依赖 prd，而 prd 需要先走完候选文档 + 评审 + 发布，
- * 那是"真实项目"的路径，不是"十分钟首跑"该验证的东西。
- * 这里验证的是机制本身：票据发布、认领、快照、交付自动派生验收、人工签字。
- */
-const definition = {
-  schemaVersion: '1.0',
-  protocolVersion: '1.0',
-  workflowKey: 'first-run',
-  title: 'First run',
-  baseRevisionId: null,
-  roleExclusions: [],
-  stepRemovals: [],
-  roleSlots: [
-    { key: 'task-acceptance', roleKey: 'frontend', kind: 'TASK_ACCEPTANCE' },
-    { key: 'release-acceptance', roleKey: 'ops', kind: 'RELEASE_ACCEPTANCE' },
-  ],
-  steps: [
-    {
-      key: 'cases',
-      roleKey: 'frontend',
-      kind: 'VERIFY',
-      deps: [],
-      outputKinds: ['CASES'],
-      gates: [{ mode: 'ALL', reviewerSlots: ['task-acceptance'] }],
-    },
-    {
-      key: 'release',
-      roleKey: 'ops',
-      kind: 'RELEASE',
-      deps: ['cases'],
-      outputKinds: ['RELEASE'],
-      gates: [{ mode: 'ALL', reviewerSlots: ['release-acceptance'] }],
-    },
-  ],
-};
-const locks = usedWorkflowRoleKeys(definition)
-  .map((roleKey) => {
-    const candidates = packages.filter((item) => item.roleKey === roleKey);
-    if (candidates.length === 0) fail(`role ${roleKey} has no registered package`, packages);
-    const best = [...candidates].sort((a, b) => a.version.localeCompare(b.version)).at(-1);
-    return {
-      roleKey,
-      packageId: best.packageId,
-      version: best.version,
-      packageDigest: best.manifestDigest,
-    };
-  })
-  .sort((left, right) => left.roleKey.localeCompare(right.roleKey));
-
-const validation = await step('validate standard template', () =>
-  call('POST', `/api/v1/projects/${project.id}/workflow-definitions/validate`, {
-    body: { definition, packageLocks: locks },
-  }),
-);
-if (!validation.valid) fail('template invalid', validation.issues);
-
-const published = await step('publish workflow (confirmation ticket)', async () => {
-  const binding = {
-    action: 'WORKFLOW_CONFIG_PUBLISH',
-    projectId: project.id,
-    targetType: 'WORKFLOW_DEFINITION',
-    targetId: definition.workflowKey,
-    expectedVersion: project.version,
-    roleSlot: null,
-    payload: { expectedCurrentRevision: 0, compiledDigest: validation.digest, packageLocks: locks },
-  };
-  const ticket = await ticketFor(binding, password);
-  return call(
-    'POST',
-    `/api/v1/projects/${project.id}/workflow-definitions/${definition.workflowKey}/publish`,
-    {
-      body: {
-        expectedVersion: project.version,
-        expectedCurrentRevision: 0,
-        definition,
-        packageLocks: locks,
-        confirmation: { ticketId: ticket.ticketId, ticketSecret: ticket.ticketSecret },
+const { requirement, published, understanding, prd } = await step(
+  'publish baseline and create workflow with implementation retained',
+  () =>
+    prepareFirstRunWorkflow({
+      call: (method, path, body) => call(method, '/api/v1' + path, { body }),
+      project,
+      password,
+      title: 'First run: human QA acceptance',
+      workflowKey: 'first-run',
+      roleId: (key) => {
+        const id = roleIdByKey.get(key);
+        if (!id) fail('No active role for ' + key, roles);
+        return id;
       },
-      idempotency: randomUUID(),
-    },
-  );
-});
-
-const requirement = await step('create requirement', () =>
-  call('POST', `/api/v1/projects/${project.id}/requirements`, {
-    body: { title: 'First run: checkout revamp', description: 'created by first-run-demo.mjs' },
-  }),
+      userId,
+    }),
 );
-
-const repository = await step('register project repository', () =>
-  call('POST', `/api/v1/projects/${project.id}/repositories`, {
-    body: {
-      adapter: 'github',
-      externalId: `demo-${stamp}`,
-      owner: 'demo',
-      name: projectKey.toLowerCase(),
-    },
-  }),
-);
-
-await step('create workflow instance', () =>
-  call('POST', `/api/v1/requirements/${requirement.id}/workflow-instances`, {
-    body: {
-      definitionRevisionId: published.definitionRevisionId,
-      expectedRequirementVersion: requirement.version,
-      stepBindings: definition.steps.map((item) => ({
-        stepKey: item.key,
-        roleId: roleIdByKey.get(item.roleKey),
-        responsibleUserId: userId,
-        repositoryIds: (item.outputKinds ?? []).includes('IMPL') ? [repository.id] : [],
-      })),
-      roleSlotBindings: definition.roleSlots.map((item) => ({
-        slotKey: item.key,
-        roleId: roleIdByKey.get(item.roleKey),
-        userId,
-      })),
-    },
-    idempotency: randomUUID(),
-  }),
-);
-
 const ready = await step('read ready tasks', () =>
   call('GET', `/api/v1/projects/${project.id}/tasks/ready?limit=10`),
 );
-const task = ready.items?.[0];
-if (!task) fail('no ready task after instance creation', ready);
+const task = ready.items?.find((item) => item.stepKey === 'cases');
+if (!task) fail('no ready QA task after instance creation', ready);
+if (
+  ready.items
+    .map((item) => item.stepKey)
+    .sort()
+    .join(',') !== 'cases,impl'
+)
+  fail('first-run must retain a pending implementation task', ready);
 
 const claim = await step('claim task', () =>
   call('POST', `/api/v1/tasks/${task.id}/claims`, { body: {}, idempotency: randomUUID() }),
@@ -257,6 +147,12 @@ const snapshot = await step('build context snapshot', () =>
 );
 const snapshotId = snapshot.id ?? snapshot.snapshot?.id;
 if (!snapshotId) fail('snapshot response has no id', snapshot);
+const baseline = snapshot.snapshot?.manifest?.productBaseline;
+if (
+  baseline?.prdRevisionId !== prd.revisionId ||
+  baseline?.understandingRevisionId !== understanding.revisionId
+)
+  fail('snapshot does not contain the actual published product baseline', snapshot);
 
 // 快照落盘会推进 Task.version，后续写操作必须用最新版本，而不是认领时的版本。
 const afterSnapshot = await call('GET', `/api/v1/tasks/${task.id}`);
@@ -299,10 +195,10 @@ const review = await step('read review created by delivery', () =>
   call('GET', `/api/v1/review-requests/${reviewId}`),
 );
 
-const slot = review.slots?.[0];
+const slot = review.slots?.find((item) => !item.decided && item.viewerCanDecide);
 if (!slot) fail('review has no approval slot', review);
 
-const decided = await step('human sign-off (approve)', async () => {
+await step('human QA sign-off (approve)', async () => {
   const binding = {
     action: 'REVIEW_DECIDE',
     projectId: project.id,
@@ -330,8 +226,44 @@ const decided = await step('human sign-off (approve)', async () => {
   });
 });
 
+const persisted = await step('verify persisted QA approval and release blocking', async () => {
+  const reviewAfter = await call('GET', `/api/v1/review-requests/${review.id}`);
+  const taskAfter = await call('GET', `/api/v1/tasks/${task.id}`);
+  const readyAfter = await call('GET', `/api/v1/projects/${project.id}/tasks/ready?limit=10`);
+  const requirementAfter = await call(
+    'GET',
+    `/api/v1/projects/${project.id}/requirements/${requirement.code}`,
+  );
+  const release = requirementAfter.tasks?.find((item) => item.stepKey === 'release');
+  const implementation = requirementAfter.tasks?.find((item) => item.stepKey === 'impl');
+  if (
+    reviewAfter.status !== 'APPROVED' ||
+    taskAfter.executionStatus !== 'DONE' ||
+    taskAfter.currentClaim !== null
+  )
+    fail('QA approval did not persist or its claim was not released', { reviewAfter, taskAfter });
+  if (readyAfter.items.map((item) => item.stepKey).join(',') !== 'impl')
+    fail('implementation must remain ready and release must remain blocked', readyAfter);
+  if (
+    !release ||
+    release.executionStatus !== 'OPEN' ||
+    release.currentClaimId !== null ||
+    !implementation ||
+    implementation.executionStatus !== 'OPEN' ||
+    implementation.currentClaimId !== null
+  )
+    fail('release must remain waiting for implementation', requirementAfter);
+  return { review: reviewAfter, task: taskAfter, release, releaseState: 'WAITING_PREDECESSOR' };
+});
+
 const total = timeline.reduce((sum, item) => sum + item.ms, 0);
-process.stdout.write(`\nRESULT: review ${review.id} -> ${decided.review?.status ?? 'APPROVED'}\n`);
+process.stdout.write(
+  `\nRESULT: QA review ${review.id} -> ${persisted.review.status}; QA task -> ${persisted.task.executionStatus}\n`,
+);
+process.stdout.write('Implementation remains unfinished; release remains WAITING_PREDECESSOR.\n');
+process.stdout.write(
+  'Not covered: live Agent device authorization, implementation evidence, release sign-off, change propagation.\n',
+);
 process.stdout.write(`task ${task.id}\n\n`);
 for (const item of timeline)
   process.stdout.write(`  ${String(item.ms).padStart(5)}ms  ${item.name}\n`);

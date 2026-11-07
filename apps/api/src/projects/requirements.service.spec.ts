@@ -22,6 +22,7 @@ function createHarness() {
     changeEvent: { findMany: vi.fn(), create: vi.fn() },
     changeRecipient: { createMany: vi.fn() },
     workflowInstance: { findMany: vi.fn() },
+    workflowRevision: { findMany: vi.fn() },
     $transaction: vi.fn(),
   };
   // 事务直接复用同一个假客户端：这些用例断言的是“调用了什么”，不是隔离性。
@@ -39,6 +40,82 @@ function createHarness() {
 describe('RequirementsService.detail', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('按每个任务的绑定修订投影名称，并保留旧定义的空值回退', async () => {
+    const { service, prisma } = createHarness();
+    prisma.requirement.findFirst.mockResolvedValue({
+      id: 'req-1',
+      projectId: 'p1',
+      seq: 1,
+      code: 'R-1',
+      title: '需求',
+      description: null,
+      version: 1,
+      generation: 1,
+      phase: 'DELIVERY',
+      workStatus: 'ACTIVE',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const rows = ['old', 'new', 'legacy'].map((suffix) => ({
+      id: `task-${suffix}`,
+      stepKey: 'build',
+      version: 1,
+      generation: 1,
+      role: { key: 'dev', title: '开发' },
+      responsibleUser: { id: 'u1', email: 'u@example.test' },
+      instance: { id: `instance-${suffix}`, definitionRevisionId: `revision-${suffix}` },
+    }));
+    prisma.task.findMany.mockResolvedValue(rows);
+    prisma.workflowRevision.findMany.mockResolvedValue([
+      { id: 'revision-old', definition: { steps: [{ key: 'build', displayName: '旧流程任务' }] } },
+      { id: 'revision-new', definition: { steps: [{ key: 'build', displayName: '新流程任务' }] } },
+      { id: 'revision-legacy', definition: { steps: [{ key: 'build' }] } },
+    ]);
+    prisma.artifact.findMany.mockResolvedValue([]);
+    prisma.reviewRequest.findMany.mockResolvedValue(
+      rows.map((task) => ({
+        id: `review-${task.id}`,
+        kind: 'TASK_ACCEPTANCE',
+        status: 'OPEN',
+        taskId: task.id,
+        task: { stepKey: task.stepKey },
+        approvalSlots: [],
+        decisions: [],
+      })),
+    );
+    prisma.changeEvent.findMany.mockResolvedValue([]);
+    const result = await service.detail(principal, 'p1', 'R-1');
+    expect(result.tasks.map((row) => row.stepDisplayName)).toEqual([
+      '旧流程任务',
+      '新流程任务',
+      null,
+    ]);
+    expect(result.reviews.map((row) => row.stepDisplayName)).toEqual([
+      '旧流程任务',
+      '新流程任务',
+      null,
+    ]);
+    expect(prisma.workflowRevision.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ['revision-old', 'revision-new', 'revision-legacy'] }, projectId: 'p1' },
+      select: { id: true, definition: true },
+    });
+    expect(prisma.task.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { projectId: 'p1', instance: { requirementId: 'req-1' } },
+      }),
+    );
+  });
+
+  it('项目权限拒绝时不查询需求、任务和修订名称', async () => {
+    const { service, prisma, authorization } = createHarness();
+    const denied = new Error('PROJECT_NOT_FOUND');
+    authorization.resolveProjectContext.mockRejectedValue(denied);
+    await expect(service.detail(principal, 'p1', 'R-1')).rejects.toBe(denied);
+    expect(prisma.requirement.findFirst).not.toHaveBeenCalled();
+    expect(prisma.task.findMany).not.toHaveBeenCalled();
+    expect(prisma.workflowRevision.findMany).not.toHaveBeenCalled();
   });
 
   it('按人类编号解析需求并返回任务、工件、评审与决定人', async () => {

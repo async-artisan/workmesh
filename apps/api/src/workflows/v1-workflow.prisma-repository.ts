@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
+import { workflowStepDisplayNameOf } from '@workmesh/shared';
 import type { WorkflowCompiledRules } from '@workmesh/shared';
 import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -511,6 +512,10 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
             responsibleUserId: step.responsibleUserId,
           })),
         });
+        const workflowRevision = await tx.workflowRevision.findFirst({
+          where: { id: input.definitionRevisionId, projectId: input.projectId },
+          select: { definition: true },
+        });
 
         const bumped = await tx.requirement.updateMany({
           where: { id: input.requirementId, version: input.expectedRequirementVersion },
@@ -569,6 +574,10 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
             retiredAt: instance.retiredAt,
             steps: tasks.map((task) => ({
               stepKey: task.stepKey,
+              stepDisplayName: workflowStepDisplayNameOf(
+                workflowRevision?.definition,
+                task.stepKey,
+              ),
               roleId: task.roleId,
               responsibleUserId: task.responsibleUserId,
               executionStatus: task.executionStatus,
@@ -594,6 +603,12 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
       include: { tasks: { orderBy: { stepKey: 'asc' } } },
     });
     if (!row) return null;
+    const workflowRevision = row.definitionRevisionId
+      ? await this.prisma.workflowRevision.findFirst({
+          where: { id: row.definitionRevisionId, projectId: row.projectId },
+          select: { definition: true },
+        })
+      : null;
     const bindings = (row.bindings ?? {}) as {
       stepBindings?: Array<{ stepKey: string; repositoryIds: string[] }>;
     };
@@ -608,6 +623,7 @@ export class V1WorkflowPrismaRepository implements V1WorkflowRepository {
       retiredAt: row.retiredAt,
       steps: row.tasks.map((task) => ({
         stepKey: task.stepKey,
+        stepDisplayName: workflowStepDisplayNameOf(workflowRevision?.definition, task.stepKey),
         roleId: task.roleId,
         responsibleUserId: task.responsibleUserId,
         executionStatus: task.executionStatus,

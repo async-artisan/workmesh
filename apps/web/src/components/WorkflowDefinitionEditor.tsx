@@ -48,6 +48,7 @@ const ISSUE_MESSAGES: Record<string, string> = {
   WORKFLOW_VERIFY_EXEMPTION_UNNEEDED: '已有验证步骤时不能再填写验证豁免。',
   WORKFLOW_OUTPUT_KINDS_INVALID: '输出工件类型必须是有效的字符串列表。',
   WORKFLOW_OUTPUT_KINDS_DUPLICATE: '输出工件类型不能重复。',
+  WORKFLOW_STEP_DISPLAY_NAME_INVALID: '显示名称不能为空白，且不能超过 120 个字符。',
   WORKFLOW_OUTPUT_CONTRACT_MISMATCH: '输出工件类型与责任角色的能力契约不匹配。',
   WORKFLOW_SCOPE_MISMATCH: '当前配置与角色范围不匹配。',
   WORKFLOW_INPUT_BINDING_INVALID: '输入绑定缺少必要信息或格式不正确。',
@@ -284,8 +285,8 @@ export function WorkflowDefinitionEditor(props: {
           <h3>流程定义</h3>
           <p>结构化编辑会保留未识别配置；高级 JSON 可直接查看和修改完整定义。</p>
           <p>
-            当前服务端契约只有步骤 <code>key</code> 作为步骤标识，没有独立的步骤名称字段；JSON
-            中已有的 <code>name</code>/<code>title</code> 会保留，但不会参与服务端编译或列表展示。
+            步骤 <code>key</code> 是稳定的机器标识；可选的显示名称只用于业务界面展示。未填写时，
+            页面沿用既有映射，无法映射时回退到步骤 key。
           </p>
         </div>
         <div className="workflow-editor-modes" role="group" aria-label="编辑模式">
@@ -505,6 +506,41 @@ export function WorkflowDefinitionEditor(props: {
                           }
                         />
                         {issueDescription(`/steps/${stepRawIndex}/key`)}
+                      </label>
+                      <label>
+                        步骤显示名称（可选）
+                        <input
+                          aria-label={'步骤 ' + (index + 1) + ' 显示名称'}
+                          aria-invalid={Boolean(
+                            fieldIssues(`/steps/${stepRawIndex}/displayName`).length,
+                          )}
+                          aria-describedby={
+                            fieldIssues(`/steps/${stepRawIndex}/displayName`).length
+                              ? fieldIssueId(`/steps/${stepRawIndex}/displayName`)
+                              : undefined
+                          }
+                          value={stringValue(step.displayName)}
+                          placeholder={
+                            STEP_KIND_LABELS[stringValue(step.kind)] ?? '按步骤 key 显示'
+                          }
+                          onChange={(event) =>
+                            updateStep(stepRawIndex, (item) => {
+                              const rawDisplayName = event.target.value;
+                              // 保留输入中的首尾空格，避免 controlled 输入在逐字输入时丢失字符；
+                              // 纯空白在失焦时再清理为未设置。
+                              if (rawDisplayName === '') delete item.displayName;
+                              else item.displayName = rawDisplayName;
+                            })
+                          }
+                          onBlur={(event) => {
+                            if (!event.target.value.trim()) {
+                              updateStep(stepRawIndex, (item) => {
+                                delete item.displayName;
+                              });
+                            }
+                          }}
+                        />
+                        {issueDescription(`/steps/${stepRawIndex}/displayName`)}
                       </label>
                       <label>
                         责任角色

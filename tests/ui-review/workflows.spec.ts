@@ -236,14 +236,28 @@ test.describe('流程配置结构化编辑器', () => {
     await openWorkflows(page);
     await page.getByRole('button', { name: '载入标准模板' }).click();
     const editor = page.getByLabel('流程定义 JSON');
-    const definition = JSON.parse(await editor.inputValue()) as Record<string, unknown>;
+    const definition = JSON.parse(await editor.inputValue()) as {
+      steps: Array<Record<string, unknown>>;
+      unknownConfig?: unknown;
+    };
     definition.unknownConfig = { keep: true };
+    definition.steps[0].displayName = '产品方案';
+    definition.steps[0].vendorConfig = { keep: 'nested' };
     await editor.fill(JSON.stringify(definition, null, 2));
     await expect(page.getByText('未发布草稿')).toBeVisible();
     await page.waitForTimeout(750);
     expect(await page.evaluate(() => localStorage.getItem('workmesh.workflowDraft.p1'))).toContain(
       'standard',
     );
+    const savedDefinition = await page.evaluate(() => {
+      const draft = JSON.parse(localStorage.getItem('workmesh.workflowDraft.p1') ?? '{}');
+      return JSON.parse(draft.text);
+    });
+    expect(savedDefinition.steps[0]).toMatchObject({
+      displayName: '产品方案',
+      vendorConfig: { keep: 'nested' },
+    });
+    expect(savedDefinition.unknownConfig).toEqual({ keep: true });
     await page.getByRole('button', { name: '校验并准备发布' }).click();
     await expect(page.getByText('校验结果')).toBeVisible();
     await page.getByRole('button', { name: '发布（需要二次验证）' }).click();
@@ -260,6 +274,11 @@ test.describe('流程配置结构化编辑器', () => {
       packageLocks: Array<Record<string, unknown>>;
     };
     expect(validateBody.definition.unknownConfig).toEqual({ keep: true });
+    expect(validateBody.definition.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ displayName: '产品方案', vendorConfig: { keep: 'nested' } }),
+      ]),
+    );
     expect(validateBody.packageLocks.map((lock) => lock.roleKey)).toEqual([
       'frontend',
       'ops',
@@ -320,6 +339,11 @@ test.describe('流程配置结构化编辑器', () => {
     expect(publishBody.expectedVersion).toBe(7);
     expect(publishBody.expectedCurrentRevision).toBe(0);
     expect(publishBody.definition.unknownConfig).toEqual({ keep: true });
+    expect(publishBody.definition.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ displayName: '产品方案', vendorConfig: { keep: 'nested' } }),
+      ]),
+    );
     expect(publishBody.packageLocks.map((lock) => lock.roleKey)).toEqual([
       'frontend',
       'ops',
@@ -339,6 +363,19 @@ test.describe('流程配置结构化编辑器', () => {
       await page.getByRole('button', { name: '结构化编辑' }).click();
       const type = page.getByLabel('步骤 1 类型');
       await expect(type.locator('option[value="PRODUCT"]')).toHaveText('产品');
+      await expect(type.locator('option[value="DELIVERY"]')).toHaveText('交付');
+      await expect(type.locator('option[value="VERIFY"]')).toHaveText('验证');
+      await expect(type.locator('option[value="RELEASE"]')).toHaveText('发布');
+      await expect(type).toHaveValue('PRODUCT');
+      const displayName = page.getByLabel('步骤 1 显示名称');
+      await displayName.fill('产品方案');
+      await expect(displayName).toHaveValue('产品方案');
+      await page.getByRole('button', { name: '高级 JSON' }).click();
+      expect(
+        JSON.parse(await page.getByLabel('流程定义 JSON').inputValue()).steps[0].displayName,
+      ).toBe('产品方案');
+      await page.getByRole('button', { name: '结构化编辑' }).click();
+      await expect(page.getByLabel('步骤 1 显示名称')).toHaveValue('产品方案');
       await type.focus();
       await expect(type).toBeFocused();
       const overflow = await page.evaluate(

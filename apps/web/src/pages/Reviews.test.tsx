@@ -422,6 +422,38 @@ describe('Reviews（收件箱分页）', () => {
     localStorage.clear();
   });
 
+  it('任务评审收件箱优先显示绑定修订的步骤名称，文档评审仍显示文档对象映射', async () => {
+    const taskReview = reviewWith('review-task', {
+      kind: 'TASK_ACCEPTANCE',
+      taskId: 'task-1',
+      subjectLabel: 'impl-be',
+      stepDisplayName: '后端交付',
+    });
+    const documentReview = reviewWith('review-doc', {
+      taskId: null,
+      subjectLabel: 'impl-be',
+      stepDisplayName: '不应覆盖文档标题',
+    });
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      const method = methodOf(init ?? {});
+      if (path === '/api/v1/projects' && method === 'GET')
+        return { status: 200, body: envelope(PROJECTS) };
+      if (path === '/api/v1/projects/p1/review-requests' && method === 'GET')
+        return {
+          status: 200,
+          body: envelope(inboxPage([taskReview, documentReview], null, false)),
+        };
+      return undefined;
+    });
+
+    renderReviewInbox();
+
+    expect(await screen.findByText('后端交付')).toBeInTheDocument();
+    expect(screen.getByText('后端实现')).toBeInTheDocument();
+    expect(screen.queryByText('不应覆盖文档标题')).not.toBeInTheDocument();
+  });
+
   it('加载更多追加下一页并按 id 去重，最后一页显示已加载全部，第二次请求带 cursor', async () => {
     const listCalls: string[] = [];
     mockFetch((url, init) => {

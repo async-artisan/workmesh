@@ -108,6 +108,55 @@ function baseOptions(root: string, home: string, extra: Record<string, unknown> 
 }
 
 describe('workspace init --join 计划（默认 dry-run）', () => {
+  it('preflight 在本地校验后且 consent/消费码之前运行，失败不写盘', async () => {
+    const root = await makeTempDir();
+    const home = await makeTempDir('wm-home-');
+    const preflight = vi.fn(async () => {
+      throw new Error('preflight refused');
+    });
+    const consent = vi.fn();
+    const clientFactory = vi.fn();
+    const before = await snapshotTree(root);
+    const homeBefore = await snapshotTree(home);
+    await expect(
+      runWorkspaceInit(baseOptions(root, home, { preflight, consent, clientFactory }) as never),
+    ).rejects.toThrow('preflight refused');
+    expect(preflight).toHaveBeenCalledOnce();
+    expect(consent).not.toHaveBeenCalled();
+    expect(clientFactory).not.toHaveBeenCalled();
+    expect(await snapshotTree(root)).toEqual(before);
+    expect(await snapshotTree(home)).toEqual(homeBefore);
+    preflight.mockClear();
+    await expect(
+      runWorkspaceInit(baseOptions(root, home, { role: '', preflight }) as never),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    expect(preflight).not.toHaveBeenCalled();
+  });
+
+  it('计划不执行 preflight 或阶段通知，且不触发 consent 或网络', async () => {
+    const root = await makeTempDir();
+    const home = await makeTempDir('wm-home-');
+    const stages: string[] = [];
+    const preflight = vi.fn(async () => undefined);
+    const consent = vi.fn();
+    const clientFactory = vi.fn();
+    await expect(
+      runWorkspaceInit(
+        baseOptions(root, home, {
+          apply: false,
+          preflight,
+          consent,
+          clientFactory,
+          onStage: (stage: string) => stages.push(stage),
+        }) as never,
+      ),
+    ).resolves.toMatchObject({ mode: 'plan' });
+    expect(stages).toEqual([]);
+    expect(preflight).not.toHaveBeenCalled();
+    expect(consent).not.toHaveBeenCalled();
+    expect(clientFactory).not.toHaveBeenCalled();
+  });
+
   it('零网络、零写入，输出计划且不回显接入码', async () => {
     const root = await makeTempDir();
     const home = await makeTempDir('wm-home-');
@@ -665,6 +714,50 @@ describe('workspace init --join 失败与重试', () => {
     expect(await readFile(workspaceV2Path(root), 'utf8')).toBe(before);
   });
 
+  it('已绑定重跑返回当前绑定与操作指引，不建议删除；跨平台或角色请求仍拒绝', async () => {
+    const root = await makeTempDir();
+    const home = await makeTempDir('wm-home-');
+    const existing = await writeV2Workspace(root);
+    const clientFactory = vi.fn();
+    const preflight = vi.fn();
+    const same = await runWorkspaceInit(
+      baseOptions(root, home, { clientFactory, preflight }) as never,
+    ).catch((error: unknown) => error);
+    expect(same).toMatchObject({
+      code: 'WORKSPACE_ALREADY_BOUND',
+      details: {
+        enrollmentConsumed: false,
+        workspaceId: existing.workspaceId,
+        projectId: PROJECT,
+        platform: PLATFORM,
+        role: ROLE,
+        mismatch: [],
+        nextAction: 'workmesh workspace status',
+      },
+    });
+    expect((same as Error).message).not.toContain('删除');
+    expect((same as Error).message).toContain('workspace recover');
+    await expect(
+      runWorkspaceInit(
+        baseOptions(root, home, {
+          api: 'https://other.example.com/api/v1',
+          clientFactory,
+        }) as never,
+      ),
+    ).rejects.toMatchObject({
+      code: 'WORKSPACE_ALREADY_BOUND',
+      details: { mismatch: ['platform'], enrollmentConsumed: false },
+    });
+    await expect(
+      runWorkspaceInit(baseOptions(root, home, { role: 'frontend', clientFactory }) as never),
+    ).rejects.toMatchObject({
+      code: 'WORKSPACE_ALREADY_BOUND',
+      details: { mismatch: ['role'], enrollmentConsumed: false },
+    });
+    expect(clientFactory).not.toHaveBeenCalled();
+    expect(preflight).not.toHaveBeenCalled();
+  });
+
   it('V1_ONLY 要求先迁移；DUAL_ACTIVE 拒绝且不消费码', async () => {
     const home = await makeTempDir('wm-home-');
     const v1 = await makeTempDir();
@@ -862,7 +955,7 @@ describe('workspace init 锁和提交一致性', () => {
         indexCommitted: true,
         rollback: 'none',
         pendingInit: '.workmesh/local/pending-init.json',
-        recovery: expect.stringContaining('手动删除'),
+        recovery: expect.stringContaining('workspace recover'),
       },
     });
     if (!(failure instanceof Error)) throw new Error('预期得到 Error');

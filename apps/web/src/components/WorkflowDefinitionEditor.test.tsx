@@ -22,6 +22,7 @@ function definition() {
         key: 'build',
         roleKey: 'product',
         kind: 'DELIVERY',
+        displayName: '服务交付',
         deps: [],
         outputKinds: ['IMPL'],
         gates: [{ mode: 'ALL', reviewerSlots: ['approve'] }],
@@ -95,12 +96,54 @@ describe('WorkflowDefinitionEditor', () => {
         }}
       />,
     );
+    fireEvent.change(screen.getByLabelText('步骤 1 显示名称'), {
+      target: { value: '  新的交付名称  ' },
+    });
+    rerender(
+      <WorkflowDefinitionEditor
+        value={value}
+        roles={roles}
+        onChange={(next) => {
+          value = next;
+        }}
+      />,
+    );
 
     const parsed = JSON.parse(value);
     expect(parsed.title).toBe('改名后的流程');
+    expect(parsed.steps[0].displayName).toBe('  新的交付名称  ');
     expect(parsed.unknownConfig).toEqual({ preserved: true });
     expect(parsed.steps[0].vendorConfig).toEqual({ keep: 'nested' });
     expect(screen.getByDisplayValue('改名后的流程')).toBeInTheDocument();
+    expect(screen.getByLabelText('步骤 1 显示名称')).toHaveValue('  新的交付名称  ');
+  });
+
+  it('clear of optional display name removes the field while leaving stable key intact', () => {
+    let value = JSON.stringify(definition(), null, 2);
+    const { rerender } = render(
+      <WorkflowDefinitionEditor
+        value={value}
+        roles={roles}
+        onChange={(next) => {
+          value = next;
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '结构化编辑' }));
+    fireEvent.change(screen.getByLabelText('步骤 1 显示名称'), { target: { value: '   ' } });
+    rerender(
+      <WorkflowDefinitionEditor
+        value={value}
+        roles={roles}
+        onChange={(next) => {
+          value = next;
+        }}
+      />,
+    );
+    const parsed = JSON.parse(value);
+    expect(parsed.steps[0].key).toBe('build');
+    fireEvent.blur(screen.getByLabelText('步骤 1 显示名称'));
+    expect(JSON.parse(value).steps[0]).not.toHaveProperty('displayName');
   });
 
   it('keeps unsupported array members while editing a later structured item', () => {

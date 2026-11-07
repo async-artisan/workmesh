@@ -1,7 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ApiError, formatApiError } from '../api/client';
-import { workspaceApi, type WorkspaceEnrollmentView } from '../api/resources';
+import {
+  projectApi,
+  workspaceApi,
+  type RoleView,
+  type WorkspaceEnrollmentView,
+} from '../api/resources';
 import { formatDateTime } from '../lib/datetime';
+import { buildOnboardingCommand } from '../lib/onboarding-command';
 import { Modal } from './Modal';
 import { InlineLoading } from './Skeleton';
 
@@ -57,6 +63,14 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
   const [copyBusy, setCopyBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [shell, setShell] = useState('');
+  const [host, setHost] = useState('');
+  const [role, setRole] = useState('');
+  const [root, setRoot] = useState('');
+  const [api, setApi] = useState('');
+  const [roles, setRoles] = useState<RoleView[]>([]);
+  const [rolesError, setRolesError] = useState('');
+  const [rolesLoading, setRolesLoading] = useState(false);
   const generationRef = useRef(0);
   const currentPropsRef = useRef({ open, projectId });
 
@@ -70,6 +84,14 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
     setCopyBusy(false);
     setError('');
     setNotice('');
+    setShell('');
+    setHost('');
+    setRole('');
+    setRoot('');
+    setApi('');
+    setRoles([]);
+    setRolesError('');
+    setRolesLoading(false);
     return () => {
       generationRef.current += 1;
     };
@@ -81,6 +103,41 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
     },
     [],
   );
+
+  async function loadRoles() {
+    if (!open || !projectId) return;
+    const generation = generationRef.current;
+    const requestedProjectId = projectId;
+    const isCurrentRequest = () =>
+      generation === generationRef.current &&
+      currentPropsRef.current.open &&
+      currentPropsRef.current.projectId === requestedProjectId;
+    setRolesLoading(true);
+    setRolesError('');
+    try {
+      const values = await projectApi.roles(projectId);
+      if (!isCurrentRequest()) return;
+      setRoles(values.filter((value) => value.isActive !== false));
+    } catch (caught) {
+      if (isCurrentRequest()) setRolesError(`读取项目角色失败：${formatApiError(caught)}`);
+    } finally {
+      if (isCurrentRequest()) setRolesLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadRoles();
+    // Each open/project epoch owns its response, just like code issuance.
+  }, [open, projectId]);
+
+  const preview = buildOnboardingCommand({
+    shell,
+    host,
+    role,
+    root,
+    api,
+    code: issued?.code ?? '',
+  });
 
   async function issue() {
     if (!projectId) return;
@@ -106,8 +163,10 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
     }
   }
 
-  async function copyCode() {
+  async function copy(kind: 'code' | 'command') {
     if (!issued || copyBusy) return;
+    const value = kind === 'code' ? issued.code : preview.command;
+    if (!value) return;
     const requestedProjectId = projectId;
     const generation = generationRef.current;
     const isCurrentRequest = () =>
@@ -115,11 +174,18 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
       currentPropsRef.current.open &&
       currentPropsRef.current.projectId === requestedProjectId;
     setCopyBusy(true);
+    setNotice('');
     try {
-      await navigator.clipboard.writeText(issued.code);
-      if (isCurrentRequest()) setNotice('接入码已复制。请只通过受信渠道交给本机 CLI。');
+      await navigator.clipboard.writeText(value);
+      if (isCurrentRequest())
+        setNotice(
+          kind === 'code'
+            ? '接入码已复制。请只通过受信渠道交给本机 CLI。'
+            : '预览命令已复制。请在所选 Shell 中执行，核对预览计划后再追加 --apply。',
+        );
     } catch {
-      if (isCurrentRequest()) setNotice('复制失败，请手动选中接入码复制。');
+      if (isCurrentRequest())
+        setNotice(`复制失败，请手动选中${kind === 'code' ? '接入码' : '预览命令'}复制。`);
     } finally {
       if (isCurrentRequest()) setCopyBusy(false);
     }
@@ -130,7 +196,7 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
       open={open}
       title="生成一次性接入码"
       description="接入码用于本机 workspace init --join 解析项目与签发时的已发布 revision。"
-      size="md"
+      size="lg"
       // A pending issue can be abandoned locally; the generation guard below
       // prevents its late one-time plaintext response from repopulating state.
       // Keep the modal locked only while copying the already-issued code.
@@ -142,8 +208,15 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
             <button className="ghost" onClick={onClose} disabled={copyBusy}>
               关闭
             </button>
-            <button className="primary" onClick={() => void copyCode()} disabled={copyBusy}>
+            <button className="ghost" onClick={() => void copy('code')} disabled={copyBusy}>
               {copyBusy ? '复制中…' : '复制接入码'}
+            </button>
+            <button
+              className="primary"
+              onClick={() => void copy('command')}
+              disabled={copyBusy || !preview.command}
+            >
+              复制预览命令
             </button>
           </>
         ) : (
@@ -180,6 +253,127 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
                 onFocus={(event) => event.currentTarget.select()}
               />
             </label>
+            <p className="modal-note">
+              选择本机终端和 Agent，填写业务代码根目录及管理员提供的 WorkMesh API 地址。 API
+              地址可能与网页地址不同；不要填写业务系统的 API。
+            </p>
+            <label className="field">
+              <span>Shell</span>
+              <select
+                value={shell}
+                onChange={(event) => {
+                  setShell(event.target.value);
+                  setNotice('');
+                }}
+                disabled={copyBusy}
+              >
+                <option value="">请选择 Shell</option>
+                <option value="git-bash">Git Bash</option>
+                <option value="powershell">PowerShell</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Agent 客户端</span>
+              <select
+                value={host}
+                onChange={(event) => {
+                  setHost(event.target.value);
+                  setNotice('');
+                }}
+                disabled={copyBusy}
+              >
+                <option value="">请选择 Agent 客户端</option>
+                <option value="codex">Codex</option>
+                <option value="claude-code">Claude Code</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>项目角色</span>
+              <select
+                value={role}
+                onChange={(event) => {
+                  setRole(event.target.value);
+                  setNotice('');
+                }}
+                disabled={copyBusy || rolesLoading}
+              >
+                <option value="">
+                  {rolesLoading ? '正在读取项目角色…' : '请选择本次 Agent 的角色'}
+                </option>
+                {roles.map((value) => (
+                  <option key={value.id} value={value.key}>
+                    {value.title}（{value.key}）
+                  </option>
+                ))}
+              </select>
+            </label>
+            {rolesError && (
+              <div>
+                <p className="modal-error" role="alert">
+                  {rolesError}
+                </p>
+                <button
+                  className="ghost"
+                  onClick={() => void loadRoles()}
+                  disabled={rolesLoading || copyBusy}
+                >
+                  重新读取角色
+                </button>
+              </div>
+            )}
+            {!rolesLoading && !rolesError && roles.length === 0 && (
+              <p className="modal-note">项目暂无活动角色，请联系项目管理员配置。</p>
+            )}
+            <label className="field">
+              <span>本地工作区根目录</span>
+              <input
+                value={root}
+                onChange={(event) => {
+                  setRoot(event.target.value);
+                  setNotice('');
+                }}
+                placeholder="例如 G:\projects\app 或 /g/projects/app"
+                autoComplete="off"
+                disabled={copyBusy}
+              />
+            </label>
+            <p className="modal-note">
+              填写真实业务代码目录；命令会转换 Windows 盘符路径以适配所选 Shell。
+            </p>
+            <label className="field">
+              <span>WorkMesh API 地址</span>
+              <input
+                value={api}
+                onChange={(event) => {
+                  setApi(event.target.value);
+                  setNotice('');
+                }}
+                placeholder="https://workmesh.example.com/api/v1"
+                type="url"
+                autoComplete="off"
+                disabled={copyBusy}
+              />
+            </label>
+            {preview.command ? (
+              <label className="field">
+                <span>CLI 预览命令</span>
+                <textarea
+                  readOnly
+                  value={preview.command}
+                  rows={4}
+                  className="cell-mono"
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+              </label>
+            ) : (
+              <p className="modal-note">{preview.error}</p>
+            )}
+            <p className="modal-note">
+              此单行命令仅预览，不消费接入码、不写入本机配置。核对计划后，在同一命令末尾追加{' '}
+              <code>--apply</code>{' '}
+              再执行，并在浏览器完成设备授权。接入完成后，在填写的工作区根目录运行{' '}
+              <code>workmesh workspace status</code> 查看状态。
+            </p>
             <dl className="signoff-meta">
               <div>
                 <dt>项目</dt>
@@ -198,7 +392,11 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
                 <dd>{formatDateTime(issued.expiresAt)}</dd>
               </div>
             </dl>
-            {notice && <p className="modal-note">{notice}</p>}
+            {notice && (
+              <p className="modal-note" role="status">
+                {notice}
+              </p>
+            )}
             <p className="modal-note" role="note">
               接入码本身不授予成员、知识、仓库或 Agent 权限；CLI
               仍必须完成设备授权，服务端会按真实成员身份与 ACL 逐次校验。

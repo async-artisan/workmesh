@@ -1,6 +1,7 @@
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import type { RolePackageManifest } from '@workmesh/shared';
 import { defaultRoleRoots, runSetup, resolveRolePackageDir } from './setup';
@@ -88,6 +89,59 @@ describe('resolveRolePackageDir', () => {
     ).resolves.toBe(roleDir);
   });
 
+  it.each(['app/cli/index.js', 'app/cli/dist/index.js'])(
+    '用独立 Node 运行 %s 时仍从发行目录找到 frontend',
+    async (entry) => {
+      const directory = await mkdtemp(join(tmpdir(), 'workmesh-cli-layout-'));
+      const release = join(directory, 'release');
+      const roleDir = join(release, 'roles', 'frontend');
+      await mkdir(roleDir, { recursive: true });
+      await writeFile(join(roleDir, 'manifest.json'), '{}', 'utf8');
+      const roots = defaultRoleRoots(
+        join(directory, 'independent-node', 'node.exe'),
+        join(release, entry),
+      );
+
+      await expect(resolveRolePackageDir('frontend', { roots })).resolves.toBe(roleDir);
+    },
+  );
+
+  it('显式目录不存在时给出同角色候选，但不静默使用候选', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workmesh-roles-hint-'));
+    const candidate = join(root, 'frontend');
+    await mkdir(candidate);
+    await writeFile(join(candidate, 'manifest.json'), '{}', 'utf8');
+
+    const result = resolveRolePackageDir('frontend', {
+      packageDir: join(root, 'missing'),
+      roots: [root],
+    });
+    await expect(result).rejects.toMatchObject({ code: 'PACKAGE_NOT_FOUND' });
+    await expect(result).rejects.toThrow(candidate);
+  });
+
+  it('目录存在但缺少 manifest 时与不存在的目录区分', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'workmesh-role-no-manifest-'));
+    await expect(
+      resolveRolePackageDir('frontend', { packageDir: dir, roots: [] }),
+    ).rejects.toMatchObject({ code: 'PACKAGE_MANIFEST_INVALID' });
+  });
+
+  it('源码开发态从业务工作区运行，无需 --package', async () => {
+    const businessDir = await mkdtemp(join(tmpdir(), 'workmesh-business-'));
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(businessDir);
+    try {
+      const packageDir = await resolveRolePackageDir('frontend', {
+        roots: defaultRoleRoots(join(tmpdir(), 'independent-node', 'node.exe')),
+      });
+      expect(packageDir).toBe(
+        fileURLToPath(new URL('../../../packages/role-packages/roles/frontend', import.meta.url)),
+      );
+    } finally {
+      cwd.mockRestore();
+    }
+  });
+
   it('找不到时列出所有查找过的路径', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workmesh-empty-'));
 
@@ -145,6 +199,27 @@ describe('runSetup', () => {
         readManifest: (async () => manifest) as never,
       }),
     ).rejects.toThrow(/--project/);
+  });
+
+  it('预检失败时不询问存储同意、不创建设备授权', async () => {
+    const packageDir = await rolePackageDir();
+    const consent = vi.fn();
+    const login = vi.fn();
+    await expect(
+      runSetup({
+        ...base,
+        projectId: 'p1',
+        packageDir,
+        readManifest: (async () => manifest) as never,
+        preflight: async () => {
+          throw new Error('preflight failed');
+        },
+        consent,
+        login: login as never,
+      }),
+    ).rejects.toThrow('preflight failed');
+    expect(consent).not.toHaveBeenCalled();
+    expect(login).not.toHaveBeenCalled();
   });
 
   it('浏览器批准的角色与角色包不一致时拒绝写入工作区', async () => {

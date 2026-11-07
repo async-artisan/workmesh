@@ -51,6 +51,9 @@ function Wait-ApiHealth([string]$Url,[int]$TimeoutSec) {
 }
 function Quote-Arg([string]$Value) { return '"' + $Value + '"' }
 function Stop-Started([object[]]$Processes) { foreach($item in $Processes){if($item -and (Test-Managed ([int]$item.Id) ([string]$item.Path) $node)){Stop-Process -Id ([int]$item.Id) -Force -ErrorAction SilentlyContinue}} }
+function Assert-PostgresStartExitCode([object]$ExitCode) {
+  if($null -ne $ExitCode -and [int]$ExitCode -ne 0){throw "Failed to start bundled PostgreSQL (exit $ExitCode). See logs\pg-start.err.log."}
+}
 function Test-OwnPostgres([string]$DataPath,[int]$Port) {
   $pidFile=Join-Path $DataPath 'postmaster.pid'
   if(!(Test-Path -LiteralPath (Join-Path $DataPath 'PG_VERSION')) -or !(Test-Path -LiteralPath $pidFile)){return $false}
@@ -95,7 +98,7 @@ if(-not $running){
   $pgStart=Start-Process -FilePath $pgCtl -ArgumentList @('-D',(Quote-Arg $pgData),'-o',(Quote-Arg "-p $pgPort"),'-l',(Quote-Arg (Join-Path $dataRoot 'logs\postgres.log')),'start') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $dataRoot 'logs\pg-start.log') -RedirectStandardError (Join-Path $dataRoot 'logs\pg-start.err.log')
   $pgExited=$pgStart.WaitForExit(60000)
   if(-not $pgExited){throw 'Timed out starting bundled PostgreSQL.'}
-  if($null -ne $pgStart.ExitCode -and $pgStart.ExitCode -ne 0){throw "Failed to start bundled PostgreSQL (exit $($pgStart.ExitCode)). See logs\pg-start.err.log."}
+  Assert-PostgresStartExitCode $pgStart.ExitCode
 }
 if(-not (Test-OwnPostgres $pgData $pgPort)){throw "PostgreSQL is not healthy for this data directory on port $pgPort."}
 $apiOutLog=Join-Path $dataRoot 'logs\api.log';$apiErrLog=Join-Path $dataRoot 'logs\api.err.log';$webOutLog=Join-Path $dataRoot 'logs\web.log';$webErrLog=Join-Path $dataRoot 'logs\web.err.log'

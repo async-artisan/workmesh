@@ -48,6 +48,8 @@ jobs:
       - run: pnpm format:check
       - run: pnpm type-check
       - run: pnpm lint:eslint
+      - name: Test release candidate guards
+        run: node --test scripts/verify-release.test.mjs
       - run: pnpm --filter @workmesh/api exec prisma validate --schema prisma/schema.prisma
       # 漂移闸门：先把迁移目录应用到空库，再与 schema 比对；不一致直接失败。
       - run: pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/schema.prisma
@@ -78,7 +80,7 @@ jobs:
         with:
           name: browser-evidence
           path: |
-            .tmp/browser-results
+            .tmp/browser-results/**/business-chain-result.json
             .tmp/ui-review-results
             .tmp/ui-review-captures
           if-no-files-found: ignore

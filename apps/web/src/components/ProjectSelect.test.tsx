@@ -153,12 +153,11 @@ describe('ProjectSelect（统一项目上下文的状态展示）', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
-  it('加载成功但没有项目时显示创建 / 邀请入口，点击触发回调', async () => {
+  it('成功空列表提供创建入口和真实邀请链接说明，不产生无 token 邀请按钮', async () => {
     const onCreateProject = vi.fn();
-    const onAcceptInvite = vi.fn();
     mockFetch(projectsReply(() => ({ status: 200, body: envelope([]) })));
 
-    render(<ProjectSelect onCreateProject={onCreateProject} onAcceptInvite={onAcceptInvite} />);
+    render(<ProjectSelect onCreateProject={onCreateProject} />);
 
     expect(await screen.findByText('还没有可访问的项目')).toBeInTheDocument();
     expect(
@@ -168,10 +167,9 @@ describe('ProjectSelect（统一项目上下文的状态展示）', () => {
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '创建项目' }));
-    fireEvent.click(screen.getByRole('button', { name: '接受邀请' }));
+    expect(screen.queryByRole('button', { name: '接受邀请' })).not.toBeInTheDocument();
 
     expect(onCreateProject).toHaveBeenCalledTimes(1);
-    expect(onAcceptInvite).toHaveBeenCalledTimes(1);
   });
 
   it('没有创建 / 邀请回调时说明等待原因，而不是留一个死胡同', async () => {

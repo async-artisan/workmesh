@@ -295,6 +295,7 @@ describe('ReviewDecision（证据 + 一次确认 + 回执）', () => {
             projectId: 'p1',
             workflowInstanceId: 'instance-1',
             stepKey: 'impl-be',
+            stepDisplayName: '后端交付',
             roleId: 'role-backend',
             responsibleUserId: 'be@example.com',
             version: 2,
@@ -394,7 +395,7 @@ describe('ReviewDecision（证据 + 一次确认 + 回执）', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('后端实现')).toBeInTheDocument();
+    expect(await screen.findByText('后端交付')).toBeInTheDocument();
     expect(screen.getByText('YFF-001 · 客户询价单')).toBeInTheDocument();
     expect(screen.getByText('询价主流程可走通')).toBeInTheDocument();
     expect(screen.getByText('代码引用')).toBeInTheDocument();
@@ -771,6 +772,7 @@ const taskPayload = {
   projectId: 'p1',
   workflowInstanceId: 'instance-task',
   stepKey: 'impl-be',
+  stepDisplayName: '后端交付',
   roleId: 'role-backend',
   responsibleUserId: 'be@example.com',
   version: 2,

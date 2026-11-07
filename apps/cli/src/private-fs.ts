@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { chmod, mkdir, rename, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, win32 } from 'node:path';
 import { promisify } from 'node:util';
 import { platform as osPlatform } from 'node:os';
 
@@ -26,13 +26,49 @@ export function hostSupported(): boolean {
  */
 let principalLookup: Promise<string> | undefined;
 
+/** Never resolve Windows permission tools through a shell or PATH (including Git Bash). */
+export function windowsSystemTool(name: 'whoami' | 'icacls'): string {
+  const systemRoot = process.env.SystemRoot ?? process.env.windir;
+  if (
+    !systemRoot ||
+    !win32.isAbsolute(systemRoot) ||
+    !/^[a-z]:[\\/]$/i.test(win32.parse(systemRoot).root)
+  )
+    throw new Error('Windows 系统工具定位失败：SystemRoot / windir 必须是带盘符的绝对路径');
+  return win32.join(systemRoot, 'System32', `${name}.exe`);
+}
+
+async function runWindowsSystemTool(
+  name: 'whoami' | 'icacls',
+  args: string[],
+  stage: string,
+  target?: string,
+): Promise<{ stdout: string; executable: string }> {
+  const executable = windowsSystemTool(name);
+  try {
+    const { stdout } = await run(executable, args, { windowsHide: true });
+    return { stdout, executable };
+  } catch (error: unknown) {
+    const code = (error as { code?: unknown } | null)?.code;
+    // Do not propagate child stdout/stderr or its command arguments into CLI errors.
+    const detail =
+      typeof code === 'number' || (typeof code === 'string' && /^[A-Z_][A-Z0-9_]*$/.test(code))
+        ? `（${code}）`
+        : '';
+    const location = target ? `；目标：${target}` : '';
+    // eslint-disable-next-line preserve-caught-error -- Raw child errors may contain secret stdout, stderr or command arguments; only the sanitized code crosses this boundary.
+    throw new Error(`${stage}失败：无法执行 ${executable}${detail}${location}`);
+  }
+}
+
 export function currentPrincipal(): Promise<string> {
   // A CLI process keeps one OS identity. Share the lookup across concurrent ACL
   // operations instead of spawning whoami for every file. Failures remain retryable.
   principalLookup ??= (async () => {
-    const { stdout } = await run('whoami', [], { windowsHide: true });
+    const { stdout, executable } = await runWindowsSystemTool('whoami', [], 'Windows 身份识别');
     const principal = stdout.trim();
-    if (!principal.includes('\\')) throw new Error('whoami 未返回 DOMAIN\\user 形式的主体名');
+    if (!principal.includes('\\'))
+      throw new Error(`Windows 身份识别失败：${executable} 未返回 DOMAIN\\user 形式的主体名`);
     return principal.toUpperCase();
   })().catch((error: unknown) => {
     principalLookup = undefined;
@@ -41,8 +77,8 @@ export function currentPrincipal(): Promise<string> {
   return principalLookup;
 }
 
-async function icacls(args: string[]): Promise<string> {
-  const { stdout } = await run('icacls', args, { windowsHide: true });
+async function icacls(args: string[], stage: string): Promise<string> {
+  const { stdout } = await runWindowsSystemTool('icacls', args, stage, args[0]);
   return stdout;
 }
 
@@ -87,7 +123,7 @@ export async function writePrivateFile(
 export async function hardenWindowsPath(path: string, isDirectory: boolean): Promise<void> {
   const principal = await currentPrincipal();
   const grant = isDirectory ? `${principal}:(OI)(CI)F` : `${principal}:F`;
-  await icacls([path, '/inheritance:r', '/grant:r', grant]);
+  await icacls([path, '/inheritance:r', '/grant:r', grant], 'Windows 凭据权限设置');
 }
 
 /**
@@ -96,7 +132,7 @@ export async function hardenWindowsPath(path: string, isDirectory: boolean): Pro
  */
 export async function verifyWindowsPath(path: string): Promise<void> {
   const principal = await currentPrincipal();
-  const output = await icacls([path]);
+  const output = await icacls([path], 'Windows 凭据权限读取');
   for (const rawLine of output.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
