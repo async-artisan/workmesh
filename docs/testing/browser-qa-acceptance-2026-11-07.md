@@ -16,7 +16,7 @@
 pnpm test:browser:run
 ```
 
-`browser-tests-attempt8.log` 与保存结果文件后的最终运行 `browser-tests-final.log` 均记录 `3 passed (1.1m)`。它们使用修复后的源码构建结果。此前验证过的 Windows Box ZIP 早于后续密码二验修复，不能据此声称该 ZIP 已包含本次修复。
+保存结果文件后的最终运行 `browser-tests-final.log` 记录 `3 passed (1.1m)`，使用修复后的源码构建结果。`browser-tests-attempt8.log` 仅保留为此前一次通过的历史日志。此前验证过的 Windows Box ZIP 早于后续密码二验修复，不能据此声称该 ZIP 已包含本次修复。
 
 ## 实际覆盖
 
@@ -65,19 +65,19 @@ G:/workmesh-box-validation-20261106-212834/source/.tmp/browser-results/business-
 
 该文件 SHA-256 为 `6a75191629bd37b0f87b58d20e6a2851de8735cad11d0dbc5b63bbb8d455f6aa`。已读取的关键字段如下：
 
-| 字段 | 实际值 |
-| --- | --- |
-| `projectId` | `c9c53f84-5f7f-4d5d-a32f-49a680395336` |
-| `requirementId` | `1a8193fa-e130-45d4-8cf9-8167e8b010e2` |
-| `taskId` | `c5839ee9-8ab1-4cb2-81cc-c169e59aa356` |
-| `reviewId` | `3d560296-7d6b-4e6b-81fa-171e4ba76fe4` |
-| `decisionId` | `8a3e1be5-e54f-4258-b227-1af9a753713b` |
-| `reviewStatus` / `taskStatus` | `APPROVED` / `DONE` |
-| `nextReadySteps` / `releaseState` | `["impl"]` / `WAITING_PREDECESSOR` |
-| `baseline.prdRevisionId` | `7ca6bbf9-365d-4451-98cb-f5e800876be0` |
+| 字段                               | 实际值                                 |
+| ---------------------------------- | -------------------------------------- |
+| `projectId`                        | `c9c53f84-5f7f-4d5d-a32f-49a680395336` |
+| `requirementId`                    | `1a8193fa-e130-45d4-8cf9-8167e8b010e2` |
+| `taskId`                           | `c5839ee9-8ab1-4cb2-81cc-c169e59aa356` |
+| `reviewId`                         | `3d560296-7d6b-4e6b-81fa-171e4ba76fe4` |
+| `decisionId`                       | `8a3e1be5-e54f-4258-b227-1af9a753713b` |
+| `reviewStatus` / `taskStatus`      | `APPROVED` / `DONE`                    |
+| `nextReadySteps` / `releaseState`  | `["impl"]` / `WAITING_PREDECESSOR`     |
+| `baseline.prdRevisionId`           | `7ca6bbf9-365d-4451-98cb-f5e800876be0` |
 | `baseline.understandingRevisionId` | `c07dde9f-17cd-4640-9428-78f37e986a3a` |
 
-原始失败页面快照可能含测试密码输入，隔离数据库、配置、Cookie、授权 secret 与确认票据不应随公开 CI artifact 上传。公开证据应限定为核对过的成功日志和最终结果 JSON。
+原始失败页面快照可能含测试密码输入，隔离数据库、配置、Cookie、授权 secret 与确认票据不应随公开 CI artifact 上传。[CI 浏览器证据配置](../../.github/workflows/ci.yml)已将该真实浏览器套件的上传范围收窄为 `.tmp/browser-results/**/business-chain-result.json`。本地公开证据同样限定为核对过的成功日志和最终结果 JSON。
 
 ## 未覆盖与结论限制
 
