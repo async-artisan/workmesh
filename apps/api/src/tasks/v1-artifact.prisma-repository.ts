@@ -26,6 +26,7 @@ import {
   type V1DeliverResultRow,
 } from './v1-artifact.repository';
 import type { V1TaskSnapshot } from './v1-task.repository';
+import { readCodeEvidenceDiagnostics } from './v1-code-evidence-diagnostics.reader';
 
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [25, 100, 100];
@@ -173,6 +174,10 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
       (item): item is ProjectRepositoryRow => item.externalId !== null && item.adapter !== null,
     );
     return mapCodeReviewEvidence(evidence, providerRepositories);
+  }
+
+  async findCodeReviewDiagnostics(projectId: string, artifactSetId: string) {
+    return readCodeEvidenceDiagnostics(this.prisma, projectId, artifactSetId);
   }
 
   async deliver(input: V1DeliverInput): Promise<V1DeliverResultRow> {
@@ -520,6 +525,10 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
               artifactSetId: set.id,
               snapshotId: snapshot.id,
               reviewRequestId: review.id,
+              taskId: task.id,
+              claimId: input.claimId,
+              taskVersion: input.expectedVersion + 1,
+              taskGeneration: task.generation,
             },
             responseMetadata: { subjectDigest: input.subjectDigest },
             committedAt: input.now,

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
@@ -487,7 +487,7 @@ describe('App（cookie WebSession 引导）', () => {
     );
   });
 
-  it('最近活动有未读时铃铛显示未读点，可一键全部标为已读', async () => {
+  it('当前活动逐事件标记已读，已读状态保存在当前账号下', async () => {
     const now = new Date().toISOString();
     stubApi((url, init) => {
       const path = pathOf(url);
@@ -541,13 +541,17 @@ describe('App（cookie WebSession 引导）', () => {
 
     fireEvent.click(bell);
     expect(await screen.findByText('2 条未读')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '全部标为已读' }));
+    fireEvent.click(screen.getByRole('button', { name: '将当前活动标为已读' }));
 
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: /条未读活动/ })).not.toBeInTheDocument(),
     );
     expect(document.querySelector('.nav-bell-dot')).toBeNull();
-    expect(Number(localStorage.getItem('workmesh.activity.lastSeenAt'))).toBeGreaterThan(0);
+    expect(JSON.parse(localStorage.getItem('workmesh.activity.seen.v2.user-1') ?? '[]')).toEqual([
+      'activity-1',
+      'activity-2',
+    ]);
+    expect(localStorage.getItem('workmesh.activity.lastSeenAt')).toBeNull();
   });
 
   it('通知中心的最近活动可以跳转到目标页面', async () => {
@@ -596,6 +600,142 @@ describe('App（cookie WebSession 引导）', () => {
 
     await waitFor(() => expect(document.title).toBe('评审 · WorkMesh'));
     expect(screen.queryByRole('dialog', { name: '通知中心' })).toBeNull();
+    expect(JSON.parse(localStorage.getItem('workmesh.activity.seen.v2.user-1') ?? '[]')).toEqual([
+      'activity-1',
+    ]);
+  });
+
+  it('通知加载失败保留审计记录并显示重试，不伪装为空；重试后恢复', async () => {
+    let failActivity = false;
+    let failTodo = true;
+    stubApi((url) => {
+      const path = pathOf(url);
+      if (path === '/api/health') return { status: 200, body: {} };
+      if (path === '/api/v1/auth/session')
+        return { status: 200, body: envelope(authenticatedSession) };
+      if (path === '/api/v1/projects') return { status: 200, body: envelope([]) };
+      if (path === '/api/v1/workbench')
+        return failTodo
+          ? { status: 503, body: { error: { code: 'UNAVAILABLE', message: '暂不可用' } } }
+          : {
+              status: 200,
+              body: envelope({
+                reviews: [],
+                changes: [],
+                readyTasks: [],
+                counts: { reviews: 0, changes: 0, readyTasks: 0, total: 0 },
+                warnings: [],
+              }),
+            };
+      if (path === '/api/v1/activity')
+        return failActivity
+          ? { status: 503, body: { error: { code: 'UNAVAILABLE', message: '暂不可用' } } }
+          : {
+              status: 200,
+              body: envelope({
+                items: [
+                  {
+                    id: 'saved-event',
+                    projectId: 'p1',
+                    projectName: '已加载项目',
+                    action: 'REVIEW_DECIDE',
+                    targetType: 'REVIEW_REQUEST',
+                    targetId: 'review-1',
+                    targetVersion: 1,
+                    outcome: 'OK',
+                    details: null,
+                    createdAt: '2026-11-09T00:00:00.000Z',
+                    actor: null,
+                  },
+                ],
+              }),
+            };
+      return undefined;
+    });
+    render(
+      <MemoryRouter initialEntries={['/projects']}>
+        <App />
+      </MemoryRouter>,
+    );
+    const bell = await screen.findByRole('button', { name: /1 条未读活动/ });
+    failActivity = true;
+    fireEvent.click(bell);
+    expect(await screen.findByText(/审计活动未能更新/)).toBeInTheDocument();
+    expect(screen.getByText('已加载项目')).toBeInTheDocument();
+    expect(screen.queryByText('暂无审计事件。')).not.toBeInTheDocument();
+    expect(await screen.findByText(/我的待办未能更新/)).toBeInTheDocument();
+    failActivity = false;
+    failTodo = false;
+    fireEvent.click(screen.getByRole('button', { name: '重试活动' }));
+    fireEvent.click(screen.getByRole('button', { name: '重试待办' }));
+    await waitFor(() => expect(screen.queryByText(/审计活动未能更新/)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(/我的待办未能更新/)).not.toBeInTheDocument());
+  });
+
+  it('切换账号后同一事件重新显示未读，其他标签页的已读变化同步到当前账号', async () => {
+    stubApi((url) => {
+      const path = pathOf(url);
+      if (path === '/api/health') return { status: 200, body: {} };
+      if (path === '/api/v1/auth/session')
+        return { status: 200, body: envelope(authenticatedSession) };
+      if (path === '/api/v1/projects') return { status: 200, body: envelope([]) };
+      if (path === '/api/v1/workbench')
+        return {
+          status: 200,
+          body: envelope({
+            reviews: [],
+            changes: [],
+            readyTasks: [],
+            counts: { reviews: 0, changes: 0, readyTasks: 0, total: 0 },
+            warnings: [],
+          }),
+        };
+      if (path === '/api/v1/activity')
+        return {
+          status: 200,
+          body: envelope({
+            items: [
+              {
+                id: 'shared-event',
+                projectId: 'p1',
+                projectName: 'Demo',
+                action: 'REVIEW_DECIDE',
+                targetType: 'REVIEW_REQUEST',
+                targetId: 'review-1',
+                targetVersion: 1,
+                outcome: 'OK',
+                details: null,
+                createdAt: '2026-11-09T00:00:00.000Z',
+                actor: null,
+              },
+            ],
+          }),
+        };
+      return undefined;
+    });
+    render(
+      <MemoryRouter initialEntries={['/projects']}>
+        <App />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /1 条未读活动/ }));
+    fireEvent.click(screen.getByRole('button', { name: '将当前活动标为已读' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: /条未读活动/ })).toBeNull());
+    act(() =>
+      useAuthStore.setState({
+        user: { id: 'user-2', email: 'second@example.com' },
+        status: 'authenticated',
+      }),
+    );
+    expect(await screen.findByRole('button', { name: /1 条未读活动/ })).toBeInTheDocument();
+    expect(localStorage.getItem('workmesh.activity.seen.v2.user-2')).toBeNull();
+    act(() => {
+      localStorage.setItem('workmesh.activity.seen.v2.user-2', JSON.stringify(['shared-event']));
+      window.dispatchEvent(
+        new StorageEvent('storage', { key: 'workmesh.activity.seen.v2.user-2' }),
+      );
+    });
+    await waitFor(() => expect(screen.queryByRole('button', { name: /条未读活动/ })).toBeNull());
   });
 
   function stubShellApis(onActivity?: () => void) {

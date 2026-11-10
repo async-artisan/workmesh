@@ -22,9 +22,20 @@ import {
   type WorkspaceConfig,
 } from './config';
 import { CliError, asCliError, errorEnvelopeOf } from './errors';
-import { materializeSnapshot, createSnapshot, fetchSnapshot } from './context';
+import { materializeSnapshot, fetchSnapshot } from './context';
+import { renderInputStatus } from './input-status';
+import {
+  diagnoseRoleContext,
+  renderRoleContext,
+  type RoleContextDiagnostics,
+} from './role-context-diagnostics';
+import { renderChangeGuidance } from './change-guidance';
+import { renderCodeEvidence } from './code-evidence';
+import type { CodeEvidenceDiagnostics } from '@workmesh/shared';
+import type { TaskInputStatusView } from '@workmesh/shared';
 import { buildCandidate, parseCandidateJson, type CandidateKind } from './candidate';
 import { buildDeliver } from './deliver';
+import { checkQualityFile } from './quality';
 import {
   answerQuestion,
   confirmUnderstanding,
@@ -43,14 +54,20 @@ import { runSetup } from './setup';
 import { assertDoctorReady, renderDoctor, runDoctor } from './doctor';
 import { runWorkspaceRecover, type WorkspaceRecoverReport } from './workspace-recover';
 import { confirmFileStore } from './consent';
+import { executeReceiptWrite } from './operation-write';
+import { reconcileOperation } from './operation-reconcile';
 import {
-  beginOperation,
-  finishOperation,
+  assertExecutionReady,
+  listExecutions,
+  resolveExecution,
+  withExecutionLock,
+} from './execution-state';
+import {
   readReceipt,
-  requestDigestOf,
+  listReceipts,
   scopeKeyOf,
-  assertReusable,
   type SourceFile,
+  type ExecutionLink,
 } from './receipts';
 import {
   detectWorkspaceState,
@@ -176,6 +193,13 @@ function positiveVersion(options: Options, key: string): number {
   return value;
 }
 
+function discussionText(options: Options, key: string, max: number): string {
+  const value = str(options, key)?.trim();
+  if (!value || value.length > max)
+    throw new CliError('VALIDATION_FAILED', `--${key} 必须为 1..${max} 字符的非空文本`);
+  return value;
+}
+
 export function reviewSubjectOf(
   artifactSet: string | undefined,
   revision: string | undefined,
@@ -238,7 +262,26 @@ type WriteInput = {
   sourceFiles?: SourceFile[];
   operation?: string;
   resultRefs?: (data: unknown) => Record<string, string | number | null>;
+  execution?: ExecutionLink;
 };
+
+function committedTaskState(record: Record<string, unknown>) {
+  const state =
+    record.committedState && typeof record.committedState === 'object'
+      ? (record.committedState as Record<string, unknown>)
+      : record.replayed === true
+        ? {}
+        : record.task && typeof record.task === 'object'
+          ? {
+              taskVersion: (record.task as Record<string, unknown>).version,
+              taskGeneration: (record.task as Record<string, unknown>).generation,
+            }
+          : {};
+  return {
+    taskVersion: typeof state.taskVersion === 'number' ? state.taskVersion : null,
+    taskGeneration: typeof state.taskGeneration === 'number' ? state.taskGeneration : null,
+  };
+}
 
 /** 写请求前先落 PENDING receipt；同 --operation 只在摘要完全一致时复用。 */
 async function writeWithReceipt(
@@ -247,46 +290,42 @@ async function writeWithReceipt(
   input: WriteInput,
 ): Promise<{ data: unknown; requestId: string; operationId: string }> {
   const operationId = operationIdOf(input.operation);
-  const digest = await requestDigestOf(input.method, input.route, input.body);
-  let reused = false;
   try {
-    const receipt = await readReceipt(connection.workspaceDir, operationId);
-    assertReusable(receipt, {
-      scopeKey: connection.scopeKey,
-      credentialId: connection.credentialId,
-      requestDigest: digest,
-    });
-    reused = true;
-  } catch (error) {
-    if (!(error instanceof CliError) || error.code !== 'RESOURCE_NOT_FOUND') throw error;
-  }
-  if (!reused) {
-    await beginOperation({
+    return await executeReceiptWrite({
+      ...input,
       workspaceDir: connection.workspaceDir,
-      operationId,
       scopeKey: connection.scopeKey,
       credentialId: connection.credentialId,
-      method: input.method,
-      relativeRoute: input.route,
-      requestDigest: digest,
-      sourceFiles: input.sourceFiles ?? [],
+      operationId,
+      request: (key) =>
+        connection.client.request<unknown>(input.method, input.route, {
+          body: input.body,
+          idempotencyKey: key,
+        }),
     });
-  }
-  try {
-    const response = await connection.client.request<unknown>(input.method, input.route, {
-      body: input.body,
-      idempotencyKey: operationId,
-    });
-    const resultRefs = input.resultRefs ? input.resultRefs(response.data) : {};
-    await finishOperation(connection.workspaceDir, operationId, 'COMMITTED', resultRefs);
-    return { data: response.data, requestId: response.requestId, operationId };
   } catch (error) {
     const failure = asCliError(error);
-    if (failure.status !== undefined && failure.status >= 400 && failure.status < 500) {
-      if (failure.status !== 408 && failure.status !== 429)
-        await finishOperation(connection.workspaceDir, operationId, 'REJECTED', {});
-    }
-    throw failure;
+    if (!failure.details?.operationId) throw failure;
+    throw new CliError(failure.code, failure.message, {
+      status: failure.status,
+      requestId: failure.requestId,
+      exitCode: failure.exitCode,
+      details: {
+        ...failure.details,
+        recoveryDirectory: connection.workspaceDir,
+        recoveryConfigHome: connection.home,
+        recoveryCommand: [
+          'receipt',
+          'reconcile',
+          '--operation',
+          operationId,
+          '--dir',
+          connection.workspaceDir,
+          '--config-home',
+          connection.home,
+        ],
+      },
+    });
   }
 }
 
@@ -362,6 +401,7 @@ async function runLogin(options: LoginOptions, command: Command): Promise<void> 
 function buildProgram(): Command {
   const program = new Command()
     .name('workmesh')
+    .enablePositionalOptions()
     .description(DESCRIPTION)
     .version(CLI_VERSION)
     .exitOverride();
@@ -377,8 +417,35 @@ function buildProgram(): Command {
     console.log(
       '新成员接入：workmesh workspace init --join <code> --root <dir> --api <base> --role <role>',
     );
-    console.log('按角色 SOP 本地生产；交付后用 review 请求 Web 人工确认。');
+    console.log(
+      '按角色 SOP 本地生产；交付后按返回的评审编号，用 review show 查询并在 Web 完成人工确认。',
+    );
     console.log('修改角色、项目或平台需匹配的新授权；不要上传聊天、个人记忆或凭据。');
+  });
+
+  withIO(
+    program
+      .command('quality')
+      .description('本地规格与交付覆盖检查（不作正式验收）')
+      .requiredOption('--file <path>', '质量包 JSON 文件'),
+  ).action(async (raw: Options, command: Command) => {
+    const report = await checkQualityFile(str(raw, 'file')!, workspaceDirOf(optionsOf(command)));
+    if (report.status !== 'CONSISTENT')
+      throw new CliError(
+        'VALIDATION_FAILED',
+        `质量包存在结构、引用或覆盖缺口：${report.issues
+          .filter((issue) => issue.severity === 'ERROR')
+          .slice(0, 5)
+          .map((issue) => `${issue.code} (${issue.location}) ${issue.message}`)
+          .join('；')}`,
+        { details: { report } },
+      );
+    emitLocal(command, report, () => {
+      console.log(`本地质量检查：${report.status}；${report.coverage.length} 条验收`);
+      for (const issue of report.issues)
+        console.log(`${issue.severity} ${issue.code}: ${issue.message}`);
+      console.log('仅检查所提供数据的一致性；证据内容与正式验收仍需核验。');
+    });
   });
 
   const auth = program.command('auth').description('浏览器设备授权与 Agent 凭据');
@@ -591,7 +658,8 @@ function buildProgram(): Command {
         ),
     });
     emitLocal(command, result, () => {
-      console.log(`已就绪：${result.roleKey} @ 项目 ${result.projectId}`);
+      console.log(`角色资源已安装：${result.roleKey} @ 项目 ${result.projectId}`);
+      console.log(result.credentialReused ? '已复用在线核验通过的匹配凭据。' : '已完成设备授权。');
       console.log(
         `角色包 ${result.packageId}@${result.version}${result.reused ? '（已存在）' : ''} → ${result.packagePath}`,
       );
@@ -600,7 +668,7 @@ function buildProgram(): Command {
         console.log('Agent 入口已写入：');
         for (const file of result.agentEntries) console.log(`  ${file}`);
       }
-      console.log('下一步：让 Agent 按 AGENTS.md 领任务（workmesh claim）。');
+      for (const next of result.nextActions) console.log(`下一步：${next}`);
     });
   });
 
@@ -613,45 +681,58 @@ function buildProgram(): Command {
   ).action(async (raw: Options, command: Command) => {
     const connection = await connect(command);
     const taskId = assertUuid(str(raw, 'task'), '--task');
-    const route = `/tasks/${encodeURIComponent(taskId)}/claims`;
-    const written = await writeWithReceipt(connection, command, {
-      method: 'POST',
-      route,
-      body: {},
-      operation: str(raw, 'operation'),
-      resultRefs: (data) => {
-        const record = asRecord(data, '认领响应结构非法');
-        const task = asRecord(record.task, '认领响应 task 非法');
-        return {
+    await withExecutionLock(connection, taskId, async () => {
+      const operationId = operationIdOf(str(raw, 'operation'));
+      const earlier = (await listExecutions(connection)).find(
+        (entry) =>
+          entry.taskId === taskId &&
+          entry.pendingOperations.length &&
+          entry.executionId !== operationId,
+      );
+      if (earlier) assertExecutionReady(earlier);
+      const route = `/tasks/${encodeURIComponent(taskId)}/claims`;
+      const written = await writeWithReceipt(connection, command, {
+        method: 'POST',
+        route,
+        body: {},
+        operation: operationId,
+        execution: { id: operationId, taskId, stage: 'CLAIM' },
+        resultRefs: (data) => {
+          const record = asRecord(data, '认领响应结构非法');
+          return {
+            taskId,
+            claimId: typeof record.claimId === 'string' ? record.claimId : null,
+            ...committedTaskState(record),
+          };
+        },
+      });
+      const record = asRecord(written.data, '认领响应结构非法');
+      const claimId = typeof record.claimId === 'string' ? record.claimId : '';
+      const { taskVersion, taskGeneration } = committedTaskState(record);
+      emit(
+        command,
+        {
           taskId,
-          claimId: typeof record.claimId === 'string' ? record.claimId : null,
-          taskVersion: typeof task.version === 'number' ? task.version : null,
-        };
-      },
+          claimId,
+          taskVersion,
+          taskGeneration,
+          executionId: operationId,
+          replayed: record.replayed === true,
+          operationId: written.operationId,
+        },
+        written.requestId,
+        () => {
+          console.log(
+            `已认领 ${taskId} → claim ${claimId}${taskVersion !== null ? `（task v${taskVersion}）` : ''}。`,
+          );
+          console.log(
+            taskVersion && taskGeneration
+              ? `下一步：workmesh context --execution ${operationId} --materialize`
+              : `原提交版本未知，请先核对：workmesh tasks show --task ${taskId}`,
+          );
+        },
+      );
     });
-    const record = asRecord(written.data, '认领响应结构非法');
-    const task = asRecord(record.task, '认领响应 task 非法');
-    const claimId = typeof record.claimId === 'string' ? record.claimId : '';
-    const taskVersion = typeof task.version === 'number' ? task.version : null;
-    emit(
-      command,
-      {
-        taskId,
-        claimId,
-        taskVersion,
-        replayed: record.replayed === true,
-        operationId: written.operationId,
-      },
-      written.requestId,
-      () => {
-        console.log(
-          `已认领 ${taskId} → claim ${claimId}${taskVersion !== null ? `（task v${taskVersion}）` : ''}。`,
-        );
-        console.log(
-          `下一步：workmesh context --task ${taskId} --claim ${claimId} --expected-version ${taskVersion ?? 1} --materialize`,
-        );
-      },
-    );
   });
 
   withIO(
@@ -659,23 +740,66 @@ function buildProgram(): Command {
       .command('context')
       .description('创建或读取准确上下文快照；--materialize 校验 bytes 后原子落盘')
       .option('--task <id>', 'task UUID (creates a new snapshot)')
-      .option('--claim <id>', 'claim UUID required with --task')
-      .option('--expected-version <n>', 'task version required with --task')
+      .option('--execution <id>', 'local execution UUID returned by claim')
+      .option('--inspect', 'read-only input diagnostics; requires only --task', false)
+      .option('--claim <id>', 'explicit claim UUID (otherwise use local execution)')
+      .option('--expected-version <n>', 'explicit task version (otherwise use exact local state)')
       .option('--snapshot <id>', 'existing snapshot UUID (does not create)')
       .option('--candidate <id...>', 'optional candidate revision UUIDs for snapshot creation')
       .option('--materialize', 'download and atomically publish verified bytes', false)
+      .option(
+        '--refresh',
+        'explicitly accept changed inputs when creating a replacement execution snapshot',
+        false,
+      )
       .option('--operation <uuid>', 'reuse an existing Idempotency-Key for retry'),
   ).action(async (raw: Options, command: Command) => {
     const connection = await connect(command);
     const snapshotOption = str(raw, 'snapshot');
     const taskOption = str(raw, 'task');
-    if (!snapshotOption && !taskOption)
+    const executionOption = str(raw, 'execution');
+    if (executionOption) assertUuid(executionOption, '--execution');
+    if (flag(raw, 'inspect')) {
+      if (
+        !taskOption ||
+        executionOption ||
+        snapshotOption ||
+        str(raw, 'claim') ||
+        str(raw, 'expected-version') ||
+        flag(raw, 'materialize') ||
+        flag(raw, 'refresh') ||
+        readOption(raw, 'candidate') ||
+        str(raw, 'operation')
+      )
+        throw new CliError(
+          'INVALID_REQUEST',
+          '--inspect 只与 --task 和输出/连接选项组合，不创建快照',
+        );
+      const taskId = assertUuid(taskOption, '--task');
+      const result = await connection.client.request<TaskInputStatusView>(
+        'GET',
+        `/tasks/${encodeURIComponent(taskId)}/input-status`,
+      );
+      const roleContext = await diagnoseRoleContext({
+        workspaceDir: connection.workspaceDir,
+        status: result.data,
+      });
+      emit(command, { ...result.data, roleContext }, result.requestId, () => {
+        console.log(renderInputStatus(result.data));
+        console.log(renderRoleContext(roleContext));
+      });
+      return;
+    }
+    if (!snapshotOption && !taskOption && !executionOption)
       throw new CliError('INVALID_REQUEST', '需要 --task（创建快照）或 --snapshot（读取既有快照）');
-    if (snapshotOption && taskOption)
+    if (snapshotOption && (taskOption || executionOption))
       throw new CliError('INVALID_REQUEST', '--task 与 --snapshot 不能同时使用');
-    let snapshotId: string;
+    let snapshotId!: string;
     let taskVersion: number | null = null;
-    let requestId: string;
+    let requestId!: string;
+    let outputExecutionId: string | null = null;
+    let outputOperationId: string | null = null;
+    let roleContext: RoleContextDiagnostics | undefined;
     if (snapshotOption) {
       const snapshot = await fetchSnapshot(
         connection.client,
@@ -684,48 +808,118 @@ function buildProgram(): Command {
       snapshotId = snapshot.id;
       requestId = randomUUID();
     } else {
-      const taskId = assertUuid(taskOption, '--task');
-      const claimId = assertUuid(str(raw, 'claim'), '--claim');
-      const expectedVersion = positiveVersion(raw, 'expected-version');
-      const candidates = listOf(raw, 'candidate');
-      for (const candidate of candidates) assertUuid(candidate, '--candidate');
-      const operationId = operationIdOf(str(raw, 'operation'));
-      const route = `/tasks/${encodeURIComponent(taskId)}/context-snapshots`;
-      const body = {
-        expectedVersion,
-        claimId,
-        ...(candidates.length ? { candidateRevisionIds: candidates } : {}),
-      };
-      const digest = await requestDigestOf('POST', route, body);
-      await beginOperation({
-        workspaceDir: connection.workspaceDir,
-        operationId,
-        scopeKey: connection.scopeKey,
-        credentialId: connection.credentialId,
-        method: 'POST',
-        relativeRoute: route,
-        requestDigest: digest,
-        sourceFiles: [],
-      });
-      const created = await createSnapshot(
-        connection.client,
-        taskId,
-        {
-          claimId,
+      const explicit =
+        str(raw, 'claim') !== undefined || str(raw, 'expected-version') !== undefined;
+      if (executionOption && explicit)
+        throw new CliError('INVALID_REQUEST', '--execution 不能与显式 claim/version 混用');
+      const selected = explicit
+        ? null
+        : await resolveExecution(connection, {
+            executionId: executionOption,
+            taskId: taskOption ? assertUuid(taskOption, '--task') : undefined,
+          });
+      const taskId = selected?.taskId ?? assertUuid(taskOption, '--task');
+      await withExecutionLock(connection, taskId, async () => {
+        const execution = selected
+          ? await resolveExecution(connection, { executionId: selected.executionId })
+          : null;
+        outputExecutionId = execution?.executionId ?? null;
+        if (execution) assertExecutionReady(execution, false, str(raw, 'operation'));
+        let inputStatus: TaskInputStatusView | undefined;
+        try {
+          const inspected = await connection.client.request<TaskInputStatusView>(
+            'GET',
+            `/tasks/${encodeURIComponent(taskId)}/input-status`,
+          );
+          inputStatus = inspected.data;
+        } catch (error) {
+          if (execution?.snapshotId && !str(raw, 'operation')) throw error;
+          // Advisory metadata may be absent on older servers; the write still enforces all input gates.
+        }
+        roleContext = await diagnoseRoleContext({
+          workspaceDir: connection.workspaceDir,
+          status: inputStatus,
+        });
+        if (
+          execution?.snapshotId &&
+          !str(raw, 'operation') &&
+          (inputStatus?.comparison.status === 'UNAVAILABLE' ||
+            (inputStatus?.comparison.status === 'CHANGED' && !flag(raw, 'refresh')))
+        )
+          throw new CliError(
+            'EXECUTION_INPUTS_CHANGED',
+            '本次执行的输入已变化或无法比较，请先 --inspect 核对；确认后使用 --refresh 获取新快照。',
+            { details: { roleContext } },
+          );
+        const claimId = execution?.claimId ?? assertUuid(str(raw, 'claim'), '--claim');
+        let retry = null;
+        if (execution && str(raw, 'operation')) {
+          try {
+            retry = await readReceipt(connection.workspaceDir, str(raw, 'operation')!);
+          } catch (error) {
+            if (!(error instanceof CliError) || error.code !== 'RESOURCE_NOT_FOUND') throw error;
+          }
+        }
+        const expectedVersion =
+          retry?.execution?.expectedTaskVersion ??
+          execution?.taskVersion ??
+          positiveVersion(raw, 'expected-version');
+        const candidates = listOf(raw, 'candidate');
+        for (const candidate of candidates) assertUuid(candidate, '--candidate');
+        const operationId = operationIdOf(str(raw, 'operation'));
+        outputOperationId = operationId;
+        const route = `/tasks/${encodeURIComponent(taskId)}/context-snapshots`;
+        const body = {
           expectedVersion,
-          candidateRevisionIds: candidates.length ? candidates : undefined,
-        },
-        operationId,
-      );
-      snapshotId = created.snapshot.id;
-      taskVersion = created.taskVersion;
-      requestId = created.requestId;
-      await finishOperation(connection.workspaceDir, operationId, 'COMMITTED', {
-        snapshotId,
-        taskVersion,
+          claimId,
+          ...(candidates.length ? { candidateRevisionIds: candidates } : {}),
+        };
+        const created = await writeWithReceipt(connection, command, {
+          method: 'POST',
+          route,
+          body,
+          operation: operationId,
+          ...(execution
+            ? {
+                execution: {
+                  id: execution.executionId,
+                  taskId,
+                  claimId,
+                  expectedTaskVersion: expectedVersion,
+                  stage: 'CONTEXT' as const,
+                },
+              }
+            : {}),
+          resultRefs: (data) => {
+            const result = asRecord(data, '快照响应结构非法');
+            const snapshot = asRecord(result.snapshot, '快照响应 snapshot 非法');
+            const manifest = asRecord(snapshot.manifest, '快照 manifest 非法');
+            return {
+              taskId,
+              claimId,
+              snapshotId: typeof snapshot.id === 'string' ? snapshot.id : null,
+              taskVersion: typeof result.taskVersion === 'number' ? result.taskVersion : null,
+              taskGeneration:
+                typeof manifest.taskGeneration === 'number' ? manifest.taskGeneration : null,
+            };
+          },
+        });
+        const result = asRecord(created.data, '快照响应结构非法');
+        const snapshot = asRecord(result.snapshot, '快照响应 snapshot 非法');
+        snapshotId = assertUuid(
+          typeof snapshot.id === 'string' ? snapshot.id : undefined,
+          'snapshot.id',
+        );
+        taskVersion = typeof result.taskVersion === 'number' ? result.taskVersion : null;
+        requestId = created.requestId;
       });
     }
-    const view = await fetchSnapshot(connection.client, snapshotId);
+    const view = await fetchSnapshot(connection.client, snapshotId!);
+    if (snapshotOption)
+      roleContext = await diagnoseRoleContext({
+        workspaceDir: connection.workspaceDir,
+        snapshotRevisionId: view.manifest.workflowDefinitionRevisionId,
+      });
     const materialized = flag(raw, 'materialize')
       ? await materializeSnapshot({
           client: connection.client,
@@ -737,8 +931,11 @@ function buildProgram(): Command {
       command,
       {
         snapshotId,
+        executionId: outputExecutionId,
+        operationId: outputOperationId,
         manifestDigest: view.manifestDigest,
         taskVersion,
+        roleContext,
         resources: view.resources.map((resource) => ({
           refId: resource.refId,
           kind: resource.kind,
@@ -759,6 +956,7 @@ function buildProgram(): Command {
       requestId,
       () => {
         console.log(`快照 ${snapshotId}（manifest ${view.manifestDigest}）`);
+        if (roleContext) console.log(renderRoleContext(roleContext));
         for (const resource of view.resources)
           console.log(
             `  ${resource.kind} ${resource.refId} ${resource.byteLength}B ${resource.sha256}`,
@@ -1226,85 +1424,240 @@ function buildProgram(): Command {
     program
       .command('deliver')
       .description('提交 exact ArtifactSet（HOSTED bytes 在此计算摘要，GIT_REF 只登记定位）')
-      .requiredOption('--task <id>', 'task UUID')
-      .requiredOption('--claim <id>', 'current claim UUID')
-      .requiredOption('--snapshot <id>', 'context snapshot UUID')
-      .requiredOption('--expected-version <n>', 'task version expected by this write')
+      .option('--task <id>', 'task UUID; uses its unique local execution')
+      .option('--execution <id>', 'local execution UUID returned by claim')
+      .option('--claim <id>', 'explicit current claim UUID')
+      .option('--snapshot <id>', 'explicit context snapshot UUID')
+      .option('--expected-version <n>', 'explicit task version expected by this write')
       .requiredOption('--manifest <file>', 'deliver manifest JSON')
       .option('--operation <uuid>', 'reuse an existing Idempotency-Key for retry'),
   ).action(async (raw: Options, command: Command) => {
     const connection = await connect(command);
-    const taskId = assertUuid(str(raw, 'task'), '--task');
-    const claimId = assertUuid(str(raw, 'claim'), '--claim');
-    const snapshotId = assertUuid(str(raw, 'snapshot'), '--snapshot');
-    const expectedVersion = positiveVersion(raw, 'expected-version');
-    const built = await buildDeliver(str(raw, 'manifest') ?? '');
-    const route = `/tasks/${encodeURIComponent(taskId)}/artifact-sets`;
-    const body = {
-      expectedVersion,
-      claimId,
-      snapshotId,
-      ...built.payload,
-    };
-    const written = await writeWithReceipt(connection, command, {
-      method: 'POST',
-      route,
-      body,
-      sourceFiles: built.sourceFiles,
-      operation: str(raw, 'operation'),
-      resultRefs: (data) => {
-        const record = asRecord(data, '交付响应结构非法');
-        const task = record.task ? asRecord(record.task, '交付响应 task 非法') : undefined;
-        const artifactSet = record.artifactSet
-          ? asRecord(record.artifactSet, '交付响应 artifactSet 非法')
-          : undefined;
-        return {
-          taskId,
-          artifactSetId: typeof artifactSet?.id === 'string' ? artifactSet.id : null,
-          taskVersion: typeof task?.version === 'number' ? task.version : null,
-        };
-      },
-    });
-    const record = asRecord(written.data, '交付响应结构非法');
-    const task = record.task ? asRecord(record.task, '交付响应 task 非法') : undefined;
-    const artifactSet = record.artifactSet
-      ? asRecord(record.artifactSet, '交付响应 artifactSet 非法')
-      : undefined;
-    const artifactSetId = typeof artifactSet?.id === 'string' ? artifactSet.id : null;
-    const taskVersion = typeof task?.version === 'number' ? task.version : null;
-    emit(
-      command,
-      {
-        taskId,
-        artifactSetId,
-        taskStatus: task?.executionStatus ?? null,
-        taskVersion,
-        replayed: record.replayed === true,
-        operationId: written.operationId,
-      },
-      written.requestId,
-      () => {
-        console.log(`已交付 ArtifactSet${artifactSetId ? ` ${artifactSetId}` : ''}。`);
-        console.log(
-          `任务 ${taskId}${taskVersion !== null ? ` v${taskVersion}` : ''} 停在评审；人工确认前不会 DONE。`,
-        );
-        console.log('后续：workmesh review --task <id> --artifact-set <id> --expected-version <n>');
-      },
+    const executionId = str(raw, 'execution');
+    if (executionId) assertUuid(executionId, '--execution');
+    const explicit = ['claim', 'snapshot', 'expected-version'].some(
+      (key) => str(raw, key) !== undefined,
     );
+    if (executionId && explicit)
+      throw new CliError('INVALID_REQUEST', '--execution 不能与显式 claim/snapshot/version 混用');
+    const selected = explicit
+      ? null
+      : await resolveExecution(connection, { executionId, taskId: str(raw, 'task') });
+    const taskId = selected?.taskId ?? assertUuid(str(raw, 'task'), '--task');
+    await withExecutionLock(connection, taskId, async () => {
+      const execution = selected
+        ? await resolveExecution(connection, { executionId: selected.executionId })
+        : null;
+      if (execution) assertExecutionReady(execution, true, str(raw, 'operation'));
+      const claimId = execution?.claimId ?? assertUuid(str(raw, 'claim'), '--claim');
+      const snapshotId = execution?.snapshotId ?? assertUuid(str(raw, 'snapshot'), '--snapshot');
+      let retry = null;
+      if (execution && str(raw, 'operation')) {
+        try {
+          retry = await readReceipt(connection.workspaceDir, str(raw, 'operation')!);
+        } catch (error) {
+          if (!(error instanceof CliError) || error.code !== 'RESOURCE_NOT_FOUND') throw error;
+        }
+      }
+      const expectedVersion =
+        retry?.execution?.expectedTaskVersion ??
+        execution?.taskVersion ??
+        positiveVersion(raw, 'expected-version');
+      const built = await buildDeliver(str(raw, 'manifest') ?? '');
+      const route = `/tasks/${encodeURIComponent(taskId)}/artifact-sets`;
+      const body = {
+        expectedVersion,
+        claimId,
+        snapshotId,
+        ...built.payload,
+      };
+      const written = await writeWithReceipt(connection, command, {
+        method: 'POST',
+        route,
+        body,
+        sourceFiles: built.sourceFiles,
+        ...(execution
+          ? {
+              execution: {
+                id: execution.executionId,
+                taskId,
+                claimId,
+                snapshotId,
+                expectedTaskVersion: expectedVersion,
+                stage: 'DELIVER' as const,
+              },
+            }
+          : {}),
+        operation: str(raw, 'operation'),
+        resultRefs: (data) => {
+          const record = asRecord(data, '交付响应结构非法');
+          const artifactSet = record.artifactSet
+            ? asRecord(record.artifactSet, '交付响应 artifactSet 非法')
+            : undefined;
+          return {
+            taskId,
+            artifactSetId: typeof artifactSet?.id === 'string' ? artifactSet.id : null,
+            reviewRequestId:
+              typeof record.reviewRequestId === 'string' ? record.reviewRequestId : null,
+            claimId,
+            snapshotId,
+            ...committedTaskState(record),
+          };
+        },
+      });
+      const record = asRecord(written.data, '交付响应结构非法');
+      const task = record.task ? asRecord(record.task, '交付响应 task 非法') : undefined;
+      const artifactSet = record.artifactSet
+        ? asRecord(record.artifactSet, '交付响应 artifactSet 非法')
+        : undefined;
+      const artifactSetId = typeof artifactSet?.id === 'string' ? artifactSet.id : null;
+      const { taskVersion } = committedTaskState(record);
+      const reviewRequestId =
+        typeof record.reviewRequestId === 'string' ? record.reviewRequestId : null;
+      const reviewWebUrl = reviewRequestId
+        ? `${connection.workspace.platform.origin}/reviews/${encodeURIComponent(reviewRequestId)}`
+        : null;
+      emit(
+        command,
+        {
+          taskId,
+          artifactSetId,
+          reviewRequestId,
+          reviewWebUrl,
+          taskStatus: task?.executionStatus ?? null,
+          taskVersion,
+          replayed: record.replayed === true,
+          operationId: written.operationId,
+          executionId: execution?.executionId ?? null,
+        },
+        written.requestId,
+        () => {
+          console.log(`已交付 ArtifactSet${artifactSetId ? ` ${artifactSetId}` : ''}。`);
+          console.log(
+            `任务 ${taskId}${taskVersion !== null ? ` v${taskVersion}` : ''} 停在评审；人工确认前不会 DONE。`,
+          );
+          if (reviewRequestId) console.log(`已自动创建评审 ${reviewRequestId}：${reviewWebUrl}`);
+          else console.log('当前响应未提供评审编号，请在任务详情核对后续状态。');
+          console.log('请等待 HUMAN 审阅；如被要求修改，请按评审意见返修并重新交付。');
+        },
+      );
+    });
   });
 
+  const executionCommand = program
+    .command('execution')
+    .description('查看由安全操作收据恢复的本地执行状态');
+  withIO(executionCommand.command('list').option('--task <id>', 'filter by task UUID')).action(
+    async (raw: Options, command: Command) => {
+      const connection = await connect(command);
+      const taskId = str(raw, 'task') ? assertUuid(str(raw, 'task'), '--task') : undefined;
+      const items = (await listExecutions(connection)).filter(
+        (entry) => !taskId || entry.taskId === taskId,
+      );
+      emitLocal(command, { items, freshness: 'local-journal' }, () => {
+        for (const item of items)
+          console.log(
+            `${item.executionId}  ${item.taskId}  ${item.stage}  task v${item.taskVersion ?? '?'}`,
+          );
+        if (!items.length) console.log('当前凭据和工作区没有本地执行记录。');
+        console.log('状态来自本机收据；待核对操作请先 receipt reconcile，远端版本仍由服务端校验。');
+      });
+    },
+  );
   withIO(
+    executionCommand
+      .command('status')
+      .option('--execution <id>', 'execution UUID')
+      .option('--task <id>', 'unique execution task UUID'),
+  ).action(async (raw: Options, command: Command) => {
+    const connection = await connect(command);
+    const item = await resolveExecution(connection, {
+      executionId: str(raw, 'execution')
+        ? assertUuid(str(raw, 'execution'), '--execution')
+        : undefined,
+      taskId: str(raw, 'task') ? assertUuid(str(raw, 'task'), '--task') : undefined,
+    });
+    const nextAction = item.pendingOperations.length
+      ? `receipt reconcile --operation ${item.pendingOperations[0]}`
+      : item.stage === 'NEEDS_INSPECTION'
+        ? `tasks show --task ${item.taskId}`
+        : item.reviewRequestId
+          ? `review --execution ${item.executionId}`
+          : item.snapshotId
+            ? `deliver --execution ${item.executionId} --manifest deliver.json`
+            : `context --execution ${item.executionId} --materialize`;
+    emitLocal(command, { ...item, nextAction, freshness: 'local-journal' }, () => {
+      console.log(
+        `执行 ${item.executionId}：${item.stage}；任务 ${item.taskId} v${item.taskVersion ?? '?'}。`,
+      );
+      console.log(`下一步：workmesh ${nextAction}`);
+    });
+  });
+
+  const review = withIO(
     program
       .command('review')
       .description('创建人工评审请求（只请求，不批准）')
       .option('--task <id>', 'task UUID to associate')
+      .option('--execution <id>', 'show the review already created by this execution delivery')
       .option('--artifact-set <id>', 'TASK_ARTIFACT_SET subject UUID')
       .option('--document-revision <id>', 'DOCUMENT_REVISION subject UUID')
-      .requiredOption('--expected-version <n>', 'subject version expected by this request')
+      .option(
+        '--expected-version <n>',
+        'task version for an artifact-set review; document version for a revision',
+      )
       .option('--operation <uuid>', 'reuse an existing Idempotency-Key for retry'),
-  ).action(async (raw: Options, command: Command) => {
+  );
+  review.action(async (raw: Options, command: Command) => {
     const artifactSet = str(raw, 'artifact-set');
     const revision = str(raw, 'document-revision');
+    if (str(raw, 'execution') || (str(raw, 'task') && !artifactSet && !revision)) {
+      if (artifactSet || revision || str(raw, 'expected-version') || str(raw, 'operation'))
+        throw new CliError(
+          'INVALID_REQUEST',
+          '执行评审入口只读取交付已创建的评审，不与创建选项组合',
+        );
+      const connection = await connect(command);
+      const execution = await resolveExecution(connection, {
+        executionId: str(raw, 'execution')
+          ? assertUuid(str(raw, 'execution'), '--execution')
+          : undefined,
+        taskId: str(raw, 'task') ? assertUuid(str(raw, 'task'), '--task') : undefined,
+      });
+      if (execution.pendingOperations.length)
+        throw new CliError('EXECUTION_PENDING', '交付结果待核对，请先 receipt reconcile。', {
+          details: { operationId: execution.pendingOperations[0] },
+        });
+      if (!execution.reviewRequestId)
+        throw new CliError(
+          'EXECUTION_REVIEW_UNAVAILABLE',
+          '本次执行尚无已确认的评审；请先交付或核对原操作。',
+        );
+      const response = await connection.client.request<unknown>(
+        'GET',
+        `/review-requests/${encodeURIComponent(execution.reviewRequestId)}`,
+      );
+      const record = asRecord(response.data, '评审响应结构非法');
+      const webUrl = `${connection.workspace.platform.origin}/reviews/${encodeURIComponent(execution.reviewRequestId)}`;
+      emit(
+        command,
+        {
+          ...record,
+          executionId: execution.executionId,
+          reviewRequestId: execution.reviewRequestId,
+          webUrl,
+          reused: true,
+        },
+        response.requestId,
+        () => {
+          console.log(
+            `本次交付已创建评审 ${execution.reviewRequestId}，当前状态 ${String(record.status ?? '未知')}。`,
+          );
+          console.log(`请在 Web 打开：${webUrl}`);
+        },
+      );
+      return;
+    }
     const subject = reviewSubjectOf(artifactSet, revision);
     const expectedVersion = positiveVersion(raw, 'expected-version');
     const taskId = str(raw, 'task');
@@ -1329,7 +1682,7 @@ function buildProgram(): Command {
     });
     const record = asRecord(written.data, '评审响应结构非法');
     const reviewId = typeof record.id === 'string' ? record.id : '';
-    const webUrl = `${connection.workspace.platform.origin}/projects/${connection.workspace.projectId}/reviews/${reviewId}`;
+    const webUrl = `${connection.workspace.platform.origin}/reviews/${encodeURIComponent(reviewId)}`;
     emit(
       command,
       {
@@ -1349,7 +1702,323 @@ function buildProgram(): Command {
     );
   });
 
+  withIO(
+    review
+      .command('show')
+      .description('读取评审状态和人工决定，不执行批准')
+      .requiredOption('--review <uuid>', 'review request UUID')
+      .option('--discussion-cursor <cursor>', 'nextCursor from the discussion page'),
+  ).action(async (raw: Options, command: Command) => {
+    const connection = await connect(command);
+    const reviewId = assertUuid(str(raw, 'review'), '--review');
+    const response = await connection.client.request<unknown>(
+      'GET',
+      `/review-requests/${encodeURIComponent(reviewId)}`,
+    );
+    const record = asRecord(response.data, '评审响应结构非法');
+    const webUrl = `${connection.workspace.platform.origin}/reviews/${encodeURIComponent(reviewId)}`;
+    let discussions: Record<string, unknown> | null = null;
+    let discussionError: { code: string; message: string } | null = null;
+    try {
+      discussions = asRecord(
+        (
+          await connection.client.request<unknown>(
+            'GET',
+            `/review-requests/${encodeURIComponent(reviewId)}/discussions`,
+            { query: { cursor: str(raw, 'discussion-cursor') } },
+          )
+        ).data,
+        '评审问题结构非法',
+      );
+    } catch (caught) {
+      const error = asCliError(caught);
+      discussionError = { code: error.code, message: error.message };
+    }
+    emit(command, { ...record, webUrl, discussions, discussionError }, response.requestId, () => {
+      console.log(
+        `评审 ${reviewId} · ${String(record.status ?? '未知')} · v${String(record.version ?? '?')}`,
+      );
+      for (const value of Array.isArray(record.decisions) ? record.decisions : []) {
+        const decision = asRecord(value, '决定结构非法');
+        console.log(`${String(decision.decision)}：${String(decision.comment ?? '未填写说明')}`);
+      }
+      if (discussionError)
+        console.log(
+          `评审问题读取失败 [${discussionError.code}]：${discussionError.message}（不能据此认为没有问题）。`,
+        );
+      else if (discussions) {
+        console.log(`未解决问题 ${String(discussions.unresolvedCount ?? '?')} 项`);
+        for (const value of Array.isArray(discussions.items) ? discussions.items : []) {
+          const discussion = asRecord(value, '问题结构非法');
+          const source = asRecord(discussion.source, '问题来源结构非法');
+          console.log(
+            `问题 ${String(discussion.id)} · v${String(discussion.version ?? '?')} · ${discussion.resolved ? '已解决' : '未解决'} · 来源评审 ${String(source.reviewId)}：${String(discussion.title)}`,
+          );
+          console.log(String(discussion.body));
+          for (const entryValue of Array.isArray(discussion.entries) ? discussion.entries : []) {
+            const entry = asRecord(entryValue, '问题回应结构非法');
+            console.log(`  ${String(entry.kind)}：${String(entry.body ?? '')}`);
+          }
+          if (discussion.nextEntriesCursor)
+            console.log(
+              `更多回应：workmesh review entries --review ${String(source.reviewId)} --discussion ${String(discussion.id)} --cursor ${String(discussion.nextEntriesCursor)}`,
+            );
+        }
+        if (discussions.nextCursor)
+          console.log(
+            `更多问题：workmesh review show --review ${reviewId} --discussion-cursor ${String(discussions.nextCursor)}`,
+          );
+      }
+      console.log(`查看完整证据与评审问题：${webUrl}`);
+    });
+  });
+
+  withIO(
+    review
+      .command('issue')
+      .description('提出绑定当前评审版本的问题，不提交人工决定')
+      .requiredOption('--review <uuid>', 'review request UUID')
+      .requiredOption('--title <text>', '问题标题，最多 200 字符')
+      .requiredOption('--body <text>', '问题说明，最多 10000 字符')
+      .option('--operation <uuid>', 'reuse the original operation UUID after an unknown result'),
+  ).action(async (raw: Options, command: Command) => {
+    const reviewId = assertUuid(str(raw, 'review'), '--review');
+    const title = discussionText(raw, 'title', 200);
+    const body = discussionText(raw, 'body', 10000);
+    const connection = await connect(command);
+    const written = await writeWithReceipt(connection, command, {
+      method: 'POST',
+      route: `/review-requests/${reviewId}/discussions`,
+      body: { title, body },
+      operation: str(raw, 'operation'),
+      resultRefs: (data) => {
+        const record = asRecord(data, '评审问题响应结构非法');
+        return {
+          reviewRequestId: reviewId,
+          discussionId: typeof record.discussionId === 'string' ? record.discussionId : null,
+          version: typeof record.version === 'number' ? record.version : null,
+        };
+      },
+    });
+    const result = asRecord(written.data, '评审问题响应结构非法');
+    emit(command, { ...result, operationId: written.operationId }, written.requestId, () => {
+      console.log('评审问题已记录；它不改变人工批准状态。');
+      console.log(`问题 ${String(result.discussionId ?? '?')} · v${String(result.version ?? '?')}`);
+      console.log(`继续查询：workmesh review show --review ${reviewId}`);
+      console.log(`操作编号 ${written.operationId}`);
+    });
+  });
+
+  withIO(
+    review
+      .command('reply')
+      .description('逐项回应、解决或重开问题；权限由服务端复核，不提交人工决定')
+      .requiredOption('--review <uuid>', 'current review request UUID')
+      .requiredOption('--discussion <uuid>', 'discussion UUID')
+      .requiredOption('--expected-version <n>', 'current discussion version')
+      .requiredOption('--body <text>', '回应或解决依据，最多 10000 字符')
+      .option('--kind <kind>', 'REPLY, RESOLVED or REOPENED', 'REPLY')
+      .option('--addressed-in-review <uuid>', '关联实际调整交付的评审 UUID')
+      .option('--operation <uuid>', 'reuse the original operation UUID after an unknown result'),
+  ).action(async (raw: Options, command: Command) => {
+    const reviewId = assertUuid(str(raw, 'review'), '--review');
+    const discussionId = assertUuid(str(raw, 'discussion'), '--discussion');
+    const kind = str(raw, 'kind');
+    if (!kind || !['REPLY', 'RESOLVED', 'REOPENED'].includes(kind))
+      throw new CliError('VALIDATION_FAILED', '--kind 必须为 REPLY、RESOLVED 或 REOPENED');
+    const addressedInReviewId = str(raw, 'addressed-in-review');
+    const body = {
+      kind,
+      expectedVersion: positiveVersion(raw, 'expected-version'),
+      body: discussionText(raw, 'body', 10000),
+      ...(addressedInReviewId
+        ? { addressedInReviewId: assertUuid(addressedInReviewId, '--addressed-in-review') }
+        : {}),
+    };
+    const connection = await connect(command);
+    const written = await writeWithReceipt(connection, command, {
+      method: 'POST',
+      route: `/review-requests/${reviewId}/discussions/${discussionId}/entries`,
+      body,
+      operation: str(raw, 'operation'),
+      resultRefs: (data) => {
+        const record = asRecord(data, '评审问题响应结构非法');
+        return {
+          reviewRequestId: reviewId,
+          discussionId,
+          entryId: typeof record.entryId === 'string' ? record.entryId : null,
+          version: typeof record.version === 'number' ? record.version : null,
+        };
+      },
+    });
+    const result = asRecord(written.data, '评审问题响应结构非法');
+    emit(command, { ...result, operationId: written.operationId }, written.requestId, () => {
+      console.log(
+        `${kind === 'RESOLVED' ? '问题已标记解决' : kind === 'REOPENED' ? '问题已重新打开' : '回应已记录'}；人工批准需在 Web 单独提交。`,
+      );
+      console.log(`问题 ${String(result.discussionId ?? '?')} · v${String(result.version ?? '?')}`);
+      console.log(`继续查询：workmesh review show --review ${reviewId}`);
+      console.log(`操作编号 ${written.operationId}`);
+    });
+  });
+
+  withIO(
+    review
+      .command('entries')
+      .description('分页读取某个问题的追加回应与解决/重开记录')
+      .requiredOption('--review <uuid>', 'source review UUID')
+      .requiredOption('--discussion <uuid>', 'discussion UUID')
+      .option('--cursor <cursor>', 'nextEntriesCursor or nextCursor'),
+  ).action(async (raw: Options, command: Command) => {
+    const connection = await connect(command);
+    const reviewId = assertUuid(str(raw, 'review'), '--review');
+    const discussionId = assertUuid(str(raw, 'discussion'), '--discussion');
+    const response = await connection.client.request<unknown>(
+      'GET',
+      `/review-requests/${encodeURIComponent(reviewId)}/discussions/${encodeURIComponent(discussionId)}/entries`,
+      { query: { cursor: str(raw, 'cursor') } },
+    );
+    const page = asRecord(response.data, '问题回应结构非法');
+    emit(command, page, response.requestId, () => {
+      for (const value of Array.isArray(page.items) ? page.items : []) {
+        const entry = asRecord(value, '问题回应结构非法');
+        console.log(
+          `${String(entry.kind)} · ${String(entry.createdAt)}：${String(entry.body ?? '')}`,
+        );
+      }
+      if (page.nextCursor)
+        console.log(
+          `下一页：workmesh review entries --review ${reviewId} --discussion ${discussionId} --cursor ${String(page.nextCursor)}`,
+        );
+    });
+  });
+
+  const tasks = program.command('tasks').description('发现任务、核对版本与后续操作');
+  withIO(
+    tasks
+      .command('ready')
+      .description('列出前置任务已完成的团队任务，并显示本人领取资格')
+      .option('--cursor <cursor>', 'nextCursor from a previous page')
+      .option('--limit <n>', 'page size 1..200', '20'),
+  ).action(async (raw: Options, command: Command) => {
+    const limit = positiveVersion(raw, 'limit');
+    if (limit > 200) throw new CliError('VALIDATION_FAILED', '--limit 必须为 1..200');
+    const connection = await connect(command);
+    const response = await connection.client.request<unknown>(
+      'GET',
+      `/projects/${encodeURIComponent(connection.workspace.projectId)}/tasks/ready`,
+      { query: { limit, cursor: str(raw, 'cursor') } },
+    );
+    const page = asRecord(response.data, '任务列表结构非法');
+    emit(command, page, response.requestId, () => {
+      for (const value of Array.isArray(page.items) ? page.items : []) {
+        const task = asRecord(value, '任务结构非法');
+        const eligibility =
+          task.claimEligibility == null
+            ? null
+            : asRecord(task.claimEligibility, '领取资格结构非法');
+        const canClaim = eligibility && eligibility.canClaim === true;
+        console.log(
+          `${String(task.id)} · ${String(task.stepKey)} · v${String(task.version)} · ${canClaim ? '本人可领取' : `本人不可领取（${String(eligibility ? eligibility.reason : '资格待确认')}）`}`,
+        );
+        if (canClaim) console.log(`workmesh claim --task ${String(task.id)}`);
+      }
+      if (Array.isArray(page.items) && page.items.length === 0)
+        console.log('当前范围没有前置任务已完成的任务。');
+      if (page.nextCursor)
+        console.log(`下一页：workmesh tasks ready --cursor ${String(page.nextCursor)}`);
+      console.log('输入内容与本机环境需另行核验；实际领取仍由服务端复核。');
+    });
+  });
+  withIO(
+    tasks
+      .command('show')
+      .description('读取任务当前版本、领取状态及输入核验')
+      .requiredOption('--task <uuid>', 'task UUID'),
+  ).action(async (raw: Options, command: Command) => {
+    const connection = await connect(command);
+    const taskId = assertUuid(str(raw, 'task'), '--task');
+    const response = await connection.client.request<unknown>(
+      'GET',
+      `/tasks/${encodeURIComponent(taskId)}`,
+    );
+    const record = asRecord(response.data, '任务响应结构非法');
+    const inputResponse = await connection.client.request<unknown>(
+      'GET',
+      `/tasks/${encodeURIComponent(taskId)}/input-status`,
+    );
+    emit(command, { task: record, inputs: inputResponse.data }, response.requestId, () => {
+      console.log(
+        `任务 ${taskId} · ${String(record.executionStatus)} / ${String(record.workStatus)} · v${String(record.version)}`,
+      );
+      const inputs = asRecord(inputResponse.data, '输入状态结构非法');
+      console.log(
+        `输入内容：${String(inputs.availability)}；快照变化：${String(asRecord(inputs.comparison, '快照对照结构非法').status)}`,
+      );
+      if (inputs.issue === 'SNAPSHOT_EXTERNAL_INPUT_UNSUPPORTED') {
+        console.log('必需上游工件仅提供外部 Git 引用，当前无法生成可展开的任务快照。');
+        console.log('请上游责任人按流程补交并验收 HOSTED 正文；本机核验代码引用不能解除此限制。');
+        return;
+      }
+      const claim = record.currentClaim ? asRecord(record.currentClaim, '领取结构非法') : null;
+      if (
+        claim &&
+        claim.principalScopeKey === `agent:${connection.credentialId}` &&
+        !claim.releasedAt
+      )
+        console.log(
+          `重新获取上下文：workmesh context --task ${taskId} --claim ${String(claim.id)} --expected-version ${String(record.version)}`,
+        );
+      else
+        console.log(
+          claim
+            ? '任务已有领取者；请由原领取者继续，或由有权人员明确释放后再操作。'
+            : '请先核对本人领取资格，再领取和获取上下文。',
+        );
+    });
+  });
+
   const receipt = program.command('receipt').description('本地操作 receipt（不含请求/响应正文）');
+
+  withIO(
+    receipt
+      .command('list')
+      .description('离线列出待核对操作（默认 PENDING，不请求服务端）')
+      .option('--status <status>', 'PENDING、COMMITTED、REJECTED 或 ALL', 'PENDING'),
+  ).action(async (raw: Options, command: Command) => {
+    const io = optionsOf(command);
+    const workspaceDir = workspaceDirOf(io);
+    const snapshot = await detectWorkspaceState(workspaceDir);
+    if (snapshot.state === 'DUAL_ACTIVE') throw dualConfigError(snapshot);
+    const status = str(raw, 'status') ?? 'PENDING';
+    if (!['PENDING', 'COMMITTED', 'REJECTED', 'ALL'].includes(status))
+      throw new CliError('INVALID_REQUEST', '--status 必须是 PENDING、COMMITTED、REJECTED 或 ALL');
+    const records = await listReceipts(
+      workspaceDir,
+      status as 'PENDING' | 'COMMITTED' | 'REJECTED' | 'ALL',
+    );
+    const items = records.map((record) => ({
+      operationId: record.operationId,
+      status: record.status,
+      method: record.method,
+      relativeRoute: record.relativeRoute,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      nextAction:
+        record.status === 'PENDING'
+          ? `workmesh receipt reconcile --operation ${record.operationId}`
+          : null,
+    }));
+    emitLocal(command, { items, freshness: 'local-only' }, () => {
+      if (items.length === 0)
+        console.log(status === 'PENDING' ? '本地没有待核对操作。' : '本地没有匹配的操作记录。');
+      for (const item of items) {
+        console.log(`${item.operationId}  ${item.status}  ${item.method} ${item.relativeRoute}`);
+        if (item.nextAction) console.log(`核对：${item.nextAction}`);
+      }
+      console.log('以上为本地记录；PENDING 表示结果尚未确认，需使用原工作目录和配置核对。');
+    });
+  });
 
   withIO(
     receipt
@@ -1393,48 +2062,76 @@ function buildProgram(): Command {
   ).action(async (raw: Options, command: Command) => {
     const connection = await connect(command);
     const operationId = operationIdOf(str(raw, 'operation'));
-    const local = await readReceipt(connection.workspaceDir, operationId);
+    const original = await readReceipt(connection.workspaceDir, operationId);
+    const reconcile = async () => {
+      const { local, updated, server, resultRefs } = await reconcileOperation({
+        workspaceDir: connection.workspaceDir,
+        operationId,
+        scopeKey: connection.scopeKey,
+        credentialId: connection.credentialId,
+        projectId: connection.workspace.projectId,
+        apiBasePath: connection.workspace.platform.apiBasePath,
+        fetchReceipt: async () =>
+          (
+            await connection.client.request<unknown>(
+              'GET',
+              `/operation-receipts/${encodeURIComponent(operationId)}`,
+              { query: { projectId: connection.workspace.projectId } },
+            )
+          ).data,
+      });
+      emitLocal(
+        command,
+        {
+          operationId,
+          status: updated.status,
+          requestDigest: updated.requestDigest,
+          serverRequestDigest: server.requestDigest ?? null,
+          resultRefs,
+          committedAt: server.committedAt ?? null,
+          localUpdatedAt: updated.updatedAt,
+        },
+        () => {
+          console.log(
+            `服务端已提交 ${operationId}（digest ${String(server.requestDigest ?? '')}）。`,
+          );
+          console.log(`本地 status：${local.status} → ${updated.status}`);
+        },
+      );
+    };
+    if (original.execution)
+      await withExecutionLock(connection, original.execution.taskId, reconcile);
+    else await reconcile();
+  });
+
+  withIO(
+    program
+      .command('artifact')
+      .description('只读查询工件集及代码证据诊断')
+      .requiredOption('--artifact-set <id>', '准确的工件集 ID'),
+  ).action(async (raw: Options, command: Command) => {
+    const connection = await connect(command);
+    const id = str(raw, 'artifact-set') ?? '';
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+      throw new CliError('VALIDATION_FAILED', '--artifact-set 必须是 UUID');
     const response = await connection.client.request<unknown>(
       'GET',
-      `/operation-receipts/${encodeURIComponent(operationId)}`,
-      { query: { projectId: connection.workspace.projectId } },
+      `/artifact-sets/${encodeURIComponent(id)}`,
     );
-    const server = asRecord(response.data, '服务端 receipt 结构非法');
-    if (server.status !== 'COMMITTED')
-      throw new CliError('PROTOCOL_INVALID', `服务端 receipt 状态非法：${String(server.status)}`);
-    const refs = server.resultRefs;
-    if (refs !== undefined && (typeof refs !== 'object' || refs === null || Array.isArray(refs)))
-      throw new CliError('PROTOCOL_INVALID', '服务端 resultRefs 非法');
-    const resultRefs: Record<string, string | number | null> = {};
-    for (const [key, value] of Object.entries((refs ?? {}) as Record<string, unknown>)) {
-      if (typeof value === 'string' || typeof value === 'number' || value === null)
-        resultRefs[key] = value;
-      else throw new CliError('PROTOCOL_INVALID', `服务端 resultRefs.${key} 非法`);
-    }
-    const updated = await finishOperation(
-      connection.workspaceDir,
-      operationId,
-      'COMMITTED',
-      resultRefs,
-    );
-    emitLocal(
-      command,
-      {
-        operationId,
-        status: updated.status,
-        requestDigest: updated.requestDigest,
-        serverRequestDigest: server.requestDigest ?? null,
-        resultRefs,
-        committedAt: server.committedAt ?? null,
-        localUpdatedAt: updated.updatedAt,
-      },
-      () => {
-        console.log(
-          `服务端已提交 ${operationId}（digest ${String(server.requestDigest ?? '')}）。`,
-        );
-        console.log(`本地 status：${local.status} → ${updated.status}`);
-      },
-    );
+    const value = asRecord(response.data, 'artifact 响应结构非法');
+    const codeReview = value.codeReview
+      ? asRecord(value.codeReview, 'codeReview 响应结构非法')
+      : undefined;
+    emit(command, value, response.requestId, () => {
+      console.log(`工件集 ${String(value.id ?? id)}`);
+      console.log(
+        `现有平台代码门禁：${codeReview?.acceptable === true ? '满足' : codeReview?.acceptable === false ? '未满足' : '未提供'}`,
+      );
+      for (const line of renderCodeEvidence(
+        codeReview?.diagnostics as CodeEvidenceDiagnostics | undefined,
+      ))
+        console.log(line);
+    });
   });
 
   withIO(
@@ -1473,9 +2170,10 @@ function buildProgram(): Command {
         console.log(
           `${String(row.recipientId ?? row.id ?? '')}  ${String(row.eventId ?? '')}  ${String(row.changeSummary ?? row.summary ?? '')}`,
         );
+        for (const line of renderChangeGuidance(row.guidance)) console.log(line);
       }
       if (nextCursor) console.log(`下一页：--cursor ${nextCursor}`);
-      console.log('ack 需在 Web 或具备 change:ack 的界面逐槽确认；CLI 不代其他角色确认。');
+      console.log('ack 仅表示已收到通知；调整完成仍需交付与验收。请在 Web 确认已知悉。');
     });
   });
 
@@ -1887,6 +2585,31 @@ function report(error: CliError, json: boolean): void {
     console.log(JSON.stringify(errorEnvelopeOf(error, requestId)));
   }
   process.stderr.write(`错误 ${error.code}：${error.message}\n`);
+  if (typeof error.details?.operationId === 'string') {
+    process.stderr.write(`操作编号 ${error.details.operationId}\n`);
+    if (error.details.operationOutcome === 'UNKNOWN')
+      process.stderr.write('提交结果尚未确认；请先核对本次操作，再决定是否使用原操作编号重试。\n');
+    if (error.details.operationOutcome === 'REJECTED')
+      process.stderr.write('服务端已拒绝本次请求；请根据拒绝原因修正后再操作。\n');
+    if (error.details.recoveryAction === 'RECONCILE') {
+      const args = error.details.recoveryCommand;
+      if (Array.isArray(args) && args.every((arg) => typeof arg === 'string')) {
+        const quote = (value: string) =>
+          /^[A-Za-z0-9_./:=\\-]+$/.test(value)
+            ? value
+            : process.platform === 'win32'
+              ? `'${value.replace(/'/g, "''")}'`
+              : `'${value.replace(/'/g, "'\"'\"'")}'`;
+        process.stderr.write(
+          `核对命令${process.platform === 'win32' ? '（PowerShell）' : ''}：workmesh ${args.map(quote).join(' ')}\n`,
+        );
+      } else {
+        process.stderr.write(
+          `核对：workmesh receipt reconcile --operation ${error.details.operationId}\n`,
+        );
+      }
+    }
+  }
   if (!json && error.code === 'PREFLIGHT_FAILED' && error.details?.doctor)
     for (const line of renderDoctor(error.details.doctor as Awaited<ReturnType<typeof runDoctor>>))
       process.stderr.write(`${line}\n`);

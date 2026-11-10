@@ -152,6 +152,52 @@ describe('resolveRolePackageDir', () => {
 });
 
 describe('runSetup', () => {
+  it('在线验证成功的同项目同角色凭据直接续装，不重复询问存储或授权', async () => {
+    const packageDir = await rolePackageDir();
+    const login = vi.fn();
+    const consent = vi.fn();
+    const result = await runSetup({
+      ...base,
+      projectId: 'p1',
+      packageDir,
+      findReusableCredential: vi.fn(async () => ({
+        credentialId: 'existing',
+        projectId: 'p1',
+        roleKey: 'backend',
+      })) as never,
+      login: login as never,
+      consent,
+      install: (async () => installResult()) as never,
+      readManifest: (async () => manifest) as never,
+      onNotice: vi.fn(),
+    });
+    expect(login).not.toHaveBeenCalled();
+    expect(consent).not.toHaveBeenCalled();
+    expect(result.credentialId).toBe('existing');
+    expect(result.credentialReused).toBe(true);
+    expect(result.nextActions).toContain('workmesh doctor --role backend --online');
+  });
+
+  it('凭据核验的网络故障不创建设备授权或写入角色资源', async () => {
+    const packageDir = await rolePackageDir();
+    const login = vi.fn();
+    const install = vi.fn();
+    await expect(
+      runSetup({
+        ...base,
+        projectId: 'p1',
+        packageDir,
+        findReusableCredential: async () => {
+          throw new Error('network failed');
+        },
+        login: login as never,
+        install: install as never,
+        readManifest: (async () => manifest) as never,
+      }),
+    ).rejects.toThrow('network failed');
+    expect(login).not.toHaveBeenCalled();
+    expect(install).not.toHaveBeenCalled();
+  });
   it('登录后把角色包装到授权返回的项目，并汇总 Agent 入口', async () => {
     const packageDir = await rolePackageDir();
     const login = vi.fn(async () => credential());

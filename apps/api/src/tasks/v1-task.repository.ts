@@ -48,6 +48,7 @@ export type V1TaskOperationInput = {
 };
 
 export type V1ClaimInput = {
+  /** 仓储必须在项目锁内重读责任人、活动角色、凭据和当前流程依赖后才创建认领。 */
   taskId: string;
   expectedGeneration: number;
   principalScopeKey: string;

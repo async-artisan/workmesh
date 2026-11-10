@@ -656,13 +656,32 @@ input[type='radio'] {
 .board-toolbar {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   margin-top: 14px;
 }
 
+.board-toolbar > input {
+  flex: 1 1 240px;
+}
+
+.board-filter {
+  display: grid;
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: 100%;
+  gap: 6px;
+}
+
+.board-toolbar input,
+.board-toolbar select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .board-toolbar input {
-  width: 280px;
   height: 34px;
   border: 1px solid #cbd5e1;
   border-radius: 7px;
@@ -683,11 +702,36 @@ input[type='radio'] {
 }
 
 .board-toolbar-count {
-  margin-left: auto;
+  flex: 1 0 100%;
+  min-width: 0;
   color: #7b8aa0;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.04em;
+}
+
+.board-filter small,
+.board-filter [role='status'],
+.board-filter .error {
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.board-filter button {
+  min-width: 0;
+  max-width: 100%;
+  font-size: 12px;
+}
+
+.board-toolbar-count,
+.board-filter small,
+.board-filter [role='status'],
+.board-filter .error,
+.board-filter button {
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .board-col {
@@ -1976,4 +2020,27 @@ button.pipeline-task:not(:disabled):hover { border-color: #67e8f9; }
 .notification-item {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* Expanded task evidence needs the full row on narrow screens. */
+@media (max-width: 760px) {
+  .wm-task-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .wm-task-row > .task-row-main,
+  .wm-task-row > .task-row-actions {
+    width: 100%;
+  }
+
+  .wm-task-row > .task-row-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .wm-task-row > .task-row-actions button {
+    max-width: 100%;
+    white-space: normal;
+  }
 }

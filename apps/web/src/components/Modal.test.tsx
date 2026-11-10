@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { useState } from 'react';
+import { StrictMode, useLayoutEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Modal } from './Modal';
 
@@ -60,7 +60,25 @@ function FocusReturnHarness() {
   );
 }
 
+function EscapeAfterDialogCommit({ onClose }: { onClose: () => void }) {
+  useLayoutEffect(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  }, []);
+  return (
+    <Modal open title="刚打开的弹窗" onClose={onClose}>
+      <button>确定</button>
+    </Modal>
+  );
+}
+
 describe('Modal（Esc / 图层栈 / IME / 焦点）', () => {
+  it('弹窗 DOM 提交后立即按 Escape 也能关闭，不等待后续被动 effect', () => {
+    const onClose = vi.fn();
+    render(<EscapeAfterDialogCommit onClose={onClose} />);
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('单层弹窗按 Esc 会调用 onClose', () => {
     const onClose = vi.fn();
     render(
@@ -106,6 +124,36 @@ describe('Modal（Esc / 图层栈 / IME / 焦点）', () => {
 
     expect(outerOnClose).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('dialog', { name: '外层抽屉' })).not.toBeInTheDocument();
+  });
+
+  it('StrictMode 重放后仍逐层关闭，卸载后新弹窗能正常接管 Escape', () => {
+    const outerOnClose = vi.fn();
+    const innerOnClose = vi.fn();
+    const nested = render(
+      <StrictMode>
+        <NestedModals outerOnClose={outerOnClose} innerOnClose={innerOnClose} />
+      </StrictMode>,
+    );
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(innerOnClose).toHaveBeenCalledTimes(1);
+    expect(outerOnClose).not.toHaveBeenCalled();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(outerOnClose).toHaveBeenCalledTimes(1);
+    nested.unmount();
+
+    const nextOnClose = vi.fn();
+    render(
+      <StrictMode>
+        <Modal open title="下一次打开" onClose={nextOnClose}>
+          <button>确定</button>
+        </Modal>
+      </StrictMode>,
+    );
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(nextOnClose).toHaveBeenCalledTimes(1);
+    expect(innerOnClose).toHaveBeenCalledTimes(1);
+    expect(outerOnClose).toHaveBeenCalledTimes(1);
   });
 
   it('栈顶关闭后重新打开时仍按栈顶处理，只关闭自己', () => {
@@ -213,6 +261,27 @@ describe('Modal（Esc / 图层栈 / IME / 焦点）', () => {
     );
 
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '项目名称' }));
+  });
+
+  it('只有栈顶弹窗处理 Tab 与 Shift+Tab，焦点始终在自己的卡片内循环', () => {
+    const outerOnClose = vi.fn();
+    const innerOnClose = vi.fn();
+    render(<NestedModals outerOnClose={outerOnClose} innerOnClose={innerOnClose} />);
+    const dialog = screen.getByRole('dialog', { name: '内层确认' });
+    const buttons = Array.from(dialog.querySelectorAll('button'));
+    // jsdom 不执行布局；为真实可见按钮提供浏览器中的 offsetParent。
+    for (const button of buttons)
+      Object.defineProperty(button, 'offsetParent', { get: () => document.body });
+    const first = buttons[0];
+    const last = buttons[buttons.length - 1];
+
+    last.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+    expect(outerOnClose).not.toHaveBeenCalled();
+    expect(innerOnClose).not.toHaveBeenCalled();
   });
 
   it('busy 时锁定关闭入口：Esc / 遮罩 / 关闭按钮都不关闭，卡片标记 aria-busy', () => {

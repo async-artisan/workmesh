@@ -47,9 +47,14 @@
 - `GET/POST /api/v1/projects/:projectId/knowledge-bases` — 知识库分页列表（PROJECT 库默认可读，RESTRICTED 库按当前用户/活动角色 grant 过滤）与创建（OWNER/ADMIN，需幂等键）。
 - `GET/PUT /api/v1/knowledge-bases/:knowledgeBaseId/access` — 读取/替换知识库 ACL；替换需 `expectedVersion`、`expectedAuthzVersion`、`KB_ACCESS_REPLACE` 票据与幂等键，撤销的 grant 保留历史。
 - `GET /api/v1/knowledge-bases/:knowledgeBaseId/search?q` — 只在当前已发布修订中做标题/正文包含检索，返回摘要片段与稳定游标。
-- `GET/POST /api/v1/projects/:projectId/documents`、`GET /api/v1/documents/:documentId`、`GET /api/v1/documents/:documentId/revisions`、`GET /api/v1/documents/:documentId/revisions/:revisionId`、`GET /api/v1/document-revisions/:revisionId/content` — 正式文档与修订（正文在发布前仅对有权限的成员可见）。
+- `GET/POST /api/v1/projects/:projectId/documents`、`GET /api/v1/documents/:documentId`、`GET /api/v1/documents/:documentId/revisions`、`GET /api/v1/documents/:documentId/revisions/:revisionId`、`GET /api/v1/document-revisions/:revisionId/content` — 正式文档与修订（正文在发布前仅对有权限的成员可见）。文档列表、文档详情及修订历史列表中的修订只返回元数据，不读取或返回 `bodyBytes`；正文通过 content 入口按当前权限单独读取。历史数组仍完整返回，修订行数分页与超量提示尚待补齐。
+- `GET /api/v1/documents/:documentId/history?limit=50&cursor=...` — 明确分页的修订元数据入口，返回 `{ items, nextCursor, total, documentVersion }`。默认 50 条、最多 100 条，按 `seq` 倒序；数据库先限制为当前主体可见的修订，再分页，`total` 是同一请求快照下的完整可见数量。`limit` 必须为正整数，超过 100 封顶，未知参数和非法游标拒绝。每页重新校验项目成员、KB READ 与 Agent 角色/scope；作者或明确用户评审者身份不能绕过 READ。游标绑定文档、主体/凭据、有效权限、KB 授权版本和页大小，换查询应从首页重读；文档版本变化返回 `409 HISTORY_REFRESH_REQUIRED`。每个请求使用独立只读一致事务，跨请求不持有长期快照，游标也不是授权凭据。
+- `GET /api/v1/documents/:documentId/revisions/:revisionId/metadata` — 精确读取一条可见修订的元数据，包括验收和交付范围，不读取或返回正文；修订与路径文档不匹配、修订不可见或不存在均为 404。文档评审使用此入口定位旧修订，正文与对照版本仍按精确 ID 从 content 读取。旧文档列表、详情和 `/revisions` 的完整数组暂时保留兼容语义；新增入口不代表主列表读取放大已解决，完整概要与页面迁移见[历史分页方案](design/document-history-pagination.md)。
 - `POST /api/v1/documents/:documentId/revisions`、`POST /api/v1/documents/:documentId/restore` — 提交新候选修订或从历史修订恢复；均生成评审请求，不改发布指针。二者与 `POST /projects/:projectId/documents` 一样**必须带 `Idempotency-Key`**（UUID）：同键同语义重放返回首次结果，同键异语义或异路由返回 `409 IDEMPOTENCY_CONFLICT`，缺失则 `400 IDEMPOTENCY_KEY_REQUIRED`。响应中的 `revision` 只携带引用（`id`/`sha256`/`seq`/`reviewRequestId` 等），正文仍只经由 `GET /document-revisions/:revisionId/content` 下发。
 - `POST /api/v1/documents/:documentId/withdraw` — 撤回当前发布（追加 `WITHDRAW` 发布记录，清空发布指针）。
+
+- `GET/PUT /api/v1/projects/:projectId/knowledge-bindings` — 列出或设置已发布知识的项目/角色绑定。写入仅允许当前项目 OWNER/ADMIN 的 HUMAN，提交 `{ expectedVersion, documentId, roleId?, required }` 与幂等键；文档及角色必须属于本项目，文档当前已发布且对操作者可读。版本为项目知识绑定版本；绑定不会授予知识库 READ，也不覆盖既有任务快照。
+- `GET /api/v1/projects/:projectId/requirements?q&phase&limit&cursor` — 在服务端对完整授权范围搜索标题、编号及描述并按阶段筛选，返回 `{ items, total, nextCursor, hasMore }`。游标绑定项目与筛选条件，变更条件应重新从首页查询；`total` 为筛选后的总数。
 
 ### PRD 的 Agent-first 发布路径
 
@@ -117,6 +122,12 @@ workmesh product draft --request <requestId>
 
 当前本地协议不把问题塞进 ReviewRequest。正式跨 Agent 澄清、任务 BLOCKED/恢复、回答历史和引用校验列入 WP12，预计新增 Clarification / ClarificationResponse API。
 
+## 本地规格与交付质量检查
+
+`workmesh quality --file <quality-bundle.json> --json` 无需登录，仅读取显式选定的本地质量包。PLAN 阶段检查验收、任务、用例、依赖与并行文件归属；DELIVERY 阶段还检查证据完整性和 PRD/快照/commit 绑定。输入非法或存在缺口返回退出码 2，报告在 `error.details.report`；一致时返回 `{data, meta:{requestId}}`，status 为 CONSISTENT。
+
+该命令不访问证据引用、不读实际代码、不确认服务端当前状态，结果固定标为 LOCAL_REPORTED；功能验证和 HUMAN 正式验收仍走既有链路。字段、模板、角色方法和已实现范围见 [规格与交付质量方法](design/spec-driven-quality.md)。
+
 ## 流程与角色包
 
 - `GET/POST /api/v1/projects/:projectId/workflow-definitions`、`POST /api/v1/projects/:projectId/workflow-definitions/validate`、`POST /api/v1/projects/:projectId/workflow-definitions/:workflowKey/publish`、`GET /api/v1/workflow-definition-revisions/:revisionId` — 受限 DAG 定义校验与发布。
@@ -142,6 +153,8 @@ workmesh product draft --request <requestId>
 - `POST /api/v1/review-requests` — 创建评审请求；只接受 `{ subject: { kind: 'DOCUMENT_REVISION' | 'TASK_ARTIFACT_SET', id }, expectedVersion, taskId? }`，kind、审批槽位与 subject 摘要全部服务端派生。同一 subject 已有 `OPEN` 请求时返回既有请求，需幂等键。
 - `GET /api/v1/projects/:projectId/review-requests?assignedToMe&status&limit&cursor` — 项目评审待办分页；按主体可见范围、指派/业务角色与状态过滤。
 - `GET /api/v1/review-requests/:reviewId` — 读取评审请求、槽位与已作决定。
+- `GET/POST /api/v1/review-requests/:reviewId/discussions` — 分页读取或提出逐项评审问题；创建正文为 `{ title, body }`。同一任务/文档的后续评审可显示此前轮次未解决的问题，来源保持原评审及实际文档修订/工件集。响应提供每项当前主体的 `canReply/canManage` 与分页游标。
+- `GET/POST /api/v1/review-requests/:reviewId/discussions/:discussionId/entries` — 分页读取或追加回应；写入为 `{ kind: 'REPLY' | 'RESOLVED' | 'REOPENED', expectedVersion, body, addressedInReviewId? }`，需幂等键。`expectedVersion` 绑定问题版本；可选关联必须是真实的同任务/文档后续交付评审。解决/重开仅限人类问题作者或来源评审准确指定的审批人/有效业务角色，管理员不能绕过，Agent 可提问和回应。问题状态与人工决定、评审版本及发布状态相互独立。
 - `POST /api/v1/review-requests/:reviewId/decisions` — 提交 `APPROVE` / `CHANGES_REQUESTED` / `REJECT`；仅当前槽位资格的 HUMAN，携带父请求 `expectedVersion`、一次性票据与幂等键。`CHANGES_REQUESTED` 与 `REJECT` 必须提供非空 `comment`，让本地 Agent 能据此生成下一版；`APPROVE` 的说明可选。全部槽位批准时在同一事务完成发布或任务验收效应。
 - `POST /api/v1/review-requests/batch-decisions` — 批量决定：`{ decision, items: [{ reviewId, slotId, expectedVersion, comment?, confirmation }] }`；逐条独立校验与授权，最多 20 条，返回每条 `APPLIED` 或错误码，部分失败不回滚已成功条目。
 - `POST /api/v1/review-decisions/:decisionId/revoke` — 撤销批准；`expectedVersion` 指所属评审请求版本。追加撤销记录，失效发布指针与受影响任务，不删除历史。
@@ -152,7 +165,7 @@ workmesh product draft --request <requestId>
 ## 任务与工件
 
 - `GET /api/v1/tasks/:taskId`、`POST /api/v1/tasks/:taskId/claims`、`POST /api/v1/tasks/:taskId/release`、`POST /api/v1/tasks/:taskId/work-status` — 认领/释放与工作状态；认领按任务当前代次串行，客户端不声明版本。
-- `GET /api/v1/projects/:projectId/tasks/ready?roleId&limit&cursor` — 就绪任务分页：`OPEN`、无活动认领、`ACTIVE`，且同实例同步骤的前序依赖全部 `DONE`。Agent 只能看本凭据角色，HUMAN 按责任人与活动角色范围过滤。
+- `GET /api/v1/projects/:projectId/tasks/ready?roleId&limit&cursor` — 前置任务已完成的团队任务分页：`OPEN`、无活动认领、`ACTIVE`，且当前有效实例中前序依赖全部为 `DONE/ACTIVE`。Agent 只能看本凭据角色，HUMAN 按责任人与活动角色范围过滤。每项 `claimEligibility: { canClaim, reason }` 说明本人能否领取，团队可见不表示本人可领取；输入和本机环境需另行核验，正式领取仍在事务中复核。候选/依赖读取失败返回可重试的 `503 INPUT_UNAVAILABLE`，不会伪装成成功空列表。
 
   支持条件请求（RFC 7232）：响应带弱验证器 `ETag` 与 `Cache-Control: private, no-cache`；请求携带 `If-None-Match` 命中时返回 `304` 且不带正文（仍带 `X-Request-Id`）。验证器只由响应载荷派生，与 `meta.requestId` 无关，所以轮询方可以放心用它判断「就绪集是否变了」。这是给固定间隔轮询的 Agent 用的：命中 304 时省掉正文传输与解析；服务端仍会执行查询，只是不重复下发相同结果——查询本身的开销由 `Task_ready_queue_idx` / `Task_ready_role_idx` / `Task_ready_responsible_idx` 覆盖过滤与排序。
 
@@ -161,11 +174,34 @@ workmesh product draft --request <requestId>
 工件 `checks[]` 的旧格式仍兼容；未提供 `source` 的检查会按 `AGENT_REPORTED` 保存。若引用外部 CI 或测试报告，可提交 `source: "EXTERNAL_REFERENCE"` 与 `evidence: { kind: "CI_RUN" | "TEST_REPORT", provider, url, runId?, commitSha? }`。外部链接必须是 HTTPS，若声明 `commitSha` 则须与所交代码引用一致。该字段仅提供给评审人复核的链接，WorkMesh 当前不抓取或验证 CI 结果；Agent 不能提交 `verified` 标记。代码评审状态仍由独立代码托管证据决定。
 
 - `POST /api/v1/tasks/:taskId/context-snapshots`、`GET /api/v1/context-snapshots/:snapshotId`、`GET /api/v1/context-snapshots/:snapshotId/resources/:refId` — 确定性上下文快照与受限资源读取。
-- `GET /api/v1/projects/:projectId/board` — 项目看板聚合。
+- `GET /api/v1/tasks/:taskId/input-status` — 只读解析当前任务的实际输入，与本任务当前快照逐项比较引用、内容元数据和交付范围；不要求先领取，也不创建快照。响应分别给出 `availability`、每项 `contentStatus` 和 `comparison`。服务端可取得的正文核对摘要及长度；外部代码引用只能标记需本机核验。当前授权失效或旧快照不属于本任务时不返回旧输入信息，不能把读取失败解释为没有变化。客户端仍需检查本机仓库及运行环境。
+  - `issues[]` 给出 `kind / reason / required / blocking / action / responsible`，并按输入附上 `inputKey`、可读取的 `documentId / revisionId`、`fromStepKey / artifactKind` 或已授权资源的 `refId`。未绑定、未发布、过期发布引用、缺少已验收上游、正文校验失败和外部引用分别解释；无法确认读取权时不返回文档/修订标识。权限和基础设施异常仍返回请求错误，不能解释为缺失。
+  - `issuesComplete: true` 表示此次已遍历当前配置的输入及可解析资源；未知或不可读对象仍保留不可用问题，不代表查明了其内部原因。只读诊断可收集多个问题，不产生部分可交付快照；创建快照仍按原权限、版本、代次及完整输入门禁拒绝不满足条件的请求。旧平台缺少诊断字段时客户端必须保留诊断不完整提示。
+  - Agent 可用 `workmesh context --task <taskId> --inspect [--json]` 查询，不能与认领、版本、候选、已有快照、materialize 或写操作编号组合。退出码 0 只代表查询成功，能否创建快照应读取 `availability` 和逐项诊断。
+
+  必需上游工件只有已验收的 `GIT_REF` 时，只读预览将其标为 `EXTERNAL_REFERENCE`，并给出 `issue: SNAPSHOT_EXTERNAL_INPUT_UNSUPPORTED`；当前正式快照仍要求可展开的 `HOSTED` 正文，创建返回 `422 INPUT_UNAVAILABLE`。需要上游按流程补交并验收正文，本机 Git 检查不能解除这个限制。
+
+- `GET /api/v1/projects/:projectId/board?q&roleTitle&requirementCode&limit` — 看板首批：返回 `projectId/queryKey/summary/columns`；固定六列各自包含 `total/cards/nextCursor`。默认每列 20 张，上限 100；`summary.total` 是项目全部任务数，`matchedTotal`、`columns[].total` 和 `requirementTotal` 是完整筛选范围的准确计数。`cards` 是有界页，不能继续按旧的完整快照理解或在首批卡片上做全局筛选。
+- `GET /api/v1/projects/:projectId/board/columns/:column?q&roleTitle&requirementCode&limit&cursor` — 单列续页：返回 `projectId/queryKey/key/total/cards/nextCursor`，按 `generation DESC, id ASC` 排序。
+- `GET /api/v1/projects/:projectId/board/requirements?q&roleTitle&requirementCode&limit&cursor` — 需求聚合分页：返回 `projectId/queryKey/summary/items/nextCursor`。每组包含 `code/title/total/counts/roles/roleTotal/rolesNextCursor`，`counts` 为全部匹配任务的六列计数；按“阻塞数 × 10 + 进行中数”降序、需求编号升序排列。每组 `roles` 默认预览 10 项，更多角色按下面的角色选项入口续读。
+- `GET /api/v1/projects/:projectId/board/filters/:kind?search&q&roleTitle&requirementCode&limit&cursor` — `kind` 为 `roles` 或 `requirements`，返回 `projectId/queryKey/total/items/nextCursor`；`items` 为 `{value,label}`。默认 50 项、上限 100，只包含有任务的角色标题或需求编号；`search` 文字匹配选项标签。项目筛选器只传 `search/limit/cursor`，不传当前看板筛选，因此选项不会随已加载卡片缩小。需求行角色续页传该组 `requirementCode`、当前 `q/roleTitle`、`limit=10` 和 `rolesNextCursor`。
+
+以上四个看板入口都沿用项目只读和 `task:read` 权限，不增加 `requirement:read` 要求。`q` 对需求编号、标题、步骤 key、角色标题和当前活动认领人邮箱拼接后做不区分大小写的文字搜索，`%`、`_` 和反斜杠均按普通字符处理；`roleTitle/requirementCode` 为精确筛选。所有任务代次和已退役流程实例仍在读取范围内。列归属保持“有交付指针 → 已交付；无认领指针 → 未开始；其余按工作状态分列”的优先顺序。
+
+计数和对应页面在单次 PostgreSQL 只读、RepeatableRead 事务中计算；后续 HTTP 页读取当时的实时数据，`queryKey` 标识规范化筛选条件，不是跨请求冻结的数据版本。刷新或修改任务可能改变后续页的位置，客户端应在刷新和筛选变化时重新开始分页。游标绑定项目、筛选和视图；跨列、跨需求聚合/选项入口或修改选项搜索后复用会返回 400。`nextCursor=null` 表示当前读取没有下一页。需求编号、角色标题和选项采用 PostgreSQL `C` 排序以保证确定性，与旧客户端 `zh-CN` 排序可能略有不同。
+
 - `GET /api/v1/projects/:projectId/metrics/flow?days=30` — 流程度量：两端时长（首次认领、首次交付、批准）、端到端 lead time、WIP 与变更确认率；只从既有时间戳派生，口径见 [docs/metrics.md](metrics.md)。
 - `GET /api/v1/change-recipients`、`POST /api/v1/change-recipients/:id/ack` — 变更传播收件人与确认。
+  - 列表限定当前用户与项目；Agent 还限定凭据角色（保留没有指定角色的通知）。`ackedOnly=false` 只列待知悉项，`true` 只列已知悉项，省略时列两者；游标必须属于同一用户、项目及凭据角色范围，可继续使用刚刚已确认的本页末项游标。
+  - 每项附 `event` 摘要（来源、需求、变更字段与时间，不附原始 targets）和只读 `guidance: {checkedAt, scope, eventBaseline, tasks}`。`tasks` 给出 `taskId / taskCode / role / responsibleUserId / relation / version / generation / executionStatus / workStatus / reason / action / href / inspectCommand`。负责人任务与同角色其他成员任务分别标记，同角色任务只建议联系负责人。
+  - `scope=EVENT_TASKS` 来自事件记录的 taskIds；已接受变更请求没有 taskIds 时，`CURRENT_ACCEPTANCE_SCOPE` 按当前需求与验收 key 匹配，明确不代表历史时刻已使任务失效；无法判定时为 `UNKNOWN`。`eventBaseline=SUPERSEDED` 表示事件基线已有后续更新。当前状态会区分无快照、快照跨代、正在评审、已完成、阻塞、暂停、取消、退役、角色失效与项目归档，不由 ACK 推断已处理。
+  - `workmesh changes` 在人类可读输出中显示同一任务诊断、输入检查命令及 Web 深链；`--json` 保留服务端结构与分页。旧平台缺少 guidance 时明确提示未提供诊断。知悉仍只确认收到通知，不批准需求、恢复认领或完成调整。
 
 ## 代码证据
+
+工作台的评审、变更和可开工任务额外返回 `blocking` 与 `dependencyImpact`。`blocking` 是完整相关流程图中去重后的未完成下游数；变更/基线事项还包含直接关联任务，不能称为关键路径或承诺全部解锁。读取不受当前工作台 50 条显示页限制；图不完整、成环、读取失败或权限撤回时返回 `null` 与 `status=UNAVAILABLE`，不会用零隐藏未知。
+
+`dependencyImpact` 包含 `checkedAt / scenario / reason / readyAfterAction`。`readyAfterAction` 只计算本次动作成功后新满足前置依赖的任务数：当前代次、当前工件集、最后必需审批槽且工作状态可推进时才能模拟完成；多个审批槽、暂停/取消/退役及过期评审不会独立推进。可开工卡片按“完成本任务后”模拟，不表示领取即解锁。输入、认领权限及其他运行门禁仍需另外检查。变更 ACK 的就绪增量恒为 0；文档基线发布的增量为 `null`，发布后重查输入。Web 可选依赖影响排序，原时间与风险信息继续展示。这是只读说明，不参与批准或任务状态计算。
 
 - **`IMPL` 工件必须绑定代码证据才能被验收。** 交付 `kind: 'IMPL'` 的工件集时，服务端会按工作流为该步骤派生 `CODE_REVIEW_EVIDENCE` 系统闸门；若工件没有通过下面的 code-evidence 接口绑定到具体提交，评审决定会以 `422 CODE_EVIDENCE_MISSING`（`CODE_REVIEW_EVIDENCE_MISSING`）拒绝。也就是说：`IMPL` 不能只交托管字节，必须能被人类按 commit 复核。非代码类工件（`DESIGN` / `CASES` / `RELEASE` / `PRD`）不受此约束。
 

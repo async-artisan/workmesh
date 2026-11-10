@@ -1,6 +1,7 @@
 {
   "name": "@workmesh/shared",
   "version": "1.0.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "./dist/index.cjs",
@@ -14,7 +15,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsup",

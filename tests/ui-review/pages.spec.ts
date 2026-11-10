@@ -300,7 +300,7 @@ test('工作台真实行动入口打开任务，URL 项目和任务定位可刷�
   await installReviewFixtures(page);
   await page.goto('/?projectId=p1');
   await expect(page.getByText('范围：验收示例项目')).toBeVisible();
-  await page.getByRole('button', { name: '打开可开工任务', exact: true }).click();
+  await page.getByRole('button', { name: '打开前置任务已完成', exact: true }).click();
   await expect(page).toHaveURL(/\/requirements\/DEMO-001\?/);
   await expect(page).toHaveURL(/projectId=p1/);
   await expect(page).toHaveURL(/taskId=task-1/);

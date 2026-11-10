@@ -439,18 +439,32 @@ export class V1AuthPrismaRepository implements V1AuthRepository {
 
   /**
    * 固定窗口计数：同一 kind/keyHash/windowStart 原子累加；跨实例并发不会丢计数。
+   * 注册和登录均写入 login-ip，并叠加当前语句快照可见的旧 register-ip 预算。
+   * 旧行不迁移；混合版本仍可能独立放行，切换前必须排空旧版本认证写入。
    */
   async bumpRateWindow(input: V1RateWindowInput): Promise<number> {
     const windowStart = new Date(Math.floor(input.now.getTime() / input.windowMs) * input.windowMs);
     const expiresAt = new Date(windowStart.getTime() + input.windowMs);
+    const legacyAttempts =
+      input.kind === 'login-ip'
+        ? Prisma.sql`COALESCE((
+            SELECT "attempts" FROM "workmesh_v1"."AuthRateWindow"
+            WHERE "kind" = 'register-ip' AND "keyHash" = ${input.keyHash}
+              AND "windowStart" = ${windowStart}
+          ), 0)`
+        : Prisma.sql`0`;
     const rows = await this.prisma.$queryRaw<Array<{ attempts: number }>>(Prisma.sql`
-      INSERT INTO "workmesh_v1"."AuthRateWindow" ("id", "kind", "keyHash", "windowStart", "attempts", "expiresAt")
-      VALUES (gen_random_uuid(), ${input.kind}, ${input.keyHash}, ${windowStart}, 1, ${expiresAt})
-      ON CONFLICT ("kind", "keyHash", "windowStart")
-      DO UPDATE SET "attempts" = "AuthRateWindow"."attempts" + 1
-      RETURNING "attempts"
+      WITH bumped AS (
+        INSERT INTO "workmesh_v1"."AuthRateWindow" ("id", "kind", "keyHash", "windowStart", "attempts", "expiresAt")
+        VALUES (gen_random_uuid(), ${input.kind}, ${input.keyHash}, ${windowStart}, 1, ${expiresAt})
+        ON CONFLICT ("kind", "keyHash", "windowStart")
+        DO UPDATE SET "attempts" = "AuthRateWindow"."attempts" + 1
+        RETURNING "attempts"
+      )
+      SELECT bumped."attempts" + ${legacyAttempts} AS "attempts" FROM bumped
     `);
-    return rows[0]?.attempts ?? 1;
+    if (!rows[0]) throw new Error('Rate-window increment did not return a count');
+    return rows[0].attempts;
   }
 
   /** Failed and in-flight password checks share a bounded, atomically reserved budget. */

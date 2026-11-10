@@ -7,7 +7,13 @@ import {
   type WorkspaceEnrollmentView,
 } from '../api/resources';
 import { formatDateTime } from '../lib/datetime';
-import { buildOnboardingCommand } from '../lib/onboarding-command';
+import { buildOnboardingCommand, validateOnboardingParameters } from '../lib/onboarding-command';
+import {
+  configuredPublicApi,
+  readOnboardingPreferences,
+  saveOnboardingPreferences,
+} from '../lib/onboarding-preferences';
+import { useAuthStore } from '../store/auth';
 import { Modal } from './Modal';
 import { InlineLoading } from './Skeleton';
 
@@ -58,6 +64,7 @@ export function describeEnrollmentError(error: unknown): string {
  * 接入码只解析项目与签发时的已发布 revision，不授予成员/知识/仓库/Agent 权限。
  */
 export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCodeDialogProps) {
+  const userId = useAuthStore((state) => state.user?.id);
   const [issued, setIssued] = useState<WorkspaceEnrollmentView | null>(null);
   const [busy, setBusy] = useState(false);
   const [copyBusy, setCopyBusy] = useState(false);
@@ -71,6 +78,9 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
   const [roles, setRoles] = useState<RoleView[]>([]);
   const [rolesError, setRolesError] = useState('');
   const [rolesLoading, setRolesLoading] = useState(false);
+  const [assignedRoleKeys, setAssignedRoleKeys] = useState<string[] | null>(null);
+  const [onlyCode, setOnlyCode] = useState(false);
+  const [publicApiError, setPublicApiError] = useState('');
   const generationRef = useRef(0);
   const currentPropsRef = useRef({ open, projectId });
 
@@ -84,18 +94,23 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
     setCopyBusy(false);
     setError('');
     setNotice('');
-    setShell('');
-    setHost('');
+    const preferences = readOnboardingPreferences();
+    setShell(preferences.shell);
+    setHost(preferences.host);
     setRole('');
     setRoot('');
-    setApi('');
+    const publicApi = configuredPublicApi();
+    setApi(publicApi.value);
+    setPublicApiError(publicApi.error ?? '');
     setRoles([]);
     setRolesError('');
     setRolesLoading(false);
+    setAssignedRoleKeys(null);
+    setOnlyCode(false);
     return () => {
       generationRef.current += 1;
     };
-  }, [open, projectId]);
+  }, [open, projectId, userId]);
 
   useEffect(
     () => () => {
@@ -115,9 +130,21 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
     setRolesLoading(true);
     setRolesError('');
     try {
-      const values = await projectApi.roles(projectId);
+      const [values, members] = await Promise.all([
+        projectApi.roles(projectId),
+        userId ? projectApi.members(projectId).catch(() => null) : Promise.resolve(null),
+      ]);
       if (!isCurrentRequest()) return;
-      setRoles(values.filter((value) => value.isActive !== false));
+      const activeRoles = values.filter((value) => value.isActive !== false);
+      setRoles(activeRoles);
+      const ownMembership = members?.find((member) => member.id === userId);
+      const assigned = ownMembership?.roles
+        ? ownMembership.roles
+            .map((value) => value.key)
+            .filter((key) => activeRoles.some((value) => value.key === key))
+        : null;
+      setAssignedRoleKeys(assigned);
+      if (assigned?.length === 1) setRole(assigned[0] ?? '');
     } catch (caught) {
       if (isCurrentRequest()) setRolesError(`读取项目角色失败：${formatApiError(caught)}`);
     } finally {
@@ -128,7 +155,14 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
   useEffect(() => {
     void loadRoles();
     // Each open/project epoch owns its response, just like code issuance.
-  }, [open, projectId]);
+  }, [open, projectId, userId]);
+
+  const parametersError = validateOnboardingParameters({ shell, host, role, root, api });
+  const roleAllowed =
+    roles.some((value) => value.key === role) &&
+    (assignedRoleKeys === null || assignedRoleKeys.includes(role));
+  const readyToIssue =
+    onlyCode || (!parametersError && roleAllowed && !rolesLoading && !rolesError);
 
   const preview = buildOnboardingCommand({
     shell,
@@ -140,7 +174,8 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
   });
 
   async function issue() {
-    if (!projectId) return;
+    if (!projectId || busy || !readyToIssue) return;
+    saveOnboardingPreferences({ shell, host });
     const requestedProjectId = projectId;
     const generation = generationRef.current;
     const isCurrentRequest = () =>
@@ -195,7 +230,7 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
     <Modal
       open={open}
       title="生成一次性接入码"
-      description="接入码用于本机 workspace init --join 解析项目与签发时的已发布 revision。"
+      description="先准备本机接入参数，再生成短时接入码；接入码会绑定当前已发布的工作区定义。"
       size="lg"
       // A pending issue can be abandoned locally; the generation guard below
       // prevents its late one-time plaintext response from repopulating state.
@@ -224,7 +259,11 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
             <button className="ghost" onClick={onClose} disabled={copyBusy}>
               取消
             </button>
-            <button className="primary" onClick={() => void issue()} disabled={busy || !projectId}>
+            <button
+              className="primary"
+              onClick={() => void issue()}
+              disabled={busy || !projectId || !readyToIssue}
+            >
               {busy ? '生成中…' : '生成接入码'}
             </button>
           </>
@@ -237,6 +276,153 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
           <p className="modal-error" role="alert">
             {error}
           </p>
+        )}
+        <p className="modal-note">
+          第一步：准备本机参数。选择终端和 Agent，填写业务代码根目录及管理员提供的 WorkMesh API
+          地址。 API 地址可能与网页地址不同；不要填写业务系统的 API。
+        </p>
+        <label className="field">
+          <span>Shell</span>
+          <select
+            value={shell}
+            onChange={(event) => {
+              setShell(event.target.value);
+              setNotice('');
+            }}
+            disabled={copyBusy || busy}
+          >
+            <option value="">请选择 Shell</option>
+            <option value="git-bash">Git Bash</option>
+            <option value="powershell">PowerShell</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Agent 客户端</span>
+          <select
+            value={host}
+            onChange={(event) => {
+              setHost(event.target.value);
+              setNotice('');
+            }}
+            disabled={copyBusy || busy}
+          >
+            <option value="">请选择 Agent 客户端</option>
+            <option value="codex">Codex</option>
+            <option value="claude-code">Claude Code</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>项目角色</span>
+          <select
+            value={role}
+            onChange={(event) => {
+              setRole(event.target.value);
+              setNotice('');
+            }}
+            disabled={copyBusy || busy || rolesLoading}
+          >
+            <option value="">
+              {rolesLoading ? '正在读取项目角色…' : '请选择本次 Agent 的角色'}
+            </option>
+            {roles.map((value) => (
+              <option
+                key={value.id}
+                value={value.key}
+                disabled={assignedRoleKeys !== null && !assignedRoleKeys.includes(value.key)}
+              >
+                {value.title}（{value.key}）
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="modal-note">
+          {assignedRoleKeys === null
+            ? '此处列出项目的活动业务角色，尚未确认你的角色分配；浏览器授权时仍会校验真实分配。'
+            : assignedRoleKeys.length === 0
+              ? '你尚未被分配活动业务角色，请联系项目管理员在成员管理中分配角色后重试。'
+              : `你已分配的活动业务角色：${roles
+                  .filter((value) => assignedRoleKeys.includes(value.key))
+                  .map((value) => value.title)
+                  .join('、')}。`}
+          项目管理员身份与业务角色分别管理；选择角色或生成接入码不会增加权限。
+        </p>
+        {rolesError && (
+          <div>
+            <p className="modal-error" role="alert">
+              {rolesError}
+            </p>
+            <button
+              className="ghost"
+              onClick={() => void loadRoles()}
+              disabled={rolesLoading || copyBusy}
+            >
+              重新读取角色
+            </button>
+          </div>
+        )}
+        {!rolesLoading && !rolesError && roles.length === 0 && (
+          <p className="modal-note">项目暂无活动角色，请联系项目管理员配置。</p>
+        )}
+        <label className="field">
+          <span>本地工作区根目录</span>
+          <input
+            value={root}
+            onChange={(event) => {
+              setRoot(event.target.value);
+              setNotice('');
+            }}
+            placeholder="例如 G:\projects\app 或 /g/projects/app"
+            autoComplete="off"
+            disabled={copyBusy || busy}
+          />
+        </label>
+        <p className="modal-note">
+          填写真实业务代码目录；命令会转换 Windows 盘符路径以适配所选 Shell。
+        </p>
+        <label className="field">
+          <span>WorkMesh API 地址</span>
+          <input
+            value={api}
+            onChange={(event) => {
+              setApi(event.target.value);
+              setNotice('');
+            }}
+            placeholder="https://workmesh.example.com/api/v1"
+            type="url"
+            autoComplete="off"
+            disabled={copyBusy || busy}
+          />
+        </label>
+        <p className="modal-note">
+          {configuredPublicApi().value
+            ? '地址由部署管理员通过公共 API 配置提供，可按管理员指引调整。'
+            : '未配置公共 CLI API 地址，请向部署管理员确认完整地址；网页地址不会自动填入。'}
+          仅记住 Shell 和 Agent 客户端；本地目录、角色、API 地址和接入码不会保存到浏览器偏好。
+        </p>
+        {publicApiError && (
+          <p className="modal-error" role="alert">
+            {publicApiError}
+          </p>
+        )}
+        {!issued && (
+          <>
+            <p className="modal-note" role="status">
+              {readyToIssue
+                ? onlyCode
+                  ? '将仅签发接入码，命令参数可在本机已有配置中提供。'
+                  : '参数格式检查通过。生成后可复制预览命令；本地目录是否存在及 API 可达性由 CLI doctor 检查。'
+                : parametersError || '请选择当前已分配的活动业务角色。'}
+            </p>
+            <label className="field-checkbox">
+              <input
+                type="checkbox"
+                checked={onlyCode}
+                disabled={busy}
+                onChange={(event) => setOnlyCode(event.target.checked)}
+              />
+              我已有本机命令参数，仅生成接入码
+            </label>
+          </>
         )}
         {issued ? (
           <>
@@ -251,107 +437,6 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
                 aria-label="一次性接入码"
                 className="cell-mono"
                 onFocus={(event) => event.currentTarget.select()}
-              />
-            </label>
-            <p className="modal-note">
-              选择本机终端和 Agent，填写业务代码根目录及管理员提供的 WorkMesh API 地址。 API
-              地址可能与网页地址不同；不要填写业务系统的 API。
-            </p>
-            <label className="field">
-              <span>Shell</span>
-              <select
-                value={shell}
-                onChange={(event) => {
-                  setShell(event.target.value);
-                  setNotice('');
-                }}
-                disabled={copyBusy}
-              >
-                <option value="">请选择 Shell</option>
-                <option value="git-bash">Git Bash</option>
-                <option value="powershell">PowerShell</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>Agent 客户端</span>
-              <select
-                value={host}
-                onChange={(event) => {
-                  setHost(event.target.value);
-                  setNotice('');
-                }}
-                disabled={copyBusy}
-              >
-                <option value="">请选择 Agent 客户端</option>
-                <option value="codex">Codex</option>
-                <option value="claude-code">Claude Code</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>项目角色</span>
-              <select
-                value={role}
-                onChange={(event) => {
-                  setRole(event.target.value);
-                  setNotice('');
-                }}
-                disabled={copyBusy || rolesLoading}
-              >
-                <option value="">
-                  {rolesLoading ? '正在读取项目角色…' : '请选择本次 Agent 的角色'}
-                </option>
-                {roles.map((value) => (
-                  <option key={value.id} value={value.key}>
-                    {value.title}（{value.key}）
-                  </option>
-                ))}
-              </select>
-            </label>
-            {rolesError && (
-              <div>
-                <p className="modal-error" role="alert">
-                  {rolesError}
-                </p>
-                <button
-                  className="ghost"
-                  onClick={() => void loadRoles()}
-                  disabled={rolesLoading || copyBusy}
-                >
-                  重新读取角色
-                </button>
-              </div>
-            )}
-            {!rolesLoading && !rolesError && roles.length === 0 && (
-              <p className="modal-note">项目暂无活动角色，请联系项目管理员配置。</p>
-            )}
-            <label className="field">
-              <span>本地工作区根目录</span>
-              <input
-                value={root}
-                onChange={(event) => {
-                  setRoot(event.target.value);
-                  setNotice('');
-                }}
-                placeholder="例如 G:\projects\app 或 /g/projects/app"
-                autoComplete="off"
-                disabled={copyBusy}
-              />
-            </label>
-            <p className="modal-note">
-              填写真实业务代码目录；命令会转换 Windows 盘符路径以适配所选 Shell。
-            </p>
-            <label className="field">
-              <span>WorkMesh API 地址</span>
-              <input
-                value={api}
-                onChange={(event) => {
-                  setApi(event.target.value);
-                  setNotice('');
-                }}
-                placeholder="https://workmesh.example.com/api/v1"
-                type="url"
-                autoComplete="off"
-                disabled={copyBusy}
               />
             </label>
             {preview.command ? (
@@ -372,7 +457,14 @@ export function EnrollmentCodeDialog({ open, projectId, onClose }: EnrollmentCod
               此单行命令仅预览，不消费接入码、不写入本机配置。核对计划后，在同一命令末尾追加{' '}
               <code>--apply</code>{' '}
               再执行，并在浏览器完成设备授权。接入完成后，在填写的工作区根目录运行{' '}
-              <code>workmesh workspace status</code> 查看状态。
+              <code>workmesh workspace status</code> 查看状态；有代码仓库时按 CLI 提示 discover /
+              bind。 然后运行{' '}
+              <code>
+                workmesh setup --role {role || '<role>'} --host {host || '<host>'}
+              </code>{' '}
+              安装角色资源， 最后运行 <code>workmesh doctor --online</code>{' '}
+              自检。有效的同平台、项目和角色凭据会复用。 接入中断时先查看 status / recover
+              的实际状态；CLI 明确提示码已消费且未完成绑定时，再回此处生成新码。
             </p>
             <dl className="signoff-meta">
               <div>

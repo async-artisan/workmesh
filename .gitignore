@@ -17,8 +17,19 @@ backup/
 # 本地任务运行状态与助手工作记忆
 .runs/
 .workbuddy/
+# Local nested checkouts have their own quality gates and are not source inputs.
+/.claude/worktrees/
 # 本地评估、整改记录与已完成的 Agent 执行提示
 /ASSESSMENT.md
 /docs/remediation-status.md
 /docs/superpowers/plans/2026-11-01-workmesh-clean-slate-agent-task.md
 /docs/superpowers/plans/workmesh-technical-v1/agent-execution-prompt.md
+# Historical isolated P0a build outputs and their temporary preview launchers.
+/apps/api/.p0a-cli-build-*/
+/apps/api/.p0a-final-build-*/
+/apps/api/.p0a-sameproject-*/
+/apps/cli/.p0a-final-build-*/
+/apps/cli/.p0a-sameproject-*/
+/apps/web/.p0a-sameproject-*/
+/apps/web/.p0a-sameproject-*.mjs
+/apps/web/.p0a-vite-*.mjs

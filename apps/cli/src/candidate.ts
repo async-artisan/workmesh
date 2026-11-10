@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { basename, extname, resolve } from 'node:path';
-import { sha256Bytes } from '@workmesh/shared';
+import { ACCEPTANCE_KEY_PATTERN, sha256Bytes } from '@workmesh/shared';
 import { CliError } from './errors';
 import type { SourceFile } from './receipts';
 
@@ -124,12 +124,15 @@ function validatePrdBinding(request: CandidateRequest): void {
     throw new CliError('VALIDATION_FAILED', '--acceptance 必须是非空 JSON 数组或 @<path>');
   if (acceptance.length > 200)
     throw new CliError('VALIDATION_FAILED', '--acceptance 最多包含 200 条验收条款');
-  const keyPattern = /^[a-z][a-z0-9-]{1,63}$/;
   const keys = new Set<string>();
   for (const item of acceptance) {
     if (!isRecord(item))
       throw new CliError('VALIDATION_FAILED', '--acceptance 每项必须是 {key, text, verification}');
-    if (typeof item.key !== 'string' || !keyPattern.test(item.key) || keys.has(item.key))
+    if (
+      typeof item.key !== 'string' ||
+      !ACCEPTANCE_KEY_PATTERN.test(item.key) ||
+      keys.has(item.key)
+    )
       throw new CliError(
         'VALIDATION_FAILED',
         '--acceptance.key 必须唯一且匹配 [a-z][a-z0-9-]{1,63}',

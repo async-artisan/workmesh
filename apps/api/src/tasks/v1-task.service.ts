@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { principalScopeKey, V1_ERROR_CODES, WorkmeshError, type Principal } from '@workmesh/shared';
 import { V1AuthorizationService } from '../auth/v1-authorization';
 import { assertCanClaim, assertClaimForAction, type Claim } from './v1-collaboration-policy';
+import { taskClaimEligibilityOf } from './v1-task-eligibility';
 import {
   assertReplayable,
   requestDigestOf,
@@ -27,7 +28,13 @@ export type V1TaskActionContext = {
   operationId: string;
 };
 
-export type V1ClaimResult = { task: V1TaskSnapshot; claimId: string; replayed: boolean };
+export type V1ClaimResult = {
+  task: V1TaskSnapshot;
+  claimId: string;
+  /** Exact committed state; old operation records may not contain it. */
+  committedState: { taskVersion: number; taskGeneration: number } | null;
+  replayed: boolean;
+};
 export type V1ReleaseResult = { task: V1TaskSnapshot; released: boolean; replayed: boolean };
 export type V1SetWorkStatusResult = { task: V1TaskSnapshot; replayed: boolean };
 
@@ -97,8 +104,29 @@ export class V1TaskService {
           { taskId },
           404,
         );
-      return { task: current, claimId: String(existing.resultRefs.claimId ?? ''), replayed: true };
+      const { taskVersion, taskGeneration } = existing.resultRefs;
+      return {
+        task: current,
+        claimId: String(existing.resultRefs.claimId ?? ''),
+        committedState:
+          Number.isSafeInteger(taskVersion) &&
+          Number(taskVersion) > 0 &&
+          Number.isSafeInteger(taskGeneration) &&
+          Number(taskGeneration) > 0
+            ? { taskVersion: Number(taskVersion), taskGeneration: Number(taskGeneration) }
+            : null,
+        replayed: true,
+      };
     }
+
+    // ready 列表不是授权边界：直接提供任务 ID 仍必须属于当前责任人及凭据角色。
+    if (!taskClaimEligibilityOf(principal, task, resolved).canClaim)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.FORBIDDEN,
+        'TASK_NOT_IN_RESPONSIBILITY',
+        { taskId: task.id },
+        403,
+      );
 
     // 快速前置复核；并发真实拒绝仍由仓储事务内复核保证（双认领单胜）。
     this.applyClaimPolicy({
@@ -125,7 +153,12 @@ export class V1TaskService {
       },
     };
     const updated = await this.tasks.claim(input);
-    return { task: updated, claimId: updated.currentClaim?.id ?? '', replayed: false };
+    return {
+      task: updated,
+      claimId: updated.currentClaim?.id ?? '',
+      replayed: false,
+      committedState: { taskVersion: updated.version, taskGeneration: updated.generation },
+    };
   }
 
   async release(

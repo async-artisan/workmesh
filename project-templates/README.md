@@ -4,18 +4,19 @@
 
 ## 内容
 
-| 模板                        | 用途                                                                             |
-| --------------------------- | -------------------------------------------------------------------------------- |
-| `software/conventions.md`   | 项目开发规范（人读）：技术栈、分层、命名、注释、错误处理、日志、测试、提交、安全 |
-| `software/conventions.yaml` | 规范规则集（机器读）：每条规则带 `enforcement` 与 `check`                        |
+| 模板                                   | 用途                                                                             |
+| -------------------------------------- | -------------------------------------------------------------------------------- |
+| `software/conventions.md`              | 项目开发规范（人读）：技术栈、分层、命名、注释、错误处理、日志、测试、提交、安全 |
+| `software/conventions.yaml`            | 规范规则集（机器读）：每条规则带 `enforcement` 与 `check`                        |
+| `software/quality-bundle.example.json` | PLAN 质量包示例：验收、任务、依赖、文件归属与用例映射                            |
 
 ## 怎么用
 
 1. 复制 `software/` 到项目工作区，或由项目初始化流程带入。
 2. 填技术栈、分层、命名等占位符。
 3. 与工具配置对齐：`conventions.yaml` 里 `enforcement: LINT/CI` 的规则必须有真实检查，否则改成 `REVIEW` 或删掉。
-4. 作为 `CONVENTIONS` 文档发布，绑定到编码角色（`required=true`）。
-5. 快照装配时，编码角色必带这份规范；宿主入口文件写指针。
+4. 当前使用 `KNOWLEDGE` 文档候选承载项目规范（标题/知识 key 为 conventions），经 HUMAN 发布后在项目准备页绑定到编码角色（`required=true`）。`CONVENTIONS` 是设计概念，当前 API 不接受该 kind。
+5. 核对每个编码角色的 required 绑定和权限，创建快照确认正文已装配；宿主入口文件写指针。复制本地模板不等于平台已有必需绑定。
 
 ## 规则
 
@@ -27,3 +28,7 @@
 ## 与角色包的关系
 
 角色包的 `references.json` 里有一条 `conventions` 指针，指向本文档。包不复制正文，规范随项目走。
+
+## 本地质量检查
+
+复制质量包示例并填入真实 PRD 修订、快照和任务映射，运行 `workmesh quality --file quality-bundle.json --json`。PLAN 检查覆盖与依赖；DELIVERY 还要求完整 commit SHA、逐条证据及相同版本绑定。证据为提交者报告，工具不访问引用，不证明实现或功能正确。完整字段及采用边界见 [规格与交付质量方法](../docs/design/spec-driven-quality.md)。

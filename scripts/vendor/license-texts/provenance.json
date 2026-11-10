@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "1.0",
+  "records": [
+    {
+      "name": "@napi-rs/canvas-win32-x64-msvc",
+      "version": "0.1.80",
+      "packageJsonSha256": "c832c82a4532815823bc620bd9f94ae987f5b96f24fdcf9fc9ad938726715091",
+      "licenseDeclared": "MIT",
+      "kind": "exact-upstream-revision",
+      "gitCommit": "dda1b258dac667b4c66b94bbd4d70aa79ea4503a",
+      "manifestUrl": "https://raw.githubusercontent.com/Brooooooklyn/canvas/dda1b258dac667b4c66b94bbd4d70aa79ea4503a/npm/win32-x64-msvc/package.json",
+      "manifestSha256": "c832c82a4532815823bc620bd9f94ae987f5b96f24fdcf9fc9ad938726715091",
+      "sourceUrl": "https://raw.githubusercontent.com/Brooooooklyn/canvas/dda1b258dac667b4c66b94bbd4d70aa79ea4503a/LICENSE",
+      "file": {
+        "path": "canvas/LICENSE",
+        "bytes": 1075,
+        "sha256": "8802fecf9da4367bc23bcf20b21cc143785fc6c92b152f3fa7fbe6ce08d344d6"
+      },
+      "scope": "Exact repository revision project license; does not enumerate embedded Skia, ICU or other native notices"
+    },
+    {
+      "name": "@tokenizer/token",
+      "version": "0.3.0",
+      "packageJsonSha256": "a677763aaed22462b4f9df2526b1038cef3a90bc6cf80be27b4e65d0f14472a9",
+      "licenseDeclared": "MIT",
+      "kind": "installed-license-section",
+      "gitCommit": "e068a455370090f44c757946b8571bb3fb1f117e",
+      "sourceUrl": "https://registry.npmjs.org/@tokenizer/token/-/token-0.3.0.tgz",
+      "file": {
+        "path": "README.md",
+        "bytes": 1451,
+        "sha256": "a88c936c259cc261d5b37a2433735e9819e01f824bdc26e644d46ccd3055c8d7"
+      },
+      "scope": "Complete MIT text embedded in the exact installed package README; copied unchanged"
+    }
+  ]
+}

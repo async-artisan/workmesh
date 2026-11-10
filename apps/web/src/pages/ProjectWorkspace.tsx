@@ -17,6 +17,7 @@ import { EnrollmentCodeDialog } from '../components/EnrollmentCodeDialog';
 import { ErrorState } from '../components/ErrorState';
 import { PageState } from '../components/PageState';
 import { ProjectSelect } from '../components/ProjectSelect';
+import { ProjectReadiness } from '../components/ProjectReadiness';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import {
@@ -110,6 +111,7 @@ export function ProjectWorkspace() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [readinessOpen, setReadinessOpen] = useState(false);
   const [declareOpen, setDeclareOpen] = useState(false);
   const [enrollmentOpen, setEnrollmentOpen] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<ProjectRepositoryView | null>(null);
@@ -181,6 +183,7 @@ export function ProjectWorkspace() {
 
   useEffect(() => {
     setNotice('');
+    setReadinessOpen(false);
     setError('');
     setErrorProjectId(null);
     setArchiveError('');
@@ -411,6 +414,16 @@ export function ProjectWorkspace() {
       </header>
 
       {hasCurrentProjectData && notice && <p className="kb-notice">{notice}</p>}
+
+      {projectId && (
+        <details
+          open={readinessOpen}
+          onToggle={(event) => setReadinessOpen(event.currentTarget.open)}
+        >
+          <summary>查看项目准备清单</summary>
+          {readinessOpen && <ProjectReadiness key={projectId} projectId={projectId} />}
+        </details>
+      )}
 
       {!projectId && (
         <p className="page-card muted">

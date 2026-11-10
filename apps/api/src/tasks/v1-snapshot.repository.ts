@@ -1,3 +1,4 @@
+import type { TaskRolePackageStatus } from '@workmesh/shared';
 import type {
   V1SnapshotAuthority,
   V1SnapshotManifest,
@@ -51,6 +52,7 @@ export type V1SnapshotTaskState = {
 };
 
 export type V1SnapshotDocumentRef = {
+  projectId: string;
   revisionId: string;
   documentId: string;
   knowledgeBaseId: string;
@@ -71,11 +73,19 @@ export type V1SnapshotBindingRecord = {
   currentPublishedRevisionId: string | null;
 };
 
+export type V1SnapshotInputDocument = {
+  documentId: string;
+  projectId: string;
+  knowledgeBaseId: string;
+  documentKind: string;
+};
+
 export type V1SnapshotPrerequisiteArtifact = {
   artifactId: string;
   sha256: string;
   byteLength: number;
   mediaType: string;
+  storage?: 'HOSTED' | 'GIT_REF';
   /** 编译输入绑定对应的上游步骤与工件类型；旧仓库实现可省略。 */
   sourceStepKey?: string;
   kind?: string;
@@ -160,8 +170,23 @@ export type V1CreateSnapshotResult = {
 };
 
 export interface V1SnapshotRepository {
+  verifyResourceContent?(
+    resource: V1SnapshotManifestResource,
+    projectId: string,
+  ): Promise<'VERIFIED' | 'EXTERNAL_REFERENCE' | 'UNAVAILABLE'>;
+  findResourceScope(
+    kind: 'ARTIFACT' | 'ROLE_RESOURCE',
+    targetId: string,
+  ): Promise<{
+    projectId: string | null;
+    sha256: string;
+    byteLength: number;
+    mediaType: string;
+  } | null>;
   findTaskState(taskId: string): Promise<V1SnapshotTaskState | null>;
   findRevision(revisionId: string): Promise<V1SnapshotDocumentRef | null>;
+  /** Diagnostic identity lookup also works before a document has a published revision. */
+  findInputDocument?(documentId: string): Promise<V1SnapshotInputDocument | null>;
   findCandidateRevisions(input: {
     projectId: string;
     requirementId: string;
@@ -174,6 +199,12 @@ export interface V1SnapshotRepository {
     roleKey: string;
     revisionId: string;
   }): Promise<V1SnapshotRoleResource[]>;
+  /** Read-only metadata; does not alter the workflow lock or a stored snapshot. */
+  inspectRolePackage?(input: {
+    projectId: string;
+    roleKey: string;
+    revisionId: string;
+  }): Promise<TaskRolePackageStatus>;
   findSnapshot(snapshotId: string): Promise<V1SnapshotView | null>;
   findSnapshotResource(snapshotId: string, refId: string): Promise<V1SnapshotResourceBody | null>;
   /** 角色资源所属项目；`null` 表示内置包，对所有项目可见。 */

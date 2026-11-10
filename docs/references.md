@@ -73,13 +73,13 @@
 
 ## 9. 角色包
 
-| 来源                                                                    | 借了什么                                                                          | 没借什么                             | 核验 |
-| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------ | ---- |
-| [Agent Skills](https://agentskills.io/specification)                    | `SKILL.md` 目录、name/description 约束、渐进披露、references/assets               | `allowed-tools` 当权限（它只是声明） | ✅   |
-| [GitHub Spec Kit](https://github.github.com/spec-kit/)                  | 分阶段产物、模板 + 质量清单、跨产物分析、`--integration` 适配器、升级与老项目指南 | 38 个集成的规模、重型命令面          | ✅   |
-| [Claude Code Plugins](https://code.claude.com/docs/en/plugins/overview) | 「可安装的能力包」这一形态                                                        | 依赖宿主特性的打包方式               | ◻    |
-| [BMAD](https://github.com/bmad-code-org/BMAD-METHOD)                    | 角色 = 方法 + 模板 + 检查表                                                       | 重型 persona                         | ◻    |
-| [OpenSpec](https://github.com/fission-ai/openspec)                      | 以 change 为单位组织产物                                                          | 目录复杂度                           | ◻    |
+| 来源                                                                    | 借了什么                                                                                                                                                        | 没借什么                                                | 核验          |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ------------- |
+| [Agent Skills](https://agentskills.io/specification)                    | `SKILL.md` 目录、name/description 约束、渐进披露、references/assets                                                                                             | `allowed-tools` 当权限（它只是声明）                    | ✅            |
+| [GitHub Spec Kit](https://github.github.com/spec-kit/)                  | 证据化想法评估、按风险组织规格、澄清回写、研究与取舍、场景拆任务、质量清单、跨工件分析、交付核验与缺陷复验；[采用入口及固定来源](design/spec-driven-quality.md) | 第二套需求/基线、强制长流程、任意 hook 执行器和自动批准 | ✅ 2026-11-09 |
+| [Claude Code Plugins](https://code.claude.com/docs/en/plugins/overview) | 「可安装的能力包」这一形态                                                                                                                                      | 依赖宿主特性的打包方式                                  | ◻             |
+| [BMAD](https://github.com/bmad-code-org/BMAD-METHOD)                    | 角色 = 方法 + 模板 + 检查表                                                                                                                                     | 重型 persona                                            | ◻             |
+| [OpenSpec](https://github.com/fission-ai/openspec)                      | 以 change 为单位组织产物                                                                                                                                        | 目录复杂度                                              | ◻             |
 
 ## 10. 托管 Agent 与执行环境（2026-11-04 头脑风暴）
 

@@ -460,13 +460,15 @@ export class V1CliAuthorizationService {
       now,
       windowMs,
     });
-    if (attempts > limit)
+    if (attempts > limit) {
+      const remainingMs = windowMs - (now.getTime() % windowMs);
       throw new WorkmeshError(
         V1_ERROR_CODES.RATE_LIMITED,
         '请求过于频繁',
-        { retryAfterSeconds: Math.ceil(windowMs / 1000), window: kind },
+        { retryAfterSeconds: Math.ceil(remainingMs / 1000), window: kind },
         429,
       );
+    }
   }
 }
 

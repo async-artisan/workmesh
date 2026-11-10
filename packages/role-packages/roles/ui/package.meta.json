@@ -1,6 +1,6 @@
 {
   "id": "workmesh.role.ui",
-  "version": "1.1.0",
+  "version": "1.2.1",
   "title": "UI 角色包",
   "description": "产出页面与交互规格，或声明复用现有设计，让前端拿到确定的视觉与交互依据。",
   "license": "MIT",

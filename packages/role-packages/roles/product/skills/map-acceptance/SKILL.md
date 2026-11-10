@@ -1,6 +1,6 @@
 ---
 name: map-acceptance
-description: 把 PRD 拆成可判定的验收条目，标注 verification、category 与 criticality，并自检可测性；当 PRD 草稿完成或验收需要修订时使用。
+description: 把 PRD 拆成带稳定小写 key、text 与 verification 的可判定验收条目，并自检可测性；当 PRD 草稿完成或验收需要修订时使用。
 license: MIT
 metadata:
   roleKey: product
@@ -24,7 +24,7 @@ metadata:
    - 需要人看（界面、文案、配置）→ `INSPECTION`
    - 需要按步骤演示才能判断 → `DEMO`
    - 能用 `TEST` 就不用后两种。
-4. 标注 `category`（默认 `FUNCTIONAL`）与 `criticality`（默认 `MEDIUM`）。
+4. 用稳定小写 key（例如 `ac-01`、`import-works`）；风险类别与优先级写在 PRD 或评审材料，当前 API 不保存额外验收字段。
 5. 自检：每条都能写出一段会失败的检查吗？写不出就重写。
 
 ## 反例 → 正例
@@ -32,7 +32,7 @@ metadata:
 | 反例                       | 问题       | 正例                                                  |
 | -------------------------- | ---------- | ----------------------------------------------------- |
 | 优化设置页体验             | 不可判定   | 无 key 时，设置页显示「未配置模型」提示，保存按钮禁用 |
-| 支持本地模型和云端模型     | 两条塞一条 | A1 可切换到本地模型；A2 可切换回云端模型              |
+| 支持本地模型和云端模型     | 两条塞一条 | ac-01 可切换到本地模型；ac-02 可切换回云端模型        |
 | 系统应稳定运行             | 永远为真   | 连续 24 小时请求错误率 < 0.1%                         |
 | 调用 refreshToken 接口续期 | 绑定实现   | 会话过期后自动续期，且不丢失当前编辑                  |
 
@@ -42,9 +42,9 @@ metadata:
 
 ## 粒度
 
-- 每条需求 3–8 条验收；超过 15 条说明需求太大，回头拆。
+- 以可独立验证为准，常见小需求可用 3–8 条作为参考；不要为了数量拆散一个行为。正式 API 允许 1–200 条。
 - 一行业务规则通常对应一条验收，但不要把实现步骤写成验收。
 
 ## 交接
 
-产出 `acceptance.yaml`（`key / text / verification / category / criticality`），交产品确认、QA 做可测性签核。验收发布后，任务覆盖关系由实例化时确认。
+产出 `acceptance.yaml` 供阅读，与 `acceptance.json` 中的 JSON 数组保持一致，正式提交使用 `--acceptance @acceptance.json`（`key / text / verification`）。交产品确认、QA 做可测性签核；验收发布后，任务覆盖关系由实例化时确认。

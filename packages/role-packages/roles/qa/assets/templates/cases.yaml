@@ -4,11 +4,13 @@
 # kind: TEST | INSPECTION | DEMO（与验收的 verification 对齐）
 
 version: 1
+phase: DESIGN
+executionStatus: NOT_RUN
 requirement: <PROJECT_KEY>-<序号>
 
 cases:
   - id: TC-<序号>-01
-    covers: [A1]
+    covers: [ac-01]
     kind: TEST
     given: <前置状态与数据>
     when: <操作>
@@ -17,13 +19,20 @@ cases:
       - <测试数据或 fixture 路径>
 
   - id: TC-<序号>-02
-    covers: [A2]
+    covers: [ac-02]
     kind: INSPECTION
     given: <登录角色与页面>
     when: <操作>
     then: <界面应呈现的内容>
     evidence: 截图
 
+  - id: TC-<序号>-03
+    covers: [ac-03]
+    kind: DEMO
+    given: <已确认的演示环境与数据>
+    when: <按步骤演示>
+    then: <可观测结果>
+
 coverage:
   uncovered: []
-# uncovered 示例：- A3\n#   原因: 需要真实第三方环境，暂由 DEMO 覆盖
+# uncovered 示例：- ac-03\n#   原因: 需要真实第三方环境，暂由 DEMO 覆盖

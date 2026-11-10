@@ -18,7 +18,7 @@ describe('resolveTaskDisplayState（任务展示状态的唯一映射）', () =>
     expect(state.label).toContain('待确认');
   });
 
-  it('依赖信息可用且前置都完成时才允许「可立即领取」', () => {
+  it('依赖信息可用且前置都完成时才允许「前置任务已完成」', () => {
     const claimable = resolveTaskDisplayState({
       executionStatus: 'OPEN',
       workStatus: 'ACTIVE',
@@ -104,7 +104,7 @@ describe('resolveTaskDisplayState（任务展示状态的唯一映射）', () =>
     expect(missingStep.description).toContain('找不到该任务的步骤');
   });
 
-  it('所有前置完成且依赖图完整时才可以显示可立即领取', () => {
+  it('所有前置完成且依赖图完整时才可以显示前置任务已完成', () => {
     const claimable = resolveTaskDisplayState({
       executionStatus: 'OPEN',
       workStatus: 'ACTIVE',

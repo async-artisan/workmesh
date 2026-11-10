@@ -1,7 +1,7 @@
 {
   "packageSchemaVersion": "1.1",
   "id": "workmesh.role.qa",
-  "version": "1.1.0",
+  "version": "1.2.1",
   "protocolVersion": "1.0",
   "title": "测试角色包",
   "description": "从验收派生用例与评测集，执行后把失败归因为可追踪的缺陷。",
@@ -30,6 +30,12 @@
       "path": "skills/report-defects/SKILL.md",
       "description": "把失败归因为缺陷，关联验收与任务并跟踪回归。",
       "whenToUse": "评测失败且判定为产品缺陷时。"
+    },
+    {
+      "key": "audit-delivery",
+      "path": "skills/audit-delivery/SKILL.md",
+      "description": "逐条对照验收、实际代码与执行证据，记录缺口和后续工作提案。",
+      "whenToUse": "实现完成、返修后复核或准备验收时。"
     }
   ],
   "inputs": [
@@ -93,40 +99,56 @@
       "id": "template-cases",
       "kind": "template",
       "path": "assets/templates/cases.yaml",
-      "sha256": "b5253c4ec088ef4e00cf8a6a2052fcdda8cd0f0aee93d0896ec6d2a3701e7542",
-      "byteLength": 712,
+      "sha256": "19add92fc4c0e2a57eef01d3232f36652633e43d6154a25109509d6830f4fdaf",
+      "byteLength": 922,
       "mediaType": "application/yaml"
     },
     {
       "id": "template-defect",
       "kind": "template",
       "path": "assets/templates/defect.md",
-      "sha256": "e416074d9a8910dd944d93e587dc8c71c1e889f006e4d44819f71bb9744fa05c",
-      "byteLength": 554,
+      "sha256": "ad21cbe2fb1916b1d2af837544790f090b84678b630c6025b9afd9442fe72aeb",
+      "byteLength": 557,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "template-delivery-audit",
+      "kind": "template",
+      "path": "assets/templates/delivery-audit.md",
+      "sha256": "0232504c8938201f537c65c023c7083f9f17af1e44674b4e1429bafecec9d35e",
+      "byteLength": 880,
       "mediaType": "text/markdown"
     },
     {
       "id": "template-evals",
       "kind": "template",
       "path": "assets/templates/evals.yaml",
-      "sha256": "83b88590ef5498eb8cd9a5b31d79460f2d5f938bd1adeeeffa9a0b654c95e71b",
-      "byteLength": 826,
+      "sha256": "4401c6c942814b5144b6d8e222ce0c3c033ac5f6a56a75c71e2c1336748ac68b",
+      "byteLength": 888,
       "mediaType": "application/yaml"
     },
     {
       "id": "checklist-cases-coverage",
       "kind": "checklist",
       "path": "checklists/cases-coverage.md",
-      "sha256": "7a3db0038c7abebd30b8694cdb597d66d1215cf7272a1aaf15878d1276e3f437",
-      "byteLength": 871,
+      "sha256": "042413ce126d97cbcdd658b730ce28c7c11e108e9265aab634bcb92b0e5391bb",
+      "byteLength": 1067,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "checklist-spec-driven",
+      "kind": "checklist",
+      "path": "checklists/spec-driven.md",
+      "sha256": "eddb341cf017d46fc1a03cf0a89de031acdc1d72ec318fa2ae8a55a48ade6bac",
+      "byteLength": 1124,
       "mediaType": "text/markdown"
     },
     {
       "id": "guide",
       "kind": "prompt",
       "path": "guide.md",
-      "sha256": "08f1d704b9685842780523002d4398d5a154544e742ed2beb51945f007e0faa4",
-      "byteLength": 2246,
+      "sha256": "1d298a05b87532e8c88804dc1cbb0ece272a3ce68737e44e3f13a4ba2ef599dc",
+      "byteLength": 4806,
       "mediaType": "text/markdown"
     },
     {
@@ -138,19 +160,27 @@
       "mediaType": "application/json"
     },
     {
+      "id": "skill-audit-delivery",
+      "kind": "skill",
+      "path": "skills/audit-delivery/SKILL.md",
+      "sha256": "65962f9a7a9397f870476094bbb086116d96f27632ec283122c00efdad54118c",
+      "byteLength": 1497,
+      "mediaType": "text/markdown"
+    },
+    {
       "id": "skill-derive-cases",
       "kind": "skill",
       "path": "skills/derive-cases/SKILL.md",
-      "sha256": "953d67517f29f2f4e4c146d676308103fe194b55b900e070f3a8ec9e9a3e5c98",
-      "byteLength": 1524,
+      "sha256": "8d098e0567340fd9e11e59c1d17ee873cd34dd071fc9b08103fc15ea11faf4c3",
+      "byteLength": 1644,
       "mediaType": "text/markdown"
     },
     {
       "id": "skills-index",
       "kind": "index",
       "path": "skills/index.md",
-      "sha256": "45f9d6aeadf131cf3c65d843828bbdbf1c5c13eb3dfedb6b2b51be38766f52d8",
-      "byteLength": 881,
+      "sha256": "494802558a240a30b9aacda36afecbbda66814f52f8a956b8bb8b2cc2f67a9fa",
+      "byteLength": 1065,
       "mediaType": "text/markdown"
     },
     {
@@ -165,8 +195,8 @@
       "id": "skill-run-evals",
       "kind": "skill",
       "path": "skills/run-evals/SKILL.md",
-      "sha256": "d02402117b85129150ed584a2d74b13085d3e3d0b5ebc31106329d4878669a1b",
-      "byteLength": 1539,
+      "sha256": "f9a5d06597522e070c2578a990a31176a7bf90c9246805df6697f384ac7b7d59",
+      "byteLength": 1722,
       "mediaType": "text/markdown"
     }
   ],

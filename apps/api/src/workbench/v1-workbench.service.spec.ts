@@ -48,8 +48,91 @@ describe('V1WorkbenchService', () => {
     vi.clearAllMocks();
   });
 
+  it('bounds project fan-out and still reads all authorized projects after a partial failure', async () => {
+    const { service, prisma, authorization, reviews, changes, ready } = createHarness();
+    const projects = Array.from({ length: 9 }, (_, index) => ({
+      id: `p${index}`,
+      key: `P${index}`,
+      name: `Project ${index}`,
+    }));
+    prisma.project.findMany.mockResolvedValue(projects);
+    prisma.approvalSlot.findMany.mockResolvedValue([]);
+    reviews.listReviews.mockImplementation(async (_principal, query) => {
+      if (query.projectId === 'p2') throw new Error('PROJECT_REVIEW_UNAVAILABLE');
+      return { items: [], nextCursor: null };
+    });
+    changes.listRecipients.mockResolvedValue({ items: [], nextCursor: null });
+    ready.ready.mockImplementation(async (_principal, projectId: string) => ({
+      items: [
+        { id: `task-${projectId}`, stepKey: 'qa', executionStatus: 'PENDING', workStatus: 'IDLE' },
+      ],
+      nextCursor: null,
+      hasMore: false,
+    }));
+    prisma.task.findMany.mockResolvedValue([]);
+
+    const pending = new Map<string, () => void>();
+    let inFlight = 0;
+    let maximum = 0;
+    authorization.resolveProjectContext.mockImplementation(
+      (_principal, projectId: string) =>
+        new Promise((resolve) => {
+          inFlight++;
+          maximum = Math.max(maximum, inFlight);
+          pending.set(projectId, () => {
+            inFlight--;
+            resolve({ activeRoleIds: [] });
+          });
+        }),
+    );
+
+    const operation = service.get(principal, null);
+    for (const expected of [4, 8, 9]) {
+      await vi.waitFor(() =>
+        expect(authorization.resolveProjectContext).toHaveBeenCalledTimes(expected),
+      );
+      const wave = [...pending.values()];
+      pending.clear();
+      wave.reverse().forEach((complete) => complete());
+    }
+    const result = await operation;
+
+    expect(maximum).toBe(4);
+    expect(inFlight).toBe(0);
+    for (const project of projects) {
+      expect(authorization.resolveProjectContext).toHaveBeenCalledWith(
+        principal,
+        project.id,
+        'read',
+      );
+      expect(reviews.listReviews).toHaveBeenCalledWith(
+        principal,
+        expect.objectContaining({ projectId: project.id }),
+      );
+      expect(changes.listRecipients).toHaveBeenCalledWith(
+        principal,
+        expect.objectContaining({ projectId: project.id }),
+      );
+      expect(ready.ready).toHaveBeenCalledWith(principal, project.id, { limit: 50 });
+    }
+    expect(result.counts.total).toBe(9);
+    expect(result.readyTasks.map((task) => task.projectId)).toEqual(
+      projects.map((project) => project.id),
+    );
+    expect(result.warnings).toEqual(['P2：评审数据加载失败（PROJECT_REVIEW_UNAVAILABLE）']);
+    expect(prisma.approvalSlot.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          projectId: { in: projects.map((project) => project.id) },
+        }),
+      }),
+    );
+  });
+
   it('工作台任务和评审各自按绑定修订显示名称并限定项目', async () => {
     const { service, prisma, authorization, reviews, changes, ready } = createHarness();
+    const requireTaskRead = vi.fn().mockResolvedValue(undefined);
+    Object.assign(authorization, { requireScope: requireTaskRead });
     prisma.project.findMany.mockResolvedValue([{ id: 'p1', key: 'DEMO', name: 'Demo' }]);
     authorization.resolveProjectContext.mockResolvedValue({ activeRoleIds: [] });
     const tasks = ['old', 'new', 'legacy'].map((suffix) => ({
@@ -107,7 +190,9 @@ describe('V1WorkbenchService', () => {
       '新任务名称',
       null,
     ]);
-    expect(prisma.workflowRevision.findMany).toHaveBeenCalledTimes(2);
+    expect(requireTaskRead).toHaveBeenCalledWith(principal, 'p1', 'task:read');
+    // 任务名称、评审名称及完整依赖图各读取绑定修订，三次查询均须限定项目。
+    expect(prisma.workflowRevision.findMany).toHaveBeenCalledTimes(3);
     for (const [args] of prisma.workflowRevision.findMany.mock.calls) {
       expect(args).toEqual({
         where: { id: { in: ['revision-old', 'revision-new', 'revision-legacy'] }, projectId: 'p1' },
@@ -179,6 +264,12 @@ describe('V1WorkbenchService', () => {
           eventId: 'evt-1',
           userId: 'u-1',
           roleId: null,
+          guidance: {
+            checkedAt: '2026-11-10T00:00:00Z',
+            scope: 'EVENT_TASKS',
+            eventBaseline: 'CURRENT',
+            tasks: [{ taskId: 'task-1', reason: 'NO_CONTEXT', action: 'INSPECT_AND_CLAIM' }],
+          },
           version: 2,
           ackedAt: null,
           createdAt: new Date(Date.now() - 60_000).toISOString(),
@@ -200,6 +291,7 @@ describe('V1WorkbenchService', () => {
           executionStatus: 'OPEN',
           workStatus: 'ACTIVE',
           currentClaim: null,
+          claimEligibility: { canClaim: true, reason: null },
         },
       ],
       nextCursor: null,
@@ -226,6 +318,7 @@ describe('V1WorkbenchService', () => {
               requirement: { code: 'DEMO-REQ-3', title: '支付回调重试' },
             },
             role: { key: 'backend', title: '后端' },
+            responsibleUser: { id: 'u-1', email: 'developer@example.test' },
           },
         ];
       },
@@ -268,11 +361,20 @@ describe('V1WorkbenchService', () => {
     });
     expect(result.reviews[0].slots[0].viewerCanDecide).toBe(true);
     expect(result.changes[0].pendingRoles).toEqual([{ key: 'backend', title: '后端' }]);
+    expect(result.changes[0].guidance).toMatchObject({
+      scope: 'EVENT_TASKS',
+      tasks: [{ taskId: 'task-1', reason: 'NO_CONTEXT' }],
+    });
     expect(result.readyTasks[0].requirement).toEqual({
       code: 'DEMO-REQ-3',
       title: '支付回调重试',
     });
     expect(result.readyTasks[0].stepDisplayName).toBe('后端实现');
+    expect(result.readyTasks[0].responsibleUser).toEqual({
+      id: 'u-1',
+      email: 'developer@example.test',
+    });
+    expect(result.readyTasks[0].claimEligibility).toEqual({ canClaim: true, reason: null });
     expect(prisma.workflowRevision.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: { in: ['workflow-rev-1'] }, projectId: 'p1' } }),
     );

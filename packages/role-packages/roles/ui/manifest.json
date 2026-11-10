@@ -1,7 +1,7 @@
 {
   "packageSchemaVersion": "1.1",
   "id": "workmesh.role.ui",
-  "version": "1.1.0",
+  "version": "1.2.1",
   "protocolVersion": "1.0",
   "title": "UI 角色包",
   "description": "产出页面与交互规格，或声明复用现有设计，让前端拿到确定的视觉与交互依据。",
@@ -69,15 +69,15 @@
       "id": "template-design-spec",
       "kind": "template",
       "path": "assets/templates/design-spec.md",
-      "sha256": "6c5c39337e25f3c9547d1abadae18ba9f73b0c67ed9b703e677a2ee6a06f2fa2",
-      "byteLength": 932,
+      "sha256": "6d5e9f4e4efef0fa3c2f19384e1401a1b21a716fa74c359d87c8c32798512cc5",
+      "byteLength": 938,
       "mediaType": "text/markdown"
     },
     {
       "id": "template-reuse-declaration",
       "kind": "template",
       "path": "assets/templates/reuse-declaration.md",
-      "sha256": "0b037115e658511862e28e12cf4a7dfe952dd0b6c4e551d51f773e5d4cf23e1e",
+      "sha256": "34d4b42e829f7fd2a88cab2371e376a7a78124b4d65b13aefd8451efe51fe948",
       "byteLength": 820,
       "mediaType": "text/markdown"
     },
@@ -90,11 +90,19 @@
       "mediaType": "text/markdown"
     },
     {
+      "id": "checklist-spec-driven",
+      "kind": "checklist",
+      "path": "checklists/spec-driven.md",
+      "sha256": "eddb341cf017d46fc1a03cf0a89de031acdc1d72ec318fa2ae8a55a48ade6bac",
+      "byteLength": 1124,
+      "mediaType": "text/markdown"
+    },
+    {
       "id": "guide",
       "kind": "prompt",
       "path": "guide.md",
-      "sha256": "8ae57c998651c8a6700fb4df5bf0fd072ed158c542664399dc10f002465d19c2",
-      "byteLength": 2250,
+      "sha256": "9dbfc9b304d58e6873f2a0947a8c5311e8125eaa23f656b37691398299d9e594",
+      "byteLength": 2926,
       "mediaType": "text/markdown"
     },
     {

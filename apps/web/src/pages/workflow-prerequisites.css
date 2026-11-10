@@ -1,0 +1,261 @@
+.workflow-prerequisites {
+  container: workflow-prerequisites / inline-size;
+  display: grid;
+  gap: var(--wm-space-4);
+  min-width: 0;
+  margin: 0 var(--wm-space-5) var(--wm-space-5);
+  padding: var(--wm-space-5);
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-md);
+  background: var(--wm-color-surface-subtle);
+  color: var(--wm-color-text-primary);
+  font-size: var(--wm-text-md);
+  overflow-wrap: anywhere;
+}
+
+.workflow-prerequisites-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--wm-space-3);
+}
+
+.workflow-prerequisites-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: var(--wm-space-2);
+  border: 1px solid var(--wm-color-accent-border);
+  border-radius: var(--wm-radius-md);
+  background: var(--wm-color-accent-soft);
+  color: var(--wm-color-accent-text);
+}
+
+.workflow-prerequisites-heading h3 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--wm-space-3);
+  margin: 0 0 var(--wm-space-1);
+  font-size: var(--wm-text-lg);
+  font-weight: 600;
+}
+
+.workflow-prerequisites-heading h3 > span {
+  color: var(--wm-color-text-secondary);
+  font-size: var(--wm-text-xs);
+  font-weight: 400;
+}
+
+.workflow-prerequisites-heading p,
+.workflow-prerequisites-footer p,
+.workflow-prerequisite-permission,
+.workflow-prerequisites-empty {
+  margin: 0;
+  color: var(--wm-color-text-secondary);
+  font-size: var(--wm-text-sm);
+  line-height: var(--wm-line-height);
+}
+
+.workflow-prerequisites-heading p {
+  max-width: 960px;
+}
+
+.workflow-prerequisites-empty {
+  padding: var(--wm-space-3) var(--wm-space-4);
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-sm);
+  background: var(--wm-color-surface);
+}
+
+.workflow-prerequisites-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--wm-space-4);
+}
+
+.workflow-prerequisite-card {
+  display: grid;
+  gap: var(--wm-space-4);
+  min-width: 0;
+  padding: var(--wm-space-4);
+  border: 1px solid var(--wm-color-border);
+  border-radius: var(--wm-radius-md);
+  background: var(--wm-color-surface);
+}
+
+.workflow-prerequisite-heading,
+.workflow-prerequisite-title {
+  display: flex;
+  align-items: center;
+  gap: var(--wm-space-2);
+  min-width: 0;
+}
+
+.workflow-prerequisite-heading {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.workflow-prerequisite-title {
+  flex-wrap: wrap;
+}
+
+.workflow-prerequisite-title > svg {
+  flex-shrink: 0;
+  color: var(--wm-color-text-secondary);
+}
+
+.workflow-prerequisite-title h4 {
+  margin: 0;
+  font-size: var(--wm-text-md);
+  font-weight: 600;
+}
+
+.workflow-prerequisite-role {
+  color: var(--wm-color-text-secondary);
+  font-size: var(--wm-text-xs);
+}
+
+.workflow-prerequisite-status {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 2px var(--wm-space-2);
+  border: 1px solid var(--wm-color-warning-border);
+  border-radius: var(--wm-radius-sm);
+  background: var(--wm-color-warning-soft);
+  color: var(--wm-color-warning);
+  font-size: var(--wm-text-xs);
+  line-height: 20px;
+}
+
+.workflow-prerequisite-status.is-bound {
+  border-color: var(--wm-color-success-border);
+  background: var(--wm-color-success-soft);
+  color: var(--wm-color-success);
+}
+
+.workflow-prerequisite-selection {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--wm-space-2);
+  min-width: 0;
+}
+
+.workflow-prerequisite-field {
+  display: grid;
+  flex: 1;
+  gap: var(--wm-space-2);
+  min-width: 0;
+  color: var(--wm-color-text-secondary);
+  font-size: var(--wm-text-sm);
+}
+
+.workflow-prerequisite-field select,
+.workflow-prerequisite-field input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: var(--wm-space-2) var(--wm-space-3);
+  border: 1px solid var(--wm-color-border-strong);
+  border-radius: var(--wm-radius-sm);
+  background: var(--wm-color-surface);
+  color: var(--wm-color-text-primary);
+  font: inherit;
+  font-size: var(--wm-text-md);
+  line-height: 22px;
+}
+
+.workflow-prerequisite-field select:focus,
+.workflow-prerequisite-field input:focus {
+  border-color: var(--wm-color-accent);
+}
+
+.workflow-prerequisite-selection .workflow-prerequisite-bind {
+  flex-shrink: 0;
+  min-height: 40px;
+  padding: var(--wm-space-2) var(--wm-space-3);
+  gap: var(--wm-space-2);
+  font-size: var(--wm-text-sm);
+}
+
+.workflow-prerequisite-manual {
+  padding-top: var(--wm-space-3);
+  border-top: 1px solid var(--wm-color-border);
+  color: var(--wm-color-text-secondary);
+  font-size: var(--wm-text-sm);
+}
+
+.workflow-prerequisite-manual summary {
+  width: fit-content;
+  cursor: pointer;
+  line-height: 24px;
+}
+
+.workflow-prerequisite-manual .workflow-prerequisite-field {
+  margin-top: var(--wm-space-3);
+}
+
+.workflow-prerequisites-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--wm-space-3) var(--wm-space-5);
+}
+
+.workflow-prerequisites-footer p {
+  flex: 1 1 400px;
+  font-size: var(--wm-text-xs);
+}
+
+.workflow-prerequisites-links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--wm-space-2) var(--wm-space-4);
+}
+
+.workflow-prerequisites-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  gap: var(--wm-space-1);
+  color: var(--wm-color-accent-text);
+  font-size: var(--wm-text-sm);
+  text-decoration: none;
+}
+
+.workflow-prerequisites-links a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@container workflow-prerequisites (max-width: 680px) {
+  .workflow-prerequisites-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container workflow-prerequisites (max-width: 380px) {
+  .workflow-prerequisites-icon {
+    display: none;
+  }
+
+  .workflow-prerequisite-selection {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .workflow-prerequisites-links {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 640px) {
+  .workflow-prerequisites {
+    margin: 0 var(--wm-space-4) var(--wm-space-4);
+    padding: var(--wm-space-4);
+  }
+}

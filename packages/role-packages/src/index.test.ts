@@ -1,11 +1,62 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalJson, sha256Bytes, validateRolePackage } from '@workmesh/shared';
+import { readFile } from 'node:fs/promises';
+import {
+  buildSoftwareDeliveryWorkflowTemplate,
+  canonicalJson,
+  compileWorkflowDefinition,
+  sha256Bytes,
+  validateRolePackage,
+} from '@workmesh/shared';
 import { BUILTIN_ROLE_PACKAGES } from './index';
 
 /** 与 `DEFAULT_PROJECT_ROLES` 一致：内置包必须能直接对上项目创建时预置的角色。 */
 const DEFAULT_ROLE_KEYS = ['backend', 'frontend', 'ops', 'product', 'qa', 'ui'];
 
 describe('builtin role packages', () => {
+  it('embeds the current source resources and metadata, not a stale generated copy', async () => {
+    for (const item of BUILTIN_ROLE_PACKAGES) {
+      const meta = JSON.parse(
+        await readFile(
+          new URL(`../roles/${item.roleKey}/package.meta.json`, import.meta.url),
+          'utf8',
+        ),
+      );
+      expect(item.version).toBe(meta.version);
+      expect(item.manifest.skills).toEqual(meta.skills);
+      await Promise.all(
+        item.resources.map(async (resource) => {
+          const bytes = await readFile(new URL(`../${resource.path}`, import.meta.url));
+          expect(bytes.toString('base64'), resource.path).toBe(resource.bodyBase64);
+        }),
+      );
+    }
+  });
+  it('supports the software template with the actual package contracts and separate execution evidence', async () => {
+    const packageLocks = await Promise.all(
+      BUILTIN_ROLE_PACKAGES.map(async (item) => ({
+        roleKey: item.roleKey,
+        packageId: item.packageId,
+        version: item.version,
+        packageDigest: await sha256Bytes(new TextEncoder().encode(canonicalJson(item.manifest))),
+      })),
+    );
+    const result = await compileWorkflowDefinition(buildSoftwareDeliveryWorkflowTemplate(), {
+      roleIdsByKey: Object.fromEntries(DEFAULT_ROLE_KEYS.map((key) => [key, `role-${key}`])),
+      packageLocks,
+      packageContracts: BUILTIN_ROLE_PACKAGES.map((item) => item.manifest),
+    });
+    expect(result.issues).toEqual([]);
+    expect(result.valid).toBe(true);
+    const qa = BUILTIN_ROLE_PACKAGES.find((item) => item.roleKey === 'qa')!;
+    const resourceText = (suffix: string) =>
+      Buffer.from(
+        qa.resources.find((resource) => resource.path.endsWith(suffix))!.bodyBase64,
+        'base64',
+      ).toString('utf8');
+    expect(resourceText('/cases.yaml')).toContain('executionStatus: NOT_RUN');
+    expect(resourceText('/evals.yaml')).toContain('casesRevision:');
+  });
+
   it('ships exactly one package per default project role', () => {
     const keys = BUILTIN_ROLE_PACKAGES.map((item) => item.roleKey).sort();
     expect(keys).toEqual(DEFAULT_ROLE_KEYS);

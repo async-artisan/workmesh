@@ -260,6 +260,8 @@ export function RequirementPipeline({
   const blockedCount = buckets.blocked.length;
   const claimableCount = buckets.claimable.length;
   const waitingCount = buckets.waiting.length;
+  const allTasksDone =
+    allTasks.length > 0 && allTasks.every((task) => displayStateOf(task).kind === 'DONE');
   // 空的 pending 阶段不能抢占真实任务阶段：首屏必须围绕当前任务显示阶段和负责人。
   const currentPhase =
     phaseModels.find(
@@ -268,7 +270,9 @@ export function RequirementPipeline({
     phaseModels.find(
       (item) => item.tasks.length > 0 && !['done', 'skipped'].includes(item.status),
     ) ??
-    phaseModels.find((item) => item.tasks.length > 0) ??
+    (allTasksDone
+      ? [...phaseModels].reverse().find((item) => item.tasks.length > 0)
+      : phaseModels.find((item) => item.tasks.length > 0)) ??
     phaseModels.find((item) => item.status === 'pending') ??
     phaseModels[phaseModels.length - 1];
   // 组件调用方提供的 nextAction 是服务端/页面层事实；缺失时与当前阶段保持一致，
@@ -289,9 +293,11 @@ export function RequirementPipeline({
     currentPhase?.phase.blockedReason?.trim() ||
     (currentPhase?.status === 'blocked'
       ? '服务端未提供阻塞原因'
-      : currentPhase?.status === 'active'
-        ? '当前阶段未标记阻塞'
-        : '状态待确认');
+      : allTasksDone
+        ? '全部任务已完成，无待处理阻塞'
+        : currentPhase?.status === 'active'
+          ? '当前阶段未标记阻塞'
+          : '状态待确认');
   // undefined 表示调用方未覆盖阶段动作；显式 null 表示当前没有可执行入口。
   const summaryActionLabel =
     actionLabel !== undefined ? actionLabel : currentPhase?.phase.actionLabel;
@@ -611,12 +617,12 @@ export function RequirementPipeline({
             <div className="pipeline-task-lanes" aria-label="任务分栏">
               <div className="pipeline-task-lane">
                 <h4>
-                  可立即领取 <small>{claimableCount}</small>
+                  前置任务已完成 <small>{claimableCount}</small>
                 </h4>
                 {buckets.claimable.length ? (
                   buckets.claimable.map(renderTask)
                 ) : (
-                  <p>当前没有可立即领取的任务；只有直接前置步骤全部完成的任务才会计入这里。</p>
+                  <p>当前没有前置任务已完成的任务；只有直接前置步骤全部完成的任务才会计入这里。</p>
                 )}
               </div>
               <div className="pipeline-task-lane">

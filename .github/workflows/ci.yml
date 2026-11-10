@@ -45,35 +45,16 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm format:check
-      - run: pnpm type-check
-      - run: pnpm lint:eslint
-      - name: Test release candidate guards
-        run: node --test scripts/verify-release.test.mjs
-      - run: pnpm --filter @workmesh/api exec prisma validate --schema prisma/schema.prisma
-      # 漂移闸门：先把迁移目录应用到空库，再与 schema 比对；不一致直接失败。
-      - run: pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/schema.prisma
-      - run: pnpm --filter @workmesh/api exec prisma migrate diff --from-url "$WORKMESH_V1_DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
       - name: Prepare isolated database tests
         env:
           PGPASSWORD: postgres
         run: |
           psql -h localhost -U postgres -d postgres -c 'CREATE DATABASE workmesh_test_ci'
-          WORKMESH_V1_DATABASE_URL="$WORKMESH_TEST_DATABASE_URL" pnpm --filter @workmesh/api exec prisma migrate deploy --schema prisma/schema.prisma
-      - run: pnpm test
-      # 契约脚本与进程内 HTTP 套件此前不在流水线里：
-      # `pnpm test` 只匹配 src/**/*.spec.ts，test/** 从不执行。
-      - run: pnpm --filter @workmesh/shared build
-      - run: node scripts/test-contracts.mjs
-      # Exercise the same guarded, cross-platform root entry used by contributors.
-      # The isolated database was migrated above, so the default invocation does
-      # not repeat migrations; it only runs the write-capable suite in that target.
-      - run: pnpm test:integration:runner
-      - run: pnpm test:integration
-      - run: pnpm build
       - run: pnpm exec playwright install --with-deps chromium --only-shell
-      - run: pnpm test:browser:run
-      - run: pnpm test:ui-review
+      # One entry for contributors and CI: verify the explicit target identity,
+      # migrate this empty isolated database, check drift, and run every local gate.
+      - name: Verify complete local quality gates
+        run: pnpm verify -- --apply-migrations
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -81,7 +62,7 @@ jobs:
           name: browser-evidence
           path: |
             .tmp/browser-results/**/business-chain-result.json
+            .tmp/browser-results/**/baseline-change-result.json
             .tmp/ui-review-results
             .tmp/ui-review-captures
           if-no-files-found: ignore
-      - run: pnpm --filter @workmesh/api test:coverage

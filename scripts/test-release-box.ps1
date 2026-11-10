@@ -203,9 +203,15 @@ function Assert-Healthy([string]$Phase) {
   Assert-OwnedApplication
   $apiResult = Invoke-RestMethod -Uri ('http://127.0.0.1:' + $ApiPort + '/api/health') -TimeoutSec 10
   $proxyResult = Invoke-RestMethod -Uri ('http://127.0.0.1:' + $WebPort + '/api/health') -TimeoutSec 10
+  $readyResult = Invoke-RestMethod -Uri ('http://127.0.0.1:' + $ApiPort + '/api/health/ready') -TimeoutSec 10
+  $proxyReadyResult = Invoke-RestMethod -Uri ('http://127.0.0.1:' + $WebPort + '/api/health/ready') -TimeoutSec 10
   $webResult = Invoke-WebRequest -Uri ('http://127.0.0.1:' + $WebPort + '/') -UseBasicParsing -TimeoutSec 10
   if ($apiResult.data.status -ne 'ok' -or $proxyResult.data.status -ne 'ok' -or $webResult.StatusCode -ne 200) { throw "$Phase API/Web health checks failed." }
-  $script:checks.Add([ordered]@{ phase=$Phase; api='ok'; proxy='ok'; web=200 })
+  foreach ($result in @($readyResult,$proxyReadyResult)) {
+    $migrations=$result.data.database.appliedMigrations
+    if ($result.data.ok -isnot [bool] -or -not $result.data.ok -or $result.data.database.reachable -isnot [bool] -or -not $result.data.database.reachable -or ($migrations -isnot [int] -and $migrations -isnot [long]) -or $migrations -le 0) { throw "$Phase API/database readiness checks failed." }
+  }
+  $script:checks.Add([ordered]@{ phase=$Phase; api='ok'; proxy='ok'; web=200; apiReady=$true; proxyReady=$true; appliedMigrations=$readyResult.data.database.appliedMigrations; httpAccess='LOOPBACK_ONLY' })
 }
 
 $archive = [System.IO.Path]::GetFullPath($BoxZip)
@@ -236,7 +242,7 @@ $restoredDatabase = 'workmesh_test_restore_' + $run.Substring(0,12)
 $marker = 'release-validation-' + $run
 $savedEnvironment = @{}
 foreach ($key in @('WORKMESH_V1_DATABASE_URL','WORKMESH_COOKIE_MODE','WORKMESH_PUBLIC_ORIGIN','WEB_ORIGIN','PORT','PGPASSWORD','WORKMESH_PG_BIN')) { $savedEnvironment[$key] = [Environment]::GetEnvironmentVariable($key,'Process') }
-$summary = [ordered]@{ schemaVersion='1.0'; status='RUNNING'; archive=[System.IO.Path]::GetFileName($archive); archiveSha256=$hash; ports=@{ postgres=$PgPort; api=$ApiPort; web=$WebPort }; checks=$script:checks; limitations=@('Local isolated Windows validation; not a clean-machine or final-commit CI claim.','No prior-version upgrade, uninstall, production data, capacity or cross-platform validation.') }
+$summary = [ordered]@{ schemaVersion='1.1'; status='RUNNING'; archive=[System.IO.Path]::GetFileName($archive); archiveSha256=$hash; ports=@{ postgres=$PgPort; api=$ApiPort; web=$WebPort }; checks=$script:checks; scope=@{ httpAccess='LOOPBACK_ONLY'; backupVerification='SCHEMA_COUNTS_AND_TEST_SENTINEL_ONLY'; projectAuthorization='NOT_CHECKED'; businessRelease='NOT_CHECKED' }; limitations=@('Local isolated Windows validation; not a clean-machine or final-commit CI claim.','No prior-version upgrade, uninstall, production data, capacity or cross-platform validation.','Loopback HTTP readiness does not verify access from another device, login, project authorization or business release.','Backup evidence covers structural counts and the isolated test sentinel, not completeness or correctness of production business data.') }
 $failure = $null
 New-Item -ItemType Directory -Path $output,$script:logs -ErrorAction Stop | Out-Null
 try {

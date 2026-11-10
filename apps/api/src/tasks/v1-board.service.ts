@@ -1,56 +1,70 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { V1AuthorizationService } from '../auth/v1-authorization';
-import type { Principal } from '@workmesh/shared';
+import { V1_ERROR_CODES, WorkmeshError, type Principal } from '@workmesh/shared';
+import { normalizeBoardQuery, decodeBoardCursor } from './v1-board.pagination';
 import {
   V1_BOARD_REPOSITORY,
-  type V1BoardCard,
-  type V1BoardColumn,
-  type V1BoardSnapshot,
+  V1_BOARD_COLUMNS,
+  type V1BoardColumnKey,
+  type V1BoardFilterKind,
+  type V1BoardQuery,
+  type V1BoardRepository,
 } from './v1-board.repository';
-
-const COLUMN_ORDER = ['BACKLOG', 'ACTIVE', 'BLOCKED', 'PAUSED', 'CANCELLED', 'DELIVERED'] as const;
 
 @Injectable()
 export class V1BoardService {
   constructor(
     @Inject(V1_BOARD_REPOSITORY)
-    private readonly repository: import('./v1-board.repository').V1BoardRepository,
+    private readonly repository: V1BoardRepository,
     private readonly authorization: V1AuthorizationService,
   ) {}
 
-  /** 只读派生看板：按任务当前认领/工作态/交付态分组为固定列。 */
-  async board(principal: Principal, projectId: string): Promise<V1BoardSnapshot> {
+  private async authorize(principal: Principal, projectId: string) {
     await this.authorization.resolveProjectContext(principal, projectId, 'read');
     await this.authorization.requireScope(principal, projectId, 'task:read');
-
-    const cards = await this.repository.listCards(projectId);
-    return { projectId, columns: this.toColumns(cards) };
   }
-
-  private toColumns(cards: V1BoardCard[]): V1BoardColumn[] {
-    const buckets: Record<string, V1BoardCard[]> = {};
-    for (const key of COLUMN_ORDER) buckets[key] = [];
-    for (const card of cards) {
-      const key = this.columnOf(card);
-      buckets[key].push(card);
-    }
-    return COLUMN_ORDER.map((key) => ({ key, cards: buckets[key] }));
+  async board(principal: Principal, projectId: string, input: V1BoardQuery = {}) {
+    await this.authorize(principal, projectId);
+    const query = normalizeBoardQuery(input);
+    if (query.cursor)
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INVALID_REQUEST,
+        'BOARD_CURSOR_REQUIRES_VIEW',
+        undefined,
+        400,
+      );
+    return this.repository.snapshot(projectId, query);
   }
-
-  private columnOf(card: V1BoardCard): string {
-    if (card.currentArtifactSetId) return 'DELIVERED';
-    if (!card.currentClaimId) return 'BACKLOG';
-    switch (card.workStatus) {
-      case 'BLOCKED':
-        return 'BLOCKED';
-      case 'PAUSED':
-        return 'PAUSED';
-      case 'CANCELLED':
-        // 已取消是终止态：不能继续落在“进行中”，否则看板会把已取消任务当成在办。
-        return 'CANCELLED';
-      case 'ACTIVE':
-      default:
-        return 'ACTIVE';
-    }
+  async column(principal: Principal, projectId: string, column: string, input: V1BoardQuery = {}) {
+    await this.authorize(principal, projectId);
+    if (!V1_BOARD_COLUMNS.includes(column as V1BoardColumnKey))
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INVALID_REQUEST,
+        'BOARD_COLUMN_INVALID',
+        undefined,
+        400,
+      );
+    const query = normalizeBoardQuery(input);
+    decodeBoardCursor(projectId, query, `column:${column}`);
+    return this.repository.column(projectId, column as V1BoardColumnKey, query);
+  }
+  async requirements(principal: Principal, projectId: string, input: V1BoardQuery = {}) {
+    await this.authorize(principal, projectId);
+    const query = normalizeBoardQuery(input);
+    decodeBoardCursor(projectId, query, 'requirements');
+    return this.repository.requirements(projectId, query);
+  }
+  async filters(principal: Principal, projectId: string, kind: string, input: V1BoardQuery = {}) {
+    await this.authorize(principal, projectId);
+    if (kind !== 'roles' && kind !== 'requirements')
+      throw new WorkmeshError(
+        V1_ERROR_CODES.INVALID_REQUEST,
+        'BOARD_FILTER_KIND_INVALID',
+        undefined,
+        400,
+      );
+    const query = normalizeBoardQuery(input, 50);
+    decodeBoardCursor(projectId, query, `filters:${kind}`);
+    return this.repository.filters(projectId, kind as V1BoardFilterKind, query);
   }
 }

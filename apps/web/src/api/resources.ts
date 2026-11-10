@@ -1,4 +1,9 @@
 import { apiRequest } from './client';
+import type {
+  CodeEvidenceDiagnostics,
+  TaskClaimEligibility,
+  WorkflowCompiledRules,
+} from '@workmesh/shared';
 
 export interface ProjectView {
   id: string;
@@ -127,9 +132,67 @@ export interface BoardCard {
   generation: number;
 }
 
+export type BoardColumnKey =
+  'BACKLOG' | 'ACTIVE' | 'BLOCKED' | 'PAUSED' | 'CANCELLED' | 'DELIVERED';
+
+export interface BoardQuery {
+  q?: string;
+  roleTitle?: string;
+  requirementCode?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface BoardSummary {
+  total: number;
+  matchedTotal: number;
+  columns: Array<{ key: BoardColumnKey; total: number }>;
+  requirementTotal: number;
+}
+
+export interface BoardColumn {
+  key: BoardColumnKey;
+  total: number;
+  cards: BoardCard[];
+  nextCursor: string | null;
+}
+
 export interface BoardSnapshot {
   projectId: string;
-  columns: Array<{ key: string; cards: BoardCard[] }>;
+  queryKey: string;
+  summary: BoardSummary;
+  columns: BoardColumn[];
+}
+
+export interface BoardColumnPage extends BoardColumn {
+  projectId: string;
+  queryKey: string;
+}
+
+export interface BoardRequirementGroup {
+  code: string;
+  title: string;
+  total: number;
+  counts: Record<BoardColumnKey, number>;
+  roles: string[];
+  roleTotal: number;
+  rolesNextCursor: string | null;
+}
+
+export interface BoardRequirementPage {
+  projectId: string;
+  queryKey: string;
+  summary: BoardSummary;
+  items: BoardRequirementGroup[];
+  nextCursor: string | null;
+}
+
+export interface BoardFilterPage {
+  projectId: string;
+  queryKey: string;
+  total: number;
+  items: Array<{ value: string; label: string }>;
+  nextCursor: string | null;
 }
 
 export interface TaskView {
@@ -304,6 +367,8 @@ export interface RequirementTaskDetail {
   stepDisplayName?: string | null;
   role: { key: string; title: string };
   responsibleUser: { id: string; email: string };
+  claimEligibility?: TaskClaimEligibility;
+  workflowWorkStatus?: string;
   version: number;
   generation: number;
   executionStatus: string;
@@ -328,6 +393,7 @@ export interface RequirementTaskDetail {
 export interface RequirementArtifactDetail {
   id: string;
   taskId: string;
+  artifactSetId?: string;
   kind: string;
   storage: string;
   mediaType: string;
@@ -393,6 +459,8 @@ export interface RequirementDetail {
   reviews: RequirementReviewDetail[];
   changes: RequirementChangeDetail[];
   counts: { tasks: number; artifacts: number; reviews: number; changes: number };
+  /** Absent on older servers; absence is not proof of a complete chain. */
+  trustChain?: import('@workmesh/shared').RequirementTrustChain;
 }
 
 export const projectApi = {
@@ -442,6 +510,41 @@ export const projectApi = {
  * Project knowledge collections and their published-document search.
  * The server applies project membership and knowledge-base read authorization before returning data.
  */
+export interface KnowledgeBindingView {
+  id: string;
+  documentId: string;
+  roleId: string | null;
+  required: boolean;
+}
+
+export interface KnowledgeBindingsView {
+  version: number;
+  canManage: boolean;
+  items: KnowledgeBindingView[];
+}
+
+export const knowledgeBindingApi = {
+  list: (projectId: string) =>
+    apiRequest<KnowledgeBindingsView>(`${projectPath(projectId)}/knowledge-bindings`),
+  bind: (
+    projectId: string,
+    input: {
+      expectedVersion: number;
+      documentId: string;
+      roleId: string | null;
+      required: boolean;
+    },
+  ) =>
+    apiRequest<{ version: number; binding: KnowledgeBindingView }>(
+      `${projectPath(projectId)}/knowledge-bindings`,
+      {
+        method: 'PUT',
+        body: input,
+        idempotencyKey: 'auto',
+      },
+    ),
+};
+
 export const knowledgeBaseApi = {
   list: (projectId: string, input: { limit?: number; cursor?: string | null } = {}) => {
     const query = new URLSearchParams({ limit: String(input.limit ?? 50) });
@@ -805,11 +908,23 @@ export const invitationApi = {
     ),
 };
 
+export interface RequirementListQuery {
+  cursor?: string;
+  limit?: number;
+  q?: string;
+  phase?: string;
+}
+
 export const requirementApi = {
-  list: (projectId: string, cursor?: string) => {
-    const query = new URLSearchParams({ limit: '50' });
-    if (cursor) query.set('cursor', cursor);
-    return apiRequest<ListPage<RequirementView>>(`${projectPath(projectId)}/requirements?${query}`);
+  list: (projectId: string, options: string | RequirementListQuery = {}) => {
+    const input = typeof options === 'string' ? { cursor: options } : options;
+    const query = new URLSearchParams({ limit: String(input.limit ?? 50) });
+    if (input.cursor) query.set('cursor', input.cursor);
+    if (input.q?.trim()) query.set('q', input.q.trim());
+    if (input.phase) query.set('phase', input.phase);
+    return apiRequest<ListPage<RequirementView> & { total: number }>(
+      `${projectPath(projectId)}/requirements?${query}`,
+    );
   },
   create: (projectId: string, data: { title: string; description?: string }) =>
     apiRequest<RequirementView>(`${projectPath(projectId)}/requirements`, {
@@ -907,6 +1022,7 @@ export interface WorkflowRevisionView {
   revision: number;
   digest: string;
   definition: Record<string, unknown>;
+  compiledRules?: WorkflowCompiledRules;
 }
 
 export const workflowApi = {
@@ -983,6 +1099,9 @@ export const documentApi = {
     return apiRequest<ListPage<DocumentDetail>>(`${projectPath(projectId)}/documents?${query}`);
   },
   get: (documentId: string) => apiRequest<DocumentDetail>(`/documents/${enc(documentId)}`),
+  /** 按评审绑定的精确修订读取元数据，不加载所属文档的全部历史或正文。 */
+  revisionMetadata: (documentId: string, revisionId: string) =>
+    apiRequest<RevisionView>(`/documents/${enc(documentId)}/revisions/${enc(revisionId)}/metadata`),
   content: (revisionId: string) =>
     apiRequest<{
       revisionId: string;
@@ -1115,13 +1234,41 @@ export const delegationApi = {
     }),
 };
 
+function boardQueryString(input: BoardQuery & { search?: string } = {}) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(input)) {
+    if (value !== undefined && value !== '') query.set(key, String(value));
+  }
+  return query.size ? `?${query}` : '';
+}
+
 export const boardApi = {
-  get: (projectId: string) => apiRequest<BoardSnapshot>(`${projectPath(projectId)}/board`),
+  get: (projectId: string, query: BoardQuery = {}) =>
+    apiRequest<BoardSnapshot>(`${projectPath(projectId)}/board${boardQueryString(query)}`),
+  column: (projectId: string, column: BoardColumnKey, query: BoardQuery = {}) =>
+    apiRequest<BoardColumnPage>(
+      `${projectPath(projectId)}/board/columns/${enc(column)}${boardQueryString(query)}`,
+    ),
+  requirements: (projectId: string, query: BoardQuery = {}) =>
+    apiRequest<BoardRequirementPage>(
+      `${projectPath(projectId)}/board/requirements${boardQueryString(query)}`,
+    ),
+  filters: (
+    projectId: string,
+    kind: 'roles' | 'requirements',
+    query: BoardQuery & { search?: string } = {},
+  ) =>
+    apiRequest<BoardFilterPage>(
+      `${projectPath(projectId)}/board/filters/${kind}${boardQueryString(query)}`,
+    ),
 };
 
 export const taskApi = {
   get: (taskId: string) => apiRequest<TaskView>(`/tasks/${enc(taskId)}`),
+  inputs: (taskId: string) => apiRequest<TaskInputStatus>(`/tasks/${enc(taskId)}/input-status`),
 };
+
+export type TaskInputStatus = import('@workmesh/shared').TaskInputStatusView;
 
 export interface ArtifactView {
   id: string;
@@ -1168,6 +1315,7 @@ export interface ArtifactSetCodeReviewView {
   required: boolean;
   acceptable: boolean;
   evidence: CodeReviewEvidenceView[];
+  diagnostics?: CodeEvidenceDiagnostics;
 }
 
 export interface ArtifactSetView {
@@ -1227,6 +1375,8 @@ export interface WorkbenchRole {
 }
 
 export interface WorkbenchReviewItem {
+  blocking?: number | null;
+  dependencyImpact?: import('@workmesh/shared').DependencyImpact;
   reviewId: string;
   kind: string;
   status: string;
@@ -1257,6 +1407,8 @@ export interface WorkbenchReviewItem {
 }
 
 export interface WorkbenchChangeItem {
+  blocking?: number | null;
+  dependencyImpact?: import('@workmesh/shared').DependencyImpact;
   recipientId: string;
   eventId: string;
   projectId: string;
@@ -1269,9 +1421,12 @@ export interface WorkbenchChangeItem {
   version: number;
   createdAt: string;
   ageSeconds: number;
+  guidance?: import('@workmesh/shared').ChangeGuidance;
 }
 
 export interface WorkbenchReadyTaskItem {
+  blocking?: number | null;
+  dependencyImpact?: import('@workmesh/shared').DependencyImpact;
   taskId: string;
   projectId: string;
   projectKey: string;
@@ -1283,6 +1438,8 @@ export interface WorkbenchReadyTaskItem {
   executionStatus: string;
   workStatus: string;
   ageSeconds: number | null;
+  responsibleUser: { id: string; email: string } | null;
+  claimEligibility: TaskClaimEligibility;
 }
 
 /** 逾期审批（到期未决定）：工作台置顶展示，跨项目按 dueAt 升序。 */

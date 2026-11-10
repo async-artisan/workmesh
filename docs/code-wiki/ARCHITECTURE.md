@@ -229,7 +229,7 @@ pnpm build
 git diff --check
 ```
 
-`scripts/verify.sh` 还会执行格式、lint、type-check、全量测试、API coverage、构建和 Prisma validate。
+完整门禁使用跨平台的 `pnpm verify`；`scripts/verify.sh` 仅作转发。该入口要求显式隔离测试库，先核对实际连接身份，再执行静态、无缓存单元/构建、契约、脚本防护、Prisma、数据库集成/漂移、bundle 证据、真实 Chromium、UI review 和覆盖率。配置与限制见[完整本地验证](../testing/local-verification.md)。
 
 ### 11.2 测试边界
 
@@ -263,7 +263,7 @@ git diff --check
 
 ### 13.3 修改后
 
-按变更面运行最小相关测试，再运行 `pnpm type-check`、`pnpm test`、`pnpm build` 或 `scripts/verify.sh`。涉及协议时必须运行 `pnpm test:contracts`；涉及 DB 时先 Prisma validate，再用隔离测试库。
+按变更面运行最小相关测试，再按[完整本地验证](../testing/local-verification.md)配置隔离库并运行 `pnpm verify`。涉及协议时必须同步契约；涉及 schema 时提交迁移并验证漂移，不能用应用工作库运行写入测试。
 
 ## 14. Assumptions and Items Needing Human Validation / 假设与待核实项
 

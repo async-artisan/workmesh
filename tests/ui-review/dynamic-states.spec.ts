@@ -37,7 +37,9 @@ for (const width of [1440, 1024, 640, 390]) {
     const drawer = page.getByRole('dialog');
     await expect(drawer).toBeVisible();
     await expect(drawer).toContainText('变更字段');
-    await expect(drawer).toContainText('description / acceptance');
+    await expect(drawer).toContainText('需求描述 / 验收条件');
+    await expect(drawer.getByRole('button', { name: '确认已知悉' })).toBeVisible();
+    await expect(drawer).toContainText('知悉只确认你已收到这次变更');
     await expect(drawer).toContainText('影响面');
     await expect(drawer).toContainText('角色：后端、产品');
     await expect(drawer).toContainText('版本：v3');

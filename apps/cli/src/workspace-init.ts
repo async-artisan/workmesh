@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { deviceLogin } from './auth';
 import { V1Client, type FetchLike } from './client';
 import { bearerOf } from './credential-store';
+import { findReusableCredential } from './credential-session';
 import { assertRoleKey, type WorkspaceHost } from './config';
 import { confirmFileStore } from './consent';
 import { CliError, asCliError } from './errors';
@@ -81,6 +82,7 @@ export type WorkspaceInitOptions = {
   now?: () => Date;
   fetch?: FetchLike;
   login?: WorkspaceInitLogin;
+  findReusableCredential?: typeof findReusableCredential;
   consent?: () => Promise<void>;
   /** Local capability checks run after arguments/state validation and before consent or code consumption. */
   preflight?: () => Promise<void>;
@@ -464,22 +466,35 @@ export async function runWorkspaceInit(
     process.once('SIGINT', onSigint);
     try {
       options.onStage?.('AUTHORIZATION');
-      granted = await login({
+      const reusable = await (options.findReusableCredential ?? findReusableCredential)({
         platform,
         configHome: options.configHome,
         projectId: enrolled.projectId,
         roleKey: role,
-        clientName: options.clientName ?? 'workmesh-workspace-init',
-        timeoutMs: options.timeoutMs,
-        signal: loginAbort.signal,
-        onPrompt:
-          options.onPrompt ??
-          ((prompt) => {
-            process.stderr.write(`在浏览器打开：${prompt.url}\n输入代码：${prompt.userCode}\n`);
-            process.stderr.write(`有效期至 ${prompt.expiresAt}；CLI 会每 5 秒检查一次。\n`);
-          }),
-        onNotice: options.onNotice ?? ((text) => process.stderr.write(`${text}\n`)),
+        fetch: options.fetch,
+        now: (options.now?.() ?? new Date()).getTime(),
       });
+      if (reusable)
+        options.onNotice?.('已在线验证并复用当前平台、项目和角色的有效凭据，无需重复浏览器授权。');
+      granted = reusable
+        ? { credential: reusable, credentialPath: '', requestId: '' }
+        : await login({
+            platform,
+            configHome: options.configHome,
+            projectId: enrolled.projectId,
+            roleKey: role,
+            clientName: options.clientName ?? 'workmesh-workspace-init',
+            timeoutMs: options.timeoutMs,
+            fetch: options.fetch,
+            signal: loginAbort.signal,
+            onPrompt:
+              options.onPrompt ??
+              ((prompt) => {
+                process.stderr.write(`在浏览器打开：${prompt.url}\n输入代码：${prompt.userCode}\n`);
+                process.stderr.write(`有效期至 ${prompt.expiresAt}；CLI 会每 5 秒检查一次。\n`);
+              }),
+            onNotice: options.onNotice ?? ((text) => process.stderr.write(`${text}\n`)),
+          });
     } catch (error) {
       const failure = asCliError(error);
       throw new CliError(
@@ -506,6 +521,11 @@ export async function runWorkspaceInit(
             enrollmentConsumed: true,
           },
         },
+      );
+    if (granted.credential.roleKey !== role)
+      throw new CliError(
+        'ROLE_MISMATCH',
+        `授权角色与 --role ${role} 不一致；请重新接入并选择目标角色。`,
       );
 
     const authed = createClient({ platform, bearer: bearerOf(granted.credential) });
@@ -667,8 +687,16 @@ export async function runWorkspaceInit(
         userIndex: userIndexLabel(),
         warnings,
         nextActions: [
-          'workmesh workspace discover --root .',
-          'workmesh workspace bind --repository <projectRepositoryId> --path <dir>',
+          '请先进入 --root 指定的本地工作区根目录，再执行以下命令。',
+          'workmesh workspace status',
+          ...(config.layout.kind !== 'NONE'
+            ? [
+                'workmesh workspace discover --root .',
+                '根据 discover 的仓库 ID 与真实代码目录执行 workmesh workspace bind --repository <projectRepositoryId> --path <dir>，完成仓库绑定验证。',
+              ]
+            : []),
+          `workmesh setup --role ${role} --host ${host}（安装角色资源；有效凭据将复用）`,
+          `workmesh doctor --role ${role} --online`,
         ],
       };
     } catch (error) {

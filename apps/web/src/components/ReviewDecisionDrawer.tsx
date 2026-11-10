@@ -1,5 +1,10 @@
-import { ReviewDecision } from '../pages/ReviewDecision';
+import { Suspense, lazy } from 'react';
 import { Modal } from './Modal';
+import { PageState } from './PageState';
+
+const ReviewDecision = lazy(() =>
+  import('../pages/ReviewDecision').then((module) => ({ default: module.ReviewDecision })),
+);
 
 /** 工作台签字/审批抽屉：复用决定页的证据与决定逻辑，避免两套权限与票据流程。 */
 export function ReviewDecisionDrawer({
@@ -22,7 +27,9 @@ export function ReviewDecisionDrawer({
       onClose={onClose}
     >
       {reviewId && (
-        <ReviewDecision reviewId={reviewId} embedded onDecisionCommitted={onDecisionCommitted} />
+        <Suspense fallback={<PageState state={{ kind: 'loading' }} title="正在加载评审…" />}>
+          <ReviewDecision reviewId={reviewId} embedded onDecisionCommitted={onDecisionCommitted} />
+        </Suspense>
       )}
     </Modal>
   );

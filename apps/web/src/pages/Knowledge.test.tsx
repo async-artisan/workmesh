@@ -1081,7 +1081,7 @@ describe('Knowledge（撤销发布必须带版本与票据）', () => {
     expect((await screen.findAllByText('刷新后的知识文档')).length).toBeGreaterThan(0);
   });
 
-  it('知识库空态给出角色、可开工任务、CLI 命令和任务流程引导', async () => {
+  it('知识库空态给出角色、前置已完成的团队任务、CLI 命令和任务流程引导', async () => {
     mockFetch((url, init) => {
       const path = pathOf(url);
       const method = methodOf(init ?? {});
@@ -1129,8 +1129,8 @@ describe('Knowledge（撤销发布必须带版本与票据）', () => {
     expect(await screen.findByTestId('knowledge-agent-guide')).toBeInTheDocument();
     expect(screen.getByText(/当前项目可用角色/)).toBeInTheDocument();
     expect(await screen.findByText(/后端（backend）/)).toBeInTheDocument();
-    expect(screen.getByText(/1 项可开工任务/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '查看可开工任务' })).toBeInTheDocument();
+    expect(screen.getByText(/1 项前置已完成的团队任务/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查看前置已完成的团队任务' })).toBeInTheDocument();
     expect(screen.getByText('workmesh auth login')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '复制初始化命令' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /创建文档/ })).not.toBeInTheDocument();

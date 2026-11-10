@@ -109,8 +109,14 @@ async function main(): Promise<number> {
     else {
       for (const step of report.steps) {
         console.log(
-          `${step.listening ? 'ok ' : '!! '}${step.name} :${step.port} ${
-            step.started ? '（本次启动）' : step.listening ? '（已在运行）' : '（未运行）'
+          `${(step.ready ?? step.listening) ? 'ok ' : '!! '}${step.name} :${step.port} ${
+            step.ready === false && step.listening
+              ? '（监听中，未就绪）'
+              : step.started
+                ? '（本次启动）'
+                : step.listening
+                  ? '（已在运行）'
+                  : '（未运行）'
           } — ${step.detail}`,
         );
       }
@@ -118,7 +124,7 @@ async function main(): Promise<number> {
       if (report.hint) console.log(`\n提示：${report.hint}`);
       console.log(`\n数据目录：${ctx.dataDir}（日志在 ${ctx.dataDir}/logs）`);
     }
-    return report.steps.every((step) => step.listening) ? 0 : 1;
+    return report.ok ? 0 : 1;
   }
 
   if (command === 'backup') {
@@ -135,7 +141,7 @@ async function main(): Promise<number> {
       console.log(`sha256：${result.manifest.dumpSha256 ?? '（未计算）'}`);
       if (result.verification) {
         console.log(
-          `可恢复性：已验证（${result.verification.verifiedAt}，恢复出 ${result.verification.tables} 张表）`,
+          `结构恢复：已验证（${result.verification.verifiedAt}，恢复出 ${result.verification.tables} 张表；未检查业务数据）`,
         );
       } else {
         console.log('可恢复性：未验证——加 --verify 会真的恢复一次再删掉临时库');

@@ -173,6 +173,7 @@ class MemoryGithubRepo implements V1GithubEvidenceRepository {
   async findArtifactSet(): Promise<null> {
     return null;
   }
+  async assertCodeEvidenceTarget(): Promise<void> {}
   async findApprovedEvidenceForHead(): Promise<null> {
     return null;
   }

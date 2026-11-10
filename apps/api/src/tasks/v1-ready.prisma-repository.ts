@@ -70,7 +70,7 @@ export class V1ReadyPrismaRepository implements V1ReadyRepository {
         executionStatus: 'OPEN',
         currentClaimId: null,
         workStatus: 'ACTIVE',
-        instance: { retiredAt: null },
+        instance: { retiredAt: null, workStatus: 'ACTIVE', requirement: { workStatus: 'ACTIVE' } },
         ...(input.roleId ? { roleId: input.roleId } : {}),
         ...(and.length > 0 ? { AND: and } : {}),
       },
@@ -113,12 +113,13 @@ export class V1ReadyPrismaRepository implements V1ReadyRepository {
     if (instanceIds.length === 0) return [];
     const rows = await this.prisma.task.findMany({
       where: { workflowInstanceId: { in: [...instanceIds] } },
-      select: { workflowInstanceId: true, stepKey: true, executionStatus: true },
+      select: { workflowInstanceId: true, stepKey: true, executionStatus: true, workStatus: true },
     });
     return rows.map((row) => ({
       workflowInstanceId: row.workflowInstanceId,
       stepKey: row.stepKey,
       executionStatus: row.executionStatus,
+      workStatus: row.workStatus,
     }));
   }
 }

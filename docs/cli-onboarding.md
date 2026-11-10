@@ -79,7 +79,7 @@ workmesh setup --dir "<业务项目绝对路径>" --role frontend --host codex
 
 `setup` 会做预检并使用浏览器设备授权。已接入目录可读取平台和项目配置，内置角色随发行包自动定位，通常无需 `--package`。六个内置角色是 `product`、`ui`、`frontend`、`backend`、`qa`、`ops`；选择本次实际承担的角色。自定义角色包才需要显式 `--package "<自定义角色包绝对目录>"`，目录必须含 `manifest.json`。路径无效时 CLI 会报错并提示可用候选，不会偷偷换成另一个包。
 
-绑定和资源检查后，按 [README 的任务命令](../README.md#cli) 使用 `claim` → `context` → `deliver` → `review` → `changes`。任务与版本参数来自当前平台响应。`review` 只创建人工评审请求，批准、返修、撤销和发布仍在 Web 完成。
+绑定和资源检查后，按 [README 的任务命令](../README.md#cli) 使用 `context --inspect` → `claim` → `context` → `deliver` → `review show` → `changes`。任务与版本参数来自当前平台响应；`deliver` 自动创建评审，再用返回的真实 `reviewRequestId` 查询。批准、返修、撤销和发布仍在 Web 完成。
 
 ## 已有配置、兼容入口与中断恢复
 
@@ -113,6 +113,39 @@ workmesh workspace recover --root "<业务项目绝对路径>" --apply
 `recover --apply` 只清理已证明提交完成的 pending 记录，不消费接入码、不删除活动锁、不重写已提交配置，也不自动续接设备授权。未完成、摘要不符、旧记录缺少证据或存在锁时保留现场，按报告核对；已消费的码需要回 Web 重新生成，但不能拿新码直接覆盖未解决的本机状态。若初次命令使用了 `--config-home`，后续诊断、状态检查和恢复也使用同一个绝对配置目录。
 
 ## 验收步骤与证据边界
+
+接入和角色资源准备完成后，可直接发现任务与检查上下文：
+
+```text
+workmesh tasks ready --dir "<业务项目绝对路径>" --json
+workmesh tasks show --task <真实任务UUID> --dir "<业务项目绝对路径>" --json
+workmesh context --task <真实任务UUID> --inspect --dir "<业务项目绝对路径>" --json
+```
+
+`tasks ready` 列的是当前可见范围内前置任务已完成的任务；每项另给出本人领取资格。列表中的其他责任人任务、无效角色和不足的凭据权限不会变成本人的领取入口。`tasks show` 同时读取当前任务与只读输入核验：服务端正文、外部 Git 引用、本机环境分别判断。输入读取失败会保留错误，不能据此断言没有输入或没有变化。
+
+`context --inspect` 不需要 claim 或任务版本，不创建快照；逐项列出缺失或不可用的输入、责任角色和恢复动作。查询退出码 0 只代表成功读取诊断，能否创建快照仍需检查 `availability`；旧平台缺少逐项诊断时会保留不完整提示。不要与 `--claim`、`--expected-version`、`--materialize` 或写操作编号组合。
+
+`deliver` 成功后返回自动创建的 `reviewRequestId`、Web 地址、任务版本和操作编号；该编号也保存到本地收据，无需再次创建同一轮评审。使用返回的真实编号继续：
+
+```text
+workmesh review show --review <评审UUID> --dir "<业务项目绝对路径>" --json
+workmesh review issue --review <评审UUID> --title "缺少边界用例" --body "请补充权限撤回后的场景" --dir "<业务项目绝对路径>" --json
+workmesh review reply --review <当前评审UUID> --discussion <问题UUID> --expected-version <当前问题版本> --body "调整说明与依据" --addressed-in-review <实际交付评审UUID> --dir "<业务项目绝对路径>" --json
+```
+
+若交付输出丢失，用 `workmesh receipt show --operation <原交付操作UUID> --dir "<业务项目绝对路径>" --json` 读取 `data.resultRefs.reviewRequestId`；PENDING 或未知结果先按下文核对原收据。返修后重新 `deliver` 会自动创建本轮评审，使用新返回的真实编号继续查询。
+
+`review show` 返回来源评审、问题、追加回应、当前版本及分页游标。默认文本输出在每条问题编号旁显示该问题自己的 `vN`，它与顶部的评审版本不同；`reply --expected-version` 使用问题版本。`issue` / `reply` 成功后显示服务端返回的问题编号和新版本。问题或回应超过单页时，用 `--discussion-cursor`，或按输出执行 `review entries --review <来源评审UUID> --discussion <问题UUID> --cursor <游标>`；游标为不透明值，直接复用。讨论读取失败时 `discussionError` 保留具体错误，`discussions: null` 不表示没有问题。`reply` 默认 `REPLY`；`--kind RESOLVED` / `REOPENED` 只改变问题状态，权限仍由服务端复核，不能代替 HUMAN 正式批准。
+
+写请求发送前先保存原操作的 PENDING 收据；网络中断、超时或服务端结果未知时不自动重试。先在原工作区查询本地列表并用同一配置目录、原凭据核对原操作：
+
+```text
+workmesh receipt list --dir "<业务项目绝对路径>" --json
+workmesh receipt reconcile --operation <原操作UUID> --dir "<业务项目绝对路径>" --json
+```
+
+`receipt list` 可离线查看。服务端返回统一 404 时，仍可能是未提交、不可读或尚未取得结果，原记录保持待核对；不要把它解释成可安全换新编号重发。需要重放时按错误提示保留原内容与 `--operation <原操作UUID>`。成功响应后仅本地落盘失败会明确报告服务端已经提交，不能把它当作普通提交失败重复创建。
 
 可在隔离的业务目录和独立 `--config-home` 中按下表验收，使用测试平台和测试项目，不复用生产的一次性接入码。
 

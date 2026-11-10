@@ -258,9 +258,21 @@ for (const width of [1440, 1024, 640, 390]) {
     await page.keyboard.press('Enter');
     const panel = page.getByRole('dialog', { name: '通知中心', exact: true });
     await expect(panel).toBeVisible();
-    await expect(panel).toContainText('发布流程定义');
-    await readable(panel.locator('.notification-item small'));
-    await expect(panel.locator('.notification-item small')).toContainText(actorEmail);
+    const activity = panel.getByRole('button', { name: /发布流程定义 验收示例项目/ });
+    await expect(activity).toHaveCount(1);
+    const metadata = activity.locator('small').filter({ hasText: actorEmail });
+    const actionHint = activity.getByText('打开项目流程', { exact: true });
+    await expect(metadata).toHaveCount(1);
+    await expect(metadata).toContainText(actorEmail);
+    await expect(actionHint).toHaveCount(1);
+    // Author/time and the new destination hint are separate readable text.
+    // Check both rather than selecting one positional <small> and hiding a regression.
+    for (const text of [metadata, actionHint]) {
+      await readable(text);
+      expect(await text.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
+        true,
+      );
+    }
     await noPageOverflow(page);
     const close = panel.getByRole('button', { name: '关闭通知', exact: true });
     await close.focus();

@@ -1,5 +1,51 @@
 import { describe, expect, it } from 'vitest';
-import { validateResourceRecords, validateSkillFrontmatter } from './validation.mjs';
+import {
+  validateAcceptanceTemplates,
+  validateCaseTemplate,
+  validateResourceRecords,
+  validateSkillFrontmatter,
+} from './validation.mjs';
+
+describe('artifact template contracts', () => {
+  const item = { key: 'ac-01', text: '可观测结果', verification: 'TEST' };
+  const yamlSource = 'acceptance:\n  - key: ac-01\n    text: 可观测结果\n    verification: TEST\n';
+  it('accepts matching YAML and directly submittable JSON', () => {
+    expect(validateAcceptanceTemplates(yamlSource, JSON.stringify([item]))).toEqual([item]);
+  });
+  it('rejects invalid keys, unsupported fields and a drifted JSON copy', () => {
+    expect(() =>
+      validateAcceptanceTemplates(yamlSource.replace('ac-01', 'A1'), JSON.stringify([item])),
+    ).toThrow(/key/);
+    expect(() =>
+      validateAcceptanceTemplates(
+        yamlSource + '    category: FUNCTIONAL\n',
+        JSON.stringify([item]),
+      ),
+    ).toThrow(/not persisted/);
+    expect(() =>
+      validateAcceptanceTemplates(yamlSource, JSON.stringify([{ ...item, text: '不同结果' }])),
+    ).toThrow(/same acceptance/);
+    expect(() =>
+      validateAcceptanceTemplates(
+        yamlSource.replace('key: ac-01', 'key: 123'),
+        JSON.stringify([item]),
+      ),
+    ).toThrow(/key/);
+  });
+  it('rejects case keys or verification modes that drift from the acceptance template', () => {
+    const source = 'cases:\n  - id: TC-01\n    covers: [ac-01]\n    kind: TEST\n';
+    expect(() => validateCaseTemplate(source, [item])).not.toThrow();
+    expect(() => validateCaseTemplate(source.replace('ac-01', 'ac-99'), [item])).toThrow(
+      /references/,
+    );
+    expect(() => validateCaseTemplate(source.replace('TEST', 'DEMO'), [item])).toThrow(
+      /verification/,
+    );
+    expect(() => validateCaseTemplate(source, [item, { ...item, key: 'ac-02' }])).toThrow(
+      /every example acceptance/,
+    );
+  });
+});
 
 describe('validateSkillFrontmatter', () => {
   it('accepts the required scalar metadata when the name matches its directory', () => {
@@ -26,7 +72,8 @@ describe('validateSkillFrontmatter', () => {
 
   it('accepts a valid YAML block scalar description', () => {
     expect(
-      validateSkillFrontmatter('---\nname: x\ndescription: >\n  Use for task context.\n---\n').description,
+      validateSkillFrontmatter('---\nname: x\ndescription: >\n  Use for task context.\n---\n')
+        .description,
     ).toMatch(/^Use for task context\./);
   });
 

@@ -71,3 +71,9 @@ workmesh candidate --kind PRD \
 - 网络中断后用**同一个** `--operation <uuid>` 重放，服务端按幂等键返回首次结果，不会生成第二份候选。
 - 看不清结果：`workmesh receipt show --operation <uuid>`；需要与服务端对账：`workmesh receipt reconcile --operation <uuid>`。
 - 需要知道自己的审批是否通过：`workmesh changes`（收件箱），不要在本地猜测状态。
+
+## 规格与交付自检
+
+开工或返修时按 `checklists/spec-driven.md` 核对范围、依据、版本与交接；只读取当前阶段需要的资源。
+PRD 评审前使用 `check-requirements`，质量清单检查需求定义；正式验收条目仅携带当前 API 支持的 `key / text / verification`。
+方向未定使用 `assess-idea`，依据正反证据选择继续、澄清或停止，结论与来源可正式提交为 DECISION 候选。

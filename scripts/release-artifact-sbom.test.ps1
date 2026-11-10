@@ -22,6 +22,28 @@ $tokens = $null
 $parseErrors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'release-artifact-sbom.ps1'), [ref]$tokens, [ref]$parseErrors)
 Assert-Check 'production script parses' ($parseErrors.Count -eq 0)
+$production = $ast.Extent.Text
+Assert-Check 'bundle merger is included in stable evidence tool hashes' ($production -match '\$evidenceSources = @\([^\r\n]*\$bundleMerger')
+Assert-Check 'bundle merge happens before strict CycloneDX validation' ($production.IndexOf('$mergeResult = & node $bundleMerger') -ge 0 -and $production.IndexOf('$mergeResult = & node $bundleMerger') -lt $production.IndexOf('& node $schemaValidator $cdxPath'))
+Assert-Check 'bundle merge failure aborts scan evidence generation' ($production -match 'if \(\$LASTEXITCODE -ne 0\) \{ throw "Conservative rendered bundle merge failed')
+Assert-Check 'bundle merge summary is retained in scan manifest' ($production.Contains('$evidence.bundleMerge ='))
+$bundleAssignment = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -match '^(?:\[string\[\]\])?\$bundleDirectories$' }, $true)
+$mergeInvocation = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$mergeResult' }, $true)
+if (-not $bundleAssignment -or -not $mergeInvocation) { throw 'Production bundle argument statements are missing.' }
+$bundleMerger = Join-Path $testRoot 'native argv fixture.mjs'
+[System.IO.File]::WriteAllText($bundleMerger, 'process.stdout.write(JSON.stringify(process.argv.slice(2)));')
+$cdxPath = Join-Path $testRoot 'fixture document.cdx.json'
+$target = @{ Root=(Join-Path $testRoot 'archive root'); Inventory=@{ ArchiveSha256=('a' * 64) } }
+foreach ($kind in @('box','cli')) {
+  # Execute the actual production assignment and invocation through a real Node process.
+  Invoke-Expression $bundleAssignment.Extent.Text
+  Invoke-Expression $mergeInvocation.Extent.Text
+  Assert-Check ("$kind merger native invocation exits successfully") ($LASTEXITCODE -eq 0)
+  $actualArguments = @(($mergeResult -join [Environment]::NewLine) | ConvertFrom-Json)
+  $expectedDirectories = if ($kind -eq 'box') { @('app/cli/dist','app/web/dist') } else { 'app/cli' }
+  $expectedArguments = @($cdxPath,$target.Root,$target.Inventory.ArchiveSha256) + @($expectedDirectories)
+  Assert-Check ("$kind merger receives intact native argv boundaries") (($actualArguments | ConvertTo-Json -Compress) -eq ($expectedArguments | ConvertTo-Json -Compress))
+}
 foreach ($name in @('Get-Sha256','Assert-NoReparseAncestors','Assert-OutputLocation','Get-SafeArchiveName','Get-ArchiveInventory','Assert-ArchiveTree','Assert-PinnedSyft','Get-HostPathFindings','Normalize-ScanOutput')) {
   $functionAst = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
   if (-not $functionAst) { throw "Production function missing: $name" }

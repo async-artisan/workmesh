@@ -35,24 +35,34 @@ export class V1NotificationService {
       );
 
     const snapshot = await this.workbench.get(principal, null);
-    const signOffs = snapshot.reviews.filter(
+    const actionableReviews = snapshot.reviews.filter((review) =>
+      review.slots.some((slot) => slot.viewerCanDecide && !slot.decided),
+    );
+    const readyTasks = snapshot.readyTasks.filter((task) => task.claimEligibility.canClaim);
+    const counts = {
+      reviews: actionableReviews.length,
+      changes: snapshot.changes.length,
+      readyTasks: readyTasks.length,
+      total: actionableReviews.length + snapshot.changes.length + readyTasks.length,
+    };
+    const signOffs = actionableReviews.filter(
       (review) => review.kind === 'TASK_ACCEPTANCE' || review.kind === 'RELEASE_ACCEPTANCE',
     );
-    const approvals = snapshot.reviews.filter(
+    const approvals = actionableReviews.filter(
       (review) => review.kind !== 'TASK_ACCEPTANCE' && review.kind !== 'RELEASE_ACCEPTANCE',
     );
 
     const lines: string[] = [
       `待签字：${signOffs.length} 件`,
       `待审批：${approvals.length} 件`,
-      `待确认变更：${snapshot.counts.changes} 件`,
-      `可开工：${snapshot.counts.readyTasks} 件`,
+      `待知悉变更：${counts.changes} 件`,
+      `本人可领取：${counts.readyTasks} 件（输入与本机环境仍需核验）`,
       '',
     ];
 
-    if (snapshot.reviews.length > 0) {
+    if (actionableReviews.length > 0) {
       lines.push('评审：');
-      for (const review of snapshot.reviews.slice(0, 8)) {
+      for (const review of actionableReviews.slice(0, 8)) {
         const label = review.requirement
           ? `${review.requirement.code} ${review.requirement.title}`
           : review.subjectLabel;
@@ -72,17 +82,17 @@ export class V1NotificationService {
       }
       lines.push('');
     }
+    if (snapshot.warnings.length > 0) {
+      lines.push('部分数据未能完整读取，以上数量仅包含已取得的个人行动：');
+      lines.push(...snapshot.warnings.map((warning) => `- ${warning}`), '');
+    }
     lines.push('请到 WorkMesh 工作台处理。');
 
-    await this.email.send(
-      user.email,
-      `[WorkMesh] 待办 ${snapshot.counts.total} 件`,
-      lines.join('\n'),
-    );
+    await this.email.send(user.email, `[WorkMesh] 待办 ${counts.total} 件`, lines.join('\n'));
     return {
       sent: true,
       to: user.email,
-      counts: snapshot.counts,
+      counts,
     };
   }
 }

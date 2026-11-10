@@ -98,6 +98,8 @@ export const snapshot = {
       role: { key: 'backend', title: '后端' },
       stepKey: 'backend-impl',
       stepDisplayName: '后端交付',
+      responsibleUser: { id: 'fixture-user', email: 'fixture@example.test' },
+      claimEligibility: { canClaim: true, reason: null },
       executionStatus: 'OPEN',
       workStatus: 'ACTIVE',
       ageSeconds: null,
@@ -112,6 +114,22 @@ export const emptySnapshot = {
   readyTasks: [],
   warnings: [],
 };
+export const boardColumnKeys = [
+  'BACKLOG',
+  'ACTIVE',
+  'BLOCKED',
+  'PAUSED',
+  'CANCELLED',
+  'DELIVERED',
+] as const;
+export function boardSummary(
+  totals: Partial<Record<(typeof boardColumnKeys)[number], number>>,
+  requirementTotal = 1,
+) {
+  const columns = boardColumnKeys.map((key) => ({ key, total: totals[key] ?? 0 }));
+  const total = columns.reduce((sum, column) => sum + column.total, 0);
+  return { total, matchedTotal: total, columns, requirementTotal: total ? requirementTotal : 0 };
+}
 
 export async function installReviewFixtures(page: Page) {
   const requests: string[] = [];
@@ -163,7 +181,7 @@ export async function installReviewFixtures(page: Page) {
             version: 1,
           },
         ]);
-      if (path.endsWith('/roles'))
+      if (/^\/api\/v1\/projects\/[^/]+\/roles$/.test(path))
         return reply([
           {
             id: 'role-1',
@@ -177,6 +195,69 @@ export async function installReviewFixtures(page: Page) {
       if (path.endsWith('/repositories') || path.endsWith('/delegations')) return reply([]);
       if (path.endsWith('/workflow-definitions') || path.endsWith('/role-packages'))
         return reply({ items: [], nextCursor: null });
+      const boardMatch = /^\/api\/v1\/projects\/([^/]+)\/board(?:\/(.*))?$/.exec(path);
+      if (boardMatch) {
+        const projectId = boardMatch[1];
+        const empty = projectId === 'p2';
+        const queryKey = `ui-review-board-${projectId}`;
+        const summary = boardSummary({ BACKLOG: empty ? 0 : 1 });
+        const card = {
+          ...task,
+          taskId: task.id,
+          projectId,
+          roleId: 'role-1',
+          roleKey: 'backend',
+          roleTitle: '后端',
+          requirementId: requirement.id,
+          requirementCode: requirement.code,
+          requirementTitle: requirement.title,
+          claimedUserId: null,
+          claimedAt: null,
+        };
+        if (boardMatch[2]?.startsWith('filters/')) {
+          const kind = boardMatch[2].slice('filters/'.length);
+          const items = empty
+            ? []
+            : kind === 'roles'
+              ? [{ value: '后端', label: '后端' }]
+              : [{ value: requirement.code, label: `${requirement.code} · ${requirement.title}` }];
+          return reply({ projectId, queryKey, total: items.length, items, nextCursor: null });
+        }
+        if (boardMatch[2] === 'requirements')
+          return reply({
+            projectId,
+            queryKey,
+            summary,
+            items: empty
+              ? []
+              : [
+                  {
+                    code: requirement.code,
+                    title: requirement.title,
+                    total: 1,
+                    counts: Object.fromEntries(
+                      summary.columns.map(({ key, total }) => [key, total]),
+                    ),
+                    roles: ['后端'],
+                    roleTotal: 1,
+                    rolesNextCursor: null,
+                  },
+                ],
+            nextCursor: null,
+          });
+        if (!boardMatch[2])
+          return reply({
+            projectId,
+            queryKey,
+            summary,
+            columns: summary.columns.map((column) => ({
+              ...column,
+              cards: column.key === 'BACKLOG' && !empty ? [card] : [],
+              nextCursor: null,
+            })),
+          });
+        return error(`未配置看板验收请求：${path}`, 404);
+      }
       if (path.endsWith('/requirements'))
         return reply({ items: path.includes('/p2/') ? [] : [requirement], nextCursor: null });
       if (/\/requirements\/[^/]+$/.test(path))
@@ -322,16 +403,6 @@ export async function installReviewFixtures(page: Page) {
             revokedAt: null,
           },
         ]);
-      if (path.endsWith('/board'))
-        return reply({
-          columns: [
-            {
-              key: 'BACKLOG',
-              cards: [{ ...task, taskId: task.id, requirement, projectId: 'p1', roleId: 'role-1' }],
-            },
-          ],
-          metrics: {},
-        });
       return error(`未配置验收请求：${path}`, 404);
     },
   );

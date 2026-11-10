@@ -204,6 +204,10 @@ jobs:
           $cliNode = Join-Path $cliRoot 'runtime\node.exe'
           $cliEntry = Join-Path $cliRoot 'app\cli\index.js'
           if (-not (Test-Path -LiteralPath $cliNode) -or -not (Test-Path -LiteralPath $cliEntry)) { throw 'CLI archive is missing its Node runtime or entrypoint.' }
+          foreach ($bundleDist in @((Join-Path $boxRoot 'app\cli\dist'), (Join-Path $boxRoot 'app\web\dist'), (Join-Path $cliRoot 'app\cli'))) {
+            & node scripts/verify-bundle-evidence.mjs $bundleDist
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged bundle evidence is missing or differs from the actual archive bytes.' }
+          }
           & $cliNode $cliEntry --version
           if ($LASTEXITCODE -ne 0) { throw "Packaged CLI --version failed with exit code $LASTEXITCODE." }
           Write-Host 'Archive extraction and packaged CLI smoke checks passed.'

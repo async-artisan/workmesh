@@ -32,6 +32,28 @@ type V1TransactionClient = Omit<
 
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [25, 100, 100];
+const REVIEWER_LOOKUP_BATCH_SIZE = 500;
+
+/** 历史列表只读取公开元数据；正文可能很大，仅单修订内容读取需要它。 */
+export const REVISION_SUMMARY_SELECT = {
+  id: true,
+  documentId: true,
+  projectId: true,
+  seq: true,
+  title: true,
+  mimeType: true,
+  byteLength: true,
+  sha256: true,
+  createdById: true,
+  basisUnderstandingRevisionId: true,
+  deliveryScope: true,
+  acceptance: true,
+  reviewRequests: {
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    select: { id: true },
+  },
+} satisfies Prisma.DocumentRevisionSelect;
 
 function isRetryable(error: unknown): boolean {
   const code = (error as { code?: string })?.code;
@@ -54,7 +76,7 @@ function isUniqueViolation(error: unknown): boolean {
  * 写路径（创建/候选/恢复）用它构造响应与 `IdempotentOperation.resultRefs`，
  * 避免把最多 10MiB 的原始字节塞进 JSON 响应和操作账。
  */
-function toRevisionSnapshot(
+export function toRevisionSnapshot(
   revision: {
     id: string;
     documentId: string;
@@ -181,7 +203,7 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
     return revision ? toRevisionView(revision, revision.document) : null;
   }
 
-  async listRevisions(documentId: string): Promise<V1RevisionView[]> {
+  async listRevisions(documentId: string): Promise<V1RevisionSnapshot[]> {
     const document = await this.prisma.knowledgeDocument.findUnique({
       where: { id: documentId },
       select: { knowledgeBaseId: true, currentPublishedRevisionId: true },
@@ -190,15 +212,9 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
     const revisions = await this.prisma.documentRevision.findMany({
       where: { documentId },
       orderBy: { seq: 'desc' },
-      include: {
-        reviewRequests: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: { id: true },
-        },
-      },
+      select: REVISION_SUMMARY_SELECT,
     });
-    return revisions.map((revision) => toRevisionView(revision, document));
+    return revisions.map((revision) => toRevisionSnapshot(revision, document));
   }
 
   async isAssignedReviewer(revisionId: string, userId: string): Promise<boolean> {
@@ -207,6 +223,26 @@ export class V1PublicationPrismaRepository implements V1PublicationRepository {
       select: { id: true },
     });
     return Boolean(slot);
+  }
+
+  async listAssignedReviewerRevisionIds(
+    revisionIds: readonly string[],
+    userId: string,
+  ): Promise<string[]> {
+    const uniqueIds = [...new Set(revisionIds)];
+    const assignedIds: string[] = [];
+    for (let offset = 0; offset < uniqueIds.length; offset += REVIEWER_LOOKUP_BATCH_SIZE) {
+      const revisions = await this.prisma.documentRevision.findMany({
+        where: {
+          id: { in: uniqueIds.slice(offset, offset + REVIEWER_LOOKUP_BATCH_SIZE) },
+          // 与 isAssignedReviewer 相同：任一评审的 requiredUserId，不能额外按状态、角色或委托改权。
+          reviewRequests: { some: { approvalSlots: { some: { requiredUserId: userId } } } },
+        },
+        select: { id: true },
+      });
+      assignedIds.push(...revisions.map((revision) => revision.id));
+    }
+    return assignedIds;
   }
 
   async findRequirement(requirementId: string): Promise<V1RequirementBinding | null> {

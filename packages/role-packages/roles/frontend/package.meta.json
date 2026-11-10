@@ -1,6 +1,6 @@
 {
   "id": "workmesh.role.frontend",
-  "version": "1.1.0",
+  "version": "1.2.1",
   "title": "前端角色包",
   "description": "按契约与设计规格实现界面，先脚手架后细节，交付可复核的实现说明。",
   "license": "MIT",

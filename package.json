@@ -37,6 +37,9 @@
     "lint:eslint": "eslint .",
     "type-check": "turbo run type-check",
     "format:check": "prettier --check \"**/*.{ts,tsx,mts,js,jsx,json,md,yml,yaml}\"",
+    "verify": "node scripts/verify.mjs",
+    "release:readiness": "node scripts/release-readiness.mjs",
+    "test:verify": "node --test scripts/verify.test.mjs",
     "db:generate": "pnpm --filter @workmesh/api db:generate",
     "db:push": "pnpm --filter @workmesh/api db:push",
     "test:integration": "node scripts/test-integration.mjs",
@@ -81,7 +84,12 @@
       "@nestjs/platform-express>multer": "^2.5.0",
       "vitest>vite": "^6.4.4",
       "@vitest/mocker>vite": "^6.4.4",
-      "@nestjs/cli>webpack": "^5.112.2"
+      "@nestjs/cli>webpack": "^5.112.2",
+      "tsup>esbuild": "0.28.2",
+      "@nestjs/cli>glob": "14.0.2",
+      "eslint>minimatch": "11.0.5",
+      "@eslint/config-array>minimatch": "11.0.5",
+      "@typescript-eslint/typescript-estree>minimatch": "11.0.5"
     },
     "onlyBuiltDependencies": [
       "@nestjs/core",
@@ -89,6 +97,9 @@
       "@prisma/engines",
       "esbuild",
       "prisma"
-    ]
+    ],
+    "patchedDependencies": {
+      "deepmerge@4.3.1": "patches/deepmerge@4.3.1.patch"
+    }
   }
 }

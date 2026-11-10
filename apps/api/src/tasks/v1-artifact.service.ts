@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { isCodeEvidenceDiagnosticsAcceptable } from './v1-code-evidence-diagnostics';
 import {
   canonicalJson,
   principalScopeKey,
@@ -78,6 +79,7 @@ export type V1DeliverResult = {
   task: V1TaskSnapshot;
   reviewRequestId: string;
   replayed: boolean;
+  committedState: { taskVersion: number; taskGeneration: number } | null;
 };
 
 export type V1ArtifactContentResult = {
@@ -125,14 +127,24 @@ export class V1ArtifactService {
         404,
       );
     await this.authorization.resolveProjectContext(principal, task.projectId, 'read');
-    const evidence = (await this.artifacts.findCodeReviewEvidence?.(task.projectId, set.id)) ?? [];
+    const [evidence, diagnostics] = await Promise.all([
+      this.artifacts.findCodeReviewEvidence?.(task.projectId, set.id) ?? [],
+      this.artifacts.findCodeReviewDiagnostics?.(task.projectId, set.id) ?? null,
+    ]);
+    // A long diagnostic read must not publish evidence after access was revoked.
+    await this.authorization.resolveProjectContext(principal, task.projectId, 'read');
     const required = needsCodeEvidence(set.artifacts);
     return {
       ...set,
       codeReview: {
         required,
-        acceptable: !required || isCodeEvidenceAcceptable(evidence),
+        acceptable:
+          !required ||
+          (diagnostics
+            ? isCodeEvidenceDiagnosticsAcceptable(diagnostics)
+            : isCodeEvidenceAcceptable(evidence)),
         evidence,
+        ...(diagnostics ? { diagnostics } : {}),
       },
     };
   }
@@ -274,6 +286,16 @@ export class V1ArtifactService {
         task: current,
         reviewRequestId: String(existing.resultRefs.reviewRequestId ?? ''),
         replayed: true,
+        committedState:
+          Number.isSafeInteger(existing.resultRefs.taskVersion) &&
+          Number(existing.resultRefs.taskVersion) > 0 &&
+          Number.isSafeInteger(existing.resultRefs.taskGeneration) &&
+          Number(existing.resultRefs.taskGeneration) > 0
+            ? {
+                taskVersion: Number(existing.resultRefs.taskVersion),
+                taskGeneration: Number(existing.resultRefs.taskGeneration),
+              }
+            : null,
       };
     }
 
@@ -360,7 +382,14 @@ export class V1ArtifactService {
         requestDigest,
       },
     });
-    return { ...result, replayed: false };
+    return {
+      ...result,
+      replayed: false,
+      committedState: {
+        taskVersion: result.task.version,
+        taskGeneration: result.task.generation,
+      },
+    };
   }
 
   private normalizeCandidates(value: unknown): string[] {

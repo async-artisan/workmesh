@@ -34,6 +34,7 @@ describe('V1NotificationService', () => {
           version: 3,
           subjectLabel: 'backend-impl',
           requirement: { code: 'DEMO-001', title: '登录页改版' },
+          slots: [{ viewerCanDecide: true, decided: false }],
         },
         {
           reviewId: 'r2',
@@ -41,6 +42,7 @@ describe('V1NotificationService', () => {
           version: 2,
           subjectLabel: 'PRD v2',
           requirement: { code: 'DEMO-001', title: '登录页改版' },
+          slots: [{ viewerCanDecide: true, decided: false }],
         },
       ],
       changes: [
@@ -52,6 +54,8 @@ describe('V1NotificationService', () => {
           requirement: { code: 'DEMO-002', title: '订单取消' },
         },
       ],
+      readyTasks: [{ claimEligibility: { canClaim: true } }],
+      warnings: [],
     });
     email.send.mockResolvedValue(undefined);
 
@@ -68,6 +72,35 @@ describe('V1NotificationService', () => {
       expect.stringContaining('DEMO-001 登录页改版'),
     );
     expect(result).toMatchObject({ sent: true, to: 'alice@example.com' });
+  });
+
+  it('excludes team-only claims and completed slots and labels partial data', async () => {
+    const { service, prisma, workbench, email } = createHarness();
+    prisma.user.findUnique.mockResolvedValue({ email: 'alice@example.com' });
+    workbench.get.mockResolvedValue({
+      counts: { reviews: 2, changes: 0, readyTasks: 3, total: 5 },
+      reviews: [
+        { kind: 'TASK_ACCEPTANCE', slots: [{ viewerCanDecide: true, decided: true }] },
+        { kind: 'PRD_PUBLICATION', slots: [{ viewerCanDecide: false, decided: false }] },
+      ],
+      changes: [],
+      readyTasks: [
+        { claimEligibility: { canClaim: true } },
+        { claimEligibility: { canClaim: false } },
+        { claimEligibility: { canClaim: false } },
+      ],
+      warnings: ['DEMO：评审数据加载失败'],
+    });
+    expect(await service.sendEmailDigest(principal)).toMatchObject({
+      counts: { reviews: 0, readyTasks: 1, total: 1 },
+    });
+    expect(email.send).toHaveBeenCalledWith(
+      'alice@example.com',
+      '[WorkMesh] 待办 1 件',
+      expect.stringContaining('本人可领取：1 件'),
+    );
+    expect(email.send.mock.calls[0]![2]).toContain('以上数量仅包含已取得的个人行动');
+    expect(email.send.mock.calls[0]![2]).not.toContain('可开工');
   });
 
   it('Agent 主体不能调用邮件摘要', async () => {

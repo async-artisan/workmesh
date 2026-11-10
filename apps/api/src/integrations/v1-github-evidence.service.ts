@@ -395,6 +395,8 @@ export class V1GithubEvidenceService {
         409,
       );
 
+    await this.repository.assertCodeEvidenceTarget({ projectId, ...input });
+
     // 多仓/缺证据拒绝：必须存在针对该 head 的他人 APPROVED 证据。
     // projectId 必须进查询条件：同一仓库被两个项目登记时，只按仓库/PR 查会命中对方的证据，
     // 随后再比对 projectId 只会把"有证据"误判成"缺证据"。
@@ -530,6 +532,16 @@ export class V1GithubEvidenceService {
         { ticketId: input.ticketId },
         409,
       );
+
+    await this.repository.assertCodeEvidenceTarget({
+      projectId,
+      artifactSetId: ticket.artifactSetId,
+      generation: ticket.generation,
+      repositoryId: ticket.repositoryId,
+      changeRequestId: ticket.changeRequestId,
+      headSha: ticket.headSha,
+      evidenceId: ticket.evidenceId,
+    });
 
     const consumed = await this.repository.consumeVersionedTicket(
       input.ticketId,

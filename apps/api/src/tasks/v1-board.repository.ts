@@ -22,20 +22,93 @@ export interface V1BoardCard {
   generation: number;
 }
 
-/** 看板列：固定顺序的派生分组。 */
+export const V1_BOARD_COLUMNS = [
+  'BACKLOG',
+  'ACTIVE',
+  'BLOCKED',
+  'PAUSED',
+  'CANCELLED',
+  'DELIVERED',
+] as const;
+export type V1BoardColumnKey = (typeof V1_BOARD_COLUMNS)[number];
+export type V1BoardFilterKind = 'roles' | 'requirements';
+export interface V1BoardQuery {
+  q?: string;
+  roleTitle?: string;
+  requirementCode?: string;
+  limit?: number;
+  cursor?: string | null;
+  search?: string;
+}
+export interface V1BoardReadQuery {
+  q: string;
+  roleTitle: string;
+  requirementCode: string;
+  limit: number;
+  cursor: string | null;
+  search: string;
+}
+export interface V1BoardSummary {
+  total: number;
+  matchedTotal: number;
+  columns: Array<{ key: V1BoardColumnKey; total: number }>;
+  requirementTotal: number;
+}
+/** Cards are a bounded page; total includes all matches in this column. */
 export interface V1BoardColumn {
-  key: string;
+  key: V1BoardColumnKey;
+  total: number;
   cards: V1BoardCard[];
+  nextCursor: string | null;
 }
 
 export interface V1BoardSnapshot {
   projectId: string;
+  queryKey: string;
+  summary: V1BoardSummary;
   columns: V1BoardColumn[];
+}
+export interface V1BoardColumnPage extends V1BoardColumn {
+  projectId: string;
+  queryKey: string;
+}
+export interface V1BoardRequirementGroup {
+  code: string;
+  title: string;
+  total: number;
+  counts: Record<V1BoardColumnKey, number>;
+  roles: string[];
+  roleTotal: number;
+  rolesNextCursor: string | null;
+}
+export interface V1BoardRequirementPage {
+  projectId: string;
+  queryKey: string;
+  summary: V1BoardSummary;
+  items: V1BoardRequirementGroup[];
+  nextCursor: string | null;
+}
+export interface V1BoardFilterPage {
+  projectId: string;
+  queryKey: string;
+  total: number;
+  items: Array<{ value: string; label: string }>;
+  nextCursor: string | null;
 }
 
 export const V1_BOARD_REPOSITORY = Symbol('V1_BOARD_REPOSITORY');
 
 export interface V1BoardRepository {
-  /** 读取项目全部任务及其认领/交付派生信息（只读，无写入）。 */
-  listCards(projectId: string): Promise<V1BoardCard[]>;
+  snapshot(projectId: string, query: V1BoardReadQuery): Promise<V1BoardSnapshot>;
+  column(
+    projectId: string,
+    column: V1BoardColumnKey,
+    query: V1BoardReadQuery,
+  ): Promise<V1BoardColumnPage>;
+  requirements(projectId: string, query: V1BoardReadQuery): Promise<V1BoardRequirementPage>;
+  filters(
+    projectId: string,
+    kind: V1BoardFilterKind,
+    query: V1BoardReadQuery,
+  ): Promise<V1BoardFilterPage>;
 }

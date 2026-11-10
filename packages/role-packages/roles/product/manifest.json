@@ -1,7 +1,7 @@
 {
   "packageSchemaVersion": "1.1",
   "id": "workmesh.role.product",
-  "version": "1.1.0",
+  "version": "1.2.1",
   "protocolVersion": "1.0",
   "title": "产品角色包",
   "description": "把业务意图转成可判定的 PRD 与验收，供下游并行开工。",
@@ -28,8 +28,20 @@
     {
       "key": "map-acceptance",
       "path": "skills/map-acceptance/SKILL.md",
-      "description": "把 PRD 拆成可判定的验收条目，标注 verification、category 与 criticality。",
+      "description": "把 PRD 拆成带稳定小写 key、text 与 verification 的正式验收条目。",
       "whenToUse": "PRD 草稿完成或验收需要修订时。"
+    },
+    {
+      "key": "check-requirements",
+      "path": "skills/check-requirements/SKILL.md",
+      "description": "按风险检查需求质量与跨工件一致性，记录缺口、依据和澄清事项。",
+      "whenToUse": "PRD 草稿完成或变更范围扩大时。"
+    },
+    {
+      "key": "assess-idea",
+      "path": "skills/assess-idea/SKILL.md",
+      "description": "用正反证据、成本与备选方向形成继续、澄清或停止的建议。",
+      "whenToUse": "方向尚未确定或需要比较产品投入时。"
     }
   ],
   "inputs": [
@@ -72,24 +84,40 @@
       "id": "example-prd-example",
       "kind": "example",
       "path": "assets/examples/prd-example.md",
-      "sha256": "f9edf38389004d3897fdae4ec43a6d9895e6519c9f1381937c5a1dd357997c54",
-      "byteLength": 1544,
+      "sha256": "db40f5d3a42a16b8142ff96b056f3432e790c8825ba1eca776bde4bcd4f56ca3",
+      "byteLength": 1550,
       "mediaType": "text/markdown"
+    },
+    {
+      "id": "template-acceptance-json",
+      "kind": "template",
+      "path": "assets/templates/acceptance.json",
+      "sha256": "c8b92ccde29e80f34f028a77b1267726b7cdd777907a22529ac38adb1f4d0435",
+      "byteLength": 305,
+      "mediaType": "application/json"
     },
     {
       "id": "template-acceptance",
       "kind": "template",
       "path": "assets/templates/acceptance.yaml",
-      "sha256": "5ee9dd2c4de8d7adbe4f8c4f16e9679b35bad648b2778a2db7e775b4c30ca00d",
-      "byteLength": 815,
+      "sha256": "582781be35b73b9fb8f6ca1f9471a510405adb71b90dd5bd22181a3b57962982",
+      "byteLength": 778,
       "mediaType": "application/yaml"
+    },
+    {
+      "id": "template-idea-assessment",
+      "kind": "template",
+      "path": "assets/templates/idea-assessment.md",
+      "sha256": "ca48cd4e7f657022e931a37666440bcd6ae9f4e2fe748ae28c171806e132140c",
+      "byteLength": 826,
+      "mediaType": "text/markdown"
     },
     {
       "id": "template-prd",
       "kind": "template",
       "path": "assets/templates/prd.md",
-      "sha256": "00dd8a2346dae2b6f0e69a5e7220b32f837e5a845915267953614d34f2fcfcf1",
-      "byteLength": 913,
+      "sha256": "760d7641a9e1b75351dc32b884058bdf20ce625a116069cc4f8bdcc9bbd19192",
+      "byteLength": 1726,
       "mediaType": "text/markdown"
     },
     {
@@ -104,16 +132,24 @@
       "id": "checklist-prd-quality",
       "kind": "checklist",
       "path": "checklists/prd-quality.md",
-      "sha256": "a432f639114a32d812f439856c1540c3aa1e7a4131fe84fe9975f2b2e023ed67",
-      "byteLength": 1146,
+      "sha256": "3feaedfcccf41826c5e64e9e8c7e6b7fea88b5472bb41966e715e096e2fd6b3e",
+      "byteLength": 1596,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "checklist-spec-driven",
+      "kind": "checklist",
+      "path": "checklists/spec-driven.md",
+      "sha256": "eddb341cf017d46fc1a03cf0a89de031acdc1d72ec318fa2ae8a55a48ade6bac",
+      "byteLength": 1124,
       "mediaType": "text/markdown"
     },
     {
       "id": "guide",
       "kind": "prompt",
       "path": "guide.md",
-      "sha256": "33422865ff44b1354b8092d18c6c2cb8533639bccdf6d68d5489a18dcc7266c9",
-      "byteLength": 3896,
+      "sha256": "971e3effb09ae536864e5bb50a32aea77fc93e3806068782cce125134622bec1",
+      "byteLength": 4349,
       "mediaType": "text/markdown"
     },
     {
@@ -125,35 +161,51 @@
       "mediaType": "application/json"
     },
     {
+      "id": "skill-assess-idea",
+      "kind": "skill",
+      "path": "skills/assess-idea/SKILL.md",
+      "sha256": "dcfb70939a358ee879fb88fa92f0e9425691fd15fc3aa9e82f95efb6708d4de9",
+      "byteLength": 1167,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "skill-check-requirements",
+      "kind": "skill",
+      "path": "skills/check-requirements/SKILL.md",
+      "sha256": "3f7c55dc63283ab5f8238214c8a15f3818df764c7f28712c607a819e32aa77b1",
+      "byteLength": 1640,
+      "mediaType": "text/markdown"
+    },
+    {
       "id": "skill-clarify-intent",
       "kind": "skill",
       "path": "skills/clarify-intent/SKILL.md",
-      "sha256": "99bc1b7cbb142ff1e9f26bbf91deb5191f5e565e74d8ea2b4cc5157637964388",
-      "byteLength": 1363,
+      "sha256": "da0dc50e8bd7ea9ae2819c991451b8050dd783807769aee1baecbdef1b6b4f23",
+      "byteLength": 1904,
       "mediaType": "text/markdown"
     },
     {
       "id": "skills-index",
       "kind": "index",
       "path": "skills/index.md",
-      "sha256": "83f22f19f89c127ea28e6b38178df6c36af13a19ffc0591f72ddb14de2566e30",
-      "byteLength": 1060,
+      "sha256": "684268cb886023554d04fea7dcdf4c9539db9bb0404fda1072893f32a70b1a0c",
+      "byteLength": 1440,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-map-acceptance",
       "kind": "skill",
       "path": "skills/map-acceptance/SKILL.md",
-      "sha256": "88a23c1bd8c54c8e4bf0fedabec5b59d700b2a9cf79551dbc4a33f12d7c1d6b4",
-      "byteLength": 2269,
+      "sha256": "5d1c0c9c537407cc6d33649a4136820e4aec66f25c34c80c50c1ad5ad423cf2b",
+      "byteLength": 2494,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-write-prd",
       "kind": "skill",
       "path": "skills/write-prd/SKILL.md",
-      "sha256": "7cb3359ac0aca44f7845f599eaa9edc736d71bd210593ce421b0bc3ef0e865c2",
-      "byteLength": 1547,
+      "sha256": "45adab2d85603584e020bbba17d239bcbadb3567db6e43fb962250356fa53f2b",
+      "byteLength": 2059,
       "mediaType": "text/markdown"
     }
   ],

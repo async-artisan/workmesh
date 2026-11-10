@@ -5,6 +5,7 @@ import { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
 import { V1_ERROR_CODES, WorkmeshError, workflowStepDisplayNameOf } from '@workmesh/shared';
 import { normalizeRoute } from '../common/v1-idempotency';
 import { assertWorkflowInstanceActive } from '../tasks/v1-task-consistency-policy';
+import { snapshotStepsOf } from '../tasks/v1-snapshot-step';
 import { PrismaClient as V1PrismaClient } from '../../../node_modules/.prisma/workmesh-v1-client';
 type V1TransactionClient = Omit<
   V1PrismaClient,
@@ -1340,7 +1341,7 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
         let published = false;
         let publicationId: string | null = null;
         let documentVersion: number | null = null;
-        /** CHANGES_REQUESTED/REJECT 影响的任务；审计与结果追溯使用，不改变旧发布历史。 */
+        /** 受本次决定影响的任务；审计与结果追溯使用，不改变旧批准历史。 */
         let affectedTaskIds: string[] = [];
         let subjectResult: V1SubjectResult | null = null;
         let taskState: V1TaskState | null = null;
@@ -1484,6 +1485,7 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
                 generation: true,
                 phase: true,
                 currentUnderstandingRevisionId: true,
+                currentPrdRevisionId: true,
               },
             });
             if (!requirement)
@@ -1521,7 +1523,12 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
                     ? atLeastPhase(requirement.phase, 'DEFINITION')
                     : atLeastPhase(requirement.phase, 'DELIVERY'),
                 ...(document.kind === 'UNDERSTANDING'
-                  ? { currentUnderstandingRevisionId: revision.id }
+                  ? {
+                      currentUnderstandingRevisionId: revision.id,
+                      // 旧 PRD 的 basis 不再是当前理解；只清当前门禁，保留发布与批准历史。
+                      currentPrdRevisionId: null,
+                      deliveryScope: Prisma.JsonNull,
+                    }
                   : {
                       currentPrdRevisionId: revision.id,
                       deliveryScope: (revision.deliveryScope ??
@@ -1536,6 +1543,22 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
                 { requirementId: requirement.id },
                 409,
               );
+            affectedTaskIds = await this.invalidatePublishedBaselineTasks(tx, {
+              projectId: review.projectId,
+              requirementId: requirement.id,
+              requirementGeneration: requirement.generation + 1,
+              documentId: document.id,
+              documentKind: document.kind,
+              documentRevisionId: revision.id,
+              previousDocumentRevisionId:
+                document.kind === 'UNDERSTANDING'
+                  ? requirement.currentUnderstandingRevisionId
+                  : requirement.currentPrdRevisionId,
+              previousPrdRevisionId: requirement.currentPrdRevisionId,
+              publicationId: publication.id,
+              reviewId: review.id,
+              now: input.now,
+            });
             // 同文档其它未决评审请求随新基线失效，不能再用旧候选批准当前版本。
             await tx.reviewRequest.updateMany({
               where: {
@@ -1654,6 +1677,333 @@ export class V1ReviewPrismaRepository implements V1ReviewRepository {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+  }
+
+  /**
+   * 正式基线发布的失效与通知必须和 publication/需求代次推进同事务。冻结定义识别尚无
+   * snapshot 的必需输入；当前 snapshot 补充实际使用的旧基线；仅传播同需求活动实例的 DAG。
+   * 当前 PRODUCT 输出确为新修订时保留来源任务，历史 APPROVED/工件/快照均不改写。
+   */
+  private async invalidatePublishedBaselineTasks(
+    tx: V1TransactionClient,
+    input: {
+      projectId: string;
+      requirementId: string;
+      requirementGeneration: number;
+      documentId: string;
+      documentKind: 'UNDERSTANDING' | 'PRD';
+      documentRevisionId: string;
+      previousDocumentRevisionId: string | null;
+      previousPrdRevisionId: string | null;
+      publicationId: string;
+      reviewId: string;
+      now: Date;
+    },
+  ): Promise<string[]> {
+    const instances = await tx.workflowInstance.findMany({
+      where: { projectId: input.projectId, requirementId: input.requirementId, retiredAt: null },
+      select: {
+        id: true,
+        definitionRevisionId: true,
+        tasks: {
+          select: {
+            id: true,
+            stepKey: true,
+            version: true,
+            generation: true,
+            workStatus: true,
+            executionStatus: true,
+            currentClaimId: true,
+            currentSnapshotId: true,
+            currentArtifactSetId: true,
+            responsibleUserId: true,
+            roleId: true,
+          },
+        },
+      },
+    });
+    const tasks = instances.flatMap((instance) => instance.tasks);
+    if (tasks.length === 0) return [];
+    const revisionIds = [
+      ...new Set(
+        instances.flatMap((instance) =>
+          instance.definitionRevisionId ? [instance.definitionRevisionId] : [],
+        ),
+      ),
+    ];
+    const revisions = await tx.workflowRevision.findMany({
+      where: { projectId: input.projectId, id: { in: revisionIds } },
+      select: { id: true, definition: true, compiledRules: true },
+    });
+    const revisionById = new Map(revisions.map((revision) => [revision.id, revision]));
+    const snapshots = await tx.contextSnapshot.findMany({
+      where: {
+        projectId: input.projectId,
+        requirementId: input.requirementId,
+        id: {
+          in: tasks.flatMap((task) => (task.currentSnapshotId ? [task.currentSnapshotId] : [])),
+        },
+      },
+      select: {
+        id: true,
+        taskId: true,
+        taskGeneration: true,
+        workflowDefinitionRevisionId: true,
+        manifest: true,
+        resources: {
+          where: { authority: 'PUBLISHED', documentRevisionId: { not: null } },
+          select: { documentRevisionId: true },
+        },
+      },
+    });
+    const snapshotById = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]));
+    const currentSets = await tx.artifactSet.findMany({
+      where: {
+        projectId: input.projectId,
+        id: {
+          in: tasks.flatMap((task) =>
+            task.currentArtifactSetId ? [task.currentArtifactSetId] : [],
+          ),
+        },
+      },
+      select: {
+        id: true,
+        taskId: true,
+        taskGeneration: true,
+        snapshotId: true,
+        workflowDefinitionRevisionId: true,
+        items: {
+          where: { candidateRevisionId: { not: null } },
+          select: {
+            candidateRevisionId: true,
+            candidateRevision: { select: { document: { select: { kind: true } } } },
+          },
+        },
+      },
+    });
+    const setById = new Map(currentSets.map((set) => [set.id, set]));
+    const previousIds = new Set(
+      [
+        input.previousDocumentRevisionId,
+        ...(input.documentKind === 'UNDERSTANDING' ? [input.previousPrdRevisionId] : []),
+      ].filter((id): id is string => id !== null),
+    );
+    const affectedIds = new Set<string>();
+    const validSourceTaskIds = new Set<string>();
+    for (const instance of instances) {
+      const revision = instance.definitionRevisionId
+        ? revisionById.get(instance.definitionRevisionId)
+        : undefined;
+      if (!revision)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.REVIEW_PRECONDITION_FAILED,
+          'WORKFLOW_REVISION_NOT_FOUND',
+          { instanceId: instance.id, revisionId: instance.definitionRevisionId },
+          409,
+        );
+      const steps = snapshotStepsOf(revision.definition);
+      const rawSteps = (
+        revision.definition as { steps?: Array<{ key?: unknown; kind?: unknown }> } | null
+      )?.steps;
+      const sources = (revision.compiledRules as { inputSources?: unknown } | null)?.inputSources;
+      const requiredBaselineSteps = new Set<string>();
+      if (Array.isArray(sources)) {
+        for (const source of sources) {
+          if (!source || typeof source !== 'object' || Array.isArray(source)) continue;
+          const value = source as Record<string, unknown>;
+          if (typeof value.stepKey !== 'string' || value.required === false) continue;
+          if (
+            value.source === 'UPSTREAM_ARTIFACT' &&
+            (value.reference === input.documentKind ||
+              (input.documentKind === 'UNDERSTANDING' && value.reference === 'PRD'))
+          )
+            requiredBaselineSteps.add(value.stepKey);
+        }
+      }
+      const roots = new Set<string>();
+      for (const task of instance.tasks) {
+        const snapshot = task.currentSnapshotId
+          ? snapshotById.get(task.currentSnapshotId)
+          : undefined;
+        const baseline = (
+          snapshot?.manifest as {
+            productBaseline?: {
+              understandingRevisionId?: string;
+              prdRevisionId?: string;
+            };
+          } | null
+        )?.productBaseline;
+        const referenced =
+          snapshot?.taskId === task.id &&
+          (snapshot.resources.some(
+            (resource) =>
+              resource.documentRevisionId && previousIds.has(resource.documentRevisionId),
+          ) ||
+            (input.documentKind === 'UNDERSTANDING'
+              ? Boolean(
+                  baseline?.understandingRevisionId &&
+                  previousIds.has(baseline.understandingRevisionId),
+                )
+              : Boolean(baseline?.prdRevisionId && previousIds.has(baseline.prdRevisionId))));
+        if (
+          referenced ||
+          requiredBaselineSteps.has(task.stepKey) ||
+          steps.some((step) => step.key === task.stepKey && step.baselinePolicy === 'PUBLISHED_PRD')
+        )
+          roots.add(task.stepKey);
+
+        // 文档 review 的 taskId 是可选关联，当前输出来源由不可变 set/snapshot 核验。
+        // 只读当前 set，不让已被替换的历史 candidate 影响当前任务。
+        const step = Array.isArray(rawSteps)
+          ? rawSteps.find((entry) => entry?.key === task.stepKey)
+          : undefined;
+        const output = task.currentArtifactSetId
+          ? setById.get(task.currentArtifactSetId)
+          : undefined;
+        if (
+          step?.kind === 'PRODUCT' &&
+          output?.taskId === task.id &&
+          output.taskGeneration === task.generation &&
+          output.snapshotId === task.currentSnapshotId &&
+          output.workflowDefinitionRevisionId === revision.id &&
+          snapshot?.taskId === task.id &&
+          snapshot.taskGeneration === task.generation &&
+          snapshot.workflowDefinitionRevisionId === revision.id
+        ) {
+          const outputKinds = steps.find((entry) => entry.key === task.stepKey)?.outputKinds ?? [];
+          const candidates = output.items.filter(
+            (item) =>
+              item.candidateRevisionId &&
+              item.candidateRevision &&
+              outputKinds.includes(item.candidateRevision.document.kind),
+          );
+          const replacesCurrentOutput = candidates.some((item) =>
+            previousIds.has(item.candidateRevisionId!),
+          );
+          if (replacesCurrentOutput) roots.add(task.stepKey);
+          if (
+            outputKinds.includes(input.documentKind) &&
+            candidates.some((item) => item.candidateRevisionId === input.documentRevisionId)
+          ) {
+            roots.add(task.stepKey);
+            // 待验收来源也必须重开；否则其旧 req.generation 会让保留的 OPEN 验收永远无法批准。
+            // 仅已完成且当前集合的批准仍有效时保留来源事实，不自动补齐产品任务 gates。
+            if (task.executionStatus === 'DONE' && !replacesCurrentOutput) {
+              const accepted = await tx.reviewRequest.findFirst({
+                where: {
+                  projectId: input.projectId,
+                  taskId: task.id,
+                  taskGeneration: task.generation,
+                  artifactSetId: output.id,
+                  kind: 'TASK_ACCEPTANCE',
+                  status: 'APPROVED',
+                  decisions: {
+                    some: {},
+                    every: { decision: 'APPROVE', revocation: { is: null } },
+                  },
+                },
+                select: { id: true },
+              });
+              if (accepted) validSourceTaskIds.add(task.id);
+            }
+          }
+        }
+      }
+      const affectedSteps = new Set(roots);
+      for (const root of roots)
+        for (const downstream of collectDownstreamStepKeys(revision.definition, root))
+          affectedSteps.add(downstream);
+      for (const task of instance.tasks)
+        if (affectedSteps.has(task.stepKey)) affectedIds.add(task.id);
+    }
+    for (const sourceTaskId of validSourceTaskIds) affectedIds.delete(sourceTaskId);
+    const affected = tasks
+      .filter((task) => affectedIds.has(task.id))
+      .sort((left, right) => left.id.localeCompare(right.id));
+    if (affected.length === 0) return [];
+    for (const task of affected) {
+      await tx.taskClaim.updateMany({
+        where: { projectId: input.projectId, taskId: task.id, releasedAt: null },
+        data: { releasedAt: input.now, releaseReason: `baseline-published:${input.publicationId}` },
+      });
+      const updated = await tx.task.updateMany({
+        where: {
+          id: task.id,
+          projectId: input.projectId,
+          version: task.version,
+          generation: task.generation,
+          currentClaimId: task.currentClaimId,
+          currentSnapshotId: task.currentSnapshotId,
+          currentArtifactSetId: task.currentArtifactSetId,
+        },
+        data: {
+          version: { increment: 1 },
+          generation: { increment: 1 },
+          executionStatus: 'OPEN',
+          ...(task.workStatus === 'PAUSED' || task.workStatus === 'CANCELLED'
+            ? {}
+            : { workStatus: 'ACTIVE' as const }),
+          currentClaimId: null,
+          currentSnapshotId: null,
+          currentArtifactSetId: null,
+        },
+      });
+      if (updated.count !== 1)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.VERSION_CONFLICT,
+          'TASK_VERSION_CONFLICT',
+          { taskId: task.id },
+          409,
+        );
+    }
+    const taskIds = affected.map((task) => task.id);
+    await tx.reviewRequest.updateMany({
+      where: {
+        projectId: input.projectId,
+        status: 'OPEN',
+        taskId: { in: taskIds },
+        id: { not: input.reviewId },
+      },
+      data: { status: 'INVALIDATED', version: { increment: 1 } },
+    });
+    const event = await tx.changeEvent.create({
+      data: {
+        projectId: input.projectId,
+        requirementId: input.requirementId,
+        sourceKind: 'DOCUMENT_PUBLICATION',
+        sourceId: input.publicationId,
+        changedFields:
+          input.documentKind === 'PRD'
+            ? ['currentPrdRevisionId', 'generation']
+            : [
+                'currentUnderstandingRevisionId',
+                ...(input.previousPrdRevisionId ? ['currentPrdRevisionId', 'deliveryScope'] : []),
+                'generation',
+              ],
+        targets: {
+          taskIds,
+          documentId: input.documentId,
+          previousDocumentRevisionId: input.previousDocumentRevisionId,
+          documentRevisionId: input.documentRevisionId,
+          requirementGeneration: input.requirementGeneration,
+        },
+      },
+    });
+    // responsibleUserId/roleId 为数据库必填字段；同人不同角色各一条，发布者本人也必须确认。
+    const recipients = new Map(
+      affected.map((task) => [
+        `${task.responsibleUserId}:${task.roleId}`,
+        {
+          projectId: input.projectId,
+          eventId: event.id,
+          userId: task.responsibleUserId,
+          roleId: task.roleId,
+          action: 'ACK_ONLY',
+        },
+      ]),
+    );
+    await tx.changeRecipient.createMany({ data: [...recipients.values()] });
+    return taskIds;
   }
 
   /**

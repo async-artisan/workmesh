@@ -10,7 +10,9 @@ function readPnpmPackage(cliPath) {
       try {
         const metadata = JSON.parse(readFileSync(manifest, 'utf8'));
         if (metadata.name === 'pnpm') return metadata;
-      } catch {}
+      } catch {
+        // An unreadable or malformed candidate is not pnpm; continue searching its parents.
+      }
     }
     const parent = path.dirname(directory);
     if (parent === directory) break;

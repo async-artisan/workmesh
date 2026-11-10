@@ -96,9 +96,8 @@ export type V1ReviewSlotView = {
 };
 
 /**
- * 写路径的对外形状：正文只经由 `GET /document-revisions/:id/content` 单独下发，
- * 候选/恢复/创建的响应与幂等记录都只携带引用（id + 摘要 + 槽位），
- * 避免把最多 10MiB 的原始字节塞进 JSON 响应和 `IdempotentOperation.resultRefs`。
+ * 修订元数据：列表、文档详情以及写响应不携带正文。
+ * 正文读取仍由单修订 `findRevision` 与内容入口处理，避免历史列表读取全部原始字节。
  */
 export type V1RevisionSnapshot = Omit<V1RevisionView, 'bodyBytes'>;
 
@@ -134,7 +133,7 @@ export type V1WriteOperation = {
   requestDigest: string;
 };
 
-/** 兜底：即使仓储实现带回正文，写路径的响应与幂等记录也绝不携带 `bodyBytes`。 */
+/** 兜底：即使仓储实现带回正文，元数据响应与幂等记录也绝不携带 `bodyBytes`。 */
 function snapshotOf(view: V1RevisionView | V1RevisionSnapshot): V1RevisionSnapshot {
   const snapshot = { ...view } as V1RevisionView;
   delete (snapshot as Partial<V1RevisionView>).bodyBytes;
@@ -163,8 +162,8 @@ export type V1ListDocumentsQuery = {
 
 export type V1DocumentDetail = {
   document: V1DocumentView;
-  revisions: V1RevisionView[];
-  publishedRevision: V1RevisionView | null;
+  revisions: V1RevisionSnapshot[];
+  publishedRevision: V1RevisionSnapshot | null;
 };
 
 export type V1RequirementBinding = {
@@ -186,8 +185,14 @@ export type V1WithdrawInput = {
 export interface V1PublicationRepository {
   findDocument(documentId: string): Promise<V1DocumentView | null>;
   findRevision(revisionId: string): Promise<V1RevisionView | null>;
-  listRevisions(documentId: string): Promise<V1RevisionView[]>;
+  /** 全部修订元数据，保持历史完整性；SQL 不读取正文。 */
+  listRevisions(documentId: string): Promise<V1RevisionSnapshot[]>;
   isAssignedReviewer(revisionId: string, userId: string): Promise<boolean>;
+  /** 与单修订明确评审者判定等价；仅返回给定集合中分配给该用户的修订 ID。 */
+  listAssignedReviewerRevisionIds(
+    revisionIds: readonly string[],
+    userId: string,
+  ): Promise<string[]>;
   findRequirement(requirementId: string): Promise<V1RequirementBinding | null>;
   findKnowledgeBaseProjectId(knowledgeBaseId: string): Promise<string | null>;
   projectRoleIds(projectId: string): Promise<string[]>;
@@ -293,7 +298,7 @@ export class V1PublicationService {
     return this.getRevision(principal, revisionId);
   }
 
-  async listRevisions(principal: Principal, documentId: string): Promise<V1RevisionView[]> {
+  async listRevisions(principal: Principal, documentId: string): Promise<V1RevisionSnapshot[]> {
     const document = await this.repository.findDocument(documentId);
     if (!document)
       throw new WorkmeshError(
@@ -888,17 +893,21 @@ export class V1PublicationService {
   private async filterVisible(
     principal: Principal,
     access: Awaited<ReturnType<V1AuthorizationService['resolveKnowledgeAccess']>>,
-    revisions: V1RevisionView[],
-  ): Promise<V1RevisionView[]> {
-    const visible: V1RevisionView[] = [];
+    revisions: V1RevisionSnapshot[],
+  ): Promise<V1RevisionSnapshot[]> {
+    if (revisions.length === 0) return [];
+    const assignedRevisionIds = new Set(
+      await this.repository.listAssignedReviewerRevisionIds(
+        revisions.map((revision) => revision.id),
+        principal.userId,
+      ),
+    );
+    const visible: V1RevisionSnapshot[] = [];
     for (const revision of revisions) {
       const isAuthor = revision.createdBy === principal.userId;
-      const isAssignedReviewer = await this.repository.isAssignedReviewer(
-        revision.id,
-        principal.userId,
-      );
+      const isAssignedReviewer = assignedRevisionIds.has(revision.id);
       const state = visibleRevisionState(revision.state, { access, isAuthor, isAssignedReviewer });
-      if (state) visible.push({ ...revision, state });
+      if (state) visible.push({ ...snapshotOf(revision), state });
     }
     return visible;
   }

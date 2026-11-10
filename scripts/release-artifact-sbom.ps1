@@ -145,7 +145,7 @@ function Get-ScanEvidence([string]$NativeJson, [string]$CycloneDxJson, [string]$
     if ($postgres.Count -eq 0 -or $prisma.Count -eq 0) { throw 'Box scan must identify PostgreSQL and the deployed Prisma CLI.' }
   }
   $unknown = @($artifacts | Where-Object { -not $_.version -or $_.version -eq 'UNKNOWN' } | ForEach-Object { [ordered]@{ name=$_.name; version=$_.version; type=$_.type; foundBy=$_.foundBy; locations=@($_.locations.path) } })
-  return [ordered]@{ kind=$Kind; components=$artifacts.Count; npmComponents=@($artifacts | Where-Object { $_.type -eq 'npm' }).Count; unknownVersionComponents=$unknown; schemaValidation='JSON structure and required components checked; full CycloneDX schema validation is still required'; nativeJson=[System.IO.Path]::GetFileName($NativeJson); cyclonedxJson=[System.IO.Path]::GetFileName($CycloneDxJson) }
+  return [ordered]@{ kind=$Kind; components=$artifacts.Count; npmComponents=@($artifacts | Where-Object { $_.type -eq 'npm' }).Count; unknownVersionComponents=$unknown; nativeJson=[System.IO.Path]::GetFileName($NativeJson); cyclonedxJson=[System.IO.Path]::GetFileName($CycloneDxJson) }
 }
 
 function Get-HostPathFindings([object]$Value, [string]$Pointer = '') {
@@ -191,9 +191,17 @@ if ($Commit -notmatch '^[a-fA-F0-9]{40}$') { throw 'Commit must be a full declar
 if ($Version -notmatch '^[0-9A-Za-z.+-]+$') { throw 'Version contains invalid source-label characters.' }
 if (@(Get-ChildItem Env: | Where-Object { $_.Name -like 'SYFT_*' }).Count -gt 0) { throw 'Clear ambient SYFT_* variables before generating release evidence.' }
 $config = Join-Path $PSScriptRoot 'release-artifact-sbom.syft.yaml'
-foreach ($file in @($SyftExe,$BoxZip,$CliZip,$config)) {
+$schemaValidator = Join-Path $PSScriptRoot 'validate-cyclonedx.mjs'
+$bundleVerifier = Join-Path $PSScriptRoot 'verify-bundle-evidence.mjs'
+$bundleMerger = Join-Path $PSScriptRoot 'merge-bundle-sbom.mjs'
+$schemaRoot = Join-Path $PSScriptRoot 'vendor/cyclonedx-1.7'
+$schemaFiles = @('bom-1.7.schema.json','spdx.schema.json','jsf-0.82.schema.json','cryptography-defs.schema.json')
+$evidenceSources = @($PSCommandPath,$schemaValidator,$bundleVerifier,$bundleMerger,(Join-Path $PSScriptRoot 'lib/bundle-evidence.mjs')) + @($schemaFiles | ForEach-Object { Join-Path $schemaRoot $_ })
+foreach ($file in (@($SyftExe,$BoxZip,$CliZip,$config) + $evidenceSources)) {
   if (-not [System.IO.File]::Exists([System.IO.Path]::GetFullPath($file))) { throw "Input file not found: $file" }
 }
+$sourceHashes = @{}
+foreach ($file in $evidenceSources) { $sourceHashes[$file] = Get-Sha256 $file }
 $output = Assert-OutputLocation $OutputDir @($SyftExe,$BoxRoot,$CliRoot,$BoxZip,$CliZip,$config)
 $scanner = Assert-PinnedSyft $SyftExe
 $boxInventory = Get-ArchiveInventory $BoxZip
@@ -207,6 +215,19 @@ if ((Get-Sha256 $nestedCli) -ne $cliInventory.ArchiveSha256) { throw 'Independen
 $configHash = Get-Sha256 $config
 New-Item -ItemType Directory -Path $output -ErrorAction Stop | Out-Null
 Copy-Item -LiteralPath $config -Destination (Join-Path $output 'artifact-sbom.syft.yaml')
+$bundles = [System.Collections.Generic.List[object]]::new()
+foreach ($bundle in @(
+  @{ Kind='box-cli'; Root=(Join-Path $BoxRoot 'app/cli/dist'); Path='app/cli/dist/bundle-evidence.json'; Archive=$boxInventory.ArchiveSha256 },
+  @{ Kind='box-web'; Root=(Join-Path $BoxRoot 'app/web/dist'); Path='app/web/dist/bundle-evidence.json'; Archive=$boxInventory.ArchiveSha256 },
+  @{ Kind='cli'; Root=(Join-Path $CliRoot 'app/cli'); Path='app/cli/bundle-evidence.json'; Archive=$cliInventory.ArchiveSha256 }
+)) {
+  $summary = & node $bundleVerifier $bundle.Root
+  if ($LASTEXITCODE -ne 0) { throw "Invalid actual archive bundle evidence: $($bundle.Kind)" }
+  $bundleFile = Join-Path $bundle.Root 'bundle-evidence.json'
+  $name = "workmesh-$($bundle.Kind).bundle-evidence.json"
+  Copy-Item -LiteralPath $bundleFile -Destination (Join-Path $output $name)
+  $bundles.Add([ordered]@{ kind=$bundle.Kind; archiveSha256=$bundle.Archive; archivePath=$bundle.Path; file=$name; sha256=(Get-Sha256 $bundleFile); validation=(($summary -join [Environment]::NewLine) | ConvertFrom-Json) })
+}
 $scans = [System.Collections.Generic.List[object]]::new()
 foreach ($target in @(@{ Kind='box'; Root=$BoxRoot; Zip=$BoxZip; Inventory=$boxInventory },@{ Kind='cli'; Root=$CliRoot; Zip=$CliZip; Inventory=$cliInventory })) {
   $kind = $target.Kind
@@ -216,7 +237,14 @@ foreach ($target in @(@{ Kind='box'; Root=$BoxRoot; Zip=$BoxZip; Inventory=$boxI
   if ($LASTEXITCODE -ne 0) { throw "Syft $kind scan failed; diagnostic output is retained in OutputDir." }
   $nativeNormalization = Normalize-ScanOutput $nativePath 'syft'
   $cdxNormalization = Normalize-ScanOutput $cdxPath 'cyclonedx'
+  [string[]]$bundleDirectories = if ($kind -eq 'box') { @('app/cli/dist','app/web/dist') } else { @('app/cli') }
+  $mergeResult = & node $bundleMerger $cdxPath $target.Root $target.Inventory.ArchiveSha256 @bundleDirectories
+  if ($LASTEXITCODE -ne 0) { throw "Conservative rendered bundle merge failed for $kind." }
+  & node $schemaValidator $cdxPath
+  if ($LASTEXITCODE -ne 0) { throw "CycloneDX schema validation failed for $kind." }
   $evidence = Get-ScanEvidence $nativePath $cdxPath $kind
+  $evidence.schemaValidation = 'PASSED offline CycloneDX 1.7 JSON schema and format syntax validation; not an inventory completeness claim'
+  $evidence.bundleMerge = (($mergeResult -join [Environment]::NewLine) | ConvertFrom-Json)
   $evidence.normalization = [ordered]@{ native=$nativeNormalization; cyclonedx=$cdxNormalization }
   Assert-ArchiveTree $target.Root $target.Inventory
   if ((Get-Sha256 $target.Zip) -ne $target.Inventory.ArchiveSha256) { throw 'ZIP changed during scanning.' }
@@ -227,19 +255,26 @@ foreach ($target in @(@{ Kind='box'; Root=$BoxRoot; Zip=$BoxZip; Inventory=$boxI
   $scans.Add($evidence)
 }
 if ((Get-Sha256 $config) -ne $configHash -or (Get-Sha256 $SyftExe) -ne $scanner.executableSha256) { throw 'Scanner or configuration changed during scanning.' }
+foreach ($file in $evidenceSources) {
+  if ((Get-Sha256 $file) -ne $sourceHashes[$file]) { throw 'Evidence validator or schema changed during scanning; retain diagnostics and rerun with stable inputs.' }
+}
 $manifest = [ordered]@{
   schemaVersion='1.0'; status='DRAFT_PARTIAL_COVERAGE'; generatedAt=(Get-Date).ToUniversalTime().ToString('o'); version=$Version
   declaredSourceCommit=$Commit.ToLowerInvariant(); declaredSourceTreeState=$SourceTreeState
   sourceBinding='Caller-declared source metadata; this script verifies archive bytes and scan inputs, not checkout cleanliness or build provenance.'
   scanner=$scanner; configuration=[ordered]@{ file='artifact-sbom.syft.yaml'; sourceFile='release-artifact-sbom.syft.yaml'; sha256=$configHash }; scans=$scans.ToArray()
+  bundleEvidence=$bundles.ToArray()
+  evidenceTools=@($evidenceSources | ForEach-Object { [ordered]@{ file=[System.IO.Path]::GetRelativePath($PSScriptRoot,$_).Replace('\','/'); sha256=$sourceHashes[$_] } })
+  schemaValidation=[ordered]@{ version='1.7'; validator='validate-cyclonedx.mjs'; validatorSha256=(Get-Sha256 $schemaValidator); schemas=@($schemaFiles | ForEach-Object { [ordered]@{ file=$_; sha256=(Get-Sha256 (Join-Path $schemaRoot $_)) } }); scope='Offline JSON schema and format syntax only; no inventory completeness, provenance or license compliance claim' }
   archiveRelationship=[ordered]@{ parent=$boxInventory.ArchiveSha256; child=$cliInventory.ArchiveSha256; childPath='downloads/workmesh-cli-win-x64.zip'; verified=$true }
   limitations=@(
     'Partial artifact inventory; it does not satisfy the complete release SBOM gate.'
-    'CLI/Web bundled JavaScript dependencies require actual bundle module graphs mapped to pinned versions, PURLs and licenses.'
+    'CLI/Web actual module graphs are supplemental PARTIAL_MODULE_EVIDENCE; prebundled candidates do not prove final inclusion and virtual/generated attribution remains limited.'
     'PE runtime records do not enumerate every embedded Node/PostgreSQL component; supplier SBOM/source/license evidence is required.'
     'UNKNOWN versions, package classifications, dependency relationships and license completeness require review.'
     'Nested archives are not assumed covered; the bundled CLI ZIP is hash-bound and independently scanned.'
-    'Full CycloneDX schema validation and merging the missing component evidence remain release requirements.'
+    'Only verified directly rendered npm/workspace modules with fixed valid identity are conservatively merged; generated/virtual modules and prebundled candidates are not promoted and no dependency edges are invented.'
+    'CycloneDX 1.7 schema and format syntax pass does not prove inventory and license completeness.'
     'Syft JSON is normalized evidence: scan root and unused host cache defaults are replaced; original scanner-output hashes are recorded.'
     'Scan logs are private diagnostics and may include local paths; do not attach them to public releases.'
   )

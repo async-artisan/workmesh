@@ -4,6 +4,10 @@ import { PrismaClient } from '../../node_modules/.prisma/workmesh-v1-client';
 import { evaluateSuiteTestDatabase, verifiedTestDatabase } from '../src/common/v1-test-database';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { V1TaskPrismaRepository } from '../src/tasks/v1-task.prisma-repository';
+import { V1TaskService } from '../src/tasks/v1-task.service';
+import { V1AuthorizationService } from '../src/auth/v1-authorization';
+import { V1AuthorizationPrismaRepository } from '../src/auth/v1-authorization.prisma-repository';
+import { V1IdempotencyPrismaRepository } from '../src/common/v1-idempotency.prisma-repository';
 import { V1GithubEvidencePrismaRepository } from '../src/integrations/v1-github-evidence.prisma-repository';
 import { openTicketSecret, sealTicketSecret } from '../src/integrations/v1-ticket-secret';
 import { V1SnapshotPrismaRepository } from '../src/tasks/v1-snapshot.prisma-repository';
@@ -55,6 +59,8 @@ suite('PostgreSQL task ownership and transactional writes', () => {
     projectId = project.id;
     roleId = (await db.projectRole.create({ data: { projectId, key: 'dev', title: 'Developer' } }))
       .id;
+    await db.projectMember.create({ data: { projectId, userId, role: 'OWNER' } });
+    await db.projectRoleAssignment.create({ data: { projectId, userId, roleId } });
     const requirement = await db.requirement.create({
       data: { projectId, seq: 1, code: 'TASK-1', title: 'Task fixture' },
     });
@@ -119,6 +125,9 @@ suite('PostgreSQL task ownership and transactional writes', () => {
         await db.workflowRevision.deleteMany({ where: { projectId } });
         await db.workflowDefinition.deleteMany({ where: { projectId } });
         await db.requirement.deleteMany({ where: { projectId } });
+        await db.agentCredential.deleteMany({ where: { projectId } });
+        await db.projectRoleAssignment.deleteMany({ where: { projectId } });
+        await db.projectMember.deleteMany({ where: { projectId } });
         await db.projectRole.deleteMany({ where: { projectId } });
         await db.project.delete({ where: { id: projectId } });
       }
@@ -153,7 +162,21 @@ suite('PostgreSQL task ownership and transactional writes', () => {
       },
     });
   }
-  function claim(taskId: string, op = operation()) {
+  async function claim(taskId: string, op = operation()) {
+    // Fixtures use arbitrary step keys; bind them explicitly before exercising the production guard.
+    const row = await db.task.findUnique({ where: { id: taskId } });
+    if (row && row.workflowInstanceId === instanceId) {
+      const revision = await db.workflowRevision.findUniqueOrThrow({ where: { id: revisionId } });
+      const definition = revision.definition as { steps?: Array<Record<string, unknown>> };
+      const steps = definition.steps ?? [];
+      const step = steps.find((entry) => entry.key === row.stepKey);
+      if (step) step.deps ??= [];
+      else steps.push({ key: row.stepKey, deps: [], kind: 'DELIVERY', outputKinds: ['IMPL'] });
+      await db.workflowRevision.update({
+        where: { id: revisionId },
+        data: { definition: { ...definition, steps } as never },
+      });
+    }
     return repository.claim({
       taskId,
       expectedGeneration: 1,
@@ -162,6 +185,34 @@ suite('PostgreSQL task ownership and transactional writes', () => {
       credentialId: null,
       now: new Date(),
       operation: op,
+    });
+  }
+  async function declareSteps(entries: Array<{ key: string; deps: string[] }>) {
+    const revision = await db.workflowRevision.findUniqueOrThrow({ where: { id: revisionId } });
+    const definition = revision.definition as { steps?: Array<Record<string, unknown>> };
+    const replaced = new Set(entries.map((entry) => entry.key));
+    await db.workflowRevision.update({
+      where: { id: revisionId },
+      data: {
+        definition: {
+          ...definition,
+          steps: [
+            ...(definition.steps ?? []).filter((entry) => !replaced.has(String(entry.key))),
+            ...entries,
+          ],
+        } as never,
+      },
+    });
+  }
+  function rawClaim(taskId: string, credentialId: string | null = null) {
+    return repository.claim({
+      taskId,
+      expectedGeneration: 1,
+      principalScopeKey: credentialId ? `agent:${credentialId}` : `user:${userId}`,
+      userId,
+      credentialId,
+      now: new Date(),
+      operation: operation(),
     });
   }
   async function owned() {
@@ -298,6 +349,157 @@ suite('PostgreSQL task ownership and transactional writes', () => {
       where: { projectId, resultRefs: { path: ['claimId'], equals: stored!.currentClaim!.id } },
     });
     expect(op).not.toBeNull();
+    expect(op!.resultRefs).toMatchObject({
+      taskId: row.id,
+      claimId: stored!.currentClaim!.id,
+      taskVersion: stored!.version,
+      taskGeneration: stored!.generation,
+    });
+  });
+
+  it('does not let the project owner claim another responsible user task', async () => {
+    const row = await task();
+    const otherUser = await db.user.create({
+      data: { email: `${randomUUID()}@task.test`, passwordHash: 'fixture' },
+    });
+    try {
+      await db.task.update({ where: { id: row.id }, data: { responsibleUserId: otherUser.id } });
+      await expect(rawClaim(row.id)).rejects.toMatchObject({
+        message: 'TASK_NOT_IN_RESPONSIBILITY',
+        status: 403,
+      });
+    } finally {
+      await db.task.update({ where: { id: row.id }, data: { responsibleUserId: userId } });
+      await db.user.delete({ where: { id: otherUser.id } });
+    }
+    expect(await db.taskClaim.count({ where: { taskId: row.id } })).toBe(0);
+    expect(await repository.findTask(row.id)).toMatchObject({
+      version: 1,
+      generation: 1,
+      currentClaim: null,
+    });
+  });
+
+  it('rejects an archive committed after service authorization before the claim transaction writes', async () => {
+    const row = await task();
+    await declareSteps([{ key: row.stepKey, deps: [] }]);
+    const op = operation();
+    const operations = new V1IdempotencyPrismaRepository(db as PrismaService);
+    const service = new V1TaskService(
+      repository,
+      new V1AuthorizationService(new V1AuthorizationPrismaRepository(db as PrismaService)),
+      {
+        async findOperation(input) {
+          const existing = await operations.findOperation(input);
+          // Interleave the real archive after the service has checked write access.
+          await db.project.update({
+            where: { id: projectId },
+            data: { archivedAt: new Date(), version: { increment: 1 } },
+          });
+          return existing;
+        },
+      },
+    );
+    try {
+      await expect(
+        service.claim({ kind: 'HUMAN', userId, scopes: [] }, row.id, {
+          idempotencyKey: op.key,
+          method: op.method,
+          route: `/api/v1/tasks/${row.id}/claims`,
+          body: {},
+          requestId: randomUUID(),
+          now: new Date(),
+          operationId: op.id,
+        }),
+      ).rejects.toMatchObject({ message: 'PROJECT_ARCHIVED', status: 409 });
+      expect(await db.taskClaim.count({ where: { taskId: row.id } })).toBe(0);
+      expect(await db.idempotentOperation.findUnique({ where: { id: op.id } })).toBeNull();
+      expect(await db.task.findUnique({ where: { id: row.id } })).toMatchObject({
+        version: row.version,
+        generation: row.generation,
+        currentClaimId: null,
+      });
+    } finally {
+      await db.project.update({
+        where: { id: projectId },
+        data: { archivedAt: null, version: { increment: 1 } },
+      });
+    }
+  });
+
+  it('rejects a same-user wrong-role Agent and accepts its matching role credential', async () => {
+    const row = await task();
+    await declareSteps([{ key: row.stepKey, deps: [] }]);
+    const otherRole = await db.projectRole.create({
+      data: { projectId, key: `wrong-${randomUUID()}`, title: 'Other role' },
+    });
+    await db.projectRoleAssignment.create({ data: { projectId, userId, roleId: otherRole.id } });
+    const credential = await db.agentCredential.create({
+      data: {
+        userId,
+        projectId,
+        roleId: otherRole.id,
+        name: 'claim regression',
+        tokenHash: createHash('sha256').update(randomUUID()).digest('hex'),
+        scopes: ['task:claim'],
+        userAuthVersion: 1,
+        expiresAt: new Date(Date.now() + 3600000),
+      },
+    });
+    await expect(rawClaim(row.id, credential.id)).rejects.toMatchObject({
+      message: 'TASK_NOT_IN_RESPONSIBILITY',
+      status: 403,
+    });
+    expect(await db.taskClaim.count({ where: { taskId: row.id } })).toBe(0);
+    await db.agentCredential.update({ where: { id: credential.id }, data: { roleId } });
+    await expect(rawClaim(row.id, credential.id)).resolves.toMatchObject({
+      generation: 2,
+      currentClaim: { principalScopeKey: `agent:${credential.id}`, userId },
+    });
+  });
+
+  it('rechecks current role assignment under the transaction before claiming', async () => {
+    const row = await task();
+    await declareSteps([{ key: row.stepKey, deps: [] }]);
+    await db.projectRoleAssignment.update({
+      where: { projectId_userId_roleId: { projectId, userId, roleId } },
+      data: { revokedAt: new Date() },
+    });
+    try {
+      await expect(rawClaim(row.id)).rejects.toMatchObject({
+        message: 'TASK_NOT_IN_RESPONSIBILITY',
+        status: 403,
+      });
+      expect(await db.taskClaim.count({ where: { taskId: row.id } })).toBe(0);
+    } finally {
+      await db.projectRoleAssignment.update({
+        where: { projectId_userId_roleId: { projectId, userId, roleId } },
+        data: { revokedAt: null },
+      });
+    }
+    await expect(rawClaim(row.id)).resolves.toMatchObject({ generation: 2 });
+  });
+
+  it('requires all declared predecessor tasks to exist and be DONE', async () => {
+    const before = await task();
+    const row = await task();
+    const missing = randomUUID();
+    await declareSteps([
+      { key: before.stepKey, deps: [] },
+      { key: row.stepKey, deps: [before.stepKey, missing] },
+    ]);
+    await expect(rawClaim(row.id)).rejects.toMatchObject({
+      message: 'TASK_DEPENDENCIES_NOT_DONE',
+      status: 409,
+    });
+    await db.task.update({ where: { id: before.id }, data: { executionStatus: 'REVIEW_PENDING' } });
+    await declareSteps([{ key: row.stepKey, deps: [before.stepKey] }]);
+    await expect(rawClaim(row.id)).rejects.toMatchObject({
+      message: 'TASK_DEPENDENCIES_NOT_DONE',
+      status: 409,
+    });
+    await db.task.update({ where: { id: before.id }, data: { executionStatus: 'DONE' } });
+    await expect(rawClaim(row.id)).resolves.toMatchObject({ generation: 2 });
   });
 
   it('projects the optional step display name from the task instance revision', async () => {
@@ -438,6 +640,11 @@ suite('PostgreSQL task ownership and transactional writes', () => {
     await expect(repository.release({ ...input, operation: operation() })).rejects.toMatchObject({
       message: 'CLAIM_INVALID',
     });
+    await expect(
+      repository.claim({ ...input, operation: operation(), userId, credentialId: null }),
+    ).rejects.toMatchObject({ message: 'TASK_NOT_READY', status: 409 });
+    // A released BLOCKED task needs an explicit management recovery before another claim.
+    await db.task.update({ where: { id: input.taskId }, data: { workStatus: 'ACTIVE' } });
     await expect(
       repository.claim({ ...input, operation: operation(), userId, credentialId: null }),
     ).resolves.toMatchObject({ generation: 3, currentClaim: { taskGeneration: 3 } });
@@ -635,6 +842,20 @@ suite('PostgreSQL task ownership and transactional writes', () => {
       await db.approvalSlot.count({ where: { reviewRequestId: winner.value.reviewRequestId } }),
     ).toBe(1);
     expect(await db.artifactSet.count({ where: { taskId: input.taskId } })).toBe(1);
+    const deliveryOp = await db.idempotentOperation.findFirst({
+      where: {
+        projectId,
+        resultRefs: { path: ['artifactSetId'], equals: winner.value.artifactSet.id },
+      },
+    });
+    expect(deliveryOp!.resultRefs).toMatchObject({
+      taskId: input.taskId,
+      claimId: input.claimId,
+      snapshotId: input.snapshotId,
+      taskVersion: winner.value.task.version,
+      taskGeneration: winner.value.task.generation,
+      reviewRequestId: winner.value.reviewRequestId,
+    });
     const replacement = await artifacts.deliver({
       ...input,
       expectedVersion: winner.value.task.version,
@@ -991,6 +1212,13 @@ suite('PostgreSQL task ownership and transactional writes', () => {
     const document = await db.knowledgeDocument.create({
       data: { projectId, knowledgeBaseId: kb.id, requirementId, kind: 'KNOWLEDGE' },
     });
+    expect(await snapshots.findInputDocument(document.id)).toEqual({
+      documentId: document.id,
+      projectId,
+      knowledgeBaseId: kb.id,
+      documentKind: 'KNOWLEDGE',
+    });
+    expect(await snapshots.findInputDocument(randomUUID())).toBeNull();
     const body = Buffer.from('immutable snapshot source');
     const sha256 = createHash('sha256').update(body).digest('hex');
     const revision = await db.documentRevision.create({

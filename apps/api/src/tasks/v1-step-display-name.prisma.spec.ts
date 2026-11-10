@@ -5,6 +5,8 @@ import type { V1AuthorizationService } from '../auth/v1-authorization';
 import type { V1IdempotencyRepository } from '../common/v1-idempotency';
 import { V1BoardPrismaRepository } from './v1-board.prisma-repository';
 import { V1BoardService } from './v1-board.service';
+import { normalizeBoardQuery } from './v1-board.pagination';
+import type { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
 import { V1TaskPrismaRepository } from './v1-task.prisma-repository';
 import { V1TaskService } from './v1-task.service';
 
@@ -44,6 +46,19 @@ function harness() {
     task('unbound', null),
   ];
   const prisma = {
+    $transaction: vi.fn(),
+    $executeRaw: vi.fn().mockResolvedValue(0),
+    $queryRaw: vi.fn(async (sql: Prisma.Sql) => {
+      if (sql.text.includes('AS "matchedTotal"'))
+        return [{ total: 4n, matchedTotal: 4n, requirementTotal: 1n, key: 'BACKLOG', count: 4n }];
+      if (sql.text.includes('FROM ranked WHERE position'))
+        return tasks.map((row) => ({
+          id: row.id,
+          generation: row.generation,
+          columnKey: 'BACKLOG',
+        }));
+      return [];
+    }),
     task: {
       findMany: vi.fn().mockResolvedValue(tasks),
       findUnique: vi.fn(
@@ -67,6 +82,7 @@ function harness() {
       ),
     },
   };
+  prisma.$transaction.mockImplementation(async (work) => work(prisma));
   return {
     prisma,
     board: new V1BoardPrismaRepository(prisma as unknown as PrismaService),
@@ -76,14 +92,16 @@ function harness() {
 describe('task and board production step-name projection', () => {
   it('uses each board task bound revision within the requested project and keeps legacy fallback null', async () => {
     const { board, prisma } = harness();
-    expect((await board.listCards('project-1')).map((row) => row.stepDisplayName)).toEqual([
-      '旧修订名称',
-      '新修订名称',
-      null,
-      null,
-    ]);
+    expect(
+      (await board.snapshot('project-1', normalizeBoardQuery({}))).columns.flatMap((column) =>
+        column.cards.map((row) => row.stepDisplayName),
+      ),
+    ).toEqual(['旧修订名称', '新修订名称', null, null]);
     expect(prisma.task.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { projectId: 'project-1' } }),
+      expect.objectContaining({
+        where: { projectId: 'project-1', id: { in: ['old', 'new', 'legacy', 'unbound'] } },
+        take: 4,
+      }),
     );
     expect(prisma.workflowRevision.findMany).toHaveBeenCalledWith({
       where: {
@@ -91,6 +109,7 @@ describe('task and board production step-name projection', () => {
         projectId: 'project-1',
       },
       select: { id: true, definition: true },
+      take: 4,
     });
   });
   it('reads task names from bound revisions without querying a current/latest pointer', async () => {

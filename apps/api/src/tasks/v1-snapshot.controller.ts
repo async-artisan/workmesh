@@ -35,6 +35,11 @@ function principalOf(request: V1Request) {
 export class V1SnapshotController {
   constructor(@Inject(V1SnapshotService) private readonly snapshots: V1SnapshotService) {}
 
+  @Get('tasks/:taskId/input-status')
+  inputs(@Req() request: V1Request, @Param('taskId') taskId: string) {
+    return this.snapshots.inspectInputs(principalOf(request), taskId);
+  }
+
   /**
    * 创建上下文快照：当前认领 + 当前版本 + 全部必需输入可取得才落盘；
    * 同 Idempotency-Key 重放返回同一快照。

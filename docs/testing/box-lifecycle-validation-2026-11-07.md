@@ -83,3 +83,20 @@ CI 证据上传边界为 `summary.json` 与 `logs/**`。不要上传整个输出
 ## 未覆盖的验收
 
 本次没有验证干净机器、最终提交的远程 CI、旧版本升级、卸载、生产数据、容量或跨平台行为。ZIP 是已有输入制品，本次没有重新构建它，也没有将本次本地结果扩展为正式发布完成声明。
+
+## 2026-11-10 r13 同源新包复验
+
+本轮从已通过完整 `pnpm verify` 的 r13 冻结源码与实际生产构建重新打包。915 文件清单 SHA256 为 `d5f9c6c7afd9e73fd9a2fa85a2cacb1cf07a5c932b22d4921c4cdc7308aa596b`，基于 `739367a714097a825b96ca7ecf6bce3372855a77` 加未提交快照；完整检查和历史失败边界见[统一本地验收](local-verification-validation-2026-11-07.md)。当前并发工作区的后续功能和迁移不在此包内。
+
+实际 Box ZIP 为 182,814,742 B，SHA256 `09d0d2baf4175a96970be9db3c48879b4ad0887cb480420829f1b53eb6a6c3d3`。`package-box.ps1 -SkipBuild` 使用已验收的构建，没有再次生成输出；807 项选定构建与运行时输入另有字节清单，打包及生命周期执行后的检查均为 `PACKAGE_INPUTS_UNCHANGED`，915 源码文件也保持一致。包目录中的下载副本与该 ZIP 摘要相同。
+
+使用冻结的 `test-release-box.ps1` 对该最终 ZIP 独立新解压并执行隔离生命周期，选定 loopback 端口 PostgreSQL 58430 / API 58431 / Web 58432。实际 runner exit 0，摘要为 **PASSED**，于 `2026-11-10T09:16:10.7828872Z` 完成：
+
+- 安装应用全部 20 项冻结迁移；首次、冷启动、幂等启动和恢复数据库后的四阶段 API/代理均为 `ok`，Web 均为 200。
+- `backup --verify`、恢复到另一隔离库和恢复标记核对通过；备份含 55 张表、20 项迁移，临时验证库已移除。
+- 恢复标记一致，dump SHA256 为 `3ea850588e87e6b135a80c020e54b9cdeca126b0a94345e8d7003605f38ff972`。
+- 摘要记录 `ownedServicesStopped: true`；本轮结束后独立查询三个所选端口，均无监听。
+
+证据位于 `G:/yesgoo/workmesh-validation/20261109-r13/lifecycle-r1/`。`summary.json` SHA256 为 `1883acfca14bef015d2fe07fea0d3255a4c47c334d3c372d75a340966943cf0b`；相邻 `package-r1/lifecycle-runner-summary.json` 为 `ba48d84f3d552fe3ea75f70c1acd378e4c4b99de3637d1c8f26827cffb933009`，记录生命周期、冻结源码复查和选定输入复查均 exit 0。最终 ZIP 的独立扫描使用另一全新解压目录，见[制品扫描记录](artifact-sbom-validation-2026-11-07.md)。
+
+本轮只证明该快照和同一制品在本机隔离 Windows 环境中的上述行为。20 项是包内迁移时点，不能替代当前工作区后续迁移的验证；没有验证干净机器、旧版升级、卸载、最终 clean SHA 的远端 CI、生产数据或跨平台。`data/**`、数据库、配置、原始捕获及备份继续作为私密本地证据，不作为公开下载附件。

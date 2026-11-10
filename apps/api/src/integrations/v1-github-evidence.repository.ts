@@ -98,6 +98,16 @@ export type V1VersionedTicketRecord = {
   preparedExpiresAt: Date | null;
 };
 
+export type V1CodeEvidenceTarget = {
+  projectId: string;
+  artifactSetId: string;
+  generation: number;
+  repositoryId: string;
+  changeRequestId: string;
+  headSha: string;
+  evidenceId?: string;
+};
+
 export type V1PersistIdempotencyInput = {
   id: string;
   projectScopeKey: string;
@@ -134,6 +144,7 @@ export interface V1GithubEvidenceRepository {
   ): Promise<V1CodeReviewEvidenceRecord | null>;
   recordEvidence(input: V1RecordEvidenceInput): Promise<V1CodeReviewEvidenceRecord>;
   findArtifactSet(id: string): Promise<V1ArtifactSetSummary | null>;
+  assertCodeEvidenceTarget(input: V1CodeEvidenceTarget): Promise<void>;
   findApprovedEvidenceForHead(
     projectId: string,
     repositoryId: string,

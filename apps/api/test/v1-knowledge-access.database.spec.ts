@@ -4,6 +4,7 @@ import { PrismaClient } from '../../node_modules/.prisma/workmesh-v1-client';
 import { evaluateSuiteTestDatabase, verifiedTestDatabase } from '../src/common/v1-test-database';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { V1KnowledgeBasePrismaRepository } from '../src/knowledge/v1-knowledge-base.prisma-repository';
+import { V1PublicationPrismaRepository } from '../src/knowledge/v1-publication.prisma-repository';
 import { V1ReviewPrismaRepository } from '../src/reviews/v1-review.prisma-repository';
 import type { V1CommitDecisionInput } from '../src/reviews/v1-review.repository';
 
@@ -338,6 +339,100 @@ suite('PostgreSQL knowledge access and published search', () => {
     };
     return { kb, document, revision, reviews, input };
   }
+
+  it('matches single reviewer checks in PostgreSQL across reviews, slots, statuses and users', async () => {
+    const { document, revision } = await documentReview();
+    const role = await db.projectRole.create({
+      data: { projectId, key: `test-${randomUUID()}`, title: 'Reviewer fixture' },
+    });
+    try {
+      const bodyBytes = Buffer.from('reviewer batch fixture');
+      const others = await Promise.all(
+        [2, 3, 4].map((seq) =>
+          db.documentRevision.create({
+            data: {
+              projectId,
+              documentId: document.id,
+              seq,
+              title: `Review fixture ${seq}`,
+              mimeType: 'text/plain',
+              bodyBytes,
+              byteLength: bodyBytes.length,
+              sha256: hash(),
+              createdById: userId,
+            },
+          }),
+        ),
+      );
+      const [otherUser, unassignedUser] = [randomUUID(), randomUUID()];
+      // A real second user is needed only when an approval slot references it.
+      const secondUser = await db.user.create({
+        data: { id: otherUser, email: `${randomUUID()}@knowledge.test`, passwordHash: 'fixture' },
+      });
+      try {
+        const reviewData = [
+          { revisionId: revision.id, status: 'OPEN' as const, users: [secondUser.id] },
+          { revisionId: revision.id, status: 'APPROVED' as const, users: [userId, userId] },
+          { revisionId: others[0]!.id, status: 'REJECTED' as const, users: [secondUser.id] },
+          { revisionId: others[1]!.id, status: 'INVALIDATED' as const, users: [] },
+        ];
+        for (const entry of reviewData) {
+          const review = await db.reviewRequest.create({
+            data: {
+              projectId,
+              kind: 'KNOWLEDGE_PUBLICATION',
+              documentRevisionId: entry.revisionId,
+              status: entry.status,
+              subjectDigest: hash(),
+            },
+          });
+          for (const [index, assignedUser] of entry.users.entries()) {
+            await db.approvalSlot.create({
+              data: {
+                projectId,
+                reviewRequestId: review.id,
+                slotKey: `user-${index}`,
+                kind: 'APPROVAL',
+                requiredUserId: assignedUser,
+              },
+            });
+          }
+          await db.approvalSlot.create({
+            data: {
+              projectId,
+              reviewRequestId: review.id,
+              slotKey: 'role-only',
+              kind: 'APPROVAL',
+              requiredRoleId: role.id,
+            },
+          });
+        }
+
+        const publications = new V1PublicationPrismaRepository(db as PrismaService);
+        const ids = [revision.id, ...others.map((item) => item.id)];
+        for (const [candidateUser, expected] of [
+          [userId, [revision.id]],
+          [secondUser.id, [revision.id, others[0]!.id]],
+          [unassignedUser, []],
+        ] as const) {
+          const actual = await publications.listAssignedReviewerRevisionIds(ids, candidateUser);
+          const individual: string[] = [];
+          for (const id of ids) {
+            if (await publications.isAssignedReviewer(id, candidateUser)) individual.push(id);
+          }
+          expect(new Set(actual)).toEqual(new Set(expected));
+          expect(new Set(actual)).toEqual(new Set(individual));
+        }
+      } finally {
+        await db.approvalSlot.deleteMany({ where: { projectId, requiredUserId: otherUser } });
+        await db.user.delete({ where: { id: secondUser.id } });
+      }
+    } finally {
+      await db.approvalSlot.deleteMany({ where: { projectId, requiredRoleId: role.id } });
+      await db.projectRole.delete({ where: { id: role.id } });
+    }
+  });
+
   async function confirmation(targetId: string) {
     const secretHash = hash();
     const ticket = await db.confirmationTicket.create({

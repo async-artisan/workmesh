@@ -1,13 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { buildStandardWorkflowTemplate, usedWorkflowRoleKeys } from '@workmesh/shared';
+import { Link, useNavigate } from 'react-router-dom';
+import { ArrowUpRight, BookOpen, FileText, Link2, UsersRound } from 'lucide-react';
+import {
+  buildSoftwareDeliveryWorkflowTemplate,
+  buildStandardWorkflowTemplate,
+  usedWorkflowRoleKeys,
+} from '@workmesh/shared';
 import { formatApiError } from '../api/client';
 import { formatDateTime } from '../lib/datetime';
 import type { ActionBindingInput } from '../api/auth';
 import {
   projectApi,
+  knowledgeBindingApi,
   rolePackageApi,
   workflowApi,
+  type DocumentDetail,
+  type KnowledgeBindingsView,
   type RolePackageListItem,
   type RoleView,
   type WorkflowCompileResult,
@@ -20,6 +28,8 @@ import { InlineLoading, TableSkeletonRows } from '../components/Skeleton';
 import { WorkflowDefinitionEditor } from '../components/WorkflowDefinitionEditor';
 import { loadProjects } from '../store/project';
 import { useProjectContext } from '../hooks/useProjectContext';
+import { loadDocumentIndex } from '../lib/documentIndex';
+import './workflow-prerequisites.css';
 
 export const WORKFLOW_PUBLISH_ACTION = 'WORKFLOW_CONFIG_PUBLISH';
 export const WORKFLOW_DEFINITION_TARGET = 'WORKFLOW_DEFINITION';
@@ -144,6 +154,48 @@ function parseDefinition(text: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+type KnowledgePrerequisite = {
+  stepIndex: number;
+  bindingIndex: number;
+  roleKey: string;
+  inputKey: string;
+  reference: string;
+};
+
+function knowledgePrerequisites(text: string): KnowledgePrerequisite[] {
+  try {
+    const definition = parseDefinition(text);
+    if (!Array.isArray(definition.steps)) return [];
+    return definition.steps.flatMap((rawStep: unknown, stepIndex) => {
+      if (!rawStep || typeof rawStep !== 'object' || Array.isArray(rawStep)) return [];
+      const step = rawStep as Record<string, unknown>;
+      if (!Array.isArray(step.inputBindings)) return [];
+      return step.inputBindings.flatMap((rawBinding: unknown, bindingIndex) => {
+        if (!rawBinding || typeof rawBinding !== 'object' || Array.isArray(rawBinding)) return [];
+        const binding = rawBinding as Record<string, unknown>;
+        if (binding.source !== 'PUBLISHED_KNOWLEDGE') return [];
+        return [
+          {
+            stepIndex,
+            bindingIndex,
+            roleKey: typeof step.roleKey === 'string' ? step.roleKey : '',
+            inputKey: typeof binding.inputKey === 'string' ? binding.inputKey : '',
+            reference: typeof binding.knowledgeKey === 'string' ? binding.knowledgeKey : '',
+          },
+        ];
+      });
+    });
+  } catch {
+    return [];
+  }
+}
+
+function prerequisiteTitle(inputKey: string): string {
+  if (inputKey === 'contract') return '接口契约';
+  if (inputKey === 'unit-card') return '系统单元说明';
+  return inputKey || '知识资料';
+}
+
 /**
  * 流程配置页：把「校验 → 人工确认票据 → 发布」这条本来只能靠手工 API 走的路径搬进浏览器。
  *
@@ -152,11 +204,22 @@ function parseDefinition(text: string): Record<string, unknown> {
  * 因此任何在预览之后修改定义的行为都会得到 ACTION_CHANGED。
  */
 export function Workflows() {
+  const { projectId } = useProjectContext();
+  // 不依赖路由容器的实现细节；页面单独使用时也必须隔离项目的编辑、票据和异步结果。
+  return <ProjectWorkflows key={projectId} />;
+}
+
+function ProjectWorkflows() {
   const { projects, projectId } = useProjectContext();
   const navigate = useNavigate();
   const [definitions, setDefinitions] = useState<WorkflowDefinitionView[]>([]);
   const [packages, setPackages] = useState<RolePackageListItem[]>([]);
   const [roles, setRoles] = useState<RoleView[]>([]);
+  const [knowledgeDocuments, setKnowledgeDocuments] = useState<DocumentDetail[]>([]);
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false);
+  const [knowledgeError, setKnowledgeError] = useState('');
+  const [knowledgeBindings, setKnowledgeBindings] = useState<KnowledgeBindingsView | null>(null);
+  const [bindingBusy, setBindingBusy] = useState(false);
   const [projectVersion, setProjectVersion] = useState<number | null>(null);
   const [editorText, setEditorText] = useState('');
   /** 服务端基线内容：用于判断"是否有未发布改动"，以及 beforeunload 提示。 */
@@ -178,6 +241,43 @@ export function Workflows() {
   const editorErrorRef = useRef<HTMLParagraphElement | null>(null);
 
   const roleTitles = useMemo(() => new Map(roles.map((role) => [role.key, role.title])), [roles]);
+  const prerequisites = useMemo(() => knowledgePrerequisites(editorText), [editorText]);
+  const hasKnowledgePrerequisites = prerequisites.length > 0;
+
+  useEffect(() => {
+    let cancelled = false;
+    setKnowledgeDocuments([]);
+    setKnowledgeBindings(null);
+    setKnowledgeError('');
+    if (!projectId || !hasKnowledgePrerequisites) {
+      setKnowledgeLoading(false);
+      return;
+    }
+    setKnowledgeLoading(true);
+    void Promise.all([loadDocumentIndex(projectId), knowledgeBindingApi.list(projectId)])
+      .then(([result, bindings]) => {
+        if (cancelled) return;
+        setKnowledgeDocuments(
+          result.items.filter(
+            (item) =>
+              ['KNOWLEDGE', 'DECISION'].includes(item.document.kind) &&
+              !item.document.archivedAt &&
+              Boolean(item.document.currentPublishedRevisionId),
+          ),
+        );
+        setKnowledgeError(result.complete ? '' : result.error);
+        setKnowledgeBindings(bindings);
+        setKnowledgeLoading(false);
+      })
+      .catch((caught) => {
+        if (cancelled) return;
+        setKnowledgeError(formatApiError(caught));
+        setKnowledgeLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, hasKnowledgePrerequisites]);
 
   useEffect(() => {
     const found = projects.find((project) => project.id === projectId);
@@ -201,6 +301,7 @@ export function Workflows() {
         rolePackageApi.list(projectId),
         projectApi.roles(projectId),
       ]);
+      if (loadRequestRef.current !== requestId) return;
       setDefinitions(definitionPage.items);
       setPackages(packagePage.items);
       setRoles(roleList);
@@ -211,6 +312,7 @@ export function Workflows() {
       if (!editorText.trim() && published?.currentPublishedRevisionId) {
         try {
           const revision = await workflowApi.revision(published.currentPublishedRevisionId);
+          if (loadRequestRef.current !== requestId) return;
           serverBaseline = JSON.stringify(revision.definition, null, 2);
           setEditorText(serverBaseline);
           setExpectedCurrentRevision(published.currentRevision);
@@ -264,6 +366,22 @@ export function Workflows() {
 
   /** 有未发布改动时提示浏览器；草稿同时已落本地，刷新/切页不会丢内容。 */
   const editorDirty = editorText.trim() !== baselineText.trim();
+  const latestDraftRef = useRef({ projectId, editorText, expectedCurrentRevision, editorDirty });
+  latestDraftRef.current = { projectId, editorText, expectedCurrentRevision, editorDirty };
+
+  useEffect(
+    () => () => {
+      const draft = latestDraftRef.current;
+      if (draft.projectId && draft.editorDirty && draft.editorText.trim()) {
+        writeDraft(draft.projectId, {
+          text: draft.editorText,
+          expectedCurrentRevision: draft.expectedCurrentRevision,
+          savedAt: Date.now(),
+        });
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!projectId || !editorDirty) return;
@@ -302,6 +420,8 @@ export function Workflows() {
   function discardDraft() {
     if (!projectId) return;
     clearDraft(projectId);
+    latestDraftRef.current = { ...latestDraftRef.current, editorDirty: false };
+    setBaselineText(editorText);
     setDraftRestored(false);
     setEditorError('');
     setValidation(null);
@@ -311,9 +431,69 @@ export function Workflows() {
     else resetDraft('', 0);
   }
 
-  function loadTemplate() {
-    resetDraft(JSON.stringify(buildStandardWorkflowTemplate(), null, 2), 0);
-    setNotice('已载入标准流程模板，下一步做校验。');
+  function loadTemplate(kind: 'standard' | 'software-delivery' = 'standard') {
+    const template =
+      kind === 'standard'
+        ? buildStandardWorkflowTemplate()
+        : buildSoftwareDeliveryWorkflowTemplate();
+    const existing = definitions.find((item) => item.workflowKey === template.workflowKey);
+    const next = { ...template, baseRevisionId: existing?.currentPublishedRevisionId ?? null };
+    const text = JSON.stringify(next, null, 2);
+    resetDraft(text, existing?.currentRevision ?? 0);
+    setBaselineText('');
+    // 前往知识库准备资料前即保存，不能等用户首次修改或自动保存定时器。
+    if (projectId)
+      writeDraft(projectId, {
+        text,
+        expectedCurrentRevision: existing?.currentRevision ?? 0,
+        savedAt: Date.now(),
+      });
+    setNotice(
+      `已载入${kind === 'standard' ? '标准' : '软件交付'}流程模板${existing ? '作为下一版' : ''}。完成准备项后校验；发布新修订不会改变已有流程实例。`,
+    );
+  }
+
+  function chooseKnowledge(prerequisite: KnowledgePrerequisite, reference: string) {
+    const definition = parseDefinition(editorText);
+    const steps = definition.steps as Array<Record<string, unknown>>;
+    const bindings = steps[prerequisite.stepIndex].inputBindings as Array<Record<string, unknown>>;
+    bindings[prerequisite.bindingIndex] = {
+      ...bindings[prerequisite.bindingIndex],
+      knowledgeKey: reference,
+    };
+    setEditorText(JSON.stringify(definition, null, 2));
+    setValidation(null);
+    setPending(null);
+    setEditorError('');
+  }
+
+  async function bindKnowledge(prerequisite: KnowledgePrerequisite) {
+    const roleId = roles.find((role) => role.key === prerequisite.roleKey)?.id;
+    if (!projectId || !knowledgeBindings?.canManage || !roleId) return;
+    setBindingBusy(true);
+    setKnowledgeError('');
+    setValidation(null);
+    setPending(null);
+    try {
+      await knowledgeBindingApi.bind(projectId, {
+        expectedVersion: knowledgeBindings.version,
+        documentId: prerequisite.reference,
+        roleId,
+        required: true,
+      });
+      setKnowledgeBindings(await knowledgeBindingApi.list(projectId));
+      setNotice('资料已绑定给接收角色，可以继续校验流程。绑定不会授予知识库阅读权限。');
+    } catch (caught) {
+      setKnowledgeError(formatApiError(caught));
+      // 冲突后刷新版本，让下一次操作基于当前状态，保留用户的文档选择。
+      try {
+        setKnowledgeBindings(await knowledgeBindingApi.list(projectId));
+      } catch {
+        /* 保留原错误。 */
+      }
+    } finally {
+      setBindingBusy(false);
+    }
   }
 
   /** 以已发布修订为基线：baseRevisionId 必须指回当前已发布修订，否则服务端会判定基线不一致。 */
@@ -406,6 +586,8 @@ export function Workflows() {
     setPending(null);
     // 发布成功后先移除本地草稿，避免刷新定义时又恢复已发布内容并覆盖成功提示。
     clearDraft(projectId);
+    latestDraftRef.current = { ...latestDraftRef.current, editorDirty: false };
+    setBaselineText(editorText);
     setDraftRestored(false);
     await load();
     setBaselineText(editorText);
@@ -470,17 +652,27 @@ export function Workflows() {
 
       <div className="table-card">
         <div className="card-head">
-          <h3>标准流程模板</h3>
+          <h3>流程模板</h3>
         </div>
         <p className="page-sub">
           模板只在本地预填，不会被直接信任：服务端会用项目当前的活动角色与角色包重新编译。
-          被引用的角色必须有已登记的角色包版本，否则编译期就会失败。软件交付模板中的
-          <code> PUBLISHED_KNOWLEDGE </code> 来源也需替换为本项目已发布并绑定到对应角色的知识文档
-          UUID。
+          被引用的角色必须有已登记的角色包版本。软件交付模板把用例设计与实现后的测试执行分开；
+          先准备下方列出的知识资料，再校验发布。已有实例继续使用创建时的流程修订。
         </p>
         <div className="toolbar">
-          <button className="ghost" disabled={!projectId || busy} onClick={loadTemplate}>
+          <button
+            className="ghost"
+            disabled={!projectId || busy || loading}
+            onClick={() => loadTemplate()}
+          >
             载入标准模板
+          </button>
+          <button
+            className="ghost"
+            disabled={!projectId || busy || loading}
+            onClick={() => loadTemplate('software-delivery')}
+          >
+            载入软件交付模板
           </button>
           {draftRestored && (
             <button className="ghost" disabled={busy} onClick={discardDraft}>
@@ -503,6 +695,138 @@ export function Workflows() {
             </span>
           )}
         </div>
+        {prerequisites.length > 0 && (
+          <section className="workflow-prerequisites" aria-label="流程前置资料">
+            <div className="workflow-prerequisites-heading">
+              <span className="workflow-prerequisites-icon" aria-hidden="true">
+                <BookOpen size={20} />
+              </span>
+              <div>
+                <h3>
+                  开工前需要的资料 <span>{prerequisites.length} 项资料</span>
+                </h3>
+                <p>
+                  请后端负责人准备接口契约与系统单元说明，项目管理员协调文档发布与接收角色绑定。
+                  选择文档只修改当前草稿；完成资料准备后再校验流程。
+                </p>
+              </div>
+            </div>
+            {knowledgeLoading && <InlineLoading label="正在读取可选的已发布资料…" />}
+            {knowledgeError && (
+              <p className="error" role="alert">
+                {knowledgeError}
+              </p>
+            )}
+            {!knowledgeLoading && !knowledgeError && knowledgeDocuments.length === 0 && (
+              <p className="workflow-prerequisites-empty" role="status">
+                暂无可选的已发布资料，请先准备与发布知识资料，也可展开下方入口手动填写文档标识。
+              </p>
+            )}
+            <div className="workflow-prerequisites-grid">
+              {prerequisites.map((item) => {
+                const title = `${prerequisiteTitle(item.inputKey)}（${roleTitles.get(item.roleKey) ?? item.roleKey}）`;
+                const selected = knowledgeDocuments.some(
+                  (document) => document.document.id === item.reference,
+                );
+                const roleId = roles.find((role) => role.key === item.roleKey)?.id;
+                const bound = Boolean(
+                  roleId &&
+                  knowledgeBindings?.items.some(
+                    (binding) =>
+                      binding.documentId === item.reference &&
+                      (binding.roleId === null || binding.roleId === roleId),
+                  ),
+                );
+                return (
+                  <div
+                    className="workflow-prerequisite-card"
+                    role="group"
+                    aria-label={title}
+                    key={`${item.stepIndex}-${item.bindingIndex}`}
+                  >
+                    <div className="workflow-prerequisite-heading">
+                      <div className="workflow-prerequisite-title">
+                        <FileText size={18} aria-hidden="true" />
+                        <h4>{prerequisiteTitle(item.inputKey)}</h4>
+                        <span className="workflow-prerequisite-role">
+                          {roleTitles.get(item.roleKey) ?? item.roleKey}接收
+                        </span>
+                      </div>
+                      <span className={`workflow-prerequisite-status${bound ? ' is-bound' : ''}`}>
+                        {bound ? '已绑定' : '待绑定'}
+                      </span>
+                    </div>
+                    <div className="workflow-prerequisite-selection">
+                      <label className="workflow-prerequisite-field">
+                        <span>已发布资料</span>
+                        <select
+                          aria-label={`选择已发布文档：${title}`}
+                          disabled={busy || knowledgeLoading}
+                          value={selected ? item.reference : ''}
+                          onChange={(event) => chooseKnowledge(item, event.target.value)}
+                        >
+                          <option value="">选择已发布的资料</option>
+                          {knowledgeDocuments.map((document) => (
+                            <option key={document.document.id} value={document.document.id}>
+                              {document.publishedRevision?.title ?? document.document.id}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {!bound && knowledgeBindings?.canManage && (
+                        <button
+                          className="ghost workflow-prerequisite-bind"
+                          type="button"
+                          disabled={busy || bindingBusy || !selected || !roleId}
+                          onClick={() => void bindKnowledge(item)}
+                        >
+                          <Link2 size={16} aria-hidden="true" />
+                          {bindingBusy
+                            ? '绑定中…'
+                            : `绑定给${roleTitles.get(item.roleKey) ?? item.roleKey}`}
+                        </button>
+                      )}
+                    </div>
+                    {!bound && knowledgeBindings && !knowledgeBindings.canManage && (
+                      <p className="workflow-prerequisite-permission">
+                        请项目 OWNER 或 ADMIN 在本页完成资料绑定；普通成员可选择资料并保存草稿。
+                      </p>
+                    )}
+                    <details className="workflow-prerequisite-manual">
+                      <summary>手动填写文档标识</summary>
+                      <label className="workflow-prerequisite-field">
+                        <span>文档标识</span>
+                        <input
+                          aria-label={`文档标识：${title}`}
+                          value={item.reference}
+                          disabled={busy}
+                          onChange={(event) => chooseKnowledge(item, event.target.value)}
+                        />
+                      </label>
+                    </details>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="workflow-prerequisites-footer">
+              <p>
+                文档须已发布，并绑定给接收角色或项目全部角色。绑定不授予知识库阅读权限，资料可用性仍由服务端校验。
+              </p>
+              <div className="workflow-prerequisites-links">
+                <Link to={`/knowledge?projectId=${encodeURIComponent(projectId)}`}>
+                  <BookOpen size={15} aria-hidden="true" />
+                  准备与发布知识资料
+                  <ArrowUpRight size={14} aria-hidden="true" />
+                </Link>
+                <Link to={`/roles?projectId=${encodeURIComponent(projectId)}`}>
+                  <UsersRound size={15} aria-hidden="true" />
+                  安排资料负责人
+                  <ArrowUpRight size={14} aria-hidden="true" />
+                </Link>
+              </div>
+            </div>
+          </section>
+        )}
         <WorkflowDefinitionEditor
           value={editorText}
           roles={roles.map((role) => ({ key: role.key, title: role.title }))}

@@ -39,6 +39,7 @@ export type V1ReadyInstanceStep = {
   workflowInstanceId: string;
   stepKey: string;
   executionStatus: string;
+  workStatus: string;
 };
 
 export type V1ReadyCandidatePage = {

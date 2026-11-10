@@ -118,7 +118,7 @@ test('newer failing or pending runs cannot reuse an older successful run', () =>
   );
 });
 
-test('CI API checks both workflows and paginates before selecting the latest run', async () => {
+test('CI API checks quality, platform and security workflows and paginates before selecting the latest run', async () => {
   const calls = [];
   const result = await verifyCi(
     { repository: 'example/repo', sha, token: 'test-token' },
@@ -127,7 +127,8 @@ test('CI API checks both workflows and paginates before selecting the latest run
       assert.equal(options.headers.Authorization, 'Bearer test-token');
       assert.equal(url.searchParams.get('head_sha'), sha);
       assert.equal(url.searchParams.get('event'), 'push');
-      const workflow = url.pathname.includes('platform-smoke') ? 'platform-smoke.yml' : 'ci.yml';
+      assert.equal(url.searchParams.get('branch'), 'main');
+      const workflow = url.pathname.split('/').at(-2);
       const page = Number(url.searchParams.get('page'));
       return {
         ok: true,
@@ -140,10 +141,110 @@ test('CI API checks both workflows and paginates before selecting the latest run
       };
     },
   );
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 6);
   assert.deepEqual(
     result.map(({ workflow }) => workflow),
-    ['ci.yml', 'platform-smoke.yml'],
+    ['ci.yml', 'platform-smoke.yml', 'security.yml'],
+  );
+});
+
+const settings = { repository: 'example/repo', sha, token: 'test-token' };
+const workflowRun = (workflow, overrides = {}) =>
+  run({ path: '.github/workflows/' + workflow, ...overrides });
+function workflowResponse(overrides = {}) {
+  return async (url) => {
+    const workflow = url.pathname.split('/').at(-2);
+    return {
+      ok: true,
+      json: async () => ({
+        workflow_runs: overrides[workflow] ?? [workflowRun(workflow)],
+      }),
+    };
+  };
+}
+
+for (const workflow of ['ci.yml', 'platform-smoke.yml', 'security.yml']) {
+  test(`release still requires ${workflow} when the other workflows succeed`, async () => {
+    await assert.rejects(
+      verifyCi(settings, workflowResponse({ [workflow]: [] })),
+      new RegExp(workflow.replaceAll('.', '\\.') + '.*no matching run'),
+    );
+  });
+}
+
+test('security gate cannot reuse a different SHA, branch, workflow or event', async () => {
+  for (const overrides of [
+    { head_sha: 'b'.repeat(40) },
+    { head_branch: 'feature' },
+    { path: '.github/workflows/ci.yml' },
+    { event: 'pull_request' },
+    { event: 'schedule' },
+    { event: 'workflow_dispatch' },
+  ]) {
+    await assert.rejects(
+      verifyCi(
+        settings,
+        workflowResponse({ 'security.yml': [workflowRun('security.yml', overrides)] }),
+      ),
+      /security\.yml.*no matching run/,
+    );
+  }
+});
+
+for (const state of [
+  { status: 'in_progress', conclusion: null },
+  { status: 'queued', conclusion: null },
+  { status: 'completed', conclusion: 'failure' },
+  { status: 'completed', conclusion: 'cancelled' },
+  { status: 'completed', conclusion: 'skipped' },
+]) {
+  test(`newer security ${state.status}/${state.conclusion} prevents reuse of an older success`, async () => {
+    const old = workflowRun('security.yml');
+    const latest = workflowRun('security.yml', {
+      id: 11,
+      created_at: '2026-01-02T00:00:00Z',
+      ...state,
+    });
+    for (const runs of [
+      [old, latest],
+      [latest, old],
+    ]) {
+      await assert.rejects(
+        verifyCi(settings, workflowResponse({ 'security.yml': runs })),
+        /security\.yml requires a successful latest/,
+      );
+    }
+  });
+}
+
+test('security gate accepts the latest success while preserving earlier failure evidence', async () => {
+  const old = workflowRun('security.yml', { conclusion: 'failure' });
+  const latest = workflowRun('security.yml', { id: 11, created_at: '2026-01-02T00:00:00Z' });
+  const result = await verifyCi(settings, workflowResponse({ 'security.yml': [latest, old] }));
+  assert.deepEqual(result.at(-1), {
+    workflow: 'security.yml',
+    id: 11,
+    attempt: 1,
+    url: latest.html_url,
+  });
+});
+
+test('a failed security rerun cannot reuse a successful earlier attempt of the same run', async () => {
+  const first = workflowRun('security.yml');
+  const rerun = workflowRun('security.yml', { run_attempt: 2, conclusion: 'failure' });
+  await assert.rejects(
+    verifyCi(settings, workflowResponse({ 'security.yml': [first, rerun] })),
+    /security\.yml.*completed\/failure/,
+  );
+});
+
+test('security API errors fail the release even when quality and platform checks succeed', async () => {
+  const good = workflowResponse();
+  await assert.rejects(
+    verifyCi(settings, async (url) =>
+      url.pathname.includes('/security.yml/') ? { ok: false, status: 403 } : good(url),
+    ),
+    /Cannot verify security\.yml: GitHub API HTTP 403/,
   );
 });
 

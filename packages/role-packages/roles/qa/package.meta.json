@@ -1,6 +1,6 @@
 {
   "id": "workmesh.role.qa",
-  "version": "1.1.0",
+  "version": "1.2.1",
   "title": "测试角色包",
   "description": "从验收派生用例与评测集，执行后把失败归因为可追踪的缺陷。",
   "license": "MIT",
@@ -28,6 +28,12 @@
       "path": "skills/report-defects/SKILL.md",
       "description": "把失败归因为缺陷，关联验收与任务并跟踪回归。",
       "whenToUse": "评测失败且判定为产品缺陷时。"
+    },
+    {
+      "key": "audit-delivery",
+      "path": "skills/audit-delivery/SKILL.md",
+      "description": "逐条对照验收、实际代码与执行证据，记录缺口和后续工作提案。",
+      "whenToUse": "实现完成、返修后复核或准备验收时。"
     }
   ],
   "inputs": [

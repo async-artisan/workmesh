@@ -1,7 +1,7 @@
 {
   "packageSchemaVersion": "1.1",
   "id": "workmesh.role.ops",
-  "version": "1.1.0",
+  "version": "1.2.1",
   "protocolVersion": "1.0",
   "title": "运维角色包",
   "description": "准备发布、验证回滚、执行冒烟，把上线从「发出去」变成「可证明地发出去」。",
@@ -109,7 +109,7 @@
       "id": "template-smoke",
       "kind": "template",
       "path": "assets/templates/smoke.md",
-      "sha256": "e5be94404d5f5681ea9100e400dcaf0e5019fb50fc63de63923ec279f3341a4e",
+      "sha256": "87a6802b7a63ff7f37d47a8be4a72fafb129f2ddb42b22aed79013ff264e3bf7",
       "byteLength": 716,
       "mediaType": "text/markdown"
     },
@@ -122,11 +122,19 @@
       "mediaType": "text/markdown"
     },
     {
+      "id": "checklist-spec-driven",
+      "kind": "checklist",
+      "path": "checklists/spec-driven.md",
+      "sha256": "eddb341cf017d46fc1a03cf0a89de031acdc1d72ec318fa2ae8a55a48ade6bac",
+      "byteLength": 1124,
+      "mediaType": "text/markdown"
+    },
+    {
       "id": "guide",
       "kind": "prompt",
       "path": "guide.md",
-      "sha256": "bfd9571000f4aa5eb7486d0e685e61b986b183bdfe5ab610e2ea8a28a7d47fe1",
-      "byteLength": 2124,
+      "sha256": "26aca3fe4a5a5f38f1a0a67e3e22749fd1dc55f4ff2f83242e3e08a7502a37fc",
+      "byteLength": 2877,
       "mediaType": "text/markdown"
     },
     {

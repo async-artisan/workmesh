@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReviewDecision } from './ReviewDecision';
@@ -542,6 +542,11 @@ describe('ReviewDecision（证据 + 一次确认 + 回执）', () => {
     mockFetch((url, init) => {
       const path = pathOf(url);
       const method = init?.method ?? 'GET';
+      if (path.endsWith('/discussions') && method === 'GET')
+        return {
+          status: 200,
+          body: envelope({ items: [], nextCursor: null, unresolvedCount: 0, canCreate: false }),
+        };
       if (path === '/api/v1/review-requests/review-refresh' && method === 'GET') {
         return {
           status: 200,
@@ -958,6 +963,143 @@ describe('ReviewDecision 证据完整性与上下文状态', () => {
     setCsrfToken(null);
     useAuthStore.getState().clearAuth();
     localStorage.clear();
+  });
+
+  it('跨PRD分页读取正式条款并从完整质量包逐条映射，不把普通检查归给未覆盖条款', async () => {
+    const commit = 'a'.repeat(40);
+    const basis = { prdRevisionId: 'prd-current', snapshotId: 'snap-task', commitSha: commit };
+    const acceptance = [
+      { key: 'ac-main', text: '询价主流程可走通', verification: 'TEST' },
+      { key: 'ac-failure', text: '询价失败时给出明确提示', verification: 'TEST' },
+    ];
+    const text = JSON.stringify({
+      schemaVersion: '1.0',
+      stage: 'DELIVERY',
+      requirementId: 'req-1',
+      basis,
+      acceptance: [acceptance[0]],
+      tasks: [
+        { id: 'impl-01', acceptanceKeys: ['ac-main'], dependsOn: [], files: ['src/quote.ts'] },
+      ],
+      cases: [{ id: 'case-main', covers: ['ac-main'], kind: 'TEST' }],
+      evidence: [
+        {
+          id: 'ev-main',
+          acceptanceKeys: ['ac-main'],
+          result: 'PASSED',
+          source: 'AGENT_REPORTED',
+          ref: 'reports/main.json',
+          basis,
+        },
+      ],
+    });
+    const qualityArtifact = {
+      ...hostedArtifact,
+      id: 'quality-artifact',
+      mediaType: 'application/json',
+      repoPath: 'quality.json',
+      summary: '交付质量包',
+      commitSha: commit,
+      byteLength: new TextEncoder().encode(text).byteLength,
+    };
+    let pages = 0;
+    const mock = mockTaskScenario({
+      artifacts: () => [qualityArtifact],
+      artifactContent: () => ({
+        status: 200,
+        body: envelope({
+          artifactId: qualityArtifact.id,
+          mediaType: qualityArtifact.mediaType,
+          byteLength: qualityArtifact.byteLength,
+          sha256: qualityArtifact.sha256,
+          storage: 'HOSTED',
+          text,
+          bodyBase64: utf8ToBase64(text),
+        }),
+      }),
+      documents: () => ({
+        status: 200,
+        body: envelope(
+          ++pages === 1
+            ? { items: [], nextCursor: 'next-prd-page' }
+            : {
+                items: [
+                  {
+                    document: {
+                      id: 'prd-doc',
+                      projectId: 'p1',
+                      requirementId: 'req-1',
+                      kind: 'PRD',
+                      currentPublishedRevisionId: 'prd-current',
+                      archivedAt: null,
+                    },
+                    revisions: [],
+                    publishedRevision: { id: 'prd-current', acceptance },
+                  },
+                ],
+                nextCursor: null,
+              },
+        ),
+      }),
+    });
+    renderDecisionPage();
+    const matrix = await screen.findByRole('region', { name: '验收条件与证据映射' });
+    await within(matrix).findByText('ev-main · 提交者报告通过');
+    expect(within(matrix).getByText('报告通过，待人工核验')).toBeInTheDocument();
+    const uncovered = within(matrix).getByText(acceptance[1].text).closest('tr')!;
+    expect(within(uncovered).getByText('缺少关联证据')).toBeInTheDocument();
+    expect(within(uncovered).queryByText('ev-main · 提交者报告通过')).not.toBeInTheDocument();
+    expect(within(matrix).getByText(/对照 PRD 修订/)).toHaveTextContent('prd-current');
+    expect(
+      mock.mock.calls.some(
+        ([url]) =>
+          new URL(String(url), 'http://local').searchParams.get('cursor') === 'next-prd-page',
+      ),
+    ).toBe(true);
+    expect(
+      mock.mock.calls.filter(
+        ([url, init]) =>
+          methodOf(init ?? {}) === 'POST' && pathOf(String(url)).includes('decisions'),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('多份已发布PRD不任取第一份作为验收基线', async () => {
+    mockTaskScenario({
+      documents: () => ({
+        status: 200,
+        body: envelope({
+          items: ['prd-a', 'prd-b'].map((id) => ({
+            document: { id, requirementId: 'req-1', archivedAt: null },
+            revisions: [],
+            publishedRevision: {
+              id: `${id}-revision`,
+              acceptance: [{ key: 'ac-main', text: '不应任取的验收', verification: 'TEST' }],
+            },
+          })),
+          nextCursor: null,
+        }),
+      }),
+    });
+    renderDecisionPage();
+    await screen.findByText('无法读取 PRD 上下文');
+    expect(screen.getByText(/多份已发布 PRD/)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: '验收条件与证据映射' })).not.toBeInTheDocument();
+    expect(screen.queryByText('不应任取的验收')).not.toBeInTheDocument();
+  });
+
+  it('PRD后续分页失败时显示读取失败，不把第一页空结果说成未绑定', async () => {
+    let pages = 0;
+    mockTaskScenario({
+      documents: () =>
+        ++pages === 1
+          ? { status: 200, body: envelope({ items: [], nextCursor: 'page2' }) }
+          : { status: 503, body: { error: { code: 'UNAVAILABLE', message: '分页不可用' } } },
+    });
+    renderDecisionPage();
+    await screen.findByText('无法读取 PRD 上下文');
+    expect(screen.queryByText('该需求没有绑定 PRD 文档')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重试读取 PRD' })).toBeInTheDocument();
   });
 
   it('截断工件允许加载完整正文、下载证据并保留打开原工件入口', async () => {

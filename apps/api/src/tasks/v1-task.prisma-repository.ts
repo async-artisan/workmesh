@@ -138,7 +138,7 @@ export class V1TaskPrismaRepository implements V1TaskRepository {
   private async runClaim(input: V1ClaimInput): Promise<V1TaskSnapshot> {
     return this.prisma.$transaction(
       async (tx) => {
-        const task = await tx.task.findUnique({ where: { id: input.taskId } });
+        let task = await tx.task.findUnique({ where: { id: input.taskId } });
         if (!task)
           throw new WorkmeshError(
             V1_ERROR_CODES.RESOURCE_NOT_FOUND,
@@ -148,18 +148,155 @@ export class V1TaskPrismaRepository implements V1TaskRepository {
           );
 
         // 项目级串行写边界。
-        await tx.$queryRaw(
-          Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${task.projectId}::uuid FOR UPDATE`,
+        const projects = await tx.$queryRaw<Array<{ id: string; archivedAt: Date | null }>>(
+          Prisma.sql`SELECT "id", "archivedAt" FROM "workmesh_v1"."Project" WHERE "id" = ${task.projectId}::uuid FOR UPDATE`,
         );
+        const project = projects[0];
+        if (!project)
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'PROJECT_NOT_FOUND',
+            { projectId: task.projectId },
+            404,
+          );
+        // 事务外授权后项目仍可能被归档；锁定当前行时必须重新检查可写状态。
+        if (project.archivedAt)
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_CONFLICT,
+            'PROJECT_ARCHIVED',
+            { projectId: project.id, archivedAt: project.archivedAt.toISOString() },
+            409,
+          );
+        task = await tx.task.findUnique({ where: { id: input.taskId } });
+        if (!task)
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+            'TASK_NOT_FOUND',
+            { taskId: input.taskId },
+            404,
+          );
 
         const instance = await tx.workflowInstance.findFirst({
           where: { id: task.workflowInstanceId, projectId: task.projectId },
-          select: { retiredAt: true },
+          select: {
+            retiredAt: true,
+            definitionRevisionId: true,
+            workStatus: true,
+            requirementId: true,
+          },
         });
         assertWorkflowInstanceActive(instance?.retiredAt, {
           taskId: task.id,
           workflowInstanceId: task.workflowInstanceId,
         });
+
+        // 项目锁内重读授权和依赖；不能沿用 ready 列表或事务外主体检查的旧结论。
+        const member = await tx.projectMember.findFirst({
+          where: { projectId: task.projectId, userId: input.userId, revokedAt: null },
+        });
+        const assignment = await tx.projectRoleAssignment.findFirst({
+          where: {
+            projectId: task.projectId,
+            userId: input.userId,
+            roleId: task.roleId,
+            revokedAt: null,
+            role: { isActive: true },
+          },
+        });
+        const user = await tx.user.findUnique({
+          where: { id: input.userId },
+          select: { isActive: true, authVersion: true },
+        });
+        const credential = input.credentialId
+          ? await tx.agentCredential.findUnique({ where: { id: input.credentialId } })
+          : null;
+        if (
+          task.responsibleUserId !== input.userId ||
+          !member ||
+          !assignment ||
+          !user?.isActive ||
+          (input.credentialId &&
+            (!credential ||
+              credential.userId !== input.userId ||
+              credential.projectId !== task.projectId ||
+              credential.roleId !== task.roleId ||
+              credential.revokedAt !== null ||
+              credential.expiresAt <= input.now ||
+              credential.userAuthVersion !== user.authVersion ||
+              !credential.scopes.includes('task:claim')))
+        )
+          throw new WorkmeshError(
+            V1_ERROR_CODES.FORBIDDEN,
+            'TASK_NOT_IN_RESPONSIBILITY',
+            { taskId: task.id },
+            403,
+          );
+        const requirement = instance
+          ? await tx.requirement.findUnique({
+              where: { id: instance.requirementId },
+              select: { workStatus: true },
+            })
+          : null;
+        if (
+          task.executionStatus !== 'OPEN' ||
+          task.workStatus !== 'ACTIVE' ||
+          instance?.workStatus !== 'ACTIVE' ||
+          requirement?.workStatus !== 'ACTIVE'
+        )
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_CONFLICT,
+            'TASK_NOT_READY',
+            { taskId: task.id },
+            409,
+          );
+        const revision = instance?.definitionRevisionId
+          ? await tx.workflowRevision.findUnique({
+              where: { id: instance.definitionRevisionId },
+              select: { projectId: true, definition: true },
+            })
+          : null;
+        const steps = (revision?.definition as { steps?: unknown } | null)?.steps;
+        const step = Array.isArray(steps)
+          ? steps.find((entry) => entry && typeof entry === 'object' && entry.key === task.stepKey)
+          : null;
+        if (
+          !revision ||
+          revision.projectId !== task.projectId ||
+          !step ||
+          !Array.isArray(step.deps) ||
+          step.deps.some((dep: unknown) => typeof dep !== 'string')
+        )
+          throw new WorkmeshError(
+            V1_ERROR_CODES.WORKFLOW_INVALID,
+            'TASK_WORKFLOW_CONTRACT_INVALID',
+            { taskId: task.id },
+            409,
+          );
+        const predecessors = await tx.task.findMany({
+          where: {
+            projectId: task.projectId,
+            workflowInstanceId: task.workflowInstanceId,
+            stepKey: { in: step.deps as string[] },
+          },
+          select: { stepKey: true, executionStatus: true, workStatus: true },
+        });
+        if (
+          step.deps.some(
+            (dep: string) =>
+              !predecessors.some(
+                (previous) =>
+                  previous.stepKey === dep &&
+                  previous.executionStatus === 'DONE' &&
+                  previous.workStatus === 'ACTIVE',
+              ),
+          )
+        )
+          throw new WorkmeshError(
+            V1_ERROR_CODES.RESOURCE_CONFLICT,
+            'TASK_DEPENDENCIES_NOT_DONE',
+            { taskId: task.id },
+            409,
+          );
 
         // 事务内复核代次；使用事务外旧值只用于预期，不以旧值判通过。
         if (task.generation !== input.expectedGeneration)
@@ -218,7 +355,12 @@ export class V1TaskPrismaRepository implements V1TaskRepository {
             method: input.operation.method,
             route: input.operation.route,
             requestDigest: input.operation.requestDigest,
-            resultRefs: { claimId: claim.id },
+            resultRefs: {
+              taskId: task.id,
+              claimId: claim.id,
+              taskVersion: task.version + 1,
+              taskGeneration: task.generation + 1,
+            },
             responseMetadata: {},
             committedAt: input.now,
           },

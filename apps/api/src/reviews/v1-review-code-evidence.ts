@@ -1,10 +1,8 @@
 import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
-import {
-  isCodeEvidenceAcceptable,
-  needsCodeEvidence,
-  type ArtifactCodeClaim,
-  type CodeEvidenceItem,
-} from './v1-review-policy';
+import { needsCodeEvidence } from './v1-review-policy';
+import type { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
+import { readCodeEvidenceDiagnosticsInTransaction } from '../tasks/v1-code-evidence-diagnostics.reader';
+import { isCodeEvidenceDiagnosticsAcceptable } from '../tasks/v1-code-evidence-diagnostics';
 
 /** 票据行携带的绑定信息；占位行本身不是证据本体。 */
 export type CodeEvidenceTicketRow = {
@@ -37,10 +35,10 @@ export function boundEvidenceIds(rows: readonly CodeEvidenceTicketRow[]): string
 }
 
 /** 只依赖 artifact / codeReviewEvidence 两个委托，便于在单测里用假事务覆盖。 */
-export type CodeEvidenceGateTx = {
-  artifact: { findMany: (args: unknown) => Promise<ArtifactCodeClaim[]> };
-  codeReviewEvidence: { findMany: (args: unknown) => Promise<Record<string, unknown>[]> };
-};
+export type CodeEvidenceGateTx = Pick<
+  Prisma.TransactionClient,
+  'artifact' | 'artifactSet' | 'projectRepository' | 'codeReviewEvidence' | 'webhookReceipt'
+>;
 
 /**
  * 验收闸门：交付集声称包含真实代码时，必须有经人类批准的 PR 评审证据。
@@ -55,30 +53,18 @@ export async function assertCodeEvidenceAcceptable(input: {
   taskId: string;
 }): Promise<void> {
   const artifacts = await input.tx.artifact.findMany({
-    where: { artifactSetId: input.artifactSetId },
+    where: { artifactSetId: input.artifactSetId, projectId: input.projectId },
     select: { storage: true, commitSha: true },
   });
   if (!needsCodeEvidence(artifacts)) return;
 
-  const tickets = (await input.tx.codeReviewEvidence.findMany({
-    where: {
-      projectId: input.projectId,
-      artifactSetId: input.artifactSetId,
-      preparedSecretHash: { not: null },
-    },
-    select: { preparedSecretHash: true, preparedExpiresAt: true, preparedEvidenceId: true },
-  })) as CodeEvidenceTicketRow[];
-
-  const ids = boundEvidenceIds(tickets);
-  const bound: CodeEvidenceItem[] = ids.length
-    ? ((await input.tx.codeReviewEvidence.findMany({
-        where: { projectId: input.projectId, id: { in: ids }, preparedSecretHash: null },
-        select: { state: true, reviewerKind: true },
-      })) as CodeEvidenceItem[])
-    : [];
-
-  // 证据必须全部为 APPROVED 且非 Bot；任一 changes_requested/dismissed/pending 都拒绝。
-  if (isCodeEvidenceAcceptable(bound)) return;
+  const diagnostics = await readCodeEvidenceDiagnosticsInTransaction(
+    input.tx,
+    input.projectId,
+    input.artifactSetId,
+    input.taskId,
+  );
+  if (diagnostics && isCodeEvidenceDiagnosticsAcceptable(diagnostics)) return;
 
   throw new WorkmeshError(
     V1_ERROR_CODES.CODE_EVIDENCE_MISSING,
@@ -86,12 +72,14 @@ export async function assertCodeEvidenceAcceptable(input: {
     {
       taskId: input.taskId,
       artifactSetId: input.artifactSetId,
-      reason:
-        ids.length === 0 ? 'CODE_CLAIM_REQUIRES_APPROVED_PR_REVIEW' : 'BOUND_EVIDENCE_NOT_APPROVED',
-      boundEvidenceCount: ids.length,
-      acceptedEvidenceCount: bound.filter(
-        (item) => item.state === 'APPROVED' && item.reviewerKind !== 'BOT',
-      ).length,
+      reason: 'CODE_EVIDENCE_CHAIN_INCOMPLETE',
+      currentBinding: diagnostics?.currentBinding ?? null,
+      complete: diagnostics?.complete ?? false,
+      references:
+        diagnostics?.references.map((reference) => ({
+          artifactId: reference.artifactId,
+          status: reference.status,
+        })) ?? [],
     },
     422,
   );

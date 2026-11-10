@@ -100,7 +100,12 @@ export class V1ChangeService {
     await this.authorization.requireScope(principal, recipient.projectId, 'change:ack');
 
     // 仅收件人本人可确认；不匹配时按 404 处理，不泄露存在性。
-    if (principal.userId !== recipient.userId)
+    if (
+      principal.userId !== recipient.userId ||
+      (principal.kind === 'AGENT' &&
+        recipient.roleId !== null &&
+        recipient.roleId !== principal.roleIds?.[0])
+    )
       throw new WorkmeshError(
         V1_ERROR_CODES.RESOURCE_NOT_FOUND,
         'CHANGE_RECIPIENT_NOT_FOUND',
@@ -155,17 +160,42 @@ export class V1ChangeService {
     principal: Principal,
     input: V1ListServiceInput,
   ): Promise<V1ListServiceResult> {
-    await this.authorization.resolveProjectContext(principal, input.projectId, 'read');
+    const context = await this.authorization.resolveProjectContext(
+      principal,
+      input.projectId,
+      'read',
+    );
     await this.authorization.requireScope(principal, input.projectId, 'change:read');
 
     const query: V1ChangeListQuery = {
       userId: principal.userId,
+      roleId: principal.kind === 'AGENT' ? principal.roleIds?.[0] : undefined,
+      activeRoleIds: context.activeRoleIds,
+      projectArchived: Boolean(context.project.archivedAt),
       projectId: input.projectId,
       ackedOnly: input.ackedOnly,
       cursor: input.cursor,
       limit: input.limit,
     };
     const result = await this.repository.listRecipients(query);
+    // Recheck after aggregation; a revoked credential/member must not receive derived task facts.
+    const currentContext = await this.authorization.resolveProjectContext(
+      principal,
+      input.projectId,
+      'read',
+    );
+    if (
+      [...currentContext.activeRoleIds].sort().join(',') !==
+        [...context.activeRoleIds].sort().join(',') ||
+      Boolean(currentContext.project.archivedAt) !== Boolean(context.project.archivedAt)
+    )
+      throw new WorkmeshError(
+        V1_ERROR_CODES.RESOURCE_CONFLICT,
+        'CHANGE_GUIDANCE_AUTHORIZATION_CHANGED',
+        undefined,
+        409,
+      );
+    await this.authorization.requireScope(principal, input.projectId, 'change:read');
     return { items: result.items, nextCursor: result.nextCursor };
   }
 

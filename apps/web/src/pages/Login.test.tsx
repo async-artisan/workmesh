@@ -141,7 +141,8 @@ describe('Login（cookie WebSession + CSRF，不落本地 token）', () => {
     );
 
     expect(screen.getByText(/登录成功后会回到原邀请页面，继续接受邀请/)).toBeInTheDocument();
-    expect(screen.getByText(/忘记密码？请联系项目管理员重置账号密码/)).toBeInTheDocument();
+    expect(screen.getByText(/当前版本未提供自助密码找回/)).toBeInTheDocument();
+    expect(screen.getByText(/项目管理员身份本身不包含重置平台账号密码的能力/)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /忘记密码/ })).not.toBeInTheDocument();
   });
 });

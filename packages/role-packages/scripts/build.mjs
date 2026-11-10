@@ -22,12 +22,26 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateResourceRecords, validateSkillFrontmatter } from './validation.mjs';
+import {
+  validateAcceptanceTemplates,
+  validateCaseTemplate,
+  validateResourceRecords,
+  validateSkillFrontmatter,
+} from './validation.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(here, '..');
 const rolesRoot = join(packageRoot, 'roles');
 const SKIP = new Set(['manifest.json', 'package.meta.json']);
+
+const acceptanceTemplate = validateAcceptanceTemplates(
+  readFileSync(join(rolesRoot, 'product/assets/templates/acceptance.yaml'), 'utf8'),
+  readFileSync(join(rolesRoot, 'product/assets/templates/acceptance.json'), 'utf8'),
+);
+validateCaseTemplate(
+  readFileSync(join(rolesRoot, 'qa/assets/templates/cases.yaml'), 'utf8'),
+  acceptanceTemplate,
+);
 
 function slug(value) {
   return value
@@ -70,7 +84,10 @@ function classify(rel) {
   if (parts[0] === 'skills' && parts.length === 3 && base === 'SKILL')
     return { id: `skill-${slug(parts[1])}`, kind: 'skill' };
   if (parts[0] === 'assets' && parts[1] === 'templates')
-    return { id: `template-${slug(base)}`, kind: 'template' };
+    return {
+      id: `template-${slug(base)}${extname(rel) === '.json' ? '-json' : ''}`,
+      kind: 'template',
+    };
   if (parts[0] === 'assets' && parts[1] === 'examples')
     return { id: `example-${slug(base)}`, kind: 'example' };
   if (parts[0] === 'checklists') return { id: `checklist-${slug(base)}`, kind: 'checklist' };

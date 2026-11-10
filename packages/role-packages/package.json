@@ -1,6 +1,7 @@
 {
   "name": "@workmesh/role-packages",
   "version": "1.0.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "./dist/index.cjs",
@@ -15,7 +16,8 @@
   },
   "files": [
     "dist",
-    "roles"
+    "roles",
+    "LICENSE"
   ],
   "scripts": {
     "build": "node scripts/build.mjs && tsup",

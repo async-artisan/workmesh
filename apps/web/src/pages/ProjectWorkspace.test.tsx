@@ -1007,6 +1007,7 @@ describe('ProjectWorkspace（仓库 / 工作区定义 / 一次性接入码）', 
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: '生成接入码' }));
     const firstDialog = await screen.findByRole('dialog', { name: '生成一次性接入码' });
+    fireEvent.click(within(firstDialog).getByLabelText('我已有本机命令参数，仅生成接入码'));
     fireEvent.click(within(firstDialog).getByRole('button', { name: '生成接入码' }));
     const codeInput = await screen.findByLabelText('一次性接入码');
     expect(codeInput).toHaveValue('WM-ONE-TIME-1');
@@ -1027,6 +1028,7 @@ describe('ProjectWorkspace（仓库 / 工作区定义 / 一次性接入码）', 
     fireEvent.click(screen.getByRole('button', { name: '生成接入码' }));
     const secondDialog = await screen.findByRole('dialog', { name: '生成一次性接入码' });
     expect(screen.queryByLabelText('一次性接入码')).not.toBeInTheDocument();
+    fireEvent.click(within(secondDialog).getByLabelText('我已有本机命令参数，仅生成接入码'));
     fireEvent.click(within(secondDialog).getByRole('button', { name: '生成接入码' }));
     expect(await screen.findByLabelText('一次性接入码')).toHaveValue('WM-ONE-TIME-2');
     expect(issues).toBe(2);
@@ -1053,6 +1055,7 @@ describe('ProjectWorkspace（仓库 / 工作区定义 / 一次性接入码）', 
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: '生成接入码' }));
     const dialog = await screen.findByRole('dialog', { name: '生成一次性接入码' });
+    fireEvent.click(within(dialog).getByLabelText('我已有本机命令参数，仅生成接入码'));
     fireEvent.click(within(dialog).getByRole('button', { name: '生成接入码' }));
 
     expect(await screen.findByText(/项目尚未发布工作区定义，不能签发接入码/)).toBeInTheDocument();
@@ -1084,6 +1087,7 @@ describe('ProjectWorkspace（仓库 / 工作区定义 / 一次性接入码）', 
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: '生成接入码' }));
     const dialog = await screen.findByRole('dialog', { name: '生成一次性接入码' });
+    fireEvent.click(within(dialog).getByLabelText('我已有本机命令参数，仅生成接入码'));
     fireEvent.click(within(dialog).getByRole('button', { name: '生成接入码' }));
 
     expect(await screen.findByText(/明文不会重复返回/)).toBeInTheDocument();
@@ -1111,6 +1115,7 @@ describe('ProjectWorkspace（仓库 / 工作区定义 / 一次性接入码）', 
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: '生成接入码' }));
     const dialog = await screen.findByRole('dialog', { name: '生成一次性接入码' });
+    fireEvent.click(within(dialog).getByLabelText('我已有本机命令参数，仅生成接入码'));
     fireEvent.click(within(dialog).getByRole('button', { name: '生成接入码' }));
 
     expect(await screen.findByText(/请在 30 秒后重试/)).toBeInTheDocument();
@@ -1269,6 +1274,7 @@ describe('ProjectWorkspace（仓库 / 工作区定义 / 一次性接入码）', 
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: '生成接入码' }));
     const dialog = await screen.findByRole('dialog', { name: '生成一次性接入码' });
+    fireEvent.click(within(dialog).getByLabelText('我已有本机命令参数，仅生成接入码'));
     fireEvent.click(within(dialog).getByRole('button', { name: '生成接入码' }));
     expect(await screen.findByLabelText('一次性接入码')).toHaveValue('P1-SECRET-CODE');
 

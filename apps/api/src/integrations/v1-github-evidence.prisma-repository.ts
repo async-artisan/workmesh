@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { createHash, randomBytes } from 'node:crypto';
+import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
+import { readCodeEvidenceDiagnosticsInTransaction } from '../tasks/v1-code-evidence-diagnostics.reader';
+import { codeEvidenceReviewReasons } from '../tasks/v1-code-evidence-provenance';
 import {
   Prisma,
   type CodeReviewEvidence,
@@ -9,6 +12,7 @@ import {
 
 import {
   type V1ArtifactSetSummary,
+  type V1CodeEvidenceTarget,
   type V1CodeReviewEvidenceRecord,
   type V1CreateVersionedTicketInput,
   type V1GithubEvidenceRepository,
@@ -22,6 +26,12 @@ import {
 @Injectable()
 export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  async assertCodeEvidenceTarget(input: V1CodeEvidenceTarget): Promise<void> {
+    await this.prisma.$transaction((tx) => assertCodeEvidenceTargetInTransaction(tx, input), {
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+    });
+  }
 
   async findReceiptByDelivery(
     source: 'GITHUB',
@@ -158,10 +168,27 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
     changeRequestId: string,
     headSha: string,
   ): Promise<V1CodeReviewEvidenceRecord | null> {
-    const row = await this.prisma.codeReviewEvidence.findFirst({
-      where: { projectId, repositoryId, changeRequestId, headSha, state: 'APPROVED' },
+    const rows = await this.prisma.codeReviewEvidence.findMany({
+      where: { projectId, repositoryId, changeRequestId, preparedSecretHash: null },
+      include: {
+        receipt: { select: { projectId: true, source: true, signatureValid: true, status: true } },
+      },
       orderBy: { createdAt: 'desc' },
+      take: 1001,
     });
+    if (rows.length > 1000) return null;
+    const reviews = rows.map((row) => ({
+      ...row,
+      receipt:
+        row.receipt?.projectId === projectId && row.receipt.source === 'GITHUB'
+          ? row.receipt
+          : null,
+    }));
+    const row = reviews.find(
+      (item) =>
+        item.headSha === headSha &&
+        codeEvidenceReviewReasons(item, reviews, { repositoryId, headSha }).length === 0,
+    );
     return row ? this.toEvidence(row) : null;
   }
 
@@ -177,65 +204,72 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
     const secretHash = createHash('sha256').update(Buffer.from(secret, 'utf8')).digest('hex');
     const expiresAt = new Date(input.now.getTime() + input.expiresInMs);
     const ticketNonce = randomBytes(16).toString('hex');
-    return this.prisma.$transaction(async (tx) => {
-      const row = await tx.codeReviewEvidence.create({
-        data: {
-          projectId: input.projectId,
-          repositoryId: input.repositoryId,
-          changeRequestId: input.changeRequestId,
-          headSha: input.headSha,
-          authorExternalId: '_ticket',
-          reviewerExternalId: '_ticket',
-          reviewerKind: 'USER',
-          state: 'PENDING',
-          commitSha: input.headSha,
-          submittedAt: input.now,
-          reviewExternalId: `ticket:${ticketNonce}`,
-          artifactSetId: input.artifactSetId,
-          evidenceFingerprint: createHash('sha256')
-            .update(
-              Buffer.from(
-                JSON.stringify([
-                  'ticket',
-                  input.projectId,
-                  input.repositoryId,
-                  input.changeRequestId,
-                  input.artifactSetId,
-                  input.headSha,
-                  input.generation,
-                  ticketNonce,
-                ]),
-                'utf8',
-              ),
-            )
-            .digest('hex'),
-          preparedSecretHash: secretHash,
-          preparedExpiresAt: expiresAt,
-          preparedEvidenceId: input.evidenceId,
-          ticketGeneration: input.generation,
-        },
-      });
-      const ticket = { ticketId: row.id, secret, expiresAt };
-      const op = operation(ticket);
-      // A competing prepare must never replace the winner's replay secret.
-      // A unique-key failure rolls back this ticket as well as the operation.
-      await tx.idempotentOperation.create({
-        data: {
-          id: op.id,
-          projectId: input.projectId,
-          projectScopeKey: op.projectScopeKey,
-          principalScopeKey: op.principalScopeKey,
-          key: op.key,
-          method: op.method,
-          route: op.route,
-          requestDigest: op.requestDigest,
-          resultRefs: op.resultRefs as Prisma.InputJsonValue,
-          responseMetadata: {},
-          committedAt: op.now,
-        },
-      });
-      return ticket;
-    });
+    return this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${input.projectId}::uuid FOR UPDATE`,
+        );
+        await assertCodeEvidenceTargetInTransaction(tx, input);
+        const row = await tx.codeReviewEvidence.create({
+          data: {
+            projectId: input.projectId,
+            repositoryId: input.repositoryId,
+            changeRequestId: input.changeRequestId,
+            headSha: input.headSha,
+            authorExternalId: '_ticket',
+            reviewerExternalId: '_ticket',
+            reviewerKind: 'USER',
+            state: 'PENDING',
+            commitSha: input.headSha,
+            submittedAt: input.now,
+            reviewExternalId: `ticket:${ticketNonce}`,
+            artifactSetId: input.artifactSetId,
+            evidenceFingerprint: createHash('sha256')
+              .update(
+                Buffer.from(
+                  JSON.stringify([
+                    'ticket',
+                    input.projectId,
+                    input.repositoryId,
+                    input.changeRequestId,
+                    input.artifactSetId,
+                    input.headSha,
+                    input.generation,
+                    ticketNonce,
+                  ]),
+                  'utf8',
+                ),
+              )
+              .digest('hex'),
+            preparedSecretHash: secretHash,
+            preparedExpiresAt: expiresAt,
+            preparedEvidenceId: input.evidenceId,
+            ticketGeneration: input.generation,
+          },
+        });
+        const ticket = { ticketId: row.id, secret, expiresAt };
+        const op = operation(ticket);
+        // A competing prepare must never replace the winner's replay secret.
+        // A unique-key failure rolls back this ticket as well as the operation.
+        await tx.idempotentOperation.create({
+          data: {
+            id: op.id,
+            projectId: input.projectId,
+            projectScopeKey: op.projectScopeKey,
+            principalScopeKey: op.principalScopeKey,
+            key: op.key,
+            method: op.method,
+            route: op.route,
+            requestDigest: op.requestDigest,
+            resultRefs: op.resultRefs as Prisma.InputJsonValue,
+            responseMetadata: {},
+            committedAt: op.now,
+          },
+        });
+        return ticket;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async findVersionedTicket(ticketId: string): Promise<V1VersionedTicketRecord | null> {
@@ -256,11 +290,42 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
   }
 
   async consumeVersionedTicket(ticketId: string, projectId: string, now: Date): Promise<boolean> {
-    const result = await this.prisma.codeReviewEvidence.updateMany({
-      where: { id: ticketId, projectId, preparedExpiresAt: { gt: now } },
-      data: { preparedExpiresAt: null },
-    });
-    return result.count === 1;
+    return this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "workmesh_v1"."Project" WHERE "id" = ${projectId}::uuid FOR UPDATE`,
+        );
+        const ticket = await tx.codeReviewEvidence.findFirst({
+          where: {
+            id: ticketId,
+            projectId,
+            preparedSecretHash: { not: null },
+            preparedExpiresAt: { gt: now },
+          },
+        });
+        if (
+          !ticket?.artifactSetId ||
+          !ticket.preparedEvidenceId ||
+          ticket.ticketGeneration === null
+        )
+          return false;
+        await assertCodeEvidenceTargetInTransaction(tx, {
+          projectId,
+          artifactSetId: ticket.artifactSetId,
+          generation: ticket.ticketGeneration,
+          repositoryId: ticket.repositoryId,
+          changeRequestId: ticket.changeRequestId,
+          headSha: ticket.headSha,
+          evidenceId: ticket.preparedEvidenceId,
+        });
+        const result = await tx.codeReviewEvidence.updateMany({
+          where: { id: ticketId, projectId, preparedExpiresAt: { gt: now } },
+          data: { preparedExpiresAt: null },
+        });
+        return result.count === 1;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async persistIdempotency(input: V1PersistIdempotencyInput): Promise<void> {
@@ -326,4 +391,50 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
       createdAt: row.createdAt,
     };
   }
+}
+
+async function assertCodeEvidenceTargetInTransaction(
+  tx: Prisma.TransactionClient,
+  input: V1CodeEvidenceTarget,
+): Promise<void> {
+  const diagnostics = await readCodeEvidenceDiagnosticsInTransaction(
+    tx,
+    input.projectId,
+    input.artifactSetId,
+  );
+  const reference = diagnostics?.references.find(
+    (row) =>
+      row.repository?.externalId === input.repositoryId &&
+      row.repository.identityMode === 'PROVIDER' &&
+      row.repository.adapter?.toUpperCase() === 'GITHUB' &&
+      !row.repository.archived &&
+      row.commitSha === input.headSha,
+  );
+  if (
+    !diagnostics?.complete ||
+    diagnostics.currentBinding !== 'CURRENT' ||
+    diagnostics.taskGeneration !== input.generation ||
+    !reference
+  )
+    throw new WorkmeshError(
+      V1_ERROR_CODES.CODE_EVIDENCE_TICKET_STALE,
+      'CODE_EVIDENCE_TARGET_MISMATCH',
+      { artifactSetId: input.artifactSetId },
+      409,
+    );
+  if (
+    !reference.reviews.some(
+      (row) =>
+        row.changeRequestId === input.changeRequestId &&
+        row.headSha === input.headSha &&
+        row.reasons.length === 0 &&
+        (!input.evidenceId || row.id === input.evidenceId),
+    )
+  )
+    throw new WorkmeshError(
+      V1_ERROR_CODES.CODE_EVIDENCE_MISSING,
+      'CODE_EVIDENCE_PROVENANCE_INVALID',
+      { artifactSetId: input.artifactSetId },
+      422,
+    );
 }

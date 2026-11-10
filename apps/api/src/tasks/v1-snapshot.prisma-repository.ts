@@ -1,7 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
-import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
+import {
+  compareSemver,
+  isStrictSemver,
+  sha256Bytes,
+  V1_ERROR_CODES,
+  WorkmeshError,
+  type TaskRolePackageStatus,
+} from '@workmesh/shared';
 import type {
   V1CreateSnapshotInput,
   V1CreateSnapshotResult,
@@ -42,19 +49,90 @@ function claimScopeKeyOf(userId: string, credentialId: string | null): string {
 function packageLockOf(
   compiledRules: unknown,
   roleKey: string,
-): { packageId: string; version: string } | null {
+): { packageId: string; version: string; packageDigest?: string } | null {
   const rules = compiledRules as { packageLocks?: unknown } | null;
   const locks = rules?.packageLocks;
   if (!Array.isArray(locks)) return null;
   const lock = locks.find((item) => (item as { roleKey?: unknown }).roleKey === roleKey) as
-    { packageId?: unknown; version?: unknown } | undefined;
+    { packageId?: unknown; version?: unknown; packageDigest?: unknown } | undefined;
   if (!lock || typeof lock.packageId !== 'string' || typeof lock.version !== 'string') return null;
-  return { packageId: lock.packageId, version: lock.version };
+  return {
+    packageId: lock.packageId,
+    version: lock.version,
+    ...(typeof lock.packageDigest === 'string' ? { packageDigest: lock.packageDigest } : {}),
+  };
 }
 
 @Injectable()
 export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  async verifyResourceContent(
+    resource: { kind: string; targetId: string; sha256: string; byteLength: number },
+    projectId: string,
+  ): Promise<'VERIFIED' | 'EXTERNAL_REFERENCE' | 'UNAVAILABLE'> {
+    const value =
+      resource.kind === 'DOCUMENT_REVISION'
+        ? await this.prisma.documentRevision.findUnique({
+            where: { id: resource.targetId, projectId },
+            select: { bodyBytes: true },
+          })
+        : resource.kind === 'ROLE_RESOURCE'
+          ? await this.prisma.rolePackageResource.findUnique({
+              where: {
+                id: resource.targetId,
+                packageVersion: { OR: [{ projectId }, { projectId: null }] },
+              },
+              select: { bodyBytes: true },
+            })
+          : await this.prisma.artifact.findUnique({
+              where: { id: resource.targetId, projectId },
+              select: {
+                bodyBytes: true,
+                storage: true,
+                projectRepositoryId: true,
+                commitSha: true,
+                repoPath: true,
+              },
+            });
+    if (!value) return 'UNAVAILABLE';
+    if ('storage' in value && value.storage === 'GIT_REF') {
+      if (!value.projectRepositoryId || !value.commitSha || !value.repoPath) return 'UNAVAILABLE';
+      const repository = await this.prisma.projectRepository.findFirst({
+        where: { id: value.projectRepositoryId, projectId, archivedAt: null },
+        select: { id: true },
+      });
+      return repository ? 'EXTERNAL_REFERENCE' : 'UNAVAILABLE';
+    }
+    if (!value.bodyBytes || value.bodyBytes.byteLength !== resource.byteLength)
+      return 'UNAVAILABLE';
+    return (await sha256Bytes(value.bodyBytes)) === resource.sha256 ? 'VERIFIED' : 'UNAVAILABLE';
+  }
+
+  async findResourceScope(kind: 'ARTIFACT' | 'ROLE_RESOURCE', targetId: string) {
+    if (kind === 'ARTIFACT')
+      return this.prisma.artifact.findUnique({
+        where: { id: targetId },
+        select: { projectId: true, sha256: true, byteLength: true, mediaType: true },
+      });
+    const resource = await this.prisma.rolePackageResource.findUnique({
+      where: { id: targetId },
+      select: {
+        sha256: true,
+        byteLength: true,
+        mediaType: true,
+        packageVersion: { select: { projectId: true } },
+      },
+    });
+    return resource
+      ? {
+          projectId: resource.packageVersion.projectId,
+          sha256: resource.sha256,
+          byteLength: resource.byteLength,
+          mediaType: resource.mediaType,
+        }
+      : null;
+  }
 
   private upstreamInputsOf(
     compiledRules: unknown,
@@ -123,7 +201,7 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
     const revision = await this.prisma.workflowRevision.findUnique({
       where: { id: task.instance.definitionRevisionId },
     });
-    if (!revision) return null;
+    if (!revision || revision.projectId !== task.projectId) return null;
     const project = await this.prisma.project.findUnique({
       where: { id: task.projectId },
       select: { knowledgeBindingsVersion: true },
@@ -176,6 +254,7 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
         document: {
           select: {
             id: true,
+            archivedAt: true,
             knowledgeBaseId: true,
             kind: true,
             requirementId: true,
@@ -186,6 +265,7 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
     });
     if (!revision) return null;
     return {
+      projectId: revision.projectId,
       revisionId: revision.id,
       documentId: revision.documentId,
       knowledgeBaseId: revision.document.knowledgeBaseId,
@@ -193,9 +273,26 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
       sha256: revision.sha256,
       byteLength: revision.byteLength,
       mediaType: revision.mimeType,
-      isCurrentPublished: revision.document.currentPublishedRevisionId === revision.id,
+      isCurrentPublished:
+        !revision.document.archivedAt &&
+        revision.document.currentPublishedRevisionId === revision.id,
       requirementId: revision.document.requirementId,
     };
+  }
+
+  async findInputDocument(documentId: string) {
+    const document = await this.prisma.knowledgeDocument.findFirst({
+      where: { id: documentId, archivedAt: null },
+      select: { id: true, projectId: true, knowledgeBaseId: true, kind: true },
+    });
+    return document
+      ? {
+          documentId: document.id,
+          projectId: document.projectId,
+          knowledgeBaseId: document.knowledgeBaseId,
+          documentKind: document.kind,
+        }
+      : null;
   }
 
   async findCandidateRevisions(input: {
@@ -222,6 +319,7 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
       },
     });
     return revisions.map((revision) => ({
+      projectId: revision.projectId,
       revisionId: revision.id,
       documentId: revision.documentId,
       knowledgeBaseId: revision.document.knowledgeBaseId,
@@ -294,8 +392,14 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
     if (deps.length === 0) return [];
 
     const dependencyTasks = await this.prisma.task.findMany({
-      where: { workflowInstanceId: task.workflowInstanceId, stepKey: { in: deps } },
-      select: { id: true, stepKey: true, currentArtifactSetId: true },
+      where: {
+        projectId: task.projectId,
+        workflowInstanceId: task.workflowInstanceId,
+        stepKey: { in: deps },
+        executionStatus: 'DONE',
+        workStatus: 'ACTIVE',
+      },
+      select: { id: true, stepKey: true, generation: true, currentArtifactSetId: true },
     });
     const acceptedSetIds: string[] = [];
     const acceptedSetSources = new Map<string, string>();
@@ -303,6 +407,9 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
       if (!dependency.currentArtifactSetId) continue;
       const approved = await this.prisma.reviewRequest.findFirst({
         where: {
+          projectId: task.projectId,
+          taskId: dependency.id,
+          taskGeneration: dependency.generation,
           artifactSetId: dependency.currentArtifactSetId,
           status: 'APPROVED',
           kind: 'TASK_ACCEPTANCE',
@@ -318,8 +425,21 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
 
     const artifacts = await this.prisma.artifact.findMany({
       where: {
+        projectId: task.projectId,
         artifactSetId: { in: acceptedSetIds },
-        storage: 'HOSTED',
+        artifactSet: {
+          OR: dependencyTasks
+            .filter(
+              (dependency) =>
+                dependency.currentArtifactSetId &&
+                acceptedSetIds.includes(dependency.currentArtifactSetId),
+            )
+            .map((dependency) => ({
+              id: dependency.currentArtifactSetId!,
+              taskId: dependency.id,
+              taskGeneration: dependency.generation,
+            })),
+        },
         byteLength: { gt: 0 },
       },
       select: {
@@ -329,6 +449,7 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
         sha256: true,
         byteLength: true,
         mediaType: true,
+        storage: true,
       },
     });
     return artifacts.map((artifact) => ({
@@ -336,6 +457,7 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
       sha256: artifact.sha256,
       byteLength: artifact.byteLength,
       mediaType: artifact.mediaType,
+      ...(artifact.storage ? { storage: artifact.storage } : {}),
       ...(artifact.kind ? { kind: String(artifact.kind) } : {}),
       ...(acceptedSetSources.get(artifact.artifactSetId)
         ? { sourceStepKey: acceptedSetSources.get(artifact.artifactSetId) }
@@ -359,8 +481,11 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
       where: {
         packageId: lock.packageId,
         version: lock.version,
+        roleKey: input.roleKey,
+        ...(lock.packageDigest ? { manifestDigest: lock.packageDigest } : {}),
         OR: [{ projectId: input.projectId }, { projectId: null }],
       },
+      orderBy: { projectId: { sort: 'asc', nulls: 'last' } },
       select: { id: true },
     });
     if (!packageVersion) return [];
@@ -376,6 +501,78 @@ export class V1SnapshotPrismaRepository implements V1SnapshotRepository {
       byteLength: resource.byteLength,
       mediaType: resource.mediaType,
     }));
+  }
+
+  async inspectRolePackage(input: {
+    projectId: string;
+    roleKey: string;
+    revisionId: string;
+  }): Promise<TaskRolePackageStatus> {
+    const result: TaskRolePackageStatus = {
+      workflowDefinitionRevisionId: input.revisionId,
+      roleKey: input.roleKey,
+      status: 'UNAVAILABLE',
+      locked: null,
+      latestAvailable: null,
+    };
+    const revision = await this.prisma.workflowRevision.findUnique({
+      where: { id: input.revisionId },
+      select: { projectId: true, compiledRules: true },
+    });
+    if (!revision || revision.projectId !== input.projectId) return result;
+    const lock = packageLockOf(revision.compiledRules, input.roleKey);
+    if (!lock) return { ...result, status: 'NOT_CONFIGURED' };
+    const versions = await this.prisma.rolePackageVersion.findMany({
+      where: {
+        packageId: lock.packageId,
+        roleKey: input.roleKey,
+        OR: [{ projectId: input.projectId }, { projectId: null }],
+      },
+      select: { id: true, projectId: true, packageId: true, version: true, manifestDigest: true },
+    });
+    // Project scope wins only for an otherwise identical SemVer. Ignore invalid old records.
+    const ordered = versions
+      .filter((version) => isStrictSemver(version.version))
+      .sort(
+        (a, b) =>
+          compareSemver(b.version, a.version) ||
+          Number(b.projectId !== null) - Number(a.projectId !== null),
+      );
+    const latest = ordered[0];
+    if (latest)
+      result.latestAvailable = {
+        packageId: latest.packageId,
+        version: latest.version,
+        packageDigest: latest.manifestDigest,
+        source: latest.projectId === null ? 'BUILTIN' : 'PROJECT',
+      };
+    const exact = ordered.find(
+      (version) =>
+        version.version === lock.version &&
+        (lock.packageDigest === undefined || version.manifestDigest === lock.packageDigest),
+    );
+    if (!exact || !lock.packageDigest) return result;
+    const resources = await this.prisma.rolePackageResource.findMany({
+      where: { rolePackageVersionId: exact.id },
+      orderBy: { resourceKey: 'asc' },
+      select: { resourceKey: true, path: true, sha256: true, byteLength: true },
+    });
+    return {
+      ...result,
+      status: 'LOCKED',
+      locked: {
+        packageId: exact.packageId,
+        version: exact.version,
+        packageDigest: exact.manifestDigest,
+        source: exact.projectId === null ? 'BUILTIN' : 'PROJECT',
+        resources: resources.map((resource) => ({
+          refId: `role:${resource.resourceKey}`,
+          path: resource.path,
+          sha256: resource.sha256,
+          byteLength: resource.byteLength,
+        })),
+      },
+    };
   }
 
   async findSnapshot(snapshotId: string): Promise<V1SnapshotView | null> {

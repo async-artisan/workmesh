@@ -718,6 +718,14 @@ describe('V1ArtifactService.deliver', () => {
     const replayed = await service.deliver(humanPrincipal(), 'task-1', body, context);
     expect(replayed.replayed).toBe(true);
     expect(replayed.artifactSet.id).toBe(first.artifactSet.id);
+    expect(replayed.committedState).toBeNull();
+    existing.resultRefs.taskVersion = first.committedState!.taskVersion;
+    existing.resultRefs.taskGeneration = first.committedState!.taskGeneration;
+    task.task!.version += 10;
+    task.task!.generation += 2;
+    const exactReplay = await service.deliver(humanPrincipal(), 'task-1', body, context);
+    expect(exactReplay.task.version).toBe(task.task!.version);
+    expect(exactReplay.committedState).toEqual(first.committedState);
     expect(repo.deliverCalls).toHaveLength(1);
   });
 

@@ -1,6 +1,65 @@
 import yaml from 'js-yaml';
+import { ACCEPTANCE_KEY_PATTERN, canonicalJson } from '@workmesh/shared';
 
 export const MAX_RESOURCE_BYTES = 4 * 1024 * 1024;
+
+/** 模板必须能直接映射正式 API，不允许示例与契约静默分叉。 */
+export function validateAcceptanceTemplates(yamlSource, jsonSource) {
+  const items = yaml.load(yamlSource)?.acceptance;
+  const jsonItems = JSON.parse(jsonSource);
+  for (const [source, values] of [
+    ['acceptance.yaml', items],
+    ['acceptance.json', jsonItems],
+  ]) {
+    if (!Array.isArray(values) || !values.length || values.length > 200)
+      fail(source, 'acceptance must contain 1–200 items');
+    const seen = new Set();
+    for (const item of values) {
+      if (
+        !item ||
+        typeof item.key !== 'string' ||
+        !ACCEPTANCE_KEY_PATTERN.test(item.key) ||
+        seen.has(item.key)
+      )
+        fail(source, 'acceptance key must be unique and match the API contract');
+      if (
+        typeof item.text !== 'string' ||
+        !item.text.trim() ||
+        item.text.length > 2000 ||
+        !['TEST', 'INSPECTION', 'DEMO'].includes(item.verification)
+      )
+        fail(source, 'acceptance text and verification must match the API contract');
+      if (Object.keys(item).some((key) => !['key', 'text', 'verification'].includes(key)))
+        fail(source, 'template contains acceptance fields not persisted by the API');
+      seen.add(item.key);
+    }
+  }
+  if (canonicalJson(items) !== canonicalJson(jsonItems))
+    fail('acceptance.json', 'JSON and YAML templates must describe the same acceptance');
+  return items;
+}
+
+export function validateCaseTemplate(source, acceptance) {
+  const cases = yaml.load(source)?.cases;
+  if (!Array.isArray(cases) || !cases.length) fail('cases.yaml', 'cases must not be empty');
+  const kinds = new Map(acceptance.map((item) => [item.key, item.verification]));
+  const ids = new Set();
+  const covered = new Set();
+  for (const item of cases) {
+    if (!item || typeof item.id !== 'string' || !item.id.trim() || ids.has(item.id))
+      fail('cases.yaml', 'case ids must be non-empty and unique');
+    ids.add(item.id);
+    if (
+      !Array.isArray(item.covers) ||
+      !item.covers.length ||
+      item.covers.some((key) => !kinds.has(key) || kinds.get(key) !== item.kind)
+    )
+      fail('cases.yaml', 'case references must match acceptance keys and verification');
+    for (const key of item.covers) covered.add(key);
+  }
+  if (acceptance.some((item) => !covered.has(item.key)))
+    fail('cases.yaml', 'case template must cover every example acceptance');
+}
 
 function fail(sourcePath, message) {
   throw new Error(`${sourcePath}: ${message}`);

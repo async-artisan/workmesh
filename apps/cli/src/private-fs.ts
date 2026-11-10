@@ -93,6 +93,22 @@ export async function ensurePrivateDir(path: string): Promise<void> {
   await chmod(path, 0o700);
 }
 
+async function replacePrivateFile(temporary: string, path: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rename(temporary, path);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      // Windows readers and scanners can briefly deny replacement. Retry the
+      // same atomic rename only; never unlink the destination or rewrite bytes.
+      if (!IS_WINDOWS || attempt >= 5 || !['EPERM', 'EACCES', 'EBUSY'].includes(code ?? ''))
+        throw error;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(20 * 2 ** attempt, 200)));
+    }
+  }
+}
+
 /**
  * 原子写入一个“只有当前用户可读”的文件：先写同目录临时文件并收紧权限，
  * 再 rename 覆盖。POSIX 与 Windows 走各自的私有化实现。
@@ -109,13 +125,13 @@ export async function writePrivateFile(
   if (IS_WINDOWS) {
     await writeFile(temporary, data, { flag });
     await hardenWindowsPath(temporary, false);
-    await rename(temporary, path);
+    await replacePrivateFile(temporary, path);
     await hardenWindowsPath(path, false);
     return;
   }
   await writeFile(temporary, data, { mode: 0o600, flag });
   await chmod(temporary, 0o600);
-  await rename(temporary, path);
+  await replacePrivateFile(temporary, path);
   await chmod(path, 0o600);
 }
 

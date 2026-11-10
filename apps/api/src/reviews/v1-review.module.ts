@@ -11,6 +11,8 @@ import {
   V1ReviewDecisionController,
 } from './v1-review.controller';
 import { V1ReviewService } from './v1-review.service';
+import { V1ReviewDiscussionController } from './v1-review-discussion.controller';
+import { V1ReviewDiscussionService } from './v1-review-discussion.service';
 
 @Module({
   controllers: [
@@ -18,12 +20,14 @@ import { V1ReviewService } from './v1-review.service';
     V1ReviewDecisionController,
     V1ProjectReviewController,
     DelegationsController,
+    V1ReviewDiscussionController,
   ],
   providers: [
     { provide: V1_IDEMPOTENCY_REPOSITORY, useClass: V1IdempotencyPrismaRepository },
     { provide: V1_REVIEW_REPOSITORY, useClass: V1ReviewPrismaRepository },
     V1ReviewService,
     DelegationsService,
+    V1ReviewDiscussionService,
   ],
   exports: [V1ReviewService, V1_IDEMPOTENCY_REPOSITORY],
 })

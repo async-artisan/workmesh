@@ -1,0 +1,5 @@
+[
+  { "key": "ac-01", "text": "<一个可观测结果，一句话，可判定>", "verification": "TEST" },
+  { "key": "ac-02", "text": "<界面/文案/配置类结果>", "verification": "INSPECTION" },
+  { "key": "ac-03", "text": "<需要按步骤演示才能判断的结果>", "verification": "DEMO" }
+]

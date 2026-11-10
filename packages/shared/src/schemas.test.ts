@@ -78,4 +78,19 @@ describe('role package schema', () => {
     expect(compareSemver('1.0.0-alpha.2', '1.0.0-alpha.10')).toBe(-1);
     expect(compareSemver('1.0.0', '1.0.0')).toBe(0);
   });
+  it('orders unbounded core and prerelease numeric identifiers without precision loss', () => {
+    for (const [lower, higher] of [
+      ['9007199254740992.0.0', '9007199254740993.0.0'],
+      ['1.9007199254740992.0', '1.9007199254740993.0'],
+      ['1.0.9007199254740992', '1.0.9007199254740993'],
+      ['1.0.0-9007199254740992', '1.0.0-9007199254740993'],
+      [`${'9'.repeat(70)}.0.0`, `1${'0'.repeat(70)}.0.0`],
+    ]) {
+      expect(isStrictSemver(lower)).toBe(true);
+      expect(isStrictSemver(higher)).toBe(true);
+      expect(compareSemver(lower, higher)).toBe(-1);
+      expect(compareSemver(higher, lower)).toBe(1);
+      expect(compareSemver(lower, lower)).toBe(0);
+    }
+  });
 });

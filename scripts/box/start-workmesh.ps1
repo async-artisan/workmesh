@@ -49,6 +49,21 @@ function Wait-ApiHealth([string]$Url,[int]$TimeoutSec) {
   }
   return $false
 }
+function Wait-ApiReady([string]$Url,[int]$TimeoutSec) {
+  $deadline=(Get-Date).AddSeconds($TimeoutSec)
+  while((Get-Date)-lt $deadline){
+    try{
+      $r=Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 3
+      if($r.StatusCode -eq 200){
+        $body=$r.Content | ConvertFrom-Json
+        $migrations=$body.data.database.appliedMigrations
+        if($body.data.ok -is [bool] -and $body.data.ok -and $body.data.database.reachable -is [bool] -and $body.data.database.reachable -and ($migrations -is [int] -or $migrations -is [long]) -and $migrations -gt 0){return $true}
+      }
+    }catch{}
+    Start-Sleep -Milliseconds 500
+  }
+  return $false
+}
 function Quote-Arg([string]$Value) { return '"' + $Value + '"' }
 function Stop-Started([object[]]$Processes) { foreach($item in $Processes){if($item -and (Test-Managed ([int]$item.Id) ([string]$item.Path) $node)){Stop-Process -Id ([int]$item.Id) -Force -ErrorAction SilentlyContinue}} }
 function Assert-PostgresStartExitCode([object]$ExitCode) {
@@ -84,7 +99,13 @@ function Test-OwnPostgres([string]$DataPath,[int]$Port) {
 if(Test-Path -LiteralPath $stateFile){
   try{$old=Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json}catch{$old=$null}
   if($old -and $old.dataDir -eq $dataRoot -and (Test-Managed ([int]$old.apiPid) $api) -and (Test-Managed ([int]$old.webPid) $web)){
-    if((Wait-ApiHealth "http://127.0.0.1:$ApiPort/api/health" 3) -and (Wait-Http "http://127.0.0.1:$WebPort/" 3)){Write-Host "WorkMesh already running (API $($old.apiPid), Web $($old.webPid))." -ForegroundColor Green;exit 0}
+    if((Wait-ApiReady "http://127.0.0.1:$ApiPort/api/health/ready" 3) -and (Wait-Http "http://127.0.0.1:$WebPort/" 3)){
+      Write-Host "WorkMesh already running and locally ready (API $($old.apiPid), Web $($old.webPid))." -ForegroundColor Green
+      Write-Host 'Scope: loopback HTTP and database readiness; remote access, project authorization and business release are not checked.'
+      exit 0
+    }
+    $alive=Wait-ApiHealth "http://127.0.0.1:$ApiPort/api/health" 1
+    throw "Managed WorkMesh processes exist but API readiness or Web HTTP checks failed (API liveness=$alive). Existing processes were preserved. Check logs and the database configuration/migrations."
   }
 }
 foreach($port in @($ApiPort,$WebPort)){
@@ -111,12 +132,17 @@ try {
   $webJob=Start-Process -FilePath $node -ArgumentList $webArgs -WorkingDirectory $root -RedirectStandardOutput $webOutLog -RedirectStandardError $webErrLog -WindowStyle Hidden -PassThru
   $state=[ordered]@{schemaVersion='1';dataDir=$dataRoot;apiPid=$apiJob.Id;webPid=$webJob.Id;apiPath=[System.IO.Path]::GetFullPath($api);webPath=[System.IO.Path]::GetFullPath($web);apiPort=$ApiPort;webPort=$WebPort;pgPort=$pgPort}
   $state | ConvertTo-Json | Set-Content -LiteralPath $stateFile -Encoding UTF8
-  if(!(Wait-ApiHealth "http://127.0.0.1:$ApiPort/api/health" 60) -or !(Wait-Http "http://127.0.0.1:$WebPort/" 30)){throw 'WorkMesh failed API or Web HTTP health checks.'}
+  if(!(Wait-ApiReady "http://127.0.0.1:$ApiPort/api/health/ready" 60)){
+    $alive=Wait-ApiHealth "http://127.0.0.1:$ApiPort/api/health" 1
+    throw "WorkMesh API readiness failed (API liveness=$alive). Check database connectivity and migrations."
+  }
+  if(!(Wait-Http "http://127.0.0.1:$WebPort/" 30)){throw 'WorkMesh failed Web HTTP health checks.'}
   if(!(Test-Managed $apiJob.Id $api) -or !(Test-Managed $webJob.Id $web)){throw 'The expected WorkMesh processes did not remain alive after health checks.'}
 } catch {
   $processes=@();if($apiJob){$processes+=@([pscustomobject]@{Id=$apiJob.Id;Path=$api})};if($webJob){$processes+=@([pscustomobject]@{Id=$webJob.Id;Path=$web})}
   Stop-Started $processes;Remove-Item -LiteralPath $stateFile -Force -ErrorAction SilentlyContinue
   throw "WorkMesh failed to start: $($_.Exception.Message) See $apiErrLog and $webErrLog"
 }
-Write-Host "WorkMesh running (API PID=$($apiJob.Id), Web PID=$($webJob.Id))." -ForegroundColor Green
+Write-Host "WorkMesh locally ready (API PID=$($apiJob.Id), Web PID=$($webJob.Id))." -ForegroundColor Green
+Write-Host 'Scope: loopback HTTP and database readiness; remote access, project authorization and business release are not checked.'
 Write-Host "Open http://127.0.0.1:$WebPort" -ForegroundColor Cyan

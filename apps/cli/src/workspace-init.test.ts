@@ -107,6 +107,50 @@ function baseOptions(root: string, home: string, extra: Record<string, unknown> 
   };
 }
 
+describe('workspace init 授权与后续接入步骤', () => {
+  it('已有凭据在线核验后完成接入，NONE项目直接提示装角色和自检', async () => {
+    const root = await makeTempDir();
+    const home = await makeTempDir('wm-home-');
+    const fixture = await makeDefinitionFixture({ layoutKind: 'NONE' });
+    const parsed = await (
+      await import('./workspace-config')
+    ).parseWorkspaceRevision(fixture.revisionData);
+    const mock = mockClient({
+      enrolled: {
+        projectId: PROJECT,
+        projectName: '接入示例',
+        definitionRevisionId: fixture.revisionId,
+        definitionDigest: fixture.digest,
+      },
+      parsedRevision: parsed,
+    });
+    const reusable = vi.fn(async () => credential());
+    const login = vi.fn();
+    const result = await runWorkspaceInit(
+      baseOptions(root, home, {
+        clientFactory: mock.factory,
+        findReusableCredential: reusable,
+        login,
+      }) as never,
+    );
+    expect(reusable).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platform: PLATFORM,
+        projectId: PROJECT,
+        roleKey: ROLE,
+      }),
+    );
+    expect(login).not.toHaveBeenCalled();
+    expect(result.mode).toBe('applied');
+    if (result.mode === 'applied') {
+      expect(result.nextActions).toContain('workmesh workspace status');
+      expect(result.nextActions.join('\n')).toContain(`workmesh setup --role ${ROLE}`);
+      expect(result.nextActions.join('\n')).toContain(`workmesh doctor --role ${ROLE} --online`);
+      expect(result.nextActions.join('\n')).not.toContain('workspace bind');
+    }
+  });
+});
+
 describe('workspace init --join 计划（默认 dry-run）', () => {
   it('preflight 在本地校验后且 consent/消费码之前运行，失败不写盘', async () => {
     const root = await makeTempDir();

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../prisma/prisma.service';
 import { V1ReadyPrismaRepository } from './v1-ready.prisma-repository';
 import type { V1ReadyOwnership } from './v1-ready.repository';
@@ -93,5 +93,47 @@ describe('ready repository retired-instance filter', () => {
     expect(page.items).toHaveLength(1);
     expect(page.hasMore).toBe(true);
     expect(page.items[0]).toMatchObject({ id: 'task-1', definitionRevisionId: 'revision-1' });
+  });
+});
+
+describe('ready query boundaries', () => {
+  it('excludes paused/cancelled instances and requirements before dependency evaluation', async () => {
+    const task = { findMany: vi.fn().mockResolvedValue([]) };
+    const repository = new V1ReadyPrismaRepository({ task } as unknown as PrismaService);
+    await repository.listCandidates({
+      projectId: 'p1',
+      roleId: null,
+      ownership: { kind: 'ALL' },
+      after: null,
+      take: 20,
+    });
+    expect(task.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          workStatus: 'ACTIVE',
+          instance: {
+            retiredAt: null,
+            workStatus: 'ACTIVE',
+            requirement: { workStatus: 'ACTIVE' },
+          },
+        }),
+      }),
+    );
+  });
+
+  it('reads predecessor work state so DONE alone cannot imply claimable dependencies', async () => {
+    const row = {
+      workflowInstanceId: 'instance-1',
+      stepKey: 'design',
+      executionStatus: 'DONE',
+      workStatus: 'PAUSED',
+    };
+    const task = { findMany: vi.fn().mockResolvedValue([row]) };
+    const repository = new V1ReadyPrismaRepository({ task } as unknown as PrismaService);
+    expect(await repository.listInstanceTasks(['instance-1'])).toEqual([row]);
+    expect(task.findMany).toHaveBeenCalledWith({
+      where: { workflowInstanceId: { in: ['instance-1'] } },
+      select: { workflowInstanceId: true, stepKey: true, executionStatus: true, workStatus: true },
+    });
   });
 });

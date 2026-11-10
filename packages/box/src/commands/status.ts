@@ -39,8 +39,31 @@ export type StatusReport = {
    */
   ready: { ok: boolean; detail: string; appliedMigrations: number | null };
   backup: { count: number; latest: BackupManifest | null };
+  evidence: {
+    httpAccess: 'LOOPBACK_ONLY';
+    serviceReady: boolean;
+    projectAuthorization: 'NOT_CHECKED';
+    businessRelease: 'NOT_CHECKED';
+    backup: 'RESTORE_SCHEMA_COUNTS' | 'NOT_VERIFIED';
+  };
   checks: StatusCheck[];
 };
+
+/** A listening HTTP process is not sufficient evidence that this API is ready. */
+export function isReadyPayload(body: unknown): boolean {
+  const data = (
+    body as {
+      data?: { ok?: unknown; database?: { reachable?: unknown; appliedMigrations?: unknown } };
+    } | null
+  )?.data;
+  return (
+    data?.ok === true &&
+    data.database?.reachable === true &&
+    typeof data.database.appliedMigrations === 'number' &&
+    Number.isSafeInteger(data.database.appliedMigrations) &&
+    data.database.appliedMigrations > 0
+  );
+}
 
 /** 就绪失败的 reason 码转成可操作的说明；不回显底层驱动文本。 */
 export function readinessFailureDetail(status: number, reason: unknown): string {
@@ -124,17 +147,20 @@ export async function collectStatus(ctx: BoxContext): Promise<StatusReport> {
         error?: { details?: { reason?: string } };
       } | null;
       const appliedMigrations = body?.data?.database?.appliedMigrations ?? null;
-      ready = response.ok
-        ? {
-            ok: true,
-            detail: appliedMigrations === null ? 'ok' : `ok · 已应用迁移 ${appliedMigrations} 项`,
-            appliedMigrations,
-          }
-        : {
-            ok: false,
-            detail: readinessFailureDetail(response.status, body?.error?.details?.reason),
-            appliedMigrations,
-          };
+      ready =
+        response.ok && isReadyPayload(body)
+          ? {
+              ok: true,
+              detail: appliedMigrations === null ? 'ok' : `ok · 已应用迁移 ${appliedMigrations} 项`,
+              appliedMigrations,
+            }
+          : {
+              ok: false,
+              detail: response.ok
+                ? '就绪响应缺少数据库可达与迁移证据'
+                : readinessFailureDetail(response.status, body?.error?.details?.reason),
+              appliedMigrations,
+            };
     } catch (caught) {
       ready = { ok: false, detail: (caught as Error).message, appliedMigrations: null };
     }
@@ -215,7 +241,7 @@ export async function collectStatus(ctx: BoxContext): Promise<StatusReport> {
       critical: false,
       detail: backups[0]
         ? backups[0].verification
-          ? `最近备份已验证：${backups[0].verification.verifiedAt}，恢复出 ${backups[0].verification.tables} 张表`
+          ? `最近备份已完成结构恢复验证：${backups[0].verification.verifiedAt}，恢复出 ${backups[0].verification.tables} 张表；未检查业务数据`
           : '最近备份未验证可恢复性（运行 workmesh-box backup --verify）'
         : '还没有备份（运行 workmesh-box backup --verify）',
     },
@@ -253,6 +279,13 @@ export async function collectStatus(ctx: BoxContext): Promise<StatusReport> {
     health,
     ready,
     backup: { count: backups.length, latest: backups[0] ?? null },
+    evidence: {
+      httpAccess: 'LOOPBACK_ONLY',
+      serviceReady: ready.ok,
+      projectAuthorization: 'NOT_CHECKED',
+      businessRelease: 'NOT_CHECKED',
+      backup: backups[0]?.verification ? 'RESTORE_SCHEMA_COUNTS' : 'NOT_VERIFIED',
+    },
     checks,
   };
 }
@@ -288,13 +321,16 @@ export function renderStatus(report: StatusReport): string {
   );
   lines.push(`API 存活：${report.health.detail} · 就绪：${report.ready.detail}`);
   lines.push(
+    '检查范围：本机回环 HTTP；未验证其他设备访问、项目授权与业务发布。API 未启动时，体检通过只表示关键环境检查通过。',
+  );
+  lines.push(
     `备份：${report.backup.count} 份${
       report.backup.latest
         ? `，最近 ${report.backup.latest.createdAt}（${report.backup.latest.dumpBytes} 字节` +
           `${report.backup.latest.tables === null ? '' : ` · ${report.backup.latest.tables} 张表`}）` +
           `${
             report.backup.latest.verification
-              ? ` · 已验证可恢复（恢复出 ${report.backup.latest.verification.tables} 张表）`
+              ? ` · 已完成结构恢复验证（恢复出 ${report.backup.latest.verification.tables} 张表；未检查业务数据）`
               : ' · 未验证可恢复性'
           }`
         : ''

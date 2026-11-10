@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Requirements } from './Requirements';
@@ -57,11 +57,31 @@ function handler(input: {
     const method = methodOf(init);
     if (path === '/api/v1/projects' && method === 'GET')
       return { status: 200, body: envelope([project]) };
-    if (path === '/api/v1/projects/p1/requirements' && method === 'GET')
+    if (path === '/api/v1/projects/p1/requirements' && method === 'GET') {
+      const params = new URL(url, 'http://localhost').searchParams;
+      const q = params.get('q')?.toLowerCase() ?? '';
+      const phase = params.get('phase');
+      const cursor = Number(params.get('cursor') ?? 0);
+      const limit = Number(params.get('limit') ?? 50);
+      const matched = ((input.requirements ?? [requirement]) as Array<typeof requirement>).filter(
+        (item) =>
+          (!phase || item.phase === phase) &&
+          (!q ||
+            [item.code, item.title, item.description ?? ''].join(' ').toLowerCase().includes(q)),
+      );
+      const page = matched.filter((item) => item.seq > cursor).slice(0, limit);
       return {
         status: 200,
-        body: envelope({ items: input.requirements ?? [requirement], nextCursor: null }),
+        body: envelope({
+          items: page,
+          nextCursor:
+            matched.filter((item) => item.seq > cursor).length > limit
+              ? String(page[page.length - 1]!.seq)
+              : null,
+          total: matched.length,
+        }),
       };
+    }
     if (path === '/api/v1/projects/p1/members' && method === 'GET')
       return { status: 200, body: envelope(members) };
     if (path === '/api/v1/projects/p1/roles' && method === 'GET')
@@ -380,7 +400,7 @@ describe('Requirements（流程实例只由管理员显式绑定）', () => {
     ]);
   });
 
-  it('服务端还有下一页时提供「加载更多」，不静默截断超过一页的需求', async () => {
+  it('服务端分页只提供一套上一页/下一页，每页 12 条并展示全范围总数', async () => {
     const page1 = Array.from({ length: 12 }, (_, index) => ({
       ...requirement,
       id: `req-a${index}`,
@@ -400,6 +420,7 @@ describe('Requirements（流程实例只由管理员显式绑定）', () => {
           body: envelope({
             items: cursor ? page2 : page1,
             nextCursor: cursor ? null : 'cursor-page-2',
+            total: 13,
           }),
         };
       }
@@ -416,13 +437,125 @@ describe('Requirements（流程实例只由管理员显式绑定）', () => {
     expect(await screen.findByText('一页需求 0')).toBeInTheDocument();
     expect(screen.queryByText('第二页需求 B1')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '加载更多' }));
-
-    expect(await screen.findByText('13 / 13')).toBeInTheDocument();
+    expect(screen.getByText('12 / 13')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '加载更多' })).not.toBeInTheDocument();
-    // 追加后的第 13 条落在本页第 2 页；翻页后应能看到第二页返回的需求。
     fireEvent.click(screen.getByRole('button', { name: '下一页' }));
     expect(await screen.findByText('第二页需求 B1')).toBeInTheDocument();
+    expect(screen.queryByText('一页需求 0')).not.toBeInTheDocument();
+    expect(screen.getByText('第 2 / 2 页 · 共 13 条')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '下一页' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '上一页' }));
+    expect(await screen.findByText('一页需求 0')).toBeInTheDocument();
+    expect(screen.getByText('第 1 / 2 页 · 共 13 条')).toBeInTheDocument();
+  });
+
+  it('搜索未加载到第 70 条的需求时查询服务端，阶段选项不受当前页限制', async () => {
+    const baseHandler = handler({ definitions: [] });
+    const outsideFirstPage = {
+      ...requirement,
+      id: 'req-70',
+      seq: 70,
+      code: 'DEMO-070',
+      title: '远端验收需求',
+      phase: 'ACCEPTANCE',
+    };
+    const mock = mockFetch((url, init) => {
+      if (pathOf(url) === '/api/v1/projects/p1/requirements' && methodOf(init) === 'GET') {
+        const params = new URL(url, 'http://localhost').searchParams;
+        const matched = params.get('q') === '远端' && params.get('phase') === 'ACCEPTANCE';
+        return {
+          status: 200,
+          body: envelope({
+            items: matched ? [outsideFirstPage] : [requirement],
+            nextCursor: matched ? null : 'unloaded-page',
+            total: matched ? 1 : 70,
+          }),
+        };
+      }
+      return baseHandler(url, init);
+    });
+    renderPage();
+    expect(await screen.findByText(requirement.title)).toBeInTheDocument();
+    expect(
+      within(screen.getByLabelText('阶段筛选')).getByRole('option', { name: '验收' }),
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('阶段筛选'), { target: { value: 'ACCEPTANCE' } });
+    fireEvent.change(screen.getByLabelText('搜索需求'), { target: { value: '远端' } });
+    expect(await screen.findByText('远端验收需求')).toBeInTheDocument();
+    expect(screen.queryByText(requirement.title)).not.toBeInTheDocument();
+    expect(
+      mock.mock.calls.some(([url]) => {
+        const parsed = new URL(String(url), 'http://localhost');
+        return (
+          parsed.searchParams.get('q') === '远端' &&
+          parsed.searchParams.get('phase') === 'ACCEPTANCE' &&
+          parsed.searchParams.get('limit') === '12' &&
+          !parsed.searchParams.has('cursor')
+        );
+      }),
+    ).toBe(true);
+    expect(screen.getByText('1 / 1')).toBeInTheDocument();
+  });
+
+  it('改变筛选后回到第一页，迟到的旧分页响应不能覆盖新结果', async () => {
+    const baseHandler = handler({ definitions: [] });
+    let release: (reply: StubReply) => void = () => {};
+    const pending = new Promise<StubReply>((resolve) => {
+      release = resolve;
+    });
+    const mock = mockFetch((url, init) => {
+      if (pathOf(url) === '/api/v1/projects/p1/requirements' && methodOf(init) === 'GET') {
+        const params = new URL(url, 'http://localhost').searchParams;
+        if (params.get('cursor')) return pending;
+        if (params.get('phase') === 'DELIVERY') {
+          return {
+            status: 200,
+            body: envelope({
+              items: [{ ...requirement, title: '筛选后交付需求', phase: 'DELIVERY' }],
+              nextCursor: null,
+              total: 1,
+            }),
+          };
+        }
+        return {
+          status: 200,
+          body: envelope({ items: [requirement], nextCursor: 'page-2', total: 20 }),
+        };
+      }
+      return baseHandler(url, init);
+    });
+    renderPage();
+    expect(await screen.findByText(requirement.title)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    await waitFor(() =>
+      expect(
+        mock.mock.calls.some(
+          ([url]) =>
+            new URL(String(url), 'http://localhost').searchParams.get('cursor') === 'page-2',
+        ),
+      ).toBe(true),
+    );
+    fireEvent.change(screen.getByLabelText('阶段筛选'), { target: { value: 'DELIVERY' } });
+    expect(await screen.findByText('筛选后交付需求')).toBeInTheDocument();
+    await act(async () => {
+      release({
+        status: 200,
+        body: envelope({
+          items: [{ ...requirement, title: '迟到的第二页' }],
+          nextCursor: null,
+          total: 20,
+        }),
+      });
+    });
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.queryByText('迟到的第二页')).not.toBeInTheDocument();
+    expect(screen.getByText('筛选后交付需求')).toBeInTheDocument();
+    expect(
+      mock.mock.calls.some(([url]) => {
+        const params = new URL(String(url), 'http://localhost').searchParams;
+        return params.get('phase') === 'DELIVERY' && !params.has('cursor');
+      }),
+    ).toBe(true);
   });
 });
 
@@ -496,7 +629,7 @@ describe('Requirements（≤720px 卡片列表）', () => {
 
     // 阶段筛选在卡片模式下仍然生效
     fireEvent.change(screen.getByLabelText('阶段筛选'), { target: { value: 'DISCOVERY' } });
-    expect(screen.getByText('第 1 / 2 页 · 共 13 条')).toBeInTheDocument();
+    expect(await screen.findByText('第 1 / 2 页 · 共 13 条')).toBeInTheDocument();
   });
 
   it('桌面（无窄屏媒体查询）仍渲染 7 列表格，不渲染卡片列表', async () => {
@@ -555,7 +688,7 @@ describe('Requirements（加载反馈）', () => {
     expect(screen.queryByText('还没有需求，点右上角「新建需求」创建。')).not.toBeInTheDocument();
     expect(screen.queryByText(/0 \/ 0/)).not.toBeInTheDocument();
 
-    release({ status: 200, body: envelope({ items: [requirement], nextCursor: null }) });
+    release({ status: 200, body: envelope({ items: [requirement], nextCursor: null, total: 1 }) });
 
     expect(await screen.findByText('DEMO-REQ-1')).toBeInTheDocument();
     expect(screen.getByText('1 / 1')).toBeInTheDocument();

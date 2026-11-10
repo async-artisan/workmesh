@@ -5,6 +5,7 @@ import { EnrollmentCodeDialog } from './EnrollmentCodeDialog';
 import { setCsrfToken } from '../api/client';
 import { envelope, methodOf, mockFetch, pathOf, type StubHandler } from '../test-utils';
 import type { WorkspaceEnrollmentView } from '../api/resources';
+import { useAuthStore } from '../store/auth';
 
 const issued: WorkspaceEnrollmentView = {
   enrollmentId: 'enr-1',
@@ -14,6 +15,16 @@ const issued: WorkspaceEnrollmentView = {
   definitionDigest: 'd'.repeat(64),
   expiresAt: '2026-11-06T00:00:00.000Z',
 };
+
+beforeEach(() => {
+  localStorage.clear();
+  useAuthStore.getState().clearAuth();
+});
+
+function issueCodeOnly() {
+  fireEvent.click(screen.getByLabelText('我已有本机命令参数，仅生成接入码'));
+  fireEvent.click(screen.getByRole('button', { name: '生成接入码' }));
+}
 
 function renderDialog(onClose = () => undefined) {
   return render(<EnrollmentCodeDialog open projectId="p1" onClose={onClose} />);
@@ -62,9 +73,11 @@ describe('EnrollmentCodeDialog（加载反馈）', () => {
     });
 
     renderDialog();
-    fireEvent.click(screen.getByRole('button', { name: '生成接入码' }));
+    issueCodeOnly();
 
-    const loadingRegion = await screen.findByRole('status');
+    const loadingRegion = (await screen.findByText('正在生成一次性接入码…')).closest(
+      '[role="status"]',
+    );
     expect(loadingRegion).toHaveTextContent('正在生成一次性接入码…');
     expect(loadingRegion).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByRole('button', { name: '生成中…' })).toBeDisabled();
@@ -89,7 +102,7 @@ describe('EnrollmentCodeDialog（加载反馈）', () => {
     const onClose = vi.fn();
 
     renderDialog(onClose);
-    fireEvent.click(screen.getByRole('button', { name: '生成接入码' }));
+    issueCodeOnly();
     expect(await screen.findByLabelText('一次性接入码')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
@@ -108,7 +121,7 @@ describe('EnrollmentCodeDialog（加载反馈）', () => {
     });
 
     const view = render(<EnrollmentCodeDialog open projectId="p1" onClose={() => undefined} />);
-    fireEvent.click(screen.getByRole('button', { name: '生成接入码' }));
+    issueCodeOnly();
     expect(await screen.findByText('正在生成一次性接入码…')).toBeInTheDocument();
 
     view.rerender(<EnrollmentCodeDialog open projectId="p2" onClose={() => undefined} />);
@@ -136,7 +149,7 @@ describe('EnrollmentCodeDialog（加载反馈）', () => {
     });
 
     render(<ClosableDialogHarness />);
-    fireEvent.click(screen.getByRole('button', { name: '生成接入码' }));
+    issueCodeOnly();
     expect(await screen.findByText('正在生成一次性接入码…')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
@@ -163,7 +176,7 @@ describe('EnrollmentCodeDialog（加载反馈）', () => {
     });
 
     render(<ClosableDialogHarness />);
-    fireEvent.click(screen.getByRole('button', { name: '生成接入码' }));
+    issueCodeOnly();
     expect(await screen.findByText('正在生成一次性接入码…')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
@@ -175,7 +188,7 @@ describe('EnrollmentCodeDialog（加载反馈）', () => {
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByText('late enrollment failure')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '生成接入码' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '生成接入码' })).toBeDisabled();
   });
 });
 
@@ -196,13 +209,14 @@ describe('EnrollmentCodeDialog（接入预览命令）', () => {
 
   afterEach(() => {
     setCsrfToken(null);
+    vi.unstubAllEnvs();
     if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard);
     else Reflect.deleteProperty(navigator, 'clipboard');
   });
 
   async function openIssued() {
     renderDialog();
-    fireEvent.click(screen.getByRole('button', { name: '生成接入码' }));
+    issueCodeOnly();
     await screen.findByLabelText('一次性接入码');
     await screen.findByRole('option', { name: '前端（frontend）' });
   }
@@ -218,6 +232,92 @@ describe('EnrollmentCodeDialog（接入预览命令）', () => {
       target: { value: 'http://127.0.0.1:3000/api/v1' },
     });
   }
+
+  it('参数在签发前可见，缺失或无效参数时不允许签发短时码', async () => {
+    renderDialog();
+    await screen.findByRole('option', { name: '前端（frontend）' });
+    expect(screen.getByLabelText('本地工作区根目录')).toBeInTheDocument();
+    expect(screen.queryByLabelText('一次性接入码')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '生成接入码' })).toBeDisabled();
+    configure();
+    expect(screen.getByRole('button', { name: '生成接入码' })).toBeEnabled();
+    fireEvent.change(screen.getByLabelText('WorkMesh API 地址'), {
+      target: { value: 'https://example.com' },
+    });
+    expect(screen.getByRole('button', { name: '生成接入码' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('WorkMesh API 地址'), {
+      target: { value: 'https://mesh.example.com/team/api/v1' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '生成接入码' }));
+    await screen.findByLabelText('一次性接入码');
+    expect((screen.getByLabelText('CLI 预览命令') as HTMLTextAreaElement).value).toContain(
+      'https://mesh.example.com/team/api/v1',
+    );
+  });
+
+  it('记住终端和客户端，关闭即丢弃接入码、角色、目录和手填API', async () => {
+    render(<ClosableDialogHarness />);
+    await screen.findByRole('option', { name: '前端（frontend）' });
+    configure();
+    fireEvent.click(screen.getByRole('button', { name: '生成接入码' }));
+    await screen.findByLabelText('一次性接入码');
+    expect(JSON.stringify(localStorage)).not.toContain('wm-enroll-once');
+    expect(JSON.stringify(localStorage)).not.toContain('Business Projects');
+    expect(JSON.stringify(localStorage)).not.toContain('127.0.0.1');
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    fireEvent.click(screen.getByRole('button', { name: '重新打开接入码弹窗' }));
+    expect(screen.getByLabelText('Shell')).toHaveValue('git-bash');
+    expect(screen.getByLabelText('Agent 客户端')).toHaveValue('codex');
+    expect(screen.getByLabelText('项目角色')).toHaveValue('');
+    expect(screen.getByLabelText('本地工作区根目录')).toHaveValue('');
+    expect(screen.getByLabelText('WorkMesh API 地址')).toHaveValue('');
+    expect(screen.queryByLabelText('一次性接入码')).not.toBeInTheDocument();
+  });
+
+  it('公共API只采用部署配置，缺少配置不推断网页地址', async () => {
+    vi.stubEnv('VITE_WORKMESH_PUBLIC_API_URL', 'https://public.example.com/prefix/api/v1');
+    renderDialog();
+    expect(screen.getByLabelText('WorkMesh API 地址')).toHaveValue(
+      'https://public.example.com/prefix/api/v1',
+    );
+    expect(screen.getByText(/地址由部署管理员/)).toBeInTheDocument();
+  });
+
+  it('无效部署地址明确提示并保持空值，不生成含凭据或不安全地址的命令', () => {
+    vi.stubEnv('VITE_WORKMESH_PUBLIC_API_URL', 'https://secret:password@public.example.com/api/v1');
+    renderDialog();
+    expect(screen.getByLabelText('WorkMesh API 地址')).toHaveValue('');
+    expect(screen.getByRole('alert')).toHaveTextContent('部署提供的公共 API 地址无效');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('password');
+    expect(screen.getByRole('button', { name: '生成接入码' })).toBeDisabled();
+  });
+
+  it('只把当前成员已分配的活动业务角色作为可选授权角色', async () => {
+    useAuthStore.getState().setSession({ id: 'u1', email: 'me@example.com' });
+    mockEnrollmentFetch((url, init) => {
+      if (pathOf(url) === '/api/v1/projects/p1/members')
+        return {
+          status: 200,
+          body: envelope([
+            {
+              id: 'u1',
+              email: 'me@example.com',
+              role: 'ADMIN',
+              version: 1,
+              roles: [{ id: 'r-frontend', key: 'frontend', title: '前端' }],
+            },
+          ]),
+        };
+      if (pathOf(url) === '/api/v1/projects/p1/workspace-enrollments' && methodOf(init) === 'POST')
+        return { status: 201, body: envelope(issued) };
+      return undefined;
+    });
+    renderDialog();
+    await screen.findByText(/你已分配的活动业务角色：前端/);
+    expect(screen.getByLabelText('项目角色')).toHaveValue('frontend');
+    expect(screen.getByRole('option', { name: '产品（product）' })).toBeDisabled();
+    expect(screen.getByText(/项目管理员身份与业务角色分别管理/)).toBeInTheDocument();
+  });
 
   it('不从 Web origin 猜 API，也不默认选角色；补齐字段后可复制预览', async () => {
     await openIssued();

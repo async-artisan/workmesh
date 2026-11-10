@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
-import { expect, test, type APIResponse } from '@playwright/test';
+import { expect, test, type APIResponse, type Locator } from '@playwright/test';
 import { prepareFirstRunWorkflow } from '../../scripts/lib/first-run-workflow.mjs';
 
 type Task = {
@@ -20,6 +20,19 @@ type Review = {
     actor: { email: string } | null;
   }>;
 };
+
+async function expectTaskState(row: Locator, state: string, apiFailures: string[]) {
+  try {
+    await expect(row).toHaveAttribute('data-task-state', state);
+  } catch (error) {
+    throw new Error(
+      'Task state assertion failed; browser HTTP failures: ' + JSON.stringify(apiFailures),
+      {
+        cause: error,
+      },
+    );
+  }
+}
 
 async function dataOf<T>(response: APIResponse, operation: string): Promise<T> {
   const payload = await response.json();
@@ -43,7 +56,11 @@ test('real Agent QA delivery is approved in the browser while release stays bloc
   playwright,
   baseURL,
 }, testInfo) => {
-  test.setTimeout(90_000);
+  test.setTimeout(150_000);
+  await test.step('start with a fresh production IP request window after previous browser tests', async () => {
+    // The fresh page is about:blank, so no app polling runs during this bounded cooldown.
+    await page.waitForTimeout(60_000);
+  });
   expect(baseURL).toBeTruthy();
   const origin = new URL(baseURL!).origin;
   const email = 'chain-' + randomUUID() + '@acceptance.test';
@@ -58,8 +75,18 @@ test('real Agent QA delivery is approved in the browser while release stays bloc
   const apiFailures: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('response', (response) => {
-    if (response.url().includes('/api/v1/') && response.status() >= 400)
-      apiFailures.push(response.status() + ' ' + response.url());
+    if (response.url().includes('/api/v1/') && response.status() >= 400) {
+      const headers = response.headers();
+      apiFailures.push(
+        JSON.stringify({
+          method: response.request().method(),
+          path: new URL(response.url()).pathname,
+          status: response.status(),
+          remaining: headers['x-ratelimit-remaining'] ?? null,
+          retryAfter: headers['retry-after'] ?? null,
+        }),
+      );
+    }
   });
 
   await test.step('register the human in the browser', async () => {
@@ -71,6 +98,7 @@ test('real Agent QA delivery is approved in the browser while release stays bloc
     await page.getByRole('button', { name: '注册', exact: true }).click();
     await expect(page.getByRole('button', { name: '账号菜单：' + email })).toBeVisible();
   });
+  await page.goto('about:blank');
 
   const session = await dataOf<{ csrfToken: string; user: { id: string } }>(
     await page.request.get(origin + '/api/v1/auth/session'),
@@ -122,10 +150,12 @@ test('real Agent QA delivery is approved in the browser while release stays bloc
     '/requirements/' + requirement.code + '?projectId=' + project.id + '&taskId=' + task.id;
   await page.goto(detailPath);
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
-  await expect(page.locator('[data-task-id]').filter({ hasText: '后续发布任务' })).toHaveAttribute(
-    'data-task-state',
+  await expectTaskState(
+    page.getByRole('group', { name: '后续发布任务 等待前置任务', exact: true }),
     'WAITING_PREDECESSOR',
+    apiFailures,
   );
+  await page.goto('about:blank');
 
   const verifier = randomBytes(32).toString('base64url');
   const credentialSecret = randomBytes(32).toString('base64url');
@@ -244,9 +274,15 @@ test('real Agent QA delivery is approved in the browser while release stays bloc
       const row = page.locator('[data-task-id="' + task.id + '"]');
       await expect(row).toHaveAttribute('data-task-state', 'WAITING_APPROVAL');
       await expect(row).toContainText('工件 1 件');
-      await page.getByRole('tab', { name: /^交付物/ }).click();
-      await expect(page.getByText(summary, { exact: true })).toBeVisible();
-      await page.getByRole('tab', { name: /^任务/ }).click();
+      const artifactsTab = page.getByRole('tab', { name: /^交付物/ });
+      await artifactsTab.click();
+      await expect(artifactsTab).toHaveAttribute('aria-selected', 'true');
+      await expect(
+        page.getByRole('tabpanel', { name: /^交付物/ }).getByText(summary, { exact: true }),
+      ).toBeVisible();
+      const tasksTab = page.getByRole('tab', { name: /^任务/ });
+      await tasksTab.click();
+      await expect(tasksTab).toHaveAttribute('aria-selected', 'true');
       await row.getByRole('button', { name: '去签字', exact: true }).click();
       await expect(page).toHaveURL(new RegExp('/reviews/' + delivered.reviewRequestId + '$'));
       await expect(page.getByText(summary, { exact: true })).toBeVisible();
@@ -312,15 +348,15 @@ test('real Agent QA delivery is approved in the browser while release stays bloc
     );
     expect(next.items.map((item) => item.stepKey)).toEqual(['impl']);
     await page.goto(detailPath);
-    await expect(page.locator('[data-task-id="' + task.id + '"]')).toHaveAttribute(
-      'data-task-state',
-      'DONE',
+    await expectTaskState(page.locator('[data-task-id="' + task.id + '"]'), 'DONE', apiFailures);
+    await expectTaskState(
+      page.getByRole('group', { name: '后续发布任务 等待前置任务', exact: true }),
+      'WAITING_PREDECESSOR',
+      apiFailures,
     );
-    await expect(
-      page.locator('[data-task-id]').filter({ hasText: '后续发布任务' }),
-    ).toHaveAttribute('data-task-state', 'WAITING_PREDECESSOR');
     await expect(page.locator('[data-task-id="' + task.id + '"]')).toContainText(email);
     expect(errors).toEqual([]);
+    expect(apiFailures).toEqual([]);
     const resultPath = testInfo.outputPath('business-chain-result.json');
     await writeFile(
       resultPath,

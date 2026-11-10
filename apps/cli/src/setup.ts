@@ -2,6 +2,8 @@ import { stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deviceLogin } from './auth';
+import { findReusableCredential } from './credential-session';
+import type { FetchLike } from './client';
 import { assertRoleKey, hostSupported, resolvePlatform } from './config';
 import { CliError } from './errors';
 import { installRolePackage, readManifest, type InstallResult } from './roles';
@@ -36,6 +38,8 @@ export type SetupOptions = {
   login?: Login;
   install?: Install;
   readManifest?: ReadManifest;
+  fetch?: FetchLike;
+  findReusableCredential?: typeof findReusableCredential;
 };
 
 export type SetupResult = {
@@ -50,6 +54,8 @@ export type SetupResult = {
   files: string[];
   agentEntries: string[];
   reused: boolean;
+  credentialReused: boolean;
+  nextActions: string[];
 };
 
 /**
@@ -183,29 +189,42 @@ export async function runSetup(input: SetupOptions): Promise<SetupResult> {
   const platform: Platform = resolvePlatform(workspace, input.api);
 
   if (input.preflight) await input.preflight();
-  if (input.consent) await input.consent();
-  const login = input.login ?? deviceLogin;
-  const granted = await login({
+  const onNotice = input.onNotice ?? ((text: string) => process.stderr.write(`${text}\n`));
+  const reusable = await (input.findReusableCredential ?? findReusableCredential)({
     platform,
     configHome: input.configHome,
     projectId,
     roleKey: manifest.roleKey,
-    clientName: input.clientName ?? 'workmesh-setup',
-    timeoutMs: input.timeoutMs,
-    onPrompt:
-      input.onPrompt ??
-      ((prompt) => {
-        process.stderr.write(`在浏览器打开：${prompt.url}\n输入代码：${prompt.userCode}\n`);
-        process.stderr.write(`有效期至 ${prompt.expiresAt}；CLI 会每 5 秒检查一次。\n`);
-      }),
-    onNotice: input.onNotice ?? ((text) => process.stderr.write(`${text}\n`)),
+    fetch: input.fetch,
   });
+  if (!reusable && input.consent) await input.consent();
+  if (reusable) onNotice('已在线验证并复用当前平台、项目和角色的有效凭据，无需重复浏览器授权。');
+  const login = input.login ?? deviceLogin;
+  const credential =
+    reusable ??
+    (
+      await login({
+        platform,
+        configHome: input.configHome,
+        projectId,
+        roleKey: manifest.roleKey,
+        clientName: input.clientName ?? 'workmesh-setup',
+        timeoutMs: input.timeoutMs,
+        fetch: input.fetch,
+        onPrompt:
+          input.onPrompt ??
+          ((prompt) => {
+            process.stderr.write(`在浏览器打开：${prompt.url}\n输入代码：${prompt.userCode}\n`);
+            process.stderr.write(`有效期至 ${prompt.expiresAt}；CLI 会每 5 秒检查一次。\n`);
+          }),
+        onNotice,
+      })
+    ).credential;
 
-  const credential = granted.credential;
-  if (input.projectId && credential.projectId !== input.projectId)
+  if (credential.projectId !== projectId)
     throw new CliError(
       'PROJECT_MISMATCH',
-      `浏览器批准的是项目 ${credential.projectId}，与 --project ${input.projectId} 不一致；请重新授权并选择目标项目`,
+      `浏览器批准的是项目 ${credential.projectId}，与目标项目 ${projectId} 不一致；请重新授权并选择目标项目`,
     );
   if (credential.roleKey !== manifest.roleKey)
     throw new CliError(
@@ -234,5 +253,11 @@ export async function runSetup(input: SetupOptions): Promise<SetupResult> {
     files: installed.files,
     agentEntries: agentEntryFiles(installed.files),
     reused: installed.reused,
+    credentialReused: reusable !== null,
+    nextActions: [
+      'workmesh workspace status',
+      `workmesh doctor --role ${role} --online`,
+      'workmesh tasks ready，然后选择可认领任务并运行 workmesh claim --task <taskId>',
+    ],
   };
 }

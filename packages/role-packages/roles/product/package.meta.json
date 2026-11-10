@@ -1,6 +1,6 @@
 {
   "id": "workmesh.role.product",
-  "version": "1.1.0",
+  "version": "1.2.1",
   "title": "产品角色包",
   "description": "把业务意图转成可判定的 PRD 与验收，供下游并行开工。",
   "license": "MIT",
@@ -26,8 +26,20 @@
     {
       "key": "map-acceptance",
       "path": "skills/map-acceptance/SKILL.md",
-      "description": "把 PRD 拆成可判定的验收条目，标注 verification、category 与 criticality。",
+      "description": "把 PRD 拆成带稳定小写 key、text 与 verification 的正式验收条目。",
       "whenToUse": "PRD 草稿完成或验收需要修订时。"
+    },
+    {
+      "key": "check-requirements",
+      "path": "skills/check-requirements/SKILL.md",
+      "description": "按风险检查需求质量与跨工件一致性，记录缺口、依据和澄清事项。",
+      "whenToUse": "PRD 草稿完成或变更范围扩大时。"
+    },
+    {
+      "key": "assess-idea",
+      "path": "skills/assess-idea/SKILL.md",
+      "description": "用正反证据、成本与备选方向形成继续、澄清或停止的建议。",
+      "whenToUse": "方向尚未确定或需要比较产品投入时。"
     }
   ],
   "inputs": [

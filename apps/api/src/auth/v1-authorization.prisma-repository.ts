@@ -38,7 +38,7 @@ export class V1AuthorizationPrismaRepository implements V1AuthorizationRepositor
     userId: string,
   ): Promise<V1RoleAssignmentRecord[]> {
     return this.prisma.projectRoleAssignment.findMany({
-      where: { projectId, userId },
+      where: { projectId, userId, revokedAt: null, role: { isActive: true } },
       select: {
         id: true,
         projectId: true,

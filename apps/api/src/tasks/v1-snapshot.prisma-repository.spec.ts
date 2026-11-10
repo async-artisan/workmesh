@@ -92,7 +92,7 @@ describe('V1SnapshotPrismaRepository 步骤语义来源', () => {
   it('下游步骤按定义里的 deps 查询上游任务，并只取已验收的工件', async () => {
     const { repository, prisma } = build({
       stepKey: 'cases',
-      dependencyTasks: [{ id: 'task-impl', currentArtifactSetId: 'set-1' }],
+      dependencyTasks: [{ id: 'task-impl', generation: 3, currentArtifactSetId: 'set-1' }],
       artifacts: [
         { id: 'art-1', sha256: 'a'.repeat(64), byteLength: 12, mediaType: 'text/markdown' },
       ],
@@ -102,12 +102,21 @@ describe('V1SnapshotPrismaRepository 步骤语义来源', () => {
 
     expect(prisma.task.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { workflowInstanceId: INSTANCE_ID, stepKey: { in: ['impl'] } },
+        where: {
+          projectId: PROJECT_ID,
+          workflowInstanceId: INSTANCE_ID,
+          stepKey: { in: ['impl'] },
+          executionStatus: 'DONE',
+          workStatus: 'ACTIVE',
+        },
       }),
     );
     expect(prisma.reviewRequest.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
+          projectId: PROJECT_ID,
+          taskId: 'task-impl',
+          taskGeneration: 3,
           artifactSetId: 'set-1',
           status: 'APPROVED',
           kind: 'TASK_ACCEPTANCE',
@@ -117,6 +126,14 @@ describe('V1SnapshotPrismaRepository 步骤语义来源', () => {
     expect(artifacts).toEqual([
       { artifactId: 'art-1', sha256: 'a'.repeat(64), byteLength: 12, mediaType: 'text/markdown' },
     ]);
+    expect(prisma.artifact.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          projectId: PROJECT_ID,
+          artifactSet: { OR: [{ id: 'set-1', taskId: 'task-impl', taskGeneration: 3 }] },
+        }),
+      }),
+    );
   });
 
   it('返回上游步骤与工件类型，支持输入绑定按来源精确匹配', async () => {

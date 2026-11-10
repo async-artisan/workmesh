@@ -1,45 +1,53 @@
 import { expect, test } from '@playwright/test';
-import { installReviewFixtures } from './fixtures';
+import { boardSummary, installReviewFixtures } from './fixtures';
 
 for (const width of [1440, 1024, 640, 390]) {
   test(`${width}px 看板步骤显示名称和无名称历史回退`, async ({ page }) => {
     await installReviewFixtures(page);
-    await page.route('**/api/v1/projects/p1/board', async (route) => {
-      const baseCard = {
-        projectId: 'p1',
-        roleId: 'role-1',
-        roleTitle: '后端',
-        executionStatus: 'OPEN',
-        workStatus: 'ACTIVE',
-        currentClaimId: null,
-        requirementCode: 'DEMO-001',
-        requirementTitle: '名称与历史回退',
-      };
-      await route.fulfill({
-        status: 200,
-        json: {
-          data: {
-            columns: [
-              {
-                key: 'BACKLOG',
-                cards: [
-                  {
-                    ...baseCard,
-                    taskId: 'task-named',
-                    stepKey: 'backend-impl',
-                    stepDisplayName: '结算服务交付',
-                  },
-                  { ...baseCard, taskId: 'task-legacy', stepKey: 'backend-impl' },
-                  { ...baseCard, taskId: 'task-custom', stepKey: 'custom-legacy-step' },
-                ],
-              },
-            ],
-            metrics: {},
+    await page.route(
+      (url) => url.pathname === '/api/v1/projects/p1/board',
+      async (route) => {
+        const baseCard = {
+          projectId: 'p1',
+          roleId: 'role-1',
+          roleTitle: '后端',
+          executionStatus: 'OPEN',
+          workStatus: 'ACTIVE',
+          currentClaimId: null,
+          requirementCode: 'DEMO-001',
+          requirementTitle: '名称与历史回退',
+        };
+        const summary = boardSummary({ BACKLOG: 3 });
+        await route.fulfill({
+          status: 200,
+          json: {
+            data: {
+              projectId: 'p1',
+              queryKey: 'ui-review-step-names',
+              summary,
+              columns: summary.columns.map((column) => ({
+                ...column,
+                nextCursor: null,
+                cards:
+                  column.key === 'BACKLOG'
+                    ? [
+                        {
+                          ...baseCard,
+                          taskId: 'task-named',
+                          stepKey: 'backend-impl',
+                          stepDisplayName: '结算服务交付',
+                        },
+                        { ...baseCard, taskId: 'task-legacy', stepKey: 'backend-impl' },
+                        { ...baseCard, taskId: 'task-custom', stepKey: 'custom-legacy-step' },
+                      ]
+                    : [],
+              })),
+            },
+            meta: { requestId: 'ui-review-step-names' },
           },
-          meta: { requestId: 'ui-review-step-names' },
-        },
-      });
-    });
+        });
+      },
+    );
     await page.setViewportSize({ width, height: 1000 });
     await page.goto('/board?projectId=p1');
     const named = page.getByRole('article', { name: /^结算服务交付，状态：/ });

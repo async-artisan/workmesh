@@ -72,6 +72,8 @@ const snapshot = {
       executionStatus: 'OPEN',
       workStatus: 'ACTIVE',
       ageSeconds: null,
+      responsibleUser: { id: 'user-1', email: 'developer@example.test' },
+      claimEligibility: { canClaim: true, reason: null },
     },
   ],
   warnings: [],
@@ -205,6 +207,51 @@ describe('工作台优先行动与范围隔离', () => {
   beforeEach(() => {
     useProject('p1');
   });
+  it('指定给本人时显示负责人、领取资格和真实任务命令入口', async () => {
+    setup();
+    renderWorkbench();
+    expect(await screen.findByText(/当前负责人：developer@example.test/)).toHaveTextContent(
+      '本人可领取',
+    );
+    expect(screen.getByRole('button', { name: '复制领取命令' })).toBeEnabled();
+    expect(screen.getByText(/必需输入会在获取上下文时检查/)).toBeInTheDocument();
+  });
+  it('同角色同事的任务只供查看，不能复制领取命令', async () => {
+    setup({
+      workbench: () => ({
+        status: 200,
+        body: envelope({
+          ...snapshot,
+          readyTasks: [
+            {
+              ...snapshot.readyTasks[0],
+              responsibleUser: { id: 'teammate', email: 'teammate@example.test' },
+              claimEligibility: { canClaim: false, reason: 'NOT_RESPONSIBLE' },
+            },
+          ],
+        }),
+      }),
+    });
+    renderWorkbench();
+    expect(await screen.findByText(/当前负责人：teammate@example.test/)).toHaveTextContent(
+      '本人不可领取',
+    );
+    expect(screen.getByText(/等待指定负责人领取/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '复制领取命令' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '查看上下文' })).toBeEnabled();
+  });
+  it('旧快照没有领取资格时不默认允许复制命令', async () => {
+    const { claimEligibility: _eligibility, ...legacyTask } = snapshot.readyTasks[0];
+    setup({
+      workbench: () => ({
+        status: 200,
+        body: envelope({ ...snapshot, readyTasks: [legacyTask] }),
+      }),
+    });
+    renderWorkbench();
+    await screen.findByText(/领取资格尚未确认，请刷新后查看/);
+    expect(screen.getByRole('button', { name: '复制领取命令' })).toBeDisabled();
+  });
   it('显示全部项目范围与真实等待时间，行动入口直达评审', async () => {
     setup();
     render(
@@ -234,12 +281,12 @@ describe('工作台优先行动与范围隔离', () => {
     const actions = screen.getByRole('region', { name: '优先行动' });
     expect(within(actions).getByText('待审批 · 0')).toBeInTheDocument();
     expect(within(actions).getByRole('button', { name: '打开待审批' })).toBeDisabled();
-    expect(within(actions).getByText('可开工任务 · 1')).toBeInTheDocument();
+    expect(within(actions).getByText('前置任务已完成 · 1')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '刷新' }));
     expect(
       await within(actions).findByText('行动项可能已过期，请刷新后确认。'),
     ).toBeInTheDocument();
-    expect(within(actions).getByText('可开工任务 · 1')).toBeInTheDocument();
+    expect(within(actions).getByText('前置任务已完成 · 1')).toBeInTheDocument();
   });
   it('切换范围同步URL，旧慢响应不能覆盖新项目，清除旧搜索和选中项', async () => {
     let resolveOld!: (reply: { status: number; body: unknown }) => void;
@@ -386,7 +433,7 @@ describe('Workbench（跨项目待办聚合）', () => {
     renderWorkbench();
 
     fireEvent.click(await screen.findByRole('button', { name: '去确认' }));
-    fireEvent.click(await screen.findByRole('button', { name: '确认已处理' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认已知悉' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '[VERSION_CONFLICT] 收件人版本已变化 · requestId req-409',
@@ -407,7 +454,7 @@ describe('Workbench（跨项目待办聚合）', () => {
     renderWorkbench();
 
     fireEvent.click(await screen.findByRole('button', { name: '去确认' }));
-    fireEvent.click(await screen.findByRole('button', { name: '确认已处理' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认已知悉' }));
 
     expect(await screen.findByText('变更已确认。')).toBeInTheDocument();
   });
@@ -631,9 +678,10 @@ describe('Workbench（跨项目待办聚合）', () => {
     const batchButton = await screen.findByRole('button', { name: '批量批准 1 条' });
     fireEvent.click(batchButton);
 
+    const password = await screen.findByLabelText(/登录密码/);
     const dialog = await screen.findByRole('dialog', { name: '批量批准' });
     expect(dialog).toHaveTextContent(/将对 1 条评审提交「批准」/);
-    expect(within(dialog).getByLabelText(/登录密码/)).toBeInTheDocument();
+    expect(dialog).toContainElement(password);
   });
 
   it('待办页签支持方向键切换，并与 tabpanel 建立关联', async () => {

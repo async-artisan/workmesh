@@ -246,13 +246,13 @@ API 驱动结束、隔离 PostgreSQL 停止后，在上述单个测试环境真�
 - `apps/cli/src/workspace-init.ts`、`apps/cli/src/workspace-init.test.ts`：在 workspace.json 和索引提交后发生 pending 清理故障时，保留已提交文件、实际错误代码及提交状态，说明无需重新签码或重新 init，并指导确认无写入进程、核对后手动清理 pending。故障注入断言 EACCES、两文件一致、pending 保留、锁释放和再次 init 不消费码。
 - `apps/api/test/main-limiter-interaction.e2e-spec.ts`：使用 guard 核验过的一次性本地 PostgreSQL 与真实编译启动的 main，结合真实 CLI `V1Client` 检验两个 limiter 的相互作用。测试只读取随机不存在的接入码记录，不写入测试数据。
 
-| 时间 / 文件集合 | 精确命令（从仓库根目录执行） | 结果 |
-| --- | --- | --- |
-| 约 20:40:18；CLI init 测试及源码 | `pnpm --filter @workmesh/cli exec vitest run src/workspace-init.test.ts --reporter=dot` | 25/25 passed，exit 0。同期 `pnpm --filter @workmesh/cli exec eslint src/workspace-init.ts src/workspace-init.test.ts` exit 0；`pnpm --filter @workmesh/cli exec tsc --noEmit` 首次失败，测试中的 `unknown` 未缩窄，已修正。 |
-| 20:40:41；修正后的同一 CLI 文件集合 | `pnpm --filter @workmesh/cli exec vitest run src/workspace-init.test.ts --reporter=dot` | 25/25 passed，exit 0；`pnpm --filter @workmesh/cli exec eslint src/workspace-init.ts src/workspace-init.test.ts` 和 `pnpm --filter @workmesh/cli exec tsc --noEmit` 均 exit 0。 |
-| 20:41:50；`src/git.test.ts`、`src/workspace-config.test.ts` | `pnpm --filter @workmesh/cli exec vitest run src/git.test.ts src/workspace-config.test.ts --reporter=verbose` | 37 passed / 2 skipped，exit 0；这些测试包括临时 Git 仓库及路径夹具。中文、空格、大小写、junction 的具体覆盖以测试代码与已有矩阵为准，不把夹具一概记为实际平台端到端。真实 Windows UNC、macOS、Linux 和双机仍未运行。 |
-| 约 20:43；`test/main-limiter-interaction.e2e-spec.ts` | `pnpm --filter @workmesh/api exec vitest run test/main-limiter-interaction.e2e-spec.ts --reporter=verbose` | 首次使用默认 unit 配置，没有发现该 test 文件，exit 1；未计为通过。 |
-| 20:43:25；同一 limiter 测试，production main 临时构建 | `pnpm --filter @workmesh/api exec vitest run --config vitest.integration.config.mts test/main-limiter-interaction.e2e-spec.ts --reporter=verbose` | 1/1 passed，exit 0；`pnpm exec eslint apps/api/test/main-limiter-interaction.e2e-spec.ts` exit 0。 |
+| 时间 / 文件集合                                             | 精确命令（从仓库根目录执行）                                                                                                                      | 结果                                                                                                                                                                                                                        |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 约 20:40:18；CLI init 测试及源码                            | `pnpm --filter @workmesh/cli exec vitest run src/workspace-init.test.ts --reporter=dot`                                                           | 25/25 passed，exit 0。同期 `pnpm --filter @workmesh/cli exec eslint src/workspace-init.ts src/workspace-init.test.ts` exit 0；`pnpm --filter @workmesh/cli exec tsc --noEmit` 首次失败，测试中的 `unknown` 未缩窄，已修正。 |
+| 20:40:41；修正后的同一 CLI 文件集合                         | `pnpm --filter @workmesh/cli exec vitest run src/workspace-init.test.ts --reporter=dot`                                                           | 25/25 passed，exit 0；`pnpm --filter @workmesh/cli exec eslint src/workspace-init.ts src/workspace-init.test.ts` 和 `pnpm --filter @workmesh/cli exec tsc --noEmit` 均 exit 0。                                             |
+| 20:41:50；`src/git.test.ts`、`src/workspace-config.test.ts` | `pnpm --filter @workmesh/cli exec vitest run src/git.test.ts src/workspace-config.test.ts --reporter=verbose`                                     | 37 passed / 2 skipped，exit 0；这些测试包括临时 Git 仓库及路径夹具。中文、空格、大小写、junction 的具体覆盖以测试代码与已有矩阵为准，不把夹具一概记为实际平台端到端。真实 Windows UNC、macOS、Linux 和双机仍未运行。        |
+| 约 20:43；`test/main-limiter-interaction.e2e-spec.ts`       | `pnpm --filter @workmesh/api exec vitest run test/main-limiter-interaction.e2e-spec.ts --reporter=verbose`                                        | 首次使用默认 unit 配置，没有发现该 test 文件，exit 1；未计为通过。                                                                                                                                                          |
+| 20:43:25；同一 limiter 测试，production main 临时构建       | `pnpm --filter @workmesh/api exec vitest run --config vitest.integration.config.mts test/main-limiter-interaction.e2e-spec.ts --reporter=verbose` | 1/1 passed，exit 0；`pnpm exec eslint apps/api/test/main-limiter-interaction.e2e-spec.ts` exit 0。                                                                                                                          |
 
 限流测试环境显式设置 `WORKMESH_TEST_ENV=local`、`WORKMESH_TEST_DATABASE_USERS=postgres`、`WORKMESH_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:51801/workmesh_test_p0a_final?schema=workmesh_v1`；套件执行 guard 并查询 `current_database()` 核对目标。真实 main 的全局上限设为 11，匿名 consume 的领域上限为 10：同一客户端前十次请求返回 404，第 11 次领域层返回 429，错误 envelope 的 message 为 `RATE_LIMITED`；第 12 次两层均达到阈值，由全局层先返回 429，message 为 `请求过于频繁`，有 Retry-After 且响应头 request ID 与 envelope 一致。真实 CLI 对两个 429 均报告 `RATE_LIMITED`、status 429，12 次 POST 没有自动重试。此记录补充了上文当时尚未验证的交互优先级；它不代替真实 Web、完整 CLI 闭环或其他未完成 gate。
 
@@ -266,16 +266,16 @@ API 驱动结束、隔离 PostgreSQL 停止后，在上述单个测试环境真�
 
 在仓库根目录 PowerShell 中运行，先将 `C:\Users\Windows11\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin` 前置于 `PATH`，再设置 `WORKMESH_TEST_ENV=local`、`WORKMESH_TEST_DATABASE_USERS=postgres`、`WORKMESH_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:51761/workmesh_test_member_races?schema=workmesh_v1`。实际记录如下：
 
-| 本地启动时间 | 文件集合 / 精确命令 | 实际结果 |
-| --- | --- | --- |
-| 20:41:32 | `pnpm --filter @workmesh/api exec vitest run --config vitest.integration.config.mts test/workspace-onboarding.database.spec.ts -t '成员权限预检后变化' --reporter=dot` | exit 1；4 failed、16 skipped。新增测试当时依赖全套运行先创建 definition，过滤运行缺少夹具。后来补建测试所需 definition/revision；此次失败不证明权限竞态。 |
-| 20:41:43 | `pnpm --filter @workmesh/api exec vitest run --config vitest.integration.config.mts test/workspace-onboarding.database.spec.ts --reporter=dot` | exit 1；17 passed、3 failed。同步屏障下草稿、发布在 OWNER 降级后仍成功，签码在成员撤权后仍成功；声明正确拒绝。这是在隔离库直接更新成员行构造的竞态，并非通过已有撤权或降级产品接口复现。 |
-| 20:43:06 | 同一 DB spec 和命令 | exit 1；19 passed、1 failed。已加入事务内重验；原归档测试的假授权未模拟归档错误，修正该测试夹具后复跑。 |
-| 20:43:26 | 同一 DB spec 和命令 | exit 0；20/20 passed，后续又增加撤权和普通成员并发测试。 |
-| 20:45:13 | 同一 DB spec 和命令 | exit 0；25/25 passed。 |
-| 20:43:49 | `pnpm --filter @workmesh/api exec vitest run --config vitest.unit.config.mts src/projects/workspace-definition.service.spec.ts src/projects/workspace-enrollment.service.spec.ts src/projects/project-repository-declaration.service.spec.ts --reporter=dot` | exit 0；3 files、38/38 passed。 |
-| 同轮 | `pnpm --filter @workmesh/api exec tsc --noEmit` | exit 0。 |
-| 20:45 左右 | `pnpm exec eslint apps/api/src/projects/workspace-definition.service.ts apps/api/src/projects/workspace-enrollment.service.ts apps/api/test/workspace-onboarding.database.spec.ts` | exit 0。 |
+| 本地启动时间 | 文件集合 / 精确命令                                                                                                                                                                                                                                          | 实际结果                                                                                                                                                                                 |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 20:41:32     | `pnpm --filter @workmesh/api exec vitest run --config vitest.integration.config.mts test/workspace-onboarding.database.spec.ts -t '成员权限预检后变化' --reporter=dot`                                                                                       | exit 1；4 failed、16 skipped。新增测试当时依赖全套运行先创建 definition，过滤运行缺少夹具。后来补建测试所需 definition/revision；此次失败不证明权限竞态。                                |
+| 20:41:43     | `pnpm --filter @workmesh/api exec vitest run --config vitest.integration.config.mts test/workspace-onboarding.database.spec.ts --reporter=dot`                                                                                                               | exit 1；17 passed、3 failed。同步屏障下草稿、发布在 OWNER 降级后仍成功，签码在成员撤权后仍成功；声明正确拒绝。这是在隔离库直接更新成员行构造的竞态，并非通过已有撤权或降级产品接口复现。 |
+| 20:43:06     | 同一 DB spec 和命令                                                                                                                                                                                                                                          | exit 1；19 passed、1 failed。已加入事务内重验；原归档测试的假授权未模拟归档错误，修正该测试夹具后复跑。                                                                                  |
+| 20:43:26     | 同一 DB spec 和命令                                                                                                                                                                                                                                          | exit 0；20/20 passed，后续又增加撤权和普通成员并发测试。                                                                                                                                 |
+| 20:45:13     | 同一 DB spec 和命令                                                                                                                                                                                                                                          | exit 0；25/25 passed。                                                                                                                                                                   |
+| 20:43:49     | `pnpm --filter @workmesh/api exec vitest run --config vitest.unit.config.mts src/projects/workspace-definition.service.spec.ts src/projects/workspace-enrollment.service.spec.ts src/projects/project-repository-declaration.service.spec.ts --reporter=dot` | exit 0；3 files、38/38 passed。                                                                                                                                                          |
+| 同轮         | `pnpm --filter @workmesh/api exec tsc --noEmit`                                                                                                                                                                                                              | exit 0。                                                                                                                                                                                 |
+| 20:45 左右   | `pnpm exec eslint apps/api/src/projects/workspace-definition.service.ts apps/api/src/projects/workspace-enrollment.service.ts apps/api/test/workspace-onboarding.database.spec.ts`                                                                           | exit 0。                                                                                                                                                                                 |
 
 最终屏障测试在预检之后、事务取得项目锁之前，由另一个隔离库连接直接将成员 `revokedAt` 置值或将 OWNER 改为 MEMBER，递增成员版本，然后允许事务继续。草稿、发布、声明分别验证撤权返回 404、降级返回 403；票据未消费，项目及定义版本、revision、审计、幂等、仓库和接入码没有半写。签码撤权返回 404；降级为仍活动的 MEMBER 后仍可签发，审计 actorStamp 的成员版本与事务锁后版本一致。另有活动 MEMBER 正常签码测试。真实 PostgreSQL 屏障覆盖的是这些构造状态和执行次序，不能推断线上曾发生越权写入。
 
@@ -309,10 +309,10 @@ API 驱动结束、隔离 PostgreSQL 停止后，在上述单个测试环境真�
 
 下列测试使用 §9 同一隔离测试环境设置和 guard；命令从仓库根目录运行：
 
-| 本地启动时间 | 精确命令 | 结果 |
-| --- | --- | --- |
-| 20:49:13 | `pnpm --filter @workmesh/api exec vitest run --config vitest.integration.config.mts test/workspace-onboarding.http.e2e-spec.ts --reporter=verbose` | AppModule 真实 HTTP：1/1 passed，exit 0。 |
-| 20:49:25 | `pnpm --filter @workmesh/api exec vitest run --config vitest.integration.config.mts test/main-limiter-interaction.e2e-spec.ts --reporter=verbose` | 真实 main 全局与领域 limiter 交互：1/1 passed，exit 0；具体阈值、envelope 和 CLI 行为见 §9。 |
+| 本地启动时间 | 精确命令                                                                                                                                           | 结果                                                                                         |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 20:49:13     | `pnpm --filter @workmesh/api exec vitest run --config vitest.integration.config.mts test/workspace-onboarding.http.e2e-spec.ts --reporter=verbose` | AppModule 真实 HTTP：1/1 passed，exit 0。                                                    |
+| 20:49:25     | `pnpm --filter @workmesh/api exec vitest run --config vitest.integration.config.mts test/main-limiter-interaction.e2e-spec.ts --reporter=verbose`  | 真实 main 全局与领域 limiter 交互：1/1 passed，exit 0；具体阈值、envelope 和 CLI 行为见 §9。 |
 
 本次真实 Web 页面证据补足上文当时缺失的页面 → API → DB 操作段；单机双 root 不能替代真实双机，也不证明生产或共享环境状态。真实双机、Windows UNC、真实 macOS/Linux runner、外部环境迁移历史证据仍为 BLOCKED/UNRUN；其解除条件见 §6。因所需真实证据尚未全部满足，§24、§25 和 P0a 综合结论继续为 **C / 未完成**，不得宣布整体通过。
 
@@ -343,14 +343,14 @@ node (Join-Path $env:TEMP 'workmesh-p0a-t8-driver-20261106-b917-v3.cjs')
 
 该驱动通过真实 CLI 入口（`apps/cli/node_modules/tsx/dist/cli.mjs` + `apps/cli/src/index.ts`）执行以下结果，命令内的 root/configHome 均为本次专属临时目录：
 
-| 场景 | 结果 |
-| --- | --- |
-| 合法 v1 `workspace migrate --dry-run` | exit 0；活动文件快照和 SHA-256 完全不变，确认零写入。 |
-| 合法 v1 `workspace migrate --apply` | exit 0；状态 `MIGRATED`，journal `COMMITTED`，v1 归档为 `.bak`，v2 和用户索引可读。 |
-| 迁移后旧入口 `auth status --json` | exit 0；读取 v2。将本次专属 `.bak` 改为非法内容后旧入口仍读取 v2，证明 `.bak` 不作为活动配置。 |
-| 合法 `DUAL_ACTIVE` + `V2_WRITTEN` journal | `workspace status` exit 5、只读并返回 `WORKSPACE_DUAL_CONFIG`；`migrate --inspect` exit 0 且无写入/删除；`workspace discover` 与 `auth status` exit 5，文件快照不变。 |
-| 合法条件 `migrate --resolve keep-v2` | exit 0，收敛到 `MIGRATED`，仅归档 v1，保留 v2 和索引。 |
-| 无效 v2 或非收敛 `PLANNED` journal 的 `keep-v2` | 各 exit 5；两个活动配置均保留，文件 SHA-256 不变，拒绝恢复。 |
+| 场景                                            | 结果                                                                                                                                                                  |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 合法 v1 `workspace migrate --dry-run`           | exit 0；活动文件快照和 SHA-256 完全不变，确认零写入。                                                                                                                 |
+| 合法 v1 `workspace migrate --apply`             | exit 0；状态 `MIGRATED`，journal `COMMITTED`，v1 归档为 `.bak`，v2 和用户索引可读。                                                                                   |
+| 迁移后旧入口 `auth status --json`               | exit 0；读取 v2。将本次专属 `.bak` 改为非法内容后旧入口仍读取 v2，证明 `.bak` 不作为活动配置。                                                                        |
+| 合法 `DUAL_ACTIVE` + `V2_WRITTEN` journal       | `workspace status` exit 5、只读并返回 `WORKSPACE_DUAL_CONFIG`；`migrate --inspect` exit 0 且无写入/删除；`workspace discover` 与 `auth status` exit 5，文件快照不变。 |
+| 合法条件 `migrate --resolve keep-v2`            | exit 0，收敛到 `MIGRATED`，仅归档 v1，保留 v2 和索引。                                                                                                                |
+| 无效 v2 或非收敛 `PLANNED` journal 的 `keep-v2` | 各 exit 5；两个活动配置均保留，文件 SHA-256 不变，拒绝恢复。                                                                                                          |
 
 两次早先驱动失败也保留在 `%TEMP%\workmesh-p0a-t8-b917-eeQNdj\evidence.json` 和 `%TEMP%\workmesh-p0a-t8-b917-W34Gmi\evidence.json`：前者误读 `--json` envelope 顶层字段，后者误把设计规定的 `DUAL_ACTIVE` status exit 5 当成 exit 0。v3 修正后 exit 0；这两次是演练驱动错误，不是产品失败，旧记录不删除。
 
@@ -374,12 +374,12 @@ node (Join-Path $env:TEMP 'workmesh-p0a-t8-driver-20261106-b917-v3.cjs')
 
 专属验证目录为 `%TEMP%\workmesh-p0a-offline-verify-jQGEQB`，四个场景目录为 `exact`、`missing-cache`、`bad-payload-digest`、`locator-mismatch`。Node `v24.22.1` 下使用最终 CLI 构建 `apps/cli/.p0a-final-build-b65ec978/index.js`；脱敏日志为 `%TEMP%\workmesh-p0a-offline-20261106-final.log`，驱动为 `%TEMP%\workmesh-p0a-offline-20261106-final.cjs`。这些是单机真实命令证据，不能替代真实双机：
 
-| 场景 | 实际结果 |
-| --- | --- |
-| `exact`：有效 revision 缓存 + 精确 canonical locator | bind 成功。 |
-| `missing-cache`：移除有效缓存 | bind 拒绝，exit 6。 |
+| 场景                                                   | 实际结果            |
+| ------------------------------------------------------ | ------------------- |
+| `exact`：有效 revision 缓存 + 精确 canonical locator   | bind 成功。         |
+| `missing-cache`：移除有效缓存                          | bind 拒绝，exit 6。 |
 | `bad-payload-digest`：保持 locator 但破坏 payload 摘要 | bind 拒绝，exit 6。 |
-| `locator-mismatch`：摘要仍有效但 locator 不精确 | bind 拒绝，exit 6。 |
+| `locator-mismatch`：摘要仍有效但 locator 不精确        | bind 拒绝，exit 6。 |
 
 21:33:46–21:33:49 Asia/Shanghai，另使用同项目真实缓存和 `.p0a-sameproject-498c2a/index.js`，显式 Node `v24.22.1` 重跑四场景，结果仍为 exact exit 0（`DECLARED_MATCH`、`CACHED_DEFINITION`），三个负向均 exit 6 / `WORKSPACE_OFFLINE_UNVERIFIED`，哈希前后不变。证据为 `G:/workmesh-p0a-sameproject-evidence/offline-sameproject-6d4f3a/results.json` 和 `output.log`，未复制凭据；payload/digest 负向即使重算本地 checksum 仍被拒绝。命令模板：`<explicit-node> G:/yesgoo/workmesh/apps/cli/.p0a-sameproject-498c2a/index.js workspace bind --root <case-checkout> --repository d5b14c87-9ecb-4ff6-afa2-482f820ff1eb --path . --config-home <case-config-home> --offline --yes`，实际参数和时间保存在 results.json。此前 driver 转义错误 exit 1，未启动场景；失败脚本和日志同样保留。旧的不同项目缓存结果仅作历史，不与本次同项目结果混同。
 
@@ -419,15 +419,15 @@ node (Join-Path $env:TEMP 'workmesh-p0a-t8-driver-20261106-b917-v3.cjs')
 
 08:33:51–08:33:54（Asia/Shanghai），Node `v24.22.1`、Windows、HEAD `1fd1635693a77e4b66b0e06818f553719872f494`，执行 `<node24> G:/workmesh-p0a-sameproject-evidence/negative-http-final-20261107-v3.cjs`，driver exit 0，**7 passed / 0 failed / 0 skipped**。复用同一最终 API 构建 `.p0a-sameproject-498c2a/main.js`，SHA-256 `4595f26decb8bab972837ae08c58ffebf01ebf07b34b17d183ddb6b7a80339f1`。启动真实 main（本轮端口 12199），只连接 guard 接受的专属 `127.0.0.1:51913/workmesh_test_p0a_sameproject?schema=workmesh_v1`，先核对 postmaster 的 PGDATA/PID/port；没有重新迁移 schema。使用新随机账户、新项目 `c88e61ec-9c4b-4fbe-bcc8-3cfd87a93ec3`，不修改 §12.2 正向项目，不把本轮负向项目拼成正向闭环。
 
-| 场景 | 真实 HTTP 与持久化结果 |
-| --- | --- |
-| 未发布定义签码 | 409 `PROJECT_UNCONFIGURED`；零签码/幂等/审计/版本变化。 |
-| 非成员签码 | 404，公共 code `RESOURCE_NOT_FOUND`、message `MEMBER_NOT_ACTIVE`；无持久变化。 |
-| DECLARED 请求注入 `identityMode=PROVIDER`、adapter、externalId | 400 `REQUEST_REJECTED`，DTO 明确拒绝额外字段；票据未消费，零仓库/版本/审计/幂等写入。 |
-| 随后合法声明 | 201；数据库 identityMode=DECLARED，adapter/externalId/lastVerifiedStatus/lastVerifiedAt 均 NULL，未声称 provider 核验。 |
-| 保存草稿并发布后，旧 expectedDefinitionVersion + 新 key 保存 | 409 `DEFINITION_VERSION_CONFLICT`；项目/定义/revision/审计/幂等和票据消费数量不变。 |
-| 发布后，原 key 同摘要重放草稿保存 | 200，`replayed=true`、原响应 definitionVersion=1；数据库保持发布后的 version=2，无回滚或新写。 |
-| 项目归档后签码 | 通过真实 `DELETE /api/v1/projects/:id`（200）归档，之后签码409；公共 code `RESOURCE_CONFLICT`、message `PROJECT_ARCHIVED`，无新增签码或半写。这不是直接构造数据库归档状态。 |
+| 场景                                                           | 真实 HTTP 与持久化结果                                                                                                                                                      |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 未发布定义签码                                                 | 409 `PROJECT_UNCONFIGURED`；零签码/幂等/审计/版本变化。                                                                                                                     |
+| 非成员签码                                                     | 404，公共 code `RESOURCE_NOT_FOUND`、message `MEMBER_NOT_ACTIVE`；无持久变化。                                                                                              |
+| DECLARED 请求注入 `identityMode=PROVIDER`、adapter、externalId | 400 `REQUEST_REJECTED`，DTO 明确拒绝额外字段；票据未消费，零仓库/版本/审计/幂等写入。                                                                                       |
+| 随后合法声明                                                   | 201；数据库 identityMode=DECLARED，adapter/externalId/lastVerifiedStatus/lastVerifiedAt 均 NULL，未声称 provider 核验。                                                     |
+| 保存草稿并发布后，旧 expectedDefinitionVersion + 新 key 保存   | 409 `DEFINITION_VERSION_CONFLICT`；项目/定义/revision/审计/幂等和票据消费数量不变。                                                                                         |
+| 发布后，原 key 同摘要重放草稿保存                              | 200，`replayed=true`、原响应 definitionVersion=1；数据库保持发布后的 version=2，无回滚或新写。                                                                              |
+| 项目归档后签码                                                 | 通过真实 `DELETE /api/v1/projects/:id`（200）归档，之后签码409；公共 code `RESOURCE_CONFLICT`、message `PROJECT_ARCHIVED`，无新增签码或半写。这不是直接构造数据库归档状态。 |
 
 脱敏逐请求 method/route、请求字段名、Origin/CSRF/Idempotency-Key 是否存在、status、错误 envelope 和 request ID 对照，以及只读 DB 前后计数在 `G:/workmesh-p0a-sameproject-evidence/negative-http-final-20261107-v3/result.json`。不记录密码、cookie、CSRF 值、票据、幂等 key 或接入码；这些请求未成功签出接入码。真实认证、DTO、Guard、票据与路由未 mock；这是 HTTP driver 的请求摘要，独立于浏览器截图，并非补造浏览器网络存档。
 

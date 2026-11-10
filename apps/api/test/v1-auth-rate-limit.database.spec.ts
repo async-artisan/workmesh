@@ -1,8 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { V1_ERROR_CODES } from '@workmesh/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '../../node_modules/.prisma/workmesh-v1-client';
+import { V1AccountService } from '../src/auth/v1-account.service';
 import { V1AuthPrismaRepository } from '../src/auth/v1-auth.prisma-repository';
 import type { V1PasswordRateReservation } from '../src/auth/v1-auth.repository';
+import { hashSecret } from '../src/auth/v1-policy';
 import { evaluateSuiteTestDatabase, verifiedTestDatabase } from '../src/common/v1-test-database';
 import { PrismaService } from '../src/prisma/prisma.service';
 
@@ -145,4 +148,118 @@ suite('PostgreSQL password verification failure budget', () => {
     ).toBe(1);
     expect(other).not.toBeNull();
   });
+
+  it('adds only the matching legacy registration window to canonical login attempts', async () => {
+    const keyHash = key();
+    const otherKey = key();
+    const start = new Date('2026-11-07T00:00:00.000Z');
+    await db.authRateWindow.createMany({
+      data: [
+        {
+          kind: 'register-ip',
+          keyHash,
+          windowStart: start,
+          attempts: 17,
+          expiresAt: new Date(start.getTime() + windowMs),
+        },
+        {
+          kind: 'register-ip',
+          keyHash: otherKey,
+          windowStart: start,
+          attempts: 30,
+          expiresAt: new Date(start.getTime() + windowMs),
+        },
+        {
+          kind: 'register-ip',
+          keyHash,
+          windowStart: new Date(start.getTime() - windowMs),
+          attempts: 30,
+          expiresAt: start,
+        },
+      ],
+    });
+    expect(await repository.bumpRateWindow({ kind: 'login-ip', keyHash, now, windowMs })).toBe(18);
+    expect(await repository.bumpRateWindow({ kind: 'login-ip', keyHash, now, windowMs })).toBe(19);
+    expect(
+      await repository.bumpRateWindow({ kind: 'device-create-ip', keyHash, now, windowMs }),
+    ).toBe(1);
+    expect(
+      (
+        await db.authRateWindow.findFirstOrThrow({
+          where: { kind: 'register-ip', keyHash, windowStart: start },
+        })
+      ).attempts,
+    ).toBe(17);
+    expect(
+      (
+        await db.authRateWindow.findFirstOrThrow({
+          where: { kind: 'login-ip', keyHash, windowStart: start },
+        })
+      ).attempts,
+    ).toBe(2);
+  });
+
+  it('atomically preserves legacy usage across concurrent canonical increments', async () => {
+    const keyHash = key();
+    await db.authRateWindow.create({
+      data: {
+        kind: 'register-ip',
+        keyHash,
+        windowStart: new Date('2026-11-07T00:00:00.000Z'),
+        attempts: 29,
+        expiresAt: new Date('2026-11-07T00:15:00.000Z'),
+      },
+    });
+    const attempts = await Promise.all(
+      Array.from({ length: 24 }, () =>
+        repository.bumpRateWindow({ kind: 'login-ip', keyHash, now, windowMs }),
+      ),
+    );
+    expect(attempts.sort((left, right) => left - right)).toEqual(
+      Array.from({ length: 24 }, (_, index) => index + 30),
+    );
+    expect(attempts.filter((attempt) => attempt <= 30)).toHaveLength(1);
+    expect(
+      (await db.authRateWindow.findFirstOrThrow({ where: { kind: 'login-ip', keyHash } })).attempts,
+    ).toBe(24);
+    expect(
+      (await db.authRateWindow.findFirstOrThrow({ where: { kind: 'register-ip', keyHash } }))
+        .attempts,
+    ).toBe(29);
+  });
+
+  it.each([
+    { windowMs: 10 * 60 * 1000, at: '2026-11-07T00:00:00.000Z', retryAfterSeconds: 600 },
+    { windowMs: 10 * 60 * 1000, at: '2026-11-07T00:09:58.001Z', retryAfterSeconds: 2 },
+    { windowMs: 10 * 60 * 1000, at: '2026-11-07T00:09:59.999Z', retryAfterSeconds: 1 },
+    { windowMs, at: '2026-11-07T00:00:00.000Z', retryAfterSeconds: 900 },
+    { windowMs, at: '2026-11-07T00:14:58.001Z', retryAfterSeconds: 2 },
+    { windowMs, at: '2026-11-07T00:14:59.999Z', retryAfterSeconds: 1 },
+  ])(
+    'returns $retryAfterSeconds seconds remaining for a $windowMs ms window at $at',
+    async ({ windowMs: duration, at, retryAfterSeconds }) => {
+      const rawKey = randomUUID();
+      const keyHash = hashSecret(rawKey);
+      keys.add(keyHash);
+      const requestTime = new Date(at);
+      const rateKind = 'device-create-ip';
+      const service = new V1AccountService(repository);
+      await repository.bumpRateWindow({
+        kind: rateKind,
+        keyHash,
+        now: requestTime,
+        windowMs: duration,
+      });
+      await expect(
+        service.consumeRate(rateKind, rawKey, 1, duration, requestTime),
+      ).rejects.toMatchObject({
+        code: V1_ERROR_CODES.RATE_LIMITED,
+        status: 429,
+        details: { window: rateKind, retryAfterSeconds },
+      });
+      expect(
+        (await db.authRateWindow.findFirstOrThrow({ where: { kind: rateKind, keyHash } })).attempts,
+      ).toBe(2);
+    },
+  );
 });

@@ -1,4 +1,5 @@
 import type { V1TaskSnapshot } from './v1-task.repository';
+import type { CodeEvidenceDiagnostics } from '@workmesh/shared';
 
 export const V1_ARTIFACT_REPOSITORY = Symbol('V1_ARTIFACT_REPOSITORY');
 
@@ -59,6 +60,7 @@ export type V1CodeReviewSummary = {
   required: boolean;
   acceptable: boolean;
   evidence: V1CodeReviewEvidenceSnapshot[];
+  diagnostics?: CodeEvidenceDiagnostics;
 };
 
 /** Only expose a small, UTF-8 text preview; GIT_REF has no hosted bytes. */
@@ -178,4 +180,8 @@ export interface V1ArtifactRepository {
     projectId: string,
     artifactSetId: string,
   ): Promise<V1CodeReviewEvidenceSnapshot[]>;
+  findCodeReviewDiagnostics?(
+    projectId: string,
+    artifactSetId: string,
+  ): Promise<CodeEvidenceDiagnostics | null>;
 }

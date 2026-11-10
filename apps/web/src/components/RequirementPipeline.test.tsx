@@ -22,7 +22,7 @@ describe('RequirementPipeline execution progress', () => {
     expect(screen.getByRole('heading', { name: /执行中 \/ 阻塞 0/ })).toBeInTheDocument();
   });
 
-  it('未完成但没有依赖信息时显示「状态待确认」，不再写「可立即领取」', () => {
+  it('未完成但没有依赖信息时显示「状态待确认」，不再写「前置任务已完成」', () => {
     render(
       <RequirementPipeline
         tasks={[
@@ -30,7 +30,7 @@ describe('RequirementPipeline execution progress', () => {
         ]}
       />,
     );
-    expect(screen.getByRole('heading', { name: /可立即领取 0/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /前置任务已完成 0/ })).toBeInTheDocument();
     expect(
       screen.getByRole('heading', { name: /等待中（前置 \/ 审批 \/ 待确认） 1/ }),
     ).toBeInTheDocument();
@@ -40,7 +40,7 @@ describe('RequirementPipeline execution progress', () => {
     expect(screen.queryByText(/无依赖 · 可立即领/)).not.toBeInTheDocument();
   });
 
-  it('只有直接前置步骤全部完成时才计入「可立即领取」', () => {
+  it('只有直接前置步骤全部完成时才计入「前置任务已完成」', () => {
     render(
       <RequirementPipeline
         tasks={[
@@ -63,10 +63,10 @@ describe('RequirementPipeline execution progress', () => {
         ]}
       />,
     );
-    expect(screen.getByRole('heading', { name: /可立即领取 1/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /前置任务已完成 1/ })).toBeInTheDocument();
     expect(
-      within(screen.getByRole('button', { name: /^implement，状态：可立即领取/ })).getByText(
-        '可立即领取',
+      within(screen.getByRole('button', { name: /^implement，状态：前置任务已完成/ })).getByText(
+        '前置任务已完成',
       ),
     ).toBeInTheDocument();
     expect(
@@ -128,7 +128,7 @@ describe('RequirementPipeline execution progress', () => {
     expect(
       within(screen.getByRole('button', { name: /Cancelled task/ })).getAllByText('已取消').length,
     ).toBeGreaterThan(0);
-    expect(screen.getByRole('heading', { name: /可立即领取 0/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /前置任务已完成 0/ })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /已完成 1/ })).toBeInTheDocument();
   });
 
@@ -152,7 +152,7 @@ describe('RequirementPipeline execution progress', () => {
         }}
       />,
     );
-    const card = screen.getByRole('button', { name: /实现登录，状态：可立即领取/ });
+    const card = screen.getByRole('button', { name: /实现登录，状态：前置任务已完成/ });
     expect(card.tagName).toBe('BUTTON');
     card.focus();
     expect(card).toHaveFocus();
@@ -160,7 +160,7 @@ describe('RequirementPipeline execution progress', () => {
     expect(clicked).toBe('task-1');
   });
 
-  it('缺少 workStatus 的任务卡显示「状态待确认」，不会显示可立即领取', () => {
+  it('缺少 workStatus 的任务卡显示「状态待确认」，不会显示前置任务已完成', () => {
     render(
       <RequirementPipeline
         tasks={[
@@ -177,7 +177,7 @@ describe('RequirementPipeline execution progress', () => {
     );
     const card = screen.getByRole('button', { name: /缺少工作状态，状态：状态待确认/ });
     expect(within(card).getByText('状态待确认')).toBeInTheDocument();
-    expect(within(card).queryByText('可立即领取')).not.toBeInTheDocument();
+    expect(within(card).queryByText('前置任务已完成')).not.toBeInTheDocument();
   });
 });
 
@@ -415,5 +415,16 @@ describe('RequirementPipeline 首屏折叠 / 本地头像 / 任务去重', () =>
     expect(screen.getByText('开发实现')).toBeInTheDocument();
     expect(screen.getByText('fixture@example.test')).toBeInTheDocument();
     expect(screen.queryByText('暂未分配责任人')).not.toBeInTheDocument();
+  });
+
+  it('没有任务时不推断全部完成或无阻塞', () => {
+    render(
+      <RequirementPipeline
+        collapsible
+        phases={[{ id: 'discovery', label: '需求发现', role: 'product', tasks: [] }]}
+      />,
+    );
+    expect(screen.getByRole('img', { name: '阶段进度：0/1 个阶段已完成' })).toBeInTheDocument();
+    expect(screen.queryByText('全部任务已完成，无待处理阻塞')).not.toBeInTheDocument();
   });
 });

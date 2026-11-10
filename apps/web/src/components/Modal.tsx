@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 
 type ModalSize = 'sm' | 'md' | 'lg';
 
@@ -23,45 +23,30 @@ const FOCUSABLE =
 
 /**
  * 模块级图层栈（参考 Radix DismissableLayer）：每个打开的 Modal 在挂载时入栈、卸载时出栈，
- * 最后入栈的实例才是栈顶。只有栈顶实例监听 document 的 keydown。
+ * 最后入栈的实例才是栈顶。keydown 发生时同步检查栈顶，避免异步更新监听资格。
  *
  * 不能只靠 stopPropagation 解决嵌套：同一个 document 节点上的多个监听器互不影响，
  * 抽屉里再开一次性票据确认框时，按一次 Esc 会把两层一起关掉。
  */
 const layerStack: symbol[] = [];
-const layerObservers = new Set<() => void>();
-
-function notifyLayerChange() {
-  layerObservers.forEach((observer) => observer());
-}
 
 /**
- * 注册当前图层并返回它是否是栈顶。栈发生变化（新层打开 / 栈顶关闭）时通过 observer
- * 触发重渲染，让新栈顶重新挂上 document 监听，自然接管 Esc 与 Tab 焦点陷阱。
+ * DOM 提交后、浏览器绘制前注册图层；键盘监听直接读取栈，关闭上层后下一层立即接管。
+ * 不经由 state/effect 再挂监听，避免弹窗已可见但 Esc 仍会丢失的窗口。
  */
-function useIsHighestLayer(active: boolean): boolean {
+function useModalLayer(active: boolean): symbol {
   const [layerId] = useState(() => Symbol('modal-layer'));
-  const [isHighest, setIsHighest] = useState(false);
 
-  useEffect(() => {
-    if (!active) {
-      setIsHighest(false);
-      return;
-    }
-    const sync = () => setIsHighest(layerStack[layerStack.length - 1] === layerId);
+  useLayoutEffect(() => {
+    if (!active) return;
     layerStack.push(layerId);
-    layerObservers.add(sync);
-    // 新层入栈会让原栈顶让位；同理出栈后下一层在此接管。
-    notifyLayerChange();
     return () => {
-      layerObservers.delete(sync);
       const index = layerStack.indexOf(layerId);
       if (index >= 0) layerStack.splice(index, 1);
-      notifyLayerChange();
     };
   }, [active, layerId]);
 
-  return active && isHighest;
+  return layerId;
 }
 
 export function Modal({
@@ -80,14 +65,14 @@ export function Modal({
   const titleId = useId();
   const descriptionId = useId();
   const onCloseRef = useRef(onClose);
-  const isHighestLayer = useIsHighestLayer(open);
+  const layerId = useModalLayer(open);
 
   // 父组件常传内联 onClose；只同步 ref，避免每次输入都重建 effect 导致焦点跳回第一个输入框
-  useEffect(() => {
+  useLayoutEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
     openerRef.current = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
@@ -108,10 +93,11 @@ export function Modal({
   }, [open]);
 
   // 只有栈顶图层接管键盘：Esc 关闭自己、Tab 在自身卡片内循环。
-  useEffect(() => {
-    if (!open || !isHighestLayer) return;
+  useLayoutEffect(() => {
+    if (!open) return;
 
     function onKeyDown(event: KeyboardEvent) {
+      if (layerStack[layerStack.length - 1] !== layerId) return;
       // IME 组词中按 Esc 是取消候选，不该关闭弹窗；keyCode 229 是旧输入法的组词标记。
       const legacyKeyCode = (event as KeyboardEvent & { keyCode?: number }).keyCode;
       if (event.isComposing || legacyKeyCode === 229) return;
@@ -119,7 +105,8 @@ export function Modal({
       if (event.key === 'Escape') {
         // 提交进行中不允许关闭：否则用户既看不到结果，也可能在别处重复提交。
         if (busy) return;
-        event.stopPropagation();
+        // 同一 document 上的下层监听也不能再处理这次 Esc，即使关闭同步更新了图层栈。
+        event.stopImmediatePropagation();
         onCloseRef.current();
         return;
       }
@@ -142,7 +129,7 @@ export function Modal({
     // capture：先于页面/组件内部的冒泡处理器执行，避免冒泡顺序影响。
     document.addEventListener('keydown', onKeyDown, { capture: true });
     return () => document.removeEventListener('keydown', onKeyDown, { capture: true });
-  }, [open, isHighestLayer, busy]);
+  }, [open, layerId, busy]);
 
   if (!open) return null;
 

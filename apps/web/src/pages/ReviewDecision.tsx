@@ -26,6 +26,9 @@ import { DiffViewer } from '../components/DiffViewer';
 import type { DecisionArtifactSummary, DecisionSummaryData } from '../components/DecisionSummary';
 import { EmptyState } from '../components/EmptyState';
 import { FullValueDisclosure } from '../components/FullValueDisclosure';
+import { ReviewDiscussions } from '../components/ReviewDiscussions';
+import { AcceptanceEvidenceMatrix } from '../components/AcceptanceEvidenceMatrix';
+import { CodeEvidenceStatus } from '../components/CodeEvidenceStatus';
 import { useAuthStore } from '../store/auth';
 import {
   ARTIFACT_KIND_LABELS,
@@ -237,7 +240,7 @@ export function ReviewDecision({
   const user = useAuthStore((state) => state.user);
 
   const [review, setReview] = useState<ReviewView | null>(null);
-  const [document, setDocument] = useState<DocumentDetail | null>(null);
+  const [revision, setRevision] = useState<RevisionView | null>(null);
   const [content, setContent] = useState<{
     revisionId: string;
     text: string;
@@ -263,6 +266,7 @@ export function ReviewDecision({
     [],
   );
   const [acceptance, setAcceptance] = useState<NonNullable<RevisionView['acceptance']>>([]);
+  const [acceptancePrdRevisionId, setAcceptancePrdRevisionId] = useState<string | null>(null);
   const [contexts, setContexts] = useState<Record<ContextKind, ContextState>>(() => ({
     ...EMPTY_CONTEXTS,
   }));
@@ -391,10 +395,37 @@ export function ReviewDecision({
     }
     setContext('prd', { status: 'loading' });
     try {
-      const page = await documentApi.list(reviewValue.projectId, 'PRD');
+      const items: DocumentDetail[] = [];
+      const seen = new Set<string>();
+      let cursor: string | undefined;
+      for (let pageNumber = 0; pageNumber < 40; pageNumber += 1) {
+        const page = await documentApi.list(reviewValue.projectId, 'PRD', cursor);
+        if (!alive()) return;
+        items.push(...page.items);
+        if (!page.nextCursor) break;
+        if (seen.has(page.nextCursor) || pageNumber === 39)
+          throw new Error('PRD 列表未完整读取，不能确认验收范围，请稍后重试。');
+        seen.add(page.nextCursor);
+        cursor = page.nextCursor;
+      }
       if (!alive()) return;
-      const prd = page.items.find((item) => item.document.requirementId === requirementId);
+      const matching = [
+        ...new Map(
+          items
+            .filter(
+              (item) =>
+                item.document.requirementId === requirementId &&
+                !item.document.archivedAt &&
+                item.publishedRevision,
+            )
+            .map((item) => [item.document.id, item]),
+        ).values(),
+      ];
+      if (matching.length > 1)
+        throw new Error('该需求有多份已发布 PRD，无法确定本次验收基线；请管理员确认。');
+      const prd = matching[0];
       setAcceptance(prd?.publishedRevision?.acceptance ?? []);
+      setAcceptancePrdRevisionId(prd?.publishedRevision?.id ?? null);
       setContext('prd', { status: prd ? 'loaded' : 'empty' });
     } catch (caught) {
       if (!alive()) return;
@@ -449,7 +480,7 @@ export function ReviewDecision({
     setLoading(true);
     setError('');
     setReview(null);
-    setDocument(null);
+    setRevision(null);
     setContent(null);
     setPublishedText(null);
     setArtifactSet(null);
@@ -460,6 +491,7 @@ export function ReviewDecision({
     setTaskStepDisplayName(null);
     setRepositories([]);
     setAcceptance([]);
+    setAcceptancePrdRevisionId(null);
     setContexts({ ...EMPTY_CONTEXTS });
     setEvidenceAcknowledged(false);
     setActiveSlot(null);
@@ -472,15 +504,17 @@ export function ReviewDecision({
 
       const subject = documentSubjectOf(value);
       if (subject) {
-        const detail = await documentApi.get(subject.documentId);
+        const metadata = await documentApi.revisionMetadata(subject.documentId, subject.revisionId);
+        if (!alive) return;
         const body = await documentApi.content(subject.revisionId);
+        if (!alive) return;
         let baseText: string | null = null;
         if (subject.publishedRevisionId && subject.publishedRevisionId !== subject.revisionId) {
           const published = await documentApi.content(subject.publishedRevisionId);
           baseText = base64ToUtf8(published.bodyBase64);
         }
         if (!alive) return;
-        setDocument(detail);
+        setRevision(metadata);
         setContent({
           revisionId: subject.revisionId,
           text: base64ToUtf8(body.bodyBase64),
@@ -519,11 +553,6 @@ export function ReviewDecision({
       alive = false;
     };
   }, [reviewId]);
-
-  const revision = useMemo<RevisionView | null>(() => {
-    if (!document || !review?.documentRevisionId) return null;
-    return document.revisions.find((item) => item.id === review.documentRevisionId) ?? null;
-  }, [document, review]);
 
   const diffStats = useMemo(() => {
     if (!content || publishedText === null) return null;
@@ -966,6 +995,7 @@ export function ReviewDecision({
 
       <div className={`req-layout${embedded ? ' is-embedded' : ''}`}>
         <div className="req-main">
+          <ReviewDiscussions key={review.id} reviewId={review.id} />
           <div
             className={`detail-card review-evidence-status${evidenceIncomplete || codeReviewMissing ? ' is-warning' : ''}`}
             role="status"
@@ -1357,6 +1387,7 @@ export function ReviewDecision({
                   {artifactSet.codeReview.acceptable ? '已满足' : '缺少有效证据'}
                 </span>
               </div>
+              <CodeEvidenceStatus diagnostics={artifactSet.codeReview.diagnostics} />
               {artifactSet.codeReview.acceptable ? (
                 <div className="evidence-list">
                   {artifactSet.codeReview.evidence.map((item) => (
@@ -1486,13 +1517,13 @@ export function ReviewDecision({
                       验收标准<small>已发布 PRD</small>
                     </h3>
                   </div>
-                  <ul className="detail-list">
-                    {acceptance.map((item) => (
-                      <li key={item.key}>
-                        {item.text} <span className="task-row-meta">（{item.verification}）</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <AcceptanceEvidenceMatrix
+                    key={`${review.id}:${artifactSet?.id ?? 'unavailable'}`}
+                    acceptance={acceptance}
+                    requirementId={requirement?.id ?? review.requirement?.id ?? null}
+                    prdRevisionId={acceptancePrdRevisionId}
+                    artifactSet={artifactSet}
+                  />
                 </div>
               )}
               {contexts.prd.status === 'loaded' && acceptance.length === 0 && (

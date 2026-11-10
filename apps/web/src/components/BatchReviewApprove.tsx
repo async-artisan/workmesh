@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { authApi } from '../api/auth';
 import { formatApiError } from '../api/client';
-import { reviewApi } from '../api/resources';
+import { reviewApi, type ReviewView } from '../api/resources';
 import { Modal } from './Modal';
 import { InlineLoading } from './Skeleton';
 
@@ -24,7 +24,7 @@ interface BatchReviewApproveProps {
   open: boolean;
   targets: BatchReviewTarget[];
   onClose: () => void;
-  /** 批量提交结束后调用（无论部分失败），用于刷新工作台与清空选择。 */
+  /** 收到批量结果后汇总；调用方应保留逐项结果，待用户关闭后刷新工作台。 */
   onCompleted: (summary: BatchReviewSummary) => void;
 }
 
@@ -32,6 +32,29 @@ interface BatchReviewResult {
   reviewId: string;
   status: string;
   message?: string;
+}
+
+interface BatchReviewCheck {
+  target: BatchReviewTarget;
+  review?: ReviewView;
+  reason?: string;
+}
+
+function checkReview(target: BatchReviewTarget, review: ReviewView): string | undefined {
+  if (review.id !== target.reviewId || review.projectId !== target.projectId)
+    return '评审所属项目或对象与选中项不一致，请刷新后重新选择。';
+  if (review.status !== 'OPEN') return '评审已关闭，不能继续批准。';
+  if (review.version !== target.expectedVersion)
+    return `评审已从 v${target.expectedVersion} 更新到 v${review.version}，请重新阅读后选择。`;
+  const slot = review.slots.find((candidate) => candidate.id === target.slotId);
+  if (!slot || slot.requiredRoleId !== target.requiredRoleId)
+    return '选定的签字槽位或角色已变化，请刷新后重新选择。';
+  if (review.decisions.some((decision) => decision.approvalSlotId === slot.id))
+    return '该签字槽位已有决定，不能重复批准。';
+  if (slot.viewerCanDecide !== true)
+    return '服务端未确认你有该槽位的签字资格，请核对角色分配或委托。';
+  if (!review.subjectDigest) return '评审缺少可绑定的对象摘要，请打开详情核实。';
+  return undefined;
 }
 
 /**
@@ -51,6 +74,8 @@ export function BatchReviewApprove({
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [error, setError] = useState('');
   const [results, setResults] = useState<BatchReviewResult[] | null>(null);
+  const [checks, setChecks] = useState<BatchReviewCheck[] | null>(null);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -60,12 +85,19 @@ export function BatchReviewApprove({
     setProgress(null);
     setError('');
     setResults(null);
+    setChecks(null);
+    setChecking(false);
   }, [open]);
 
   const approved = results?.filter((item) => item.status === 'APPLIED').length ?? 0;
   const failed = results ? results.length - approved : 0;
+  const reviewPath = (reviewId: string) => {
+    const target = targets.find((item) => item.reviewId === reviewId);
+    return `/reviews/${encodeURIComponent(reviewId)}${target ? `?projectId=${encodeURIComponent(target.projectId)}` : ''}`;
+  };
 
-  async function submit() {
+  async function submit(allowSubset = false) {
+    if (busy) return;
     if (!password.trim()) {
       setError('请输入登录密码以签发一次性票据。');
       return;
@@ -79,6 +111,36 @@ export function BatchReviewApprove({
     setError('');
     setResults(null);
     try {
+      setChecking(true);
+      const toCheck =
+        allowSubset && checks
+          ? checks.filter((item) => !item.reason).map((item) => item.target)
+          : targets;
+      const currentChecks = await Promise.all(
+        toCheck.map(async (target): Promise<BatchReviewCheck> => {
+          try {
+            const review = await reviewApi.get(target.reviewId);
+            return { target, review, reason: checkReview(target, review) };
+          } catch (caught) {
+            return { target, reason: `无法核实当前评审：${formatApiError(caught)}` };
+          }
+        }),
+      );
+      const previousInvalid = allowSubset ? (checks ?? []).filter((item) => item.reason) : [];
+      const allChecks = [...previousInvalid, ...currentChecks];
+      setChecks(allChecks);
+      setChecking(false);
+      const invalid = allChecks.filter((item) => item.reason);
+      const valid = currentChecks.filter((item) => !item.reason && item.review);
+      if (
+        !valid.length ||
+        (invalid.length > 0 && (!allowSubset || currentChecks.some((item) => item.reason)))
+      ) {
+        setError(
+          `预检完成：${valid.length} 条可继续，${invalid.length} 条需处理。尚未签发票据或提交批准。`,
+        );
+        return;
+      }
       const items: Array<{
         reviewId: string;
         slotId: string;
@@ -86,12 +148,16 @@ export function BatchReviewApprove({
         comment?: string;
         confirmation: { ticketId: string; ticketSecret: string };
       }> = [];
-      for (const [index, target] of targets.entries()) {
-        setProgress({ current: index + 1, total: targets.length });
-        // 票据摘要绑定的是服务端当前 subjectDigest：先取最新评审，避免用快照里的旧摘要签票。
-        const review = await reviewApi.get(target.reviewId);
-        const slot = review.slots.find((candidate) => candidate.id === target.slotId);
-        if (!slot) throw new Error('评审槽位已变化，请关闭后刷新工作台重试。');
+      const skipped = invalid.map((item) => ({
+        reviewId: item.target.reviewId,
+        status: 'SKIPPED',
+        message: item.reason,
+      }));
+      for (const [index, checked] of valid.entries()) {
+        const { target, review } = checked;
+        if (!review) continue;
+        setProgress({ current: index + 1, total: valid.length });
+        const slot = review.slots.find((candidate) => candidate.id === target.slotId)!;
         const payload = {
           slotId: slot.id,
           decision: 'APPROVE',
@@ -109,8 +175,25 @@ export function BatchReviewApprove({
             : null,
           payload,
         };
-        const preview = await authApi.preview(binding);
-        const ticket = await authApi.issueTicket(binding, preview.actionDigest, password);
+        let ticket;
+        try {
+          const preview = await authApi.preview(binding);
+          ticket = await authApi.issueTicket(binding, preview.actionDigest, password);
+        } catch (caught) {
+          setResults([
+            ...skipped,
+            ...valid.map((item) => ({
+              reviewId: item.target.reviewId,
+              status: item.target.reviewId === target.reviewId ? 'TICKET_FAILED' : 'NOT_SUBMITTED',
+              message:
+                item.target.reviewId === target.reviewId
+                  ? `签票失败：${formatApiError(caught)}`
+                  : '本次尚未提交批准；已签票项也未提交。',
+            })),
+          ]);
+          setError('本次签票未全部完成，未提交任何批准。请核对逐项结果后重新选择。');
+          return;
+        }
         items.push({
           reviewId: target.reviewId,
           slotId: slot.id,
@@ -119,15 +202,40 @@ export function BatchReviewApprove({
           confirmation: { ticketId: ticket.ticketId, ticketSecret: ticket.ticketSecret },
         });
       }
-      setProgress({ current: targets.length, total: targets.length });
-      const response = await reviewApi.batchDecide('APPROVE', items);
-      setResults(response.results);
-      const applied = response.results.filter((item) => item.status === 'APPLIED').length;
-      onCompleted({ approved: applied, failed: response.results.length - applied });
+      setProgress(null);
+      try {
+        const response = await reviewApi.batchDecide('APPROVE', items);
+        const finalResults = [
+          ...skipped,
+          ...valid.map(
+            ({ target }) =>
+              response.results.find((item) => item.reviewId === target.reviewId) ?? {
+                reviewId: target.reviewId,
+                status: 'UNKNOWN',
+                message: '服务端响应缺少该项结果，请打开评审详情核实。',
+              },
+          ),
+        ];
+        setResults(finalResults);
+        const applied = finalResults.filter((item) => item.status === 'APPLIED').length;
+        onCompleted({ approved: applied, failed: finalResults.length - applied });
+      } catch (caught) {
+        setResults([
+          ...skipped,
+          ...valid.map(({ target }) => ({
+            reviewId: target.reviewId,
+            status: 'UNKNOWN',
+            message: '提交结果未确认，请打开该评审详情核实后再决定是否重试。',
+          })),
+        ]);
+        setError(`批量请求未取得可确认结果：${formatApiError(caught)}。请逐项核实，避免重复提交。`);
+      }
     } catch (caught) {
       setError(formatApiError(caught));
     } finally {
       setBusy(false);
+      setChecking(false);
+      setPassword('');
       setProgress(null);
     }
   }
@@ -149,12 +257,20 @@ export function BatchReviewApprove({
             <button className="ghost" onClick={onClose} disabled={busy}>
               取消
             </button>
-            <button className="primary" onClick={() => void submit()} disabled={busy}>
+            <button
+              className="primary"
+              onClick={() => void submit(Boolean(checks?.some((item) => item.reason)))}
+              disabled={busy || Boolean(checks?.length && checks.every((item) => item.reason))}
+            >
               {busy
-                ? progress
-                  ? `签票中 ${progress.current}/${progress.total}…`
-                  : '提交中…'
-                : '验证密码并批量批准'}
+                ? checking
+                  ? '正在预检…'
+                  : progress
+                    ? `签票中 ${progress.current}/${progress.total}…`
+                    : '提交中…'
+                : checks?.some((item) => item.reason)
+                  ? `仅批准可用的 ${checks.filter((item) => !item.reason).length} 条`
+                  : '验证密码并批量批准'}
             </button>
           </>
         )
@@ -163,18 +279,24 @@ export function BatchReviewApprove({
       {results ? (
         <div className="wm-batch-review-result">
           <p>
-            已批准 {approved} 条 · 失败 {failed} 条
+            已批准 {approved} 条 · 未批准或待核实 {failed} 条
           </p>
-          {failed > 0 && (
+          {results.length > 0 && (
             <ul className="detail-list">
-              {results
-                .filter((item) => item.status !== 'APPLIED')
-                .map((item) => (
-                  <li key={item.reviewId}>
-                    评审 {item.reviewId.slice(0, 8)}：{item.message ?? item.status}
-                  </li>
-                ))}
+              {results.map((item) => (
+                <li key={item.reviewId}>
+                  {targets.find((target) => target.reviewId === item.reviewId)?.label ??
+                    `评审 ${item.reviewId.slice(0, 8)}`}
+                  ：{item.status === 'APPLIED' ? '批准已生效' : (item.message ?? item.status)}{' '}
+                  <a href={reviewPath(item.reviewId)}>打开评审核实</a>
+                </li>
+              ))}
             </ul>
+          )}
+          {error && (
+            <p className="field-error" role="alert">
+              {error}
+            </p>
           )}
         </div>
       ) : (
@@ -182,9 +304,11 @@ export function BatchReviewApprove({
           {busy && (
             <InlineLoading
               label={
-                progress
-                  ? `正在逐条签票并提交（${progress.current}/${progress.total}）…`
-                  : '正在提交批量批准…'
+                checking
+                  ? '正在核对所选评审的当前状态、版本和签字资格…'
+                  : progress
+                    ? `正在逐条签票并提交（${progress.current}/${progress.total}）…`
+                    : '正在提交批量批准…'
               }
             />
           )}
@@ -193,6 +317,21 @@ export function BatchReviewApprove({
               <li key={target.reviewId}>{target.label}</li>
             ))}
           </ul>
+          {checks?.some((item) => item.reason) && (
+            <ul className="detail-list" aria-label="逐项预检结果">
+              {checks.map((item) => (
+                <li key={item.target.reviewId}>
+                  {item.target.label}：{item.reason ?? '当前可提交；提交前仍由服务端再次校验。'}
+                  {item.reason && (
+                    <>
+                      {' '}
+                      <a href={reviewPath(item.target.reviewId)}>打开评审检查</a>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="form-grid">
             <label className="field">
               <span>给交付方的说明（可选，所有条目共用）</span>
@@ -202,6 +341,7 @@ export function BatchReviewApprove({
                 maxLength={2000}
                 onChange={(event) => setComment(event.target.value)}
                 placeholder="例如：证据齐全，统一批准。"
+                disabled={busy}
               />
             </label>
             <label className="field">
@@ -211,6 +351,7 @@ export function BatchReviewApprove({
                 value={password}
                 autoComplete="current-password"
                 onChange={(event) => setPassword(event.target.value)}
+                disabled={busy}
               />
             </label>
           </div>

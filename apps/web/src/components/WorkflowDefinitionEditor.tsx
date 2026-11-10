@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Plus, Trash2 } from 'lucide-react';
 import './workflow-definition-editor.css';
 
 export interface WorkflowEditorRole {
@@ -669,121 +670,195 @@ export function WorkflowDefinitionEditor(props: {
                         </p>
                       )}
                       <div className="workflow-wide workflow-gates">
-                        <span className="workflow-field-label">验收规则与评审槽位</span>
+                        <div className="workflow-gates-heading">
+                          <div>
+                            <h5>验收规则与评审槽位</h5>
+                            <p>选择本步骤需要通过的评审槽位。</p>
+                          </div>
+                          <button
+                            type="button"
+                            className="ghost workflow-gate-add"
+                            onClick={() =>
+                              updateStep(stepRawIndex, (item) => {
+                                item.gates = [
+                                  ...(Array.isArray(item.gates) ? item.gates : []),
+                                  { mode: 'ALL', reviewerSlots: [] },
+                                ];
+                              })
+                            }
+                          >
+                            <Plus size={16} aria-hidden="true" />
+                            添加验收/评审规则
+                          </button>
+                        </div>
+                        {gates.length === 0 && (
+                          <p className="workflow-gates-empty">尚未配置验收/评审规则。</p>
+                        )}
                         {gates.map((gate, gateIndex) => {
                           const gateRawIndex = gateEntries[gateIndex]?.rawIndex ?? gateIndex;
                           return (
                             <div className="workflow-gate-row" key={gateIndex}>
-                              <label>
-                                门槛
-                                <select
+                              <div className="workflow-gate-heading">
+                                <span>规则 {gateIndex + 1}</span>
+                                <button
+                                  type="button"
+                                  className="ghost workflow-gate-remove"
                                   aria-label={
-                                    '步骤 ' + (index + 1) + ' 评审门槛 ' + (gateIndex + 1)
+                                    '删除步骤 ' + (index + 1) + ' 评审门槛 ' + (gateIndex + 1)
                                   }
-                                  aria-invalid={Boolean(
-                                    fieldIssues(`/steps/${stepRawIndex}/gates/${gateRawIndex}/mode`)
-                                      .length,
-                                  )}
-                                  aria-describedby={
-                                    fieldIssues(`/steps/${stepRawIndex}/gates/${gateRawIndex}/mode`)
-                                      .length
-                                      ? fieldIssueId(
-                                          `/steps/${stepRawIndex}/gates/${gateRawIndex}/mode`,
-                                        )
-                                      : undefined
-                                  }
-                                  value={stringValue(gate.mode) || 'ALL'}
-                                  onChange={(event) =>
-                                    updateGate(stepRawIndex, gateRawIndex, (item) => {
-                                      item.mode = event.target.value;
+                                  onClick={() =>
+                                    updateStep(stepRawIndex, (item) => {
+                                      const next = Array.isArray(item.gates) ? [...item.gates] : [];
+                                      next.splice(gateRawIndex, 1);
+                                      item.gates = next;
                                     })
                                   }
                                 >
-                                  <option value="ALL">全部通过（ALL）</option>
-                                  <option value="ANY" disabled>
-                                    任一通过（ANY，当前服务端不支持）
-                                  </option>
-                                </select>
-                                {issueDescription(
-                                  `/steps/${stepRawIndex}/gates/${gateRawIndex}/mode`,
-                                )}
-                              </label>
-                              <div className="workflow-slot-checks">
-                                <span>评审槽位</span>
-                                {slots.map((slot, slotIndex) => (
-                                  <label className="workflow-check" key={slotIndex}>
-                                    <input
-                                      type="checkbox"
-                                      aria-invalid={Boolean(
-                                        fieldIssues(
-                                          `/steps/${stepRawIndex}/gates/${gateRawIndex}/reviewerSlots`,
-                                        ).length,
-                                      )}
-                                      aria-describedby={
-                                        fieldIssues(
-                                          `/steps/${stepRawIndex}/gates/${gateRawIndex}/reviewerSlots`,
-                                        ).length
-                                          ? fieldIssueId(
-                                              `/steps/${stepRawIndex}/gates/${gateRawIndex}/reviewerSlots`,
-                                            )
-                                          : undefined
-                                      }
-                                      checked={strings(gate.reviewerSlots).includes(
-                                        stringValue(slot.key),
-                                      )}
-                                      onChange={(event) =>
-                                        updateGate(stepRawIndex, gateRawIndex, (item) => {
-                                          const selected = new Set(strings(item.reviewerSlots));
-                                          const slotKey = stringValue(slot.key);
-                                          if (event.target.checked) selected.add(slotKey);
-                                          else selected.delete(slotKey);
-                                          item.reviewerSlots = replaceStrings(
-                                            item.reviewerSlots,
-                                            Array.from(selected),
-                                          );
-                                        })
-                                      }
-                                    />
-                                    {stringValue(slot.key) || '未命名槽位'}
-                                  </label>
-                                ))}
-                                {issueDescription(
-                                  `/steps/${stepRawIndex}/gates/${gateRawIndex}/reviewerSlots`,
-                                )}
+                                  <Trash2 size={15} aria-hidden="true" />
+                                  移除
+                                </button>
                               </div>
-                              <button
-                                type="button"
-                                className="ghost"
-                                aria-label={
-                                  '删除步骤 ' + (index + 1) + ' 评审门槛 ' + (gateIndex + 1)
-                                }
-                                onClick={() =>
-                                  updateStep(stepRawIndex, (item) => {
-                                    const next = Array.isArray(item.gates) ? [...item.gates] : [];
-                                    next.splice(gateRawIndex, 1);
-                                    item.gates = next;
-                                  })
-                                }
-                              >
-                                移除
-                              </button>
+                              <div className="workflow-gate-fields">
+                                <label className="workflow-gate-mode">
+                                  通过门槛
+                                  <select
+                                    aria-label={
+                                      '步骤 ' + (index + 1) + ' 评审门槛 ' + (gateIndex + 1)
+                                    }
+                                    aria-invalid={Boolean(
+                                      fieldIssues(
+                                        `/steps/${stepRawIndex}/gates/${gateRawIndex}/mode`,
+                                      ).length,
+                                    )}
+                                    aria-describedby={
+                                      fieldIssues(
+                                        `/steps/${stepRawIndex}/gates/${gateRawIndex}/mode`,
+                                      ).length
+                                        ? fieldIssueId(
+                                            `/steps/${stepRawIndex}/gates/${gateRawIndex}/mode`,
+                                          )
+                                        : undefined
+                                    }
+                                    value={stringValue(gate.mode) || 'ALL'}
+                                    onChange={(event) =>
+                                      updateGate(stepRawIndex, gateRawIndex, (item) => {
+                                        item.mode = event.target.value;
+                                      })
+                                    }
+                                  >
+                                    <option value="ALL">全部通过（ALL）</option>
+                                    <option value="ANY" disabled>
+                                      任一通过（ANY，当前服务端不支持）
+                                    </option>
+                                  </select>
+                                  {issueDescription(
+                                    `/steps/${stepRawIndex}/gates/${gateRawIndex}/mode`,
+                                  )}
+                                </label>
+                                <div
+                                  className="workflow-slot-checks"
+                                  role="group"
+                                  aria-label={
+                                    '步骤 ' +
+                                    (index + 1) +
+                                    ' 规则 ' +
+                                    (gateIndex + 1) +
+                                    ' 的评审槽位'
+                                  }
+                                >
+                                  <div className="workflow-slot-checks-heading">
+                                    <span>评审槽位</span>
+                                    <span>
+                                      已选{' '}
+                                      {
+                                        slots.filter((slot) =>
+                                          strings(gate.reviewerSlots).includes(
+                                            stringValue(slot.key),
+                                          ),
+                                        ).length
+                                      }{' '}
+                                      项
+                                    </span>
+                                  </div>
+                                  <div className="workflow-slot-options">
+                                    {slots.map((slot, slotIndex) => {
+                                      const slotKey = stringValue(slot.key);
+                                      const selected = strings(gate.reviewerSlots).includes(
+                                        slotKey,
+                                      );
+                                      const purpose =
+                                        SLOT_KIND_LABELS[stringValue(slot.kind)] ||
+                                        slotKey ||
+                                        '未命名槽位';
+                                      const roleKey = stringValue(slot.roleKey);
+                                      const roleTitle =
+                                        roles.find((role) => role.key === roleKey)?.title ||
+                                        roleKey;
+                                      return (
+                                        <label
+                                          className={
+                                            'workflow-check workflow-review-slot' +
+                                            (selected ? ' is-selected' : '')
+                                          }
+                                          key={slotIndex}
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            aria-label={slotKey || '未命名槽位'}
+                                            aria-invalid={Boolean(
+                                              fieldIssues(
+                                                `/steps/${stepRawIndex}/gates/${gateRawIndex}/reviewerSlots`,
+                                              ).length,
+                                            )}
+                                            aria-describedby={
+                                              fieldIssues(
+                                                `/steps/${stepRawIndex}/gates/${gateRawIndex}/reviewerSlots`,
+                                              ).length
+                                                ? fieldIssueId(
+                                                    `/steps/${stepRawIndex}/gates/${gateRawIndex}/reviewerSlots`,
+                                                  )
+                                                : undefined
+                                            }
+                                            checked={selected}
+                                            onChange={(event) =>
+                                              updateGate(stepRawIndex, gateRawIndex, (item) => {
+                                                const selected = new Set(
+                                                  strings(item.reviewerSlots),
+                                                );
+                                                const slotKey = stringValue(slot.key);
+                                                if (event.target.checked) selected.add(slotKey);
+                                                else selected.delete(slotKey);
+                                                item.reviewerSlots = replaceStrings(
+                                                  item.reviewerSlots,
+                                                  Array.from(selected),
+                                                );
+                                              })
+                                            }
+                                          />
+                                          <span className="workflow-review-slot-copy">
+                                            <span className="workflow-review-slot-title">
+                                              {purpose}
+                                              {roleTitle && <span> · {roleTitle}</span>}
+                                            </span>
+                                            <code>{slotKey || '未命名槽位'}</code>
+                                          </span>
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                  {slots.length === 0 && (
+                                    <p className="workflow-slot-empty">
+                                      暂无评审槽位，请先在下方添加。
+                                    </p>
+                                  )}
+                                  {issueDescription(
+                                    `/steps/${stepRawIndex}/gates/${gateRawIndex}/reviewerSlots`,
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           );
                         })}
-                        <button
-                          type="button"
-                          className="ghost"
-                          onClick={() =>
-                            updateStep(stepRawIndex, (item) => {
-                              item.gates = [
-                                ...(Array.isArray(item.gates) ? item.gates : []),
-                                { mode: 'ALL', reviewerSlots: [] },
-                              ];
-                            })
-                          }
-                        >
-                          添加验收/评审规则
-                        </button>
                       </div>
                     </div>
                   </section>

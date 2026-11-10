@@ -295,6 +295,24 @@ describe('standard workflow template', () => {
 });
 
 describe('software delivery template', () => {
+  it('allows early case design and requires execution evidence after both implementations and the cases', () => {
+    const template = buildSoftwareDeliveryWorkflowTemplate();
+    const steps = template.steps as Array<Record<string, unknown>>;
+    expect(steps.find((step) => step.key === 'cases')).toMatchObject({
+      displayName: '用例设计与覆盖',
+      deps: ['prd'],
+      outputKinds: ['CASES'],
+    });
+    expect(steps.find((step) => step.key === 'accept')).toMatchObject({
+      displayName: '测试执行与结果',
+      deps: ['backend', 'frontend', 'cases'],
+      outputKinds: ['CASES'],
+    });
+    expect(template.roleSlots).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'TASK_ACCEPTANCE' })]),
+    );
+  });
+
   it('compiles with six roles and derives code review gates for both impl steps', async () => {
     const template = buildSoftwareDeliveryWorkflowTemplate();
     expect(template.workflowKey).toBe(SOFTWARE_DELIVERY_WORKFLOW_KEY);

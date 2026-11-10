@@ -23,6 +23,8 @@ pnpm --filter @workmesh/api exec prisma generate --schema prisma/schema.prisma
 
 ## 提交变更
 
+规格、计划与实现采用[按风险组织的交付质量方法](docs/design/spec-driven-quality.md)。复杂变更先调查现状、记录技术取舍，再按可独立验收的场景拆解；小修复保留原始复现与复验即可。角色包更新要同步正式契约、模板和生成资源，质量报告不能替代实际执行证据或 HUMAN 批准。
+
 1. 缺陷报告提供版本或 commit、运行平台、复现步骤、预期与实际行为。安全问题按 [安全政策](SECURITY.md) 处理。
 2. 大范围协议或架构调整先在 issue 中描述动机、兼容性和迁移影响。小修复可以直接提交 PR。
 3. 每个 PR 聚焦一个问题。修改行为时补充能复现问题的回归测试；只调整格式或文案通常不需要新增测试。
@@ -31,19 +33,15 @@ pnpm --filter @workmesh/api exec prisma generate --schema prisma/schema.prisma
 
 ## 验证
 
-先运行受影响包的针对性检查，再运行以下公共门禁：
+先运行受影响包的针对性检查。完整本地门禁统一使用 Windows、Linux、macOS 共用入口：
 
 ```bash
-pnpm format:check
-pnpm lint:eslint
-pnpm type-check
-pnpm test
-pnpm test:contracts
-pnpm --filter @workmesh/api test:coverage
-pnpm build
+pnpm verify
 ```
 
-按变更范围补充门禁：
+运行前必须显式配置隔离测试库；该命令会写入测试数据，不应指向工作库。配置、首次迁移和输出含义见[完整本地验证](docs/testing/local-verification.md)。缺少目标或任一检查失败都会非零退出，不能通过省略数据库或浏览器检查获得成功结果。`bash scripts/verify.sh` 仅转发到同一入口。
+
+以下独立命令可用于定位问题；完整入口已经包含 API 集成、契约、构建、覆盖率和 Chromium 检查。部署和变更范围仍有额外要求：
 
 | 变更范围                   | 还必须执行                                                                                                                            |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -58,7 +56,7 @@ pnpm build
 
 `test:coverage` 使用 API 配置中的 80% 行覆盖率门槛。测试全部通过并不代表覆盖率达标；报告失败时保留原始结果，不通过删除被测文件或降低门槛掩盖缺口。
 
-CI 还执行迁移漂移、API 集成和 Chromium 浏览器检查，定义在 [ci.yml](.github/workflows/ci.yml)。CLI 测试脚本使用单 worker，避免 Windows ACL 外部命令在并行负载下超时；成功的系统主体查询在同一 CLI 进程中复用，失败仍可重试。
+CI 使用相同的 `pnpm verify -- --apply-migrations`，先创建专用空库和安装 Chromium；定义在 [ci.yml](.github/workflows/ci.yml)。CLI 测试脚本使用单 worker，避免 Windows ACL 外部命令在并行负载下超时；成功的系统主体查询在同一 CLI 进程中复用，失败仍可重试。
 
 浏览器测试先安装 `pnpm exec playwright install chromium --only-shell`，再配置与 API 集成测试相同的隔离数据库环境，运行 `pnpm test:browser`。`test:e2e` 当前运行 HTTP/数据库套件，真实浏览器入口是 `test:browser`，两者证据不能混用。发布与兼容性检查见 [发布验收](docs/releasing.md)。
 

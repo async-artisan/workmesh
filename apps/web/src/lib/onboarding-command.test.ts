@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildOnboardingCommand, type OnboardingCommandInput } from './onboarding-command';
+import {
+  buildOnboardingCommand,
+  validateOnboardingParameters,
+  type OnboardingCommandInput,
+} from './onboarding-command';
 
 const input: OnboardingCommandInput = {
   shell: 'git-bash',
@@ -11,6 +15,12 @@ const input: OnboardingCommandInput = {
 };
 
 describe('buildOnboardingCommand', () => {
+  it('可在签发接入码之前校验参数，不要求接入码或发起网络请求', () => {
+    const { code: _code, ...parameters } = input;
+    expect(validateOnboardingParameters(parameters)).toBeNull();
+    expect(validateOnboardingParameters({ ...parameters, api: '' })).toMatch(/API/);
+    expect(buildOnboardingCommand({ ...input, code: '' }).command).toBeNull();
+  });
   it('生成独立于 cwd 的 Git Bash 单行预览，支持空格和 Windows 目录', () => {
     const result = buildOnboardingCommand(input);
     expect(result.error).toBeNull();
@@ -72,6 +82,9 @@ describe('buildOnboardingCommand', () => {
     { api: 'http://workmesh.example.com/api/v1' },
     { api: 'https://workmesh.example.com/team//api/v1' },
     { api: 'https://workmesh.example.com/team../api/v1' },
+    { api: 'https://workmesh.example.com/team/../api/v1' },
+    { api: 'https://workmesh.example.com/team/%2e%2e/api/v1' },
+    { api: 'https://workmesh.example.com/team\\api/v1' },
     { api: 'https://workmesh.example.com/team/%61/api/v1' },
     { api: 'https://workmesh.example.com/team name/api/v1' },
     { api: 'https://workmesh.example.com/api/v1//' },

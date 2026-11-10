@@ -3,7 +3,7 @@
  *
  * 背景：`executionStatus === 'OPEN'` 只表示任务还没有完成，**不等于可以立即领取**。
  * 可领取必须由流程依赖与服务端状态共同推出；任何一端缺失时只能显示「状态待确认」，
- * 不允许把「未完成」「没看到阻塞」推断成「可立即领取」。
+ * 不允许把「未完成」「没看到阻塞」推断成「前置任务已完成」。
  *
  * 依赖来源：`GET /workflow-instances/:id` 拿到 `definitionRevisionId`，再取
  * `GET /workflow-definition-revisions/:id` 的 `definition.steps[].deps`。前端不重算
@@ -169,9 +169,9 @@ export function resolveTaskDisplayState(input: TaskStateSignals): TaskDisplaySta
     if (missing.length > 0) return waitingPredecessor(missing);
     return {
       kind: 'CLAIMABLE',
-      label: '可立即领取',
+      label: '前置任务已完成',
       description:
-        '直接前置步骤均已完成，任务工作状态为 ACTIVE，且没有被认领或阻塞；责任人可通过本地 Agent 认领。',
+        '直接前置步骤均已完成，任务工作状态为 ACTIVE，且没有被认领或阻塞；领取还需核对本人资格、输入与本机环境。',
       tone: 'ready',
       claimable: true,
       missingPredecessors: [],

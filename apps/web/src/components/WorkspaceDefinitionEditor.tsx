@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { FolderGit2, Plus, Trash2 } from 'lucide-react';
 import type { ActionBindingInput } from '../api/auth';
 import { ApiError, formatApiError } from '../api/client';
 import {
@@ -16,6 +17,7 @@ import {
 import { formatDateTime } from '../lib/datetime';
 import { ConfirmationPrompt } from './ConfirmationPrompt';
 import { InlineLoading } from './Skeleton';
+import './workspace-definition-editor.css';
 
 export interface WorkspaceDefinitionEditorProps {
   projectId: string;
@@ -246,6 +248,7 @@ export function WorkspaceDefinitionEditor({
   onChanged,
   onPublished,
 }: WorkspaceDefinitionEditorProps) {
+  const layoutHintId = useId();
   const [payload, setPayload] = useState<WorkspaceDefinitionPayload>(() =>
     initialPayload(projectId, definition, repositories),
   );
@@ -585,7 +588,11 @@ export function WorkspaceDefinitionEditor({
   const selectedKind = LAYOUT_KIND_OPTIONS.find((item) => item.value === kind);
 
   return (
-    <div className="table-card" aria-label="工作区定义编辑器" aria-busy={Boolean(busy)}>
+    <div
+      className="table-card workspace-definition-editor"
+      aria-label="工作区定义编辑器"
+      aria-busy={Boolean(busy)}
+    >
       <div className="card-head">
         <h3>
           工作区定义
@@ -599,8 +606,7 @@ export function WorkspaceDefinitionEditor({
       </div>
 
       <p className="page-sub">
-        定义是共享拓扑的唯一权威来源：先校验，再保存草稿，最后用一次性票据发布不可变 revision。
-        编辑本身不会改变已发布定义。
+        配置工作区使用的仓库与目录。修改后依次校验、保存草稿并发布，成员才会使用新配置。
       </p>
 
       {definition.definitionStatus === 'CONFIGURED' && (
@@ -622,118 +628,149 @@ export function WorkspaceDefinitionEditor({
         </p>
       )}
 
-      <div className="form-grid">
-        <label className="field">
-          <span>布局类型</span>
-          <select
-            aria-label="布局类型"
-            value={kind}
-            disabled={Boolean(busy)}
-            onChange={(event) => changeKind(event.target.value as WorkspaceLayoutKind)}
-          >
-            {LAYOUT_KIND_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <small>{selectedKind?.hint}</small>
-        </label>
+      <div className="form-grid workspace-definition-form">
+        <div className="workspace-layout-setting">
+          <label className="field">
+            <span>布局类型</span>
+            <select
+              aria-label="布局类型"
+              aria-describedby={layoutHintId}
+              value={kind}
+              disabled={Boolean(busy)}
+              onChange={(event) => changeKind(event.target.value as WorkspaceLayoutKind)}
+            >
+              {LAYOUT_KIND_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="workspace-layout-hint" id={layoutHintId}>
+            {selectedKind?.hint}
+          </p>
+        </div>
 
         {kind === 'NONE' ? (
           <p className="page-sub">
             当前定义不包含代码仓库。若项目需要代码，请切换为单根或多根布局并添加仓库。
           </p>
         ) : (
-          <div className="form-grid">
+          <div className="workspace-repository-list">
+            <div className="workspace-repositories-heading">
+              <div>
+                <h4>
+                  仓库映射 <span>{rows.length} 个仓库</span>
+                </h4>
+                <p>为每个仓库设置逻辑键与本地相对路径。</p>
+              </div>
+              <button
+                type="button"
+                className="ghost workspace-add-repository"
+                aria-label="添加仓库行"
+                onClick={addRepositoryRow}
+                disabled={Boolean(busy)}
+              >
+                <Plus size={16} aria-hidden="true" />
+                添加仓库
+              </button>
+            </div>
             {rows.map((row, index) => {
               const referenced = repositories.find(
                 (repository) => repository.id === row.projectRepositoryId,
               );
               const referencedArchived = Boolean(referenced?.archivedAt);
               return (
-                <fieldset className="field" key={`repository-row-${index}`}>
-                  <legend>仓库 {index + 1}</legend>
-                  <label className="field">
-                    <span>逻辑键</span>
-                    <input
-                      value={row.key}
-                      aria-label={`逻辑键 ${index + 1}`}
-                      onChange={(event) => updateRow(index, { key: event.target.value })}
-                      placeholder="web-client"
-                    />
-                  </label>
-                  <label className="field">
-                    <span>平台仓库</span>
-                    <select
-                      aria-label={`平台仓库 ${index + 1}`}
-                      value={row.projectRepositoryId}
-                      onChange={(event) =>
-                        updateRow(index, { projectRepositoryId: event.target.value })
-                      }
+                <fieldset className="workspace-repository-card" key={`repository-row-${index}`}>
+                  <legend className="workspace-repository-legend">仓库 {index + 1}</legend>
+                  <div className="workspace-repository-heading">
+                    <div className="workspace-repository-title">
+                      <span className="workspace-repository-icon" aria-hidden="true">
+                        <FolderGit2 size={18} />
+                      </span>
+                      <h5>仓库 {index + 1}</h5>
+                      {row.key && <span className="workspace-repository-key">{row.key}</span>}
+                    </div>
+                    <button
+                      type="button"
+                      className="ghost workspace-remove-repository"
+                      aria-label={`移除仓库行 ${index + 1}`}
+                      onClick={() => removeRepositoryRow(index)}
                     >
-                      {referenced &&
-                        (!activeRepositories.some((repo) => repo.id === referenced.id) ||
-                          referencedArchived) && (
-                          <option value={referenced.id}>
-                            {referenced.owner}/{referenced.name}（已归档，需替换）
+                      <Trash2 size={14} aria-hidden="true" />
+                      移除
+                    </button>
+                  </div>
+                  <div className="workspace-repository-fields">
+                    <label className="field">
+                      <span>逻辑键</span>
+                      <input
+                        value={row.key}
+                        aria-label={`逻辑键 ${index + 1}`}
+                        onChange={(event) => updateRow(index, { key: event.target.value })}
+                        placeholder="web-client"
+                      />
+                    </label>
+                    <label className="field">
+                      <span>平台仓库</span>
+                      <select
+                        aria-label={`平台仓库 ${index + 1}`}
+                        value={row.projectRepositoryId}
+                        onChange={(event) =>
+                          updateRow(index, { projectRepositoryId: event.target.value })
+                        }
+                      >
+                        {referenced &&
+                          (!activeRepositories.some((repo) => repo.id === referenced.id) ||
+                            referencedArchived) && (
+                            <option value={referenced.id}>
+                              {referenced.owner}/{referenced.name}（已归档，需替换）
+                            </option>
+                          )}
+                        {activeRepositories.map((repository) => (
+                          <option key={repository.id} value={repository.id}>
+                            {repository.owner}/{repository.name}
                           </option>
-                        )}
-                      {activeRepositories.map((repository) => (
-                        <option key={repository.id} value={repository.id}>
-                          {repository.owner}/{repository.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>建议路径</span>
-                    <input
-                      value={row.suggestedPath ?? ''}
-                      aria-label={`建议路径 ${index + 1}`}
-                      onChange={(event) => updateRow(index, { suggestedPath: event.target.value })}
-                      placeholder={kind === 'SINGLE_ROOT' ? '.' : 'services/api'}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>默认引用（可选）</span>
-                    <input
-                      value={row.defaultRef ?? ''}
-                      aria-label={`默认引用 ${index + 1}`}
-                      onChange={(event) => updateRow(index, { defaultRef: event.target.value })}
-                      placeholder="main"
-                    />
-                  </label>
-                  <label className="field">
-                    <span>职责说明（可选）</span>
-                    <input
-                      value={row.description ?? ''}
-                      aria-label={`职责说明 ${index + 1}`}
-                      onChange={(event) => updateRow(index, { description: event.target.value })}
-                      placeholder="用户界面"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="ghost"
-                    aria-label={`移除仓库行 ${index + 1}`}
-                    onClick={() => removeRepositoryRow(index)}
-                  >
-                    移除这一行
-                  </button>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>建议路径</span>
+                      <input
+                        value={row.suggestedPath ?? ''}
+                        aria-label={`建议路径 ${index + 1}`}
+                        onChange={(event) =>
+                          updateRow(index, { suggestedPath: event.target.value })
+                        }
+                        placeholder={kind === 'SINGLE_ROOT' ? '.' : 'services/api'}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>
+                        默认引用 <span className="workspace-field-optional">可选</span>
+                      </span>
+                      <input
+                        value={row.defaultRef ?? ''}
+                        aria-label={`默认引用 ${index + 1}`}
+                        onChange={(event) => updateRow(index, { defaultRef: event.target.value })}
+                        placeholder="main"
+                      />
+                    </label>
+                    <label className="field workspace-repository-description">
+                      <span>
+                        职责说明 <span className="workspace-field-optional">可选</span>
+                      </span>
+                      <input
+                        value={row.description ?? ''}
+                        aria-label={`职责说明 ${index + 1}`}
+                        onChange={(event) => updateRow(index, { description: event.target.value })}
+                        placeholder="例如：用户界面、后端接口或公共组件"
+                      />
+                    </label>
+                  </div>
                 </fieldset>
               );
             })}
-            <div className="toolbar">
-              <button
-                type="button"
-                className="ghost"
-                onClick={addRepositoryRow}
-                disabled={Boolean(busy)}
-              >
-                添加仓库行
-              </button>
-            </div>
             {kind === 'SINGLE_ROOT' && rows.length !== 1 && (
               <p className="field-error" role="status">
                 SINGLE_ROOT 要求恰好一个仓库；请保留一行，或改为 MULTI_ROOT / NONE。
@@ -811,7 +848,7 @@ export function WorkspaceDefinitionEditor({
         />
       )}
 
-      <div className="toolbar">
+      <div className="toolbar workspace-definition-actions">
         <button
           className="ghost"
           type="button"

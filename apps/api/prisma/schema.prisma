@@ -761,6 +761,8 @@ model ReviewRequest {
   task           Task? @relation(fields: [taskId], references: [id], onDelete: Restrict)
   approvalSlots  ApprovalSlot[]
   decisions      ReviewDecision[]
+  discussions    ReviewDiscussion[]
+  discussionDeliveries ReviewDiscussionEntry[] @relation("DiscussionDeliveryReview")
   @@unique([id, projectId])
   @@index([projectId, status])
   @@index([documentRevisionId, status])
@@ -804,6 +806,42 @@ model ApprovalSlot {
   tickets         ConfirmationTicket[]
   @@unique([reviewRequestId, slotKey])
   @@unique([id, projectId])
+  @@schema("workmesh_v1")
+}
+
+/// 问题固定绑定真实评审轮次；回复、解决和重开追加历史，不改变批准决定。
+model ReviewDiscussion {
+  id                String @id @default(uuid()) @db.Uuid
+  projectId         String @db.Uuid
+  reviewRequestId   String @db.Uuid
+  title             String @db.VarChar(200)
+  body              String @db.VarChar(10000)
+  resolved          Boolean @default(false)
+  version           Int @default(1)
+  createdByStampId  String @db.Uuid
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+  reviewRequest     ReviewRequest @relation(fields: [reviewRequestId, projectId], references: [id, projectId], onDelete: Restrict)
+  createdByStamp    PrincipalStamp @relation(fields: [createdByStampId], references: [id], onDelete: Restrict)
+  entries           ReviewDiscussionEntry[]
+  @@unique([id, projectId])
+  @@index([reviewRequestId, createdAt, id])
+  @@schema("workmesh_v1")
+}
+
+model ReviewDiscussionEntry {
+  id                  String @id @default(uuid()) @db.Uuid
+  projectId           String @db.Uuid
+  discussionId        String @db.Uuid
+  kind                String @db.VarChar(16)
+  body                String @db.VarChar(10000)
+  addressedInReviewId String? @db.Uuid
+  createdByStampId    String @db.Uuid
+  createdAt           DateTime @default(now()) @db.Timestamptz(3)
+  discussion          ReviewDiscussion @relation(fields: [discussionId, projectId], references: [id, projectId], onDelete: Restrict)
+  addressedInReview   ReviewRequest? @relation("DiscussionDeliveryReview", fields: [addressedInReviewId, projectId], references: [id, projectId], onDelete: Restrict)
+  createdByStamp      PrincipalStamp @relation(fields: [createdByStampId], references: [id], onDelete: Restrict)
+  @@index([discussionId, createdAt, id])
   @@schema("workmesh_v1")
 }
 
@@ -941,6 +979,8 @@ model PrincipalStamp {
   knowledgeBindings   ProjectKnowledgeBinding[]
   artifactSets        ArtifactSet[]
   submittedArtifacts  Artifact[]
+  reviewDiscussions   ReviewDiscussion[]
+  reviewDiscussionEntries ReviewDiscussionEntry[]
 
   @@index([projectId, createdAt])
   @@index([userId, createdAt])

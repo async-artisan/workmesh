@@ -126,6 +126,8 @@ class FakeEvidenceRepository implements V1GithubEvidenceRepository {
     return null;
   }
 
+  async assertCodeEvidenceTarget(): Promise<void> {}
+
   async findApprovedEvidenceForHead(
     _projectId: string,
     _repositoryId: string,

@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { V1_ERROR_CODES, WorkmeshError, type Principal, type Scope } from '@workmesh/shared';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  sha256Bytes,
+  V1_ERROR_CODES,
+  WorkmeshError,
+  type Principal,
+  type Scope,
+  type TaskRolePackageStatus,
+} from '@workmesh/shared';
 import type { V1AuthorizationService } from '../auth/v1-authorization';
 import { V1SnapshotService, type V1SnapshotContext } from './v1-snapshot.service';
 import type { V1SnapshotManifestResource } from './v1-snapshot-policy';
@@ -8,6 +15,7 @@ import {
   type V1CreateSnapshotResult,
   type V1SnapshotBindingRecord,
   type V1SnapshotDocumentRef,
+  type V1SnapshotInputDocument,
   type V1SnapshotRepository,
   type V1SnapshotResourceBody,
   type V1SnapshotRoleResource,
@@ -69,10 +77,12 @@ function revision(
   revisionId: string,
   kind: V1SnapshotDocumentRef['documentKind'],
   requirementId: string | null,
+  documentId = `doc-${revisionId}`,
 ): V1SnapshotDocumentRef {
   return {
+    projectId: 'proj-1',
     revisionId,
-    documentId: `doc-${revisionId}`,
+    documentId,
     knowledgeBaseId: 'kb-1',
     documentKind: kind,
     sha256: SHA,
@@ -97,9 +107,16 @@ function snapshotContext(key = 'idem-1'): V1SnapshotContext {
 }
 
 class InMemorySnapshotRepo implements V1SnapshotRepository {
+  async verifyResourceContent(
+    _resource: V1SnapshotManifestResource,
+    _projectId: string,
+  ): Promise<'VERIFIED' | 'EXTERNAL_REFERENCE' | 'UNAVAILABLE'> {
+    return 'VERIFIED';
+  }
   task = taskState();
   missing = false;
   revisions = new Map<string, V1SnapshotDocumentRef>();
+  documents = new Map<string, V1SnapshotInputDocument>();
   candidates: V1SnapshotDocumentRef[] = [];
   bindings: V1SnapshotBindingRecord[] = [];
   roleResources: V1SnapshotRoleResource[] = [];
@@ -114,6 +131,7 @@ class InMemorySnapshotRepo implements V1SnapshotRepository {
     mediaType: string;
     sourceStepKey?: string;
     kind?: string;
+    storage?: 'HOSTED' | 'GIT_REF';
   }> = [];
 
   async findTaskState() {
@@ -121,6 +139,13 @@ class InMemorySnapshotRepo implements V1SnapshotRepository {
   }
   async findRevision(id: string) {
     return this.revisions.get(id) ?? null;
+  }
+  async findInputDocument(id: string) {
+    return (
+      this.documents.get(id) ??
+      [...this.revisions.values()].find((ref) => ref.documentId === id) ??
+      null
+    );
   }
   async findCandidateRevisions() {
     return this.candidates;
@@ -142,6 +167,20 @@ class InMemorySnapshotRepo implements V1SnapshotRepository {
   }
   async findRoleResourceProjectId() {
     return this.roleResourceProjectId;
+  }
+  async findResourceScope(kind: 'ARTIFACT' | 'ROLE_RESOURCE', targetId: string) {
+    const resource =
+      kind === 'ARTIFACT'
+        ? this.prerequisiteArtifacts.find((item) => item.artifactId === targetId)
+        : this.roleResources.find((item) => item.rolePackageResourceId === targetId);
+    return resource
+      ? {
+          projectId: kind === 'ROLE_RESOURCE' ? this.roleResourceProjectId : 'proj-1',
+          sha256: resource.sha256,
+          byteLength: resource.byteLength,
+          mediaType: resource.mediaType,
+        }
+      : null;
   }
   async createSnapshot(input: V1CreateSnapshotInput): Promise<V1CreateSnapshotResult> {
     this.createCalls.push(input);
@@ -203,6 +242,525 @@ function seedBaseline(repo: InMemorySnapshotRepo) {
   repo.revisions.set(UNDERSTANDING_ID, revision(UNDERSTANDING_ID, 'UNDERSTANDING', 'req-1'));
   repo.revisions.set(PRD_ID, revision(PRD_ID, 'PRD', 'req-1'));
 }
+
+describe('read-only input inspection', () => {
+  it('reports task locked role metadata and actual resource changes without mutating stored snapshots', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.roleResources = [
+      {
+        rolePackageResourceId: ROLE_RESOURCE_ID,
+        refKey: 'sop',
+        sha256: SHA,
+        byteLength: 10,
+        mediaType: 'text/markdown',
+      },
+    ];
+    const metadata: TaskRolePackageStatus = {
+      workflowDefinitionRevisionId: 'wf-rev-1',
+      roleKey: 'impl-role',
+      status: 'LOCKED',
+      locked: {
+        packageId: 'workmesh.role.backend',
+        version: '1.2.0',
+        packageDigest: 'a'.repeat(64),
+        source: 'BUILTIN',
+        resources: [{ refId: 'role:sop', path: 'sop.md', sha256: SHA, byteLength: 10 }],
+      },
+      latestAvailable: {
+        packageId: 'workmesh.role.backend',
+        version: '1.3.0',
+        packageDigest: 'b'.repeat(64),
+        source: 'PROJECT',
+      },
+    };
+    const inspectRolePackage = vi.fn(async () => structuredClone(metadata));
+    Object.assign(repo, { inspectRolePackage });
+    const { service } = build(repo);
+    expect((await service.inspectInputs(humanPrincipal(), 'task-1')).rolePackage).toMatchObject({
+      locked: { version: '1.2.0' },
+      latestAvailable: { version: '1.3.0' },
+      comparison: { status: 'NO_SNAPSHOT', changes: [] },
+    });
+    const created = await service.create(
+      humanPrincipal(),
+      'task-1',
+      { expectedVersion: 2, claimId: 'claim-1' },
+      snapshotContext(),
+    );
+    const originalManifest = JSON.stringify(created.snapshot.manifest);
+    repo.task.currentSnapshotId = created.snapshot.id;
+    const oldResource = { ...repo.roleResources[0] };
+    repo.roleResources = [
+      {
+        ...oldResource,
+        rolePackageResourceId: '55555555-5555-4555-8555-555555555555',
+        sha256: 'c'.repeat(64),
+      },
+    ];
+    const originalScope = repo.findResourceScope.bind(repo);
+    vi.spyOn(repo, 'findResourceScope').mockImplementation(async (kind, targetId) =>
+      targetId === oldResource.rolePackageResourceId
+        ? { projectId: null, sha256: SHA, byteLength: 10, mediaType: 'text/markdown' }
+        : originalScope(kind, targetId),
+    );
+    metadata.locked!.resources[0].sha256 = 'c'.repeat(64);
+    const result = await service.inspectInputs(humanPrincipal(), 'task-1');
+    expect(result.rolePackage?.comparison).toEqual({
+      status: 'CHANGED',
+      changes: [
+        {
+          refId: 'role:sop',
+          path: 'sop.md',
+          status: 'CHANGED',
+          previousSha256: SHA,
+          currentSha256: 'c'.repeat(64),
+        },
+      ],
+    });
+    expect(inspectRolePackage).toHaveBeenCalledWith({
+      projectId: 'proj-1',
+      roleKey: 'impl-role',
+      revisionId: 'wf-rev-1',
+    });
+    expect(JSON.stringify(repo.snapshots.get(created.snapshot.id)!.manifest)).toBe(
+      originalManifest,
+    );
+    expect(repo.createCalls).toHaveLength(1);
+  });
+
+  it('collects independent baseline, knowledge and upstream problems with precise readable identities', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.task.currentPrdRevisionId = null;
+    repo.task.knowledgeInputs = [{ inputKey: 'contract', documentId: 'doc-contract' }];
+    for (const id of ['doc-contract', 'doc-policy'])
+      repo.documents.set(id, {
+        documentId: id,
+        projectId: 'proj-1',
+        knowledgeBaseId: 'kb-1',
+        documentKind: 'KNOWLEDGE',
+      });
+    repo.bindings = [
+      {
+        bindingId: 'policy',
+        documentId: 'doc-policy',
+        knowledgeBaseId: 'kb-1',
+        roleId: null,
+        required: true,
+        currentPublishedRevisionId: null,
+      },
+    ];
+    repo.task.upstreamInputs = [
+      { inputKey: 'api', fromStepKey: 'backend', kind: 'API_SPEC' },
+      { inputKey: 'design', fromStepKey: 'ui', kind: 'UI_SPEC' },
+      { inputKey: 'optional', fromStepKey: 'optional', kind: 'IMPL', required: false },
+    ];
+    const result = await build(repo).service.inspectInputs(humanPrincipal(), 'task-1');
+    expect(result).toMatchObject({
+      availability: 'UNAVAILABLE',
+      issue: 'BASELINE_STALE',
+      issuesComplete: true,
+      resources: [],
+    });
+    expect(result.issues).toEqual([
+      expect.objectContaining({ kind: 'PRD', reason: 'NOT_PUBLISHED', action: 'PUBLISH_BASELINE' }),
+      expect.objectContaining({
+        kind: 'KNOWLEDGE',
+        reason: 'NOT_BOUND',
+        inputKey: 'contract',
+        documentId: 'doc-contract',
+        action: 'BIND_KNOWLEDGE',
+      }),
+      expect.objectContaining({
+        kind: 'KNOWLEDGE',
+        reason: 'NOT_PUBLISHED',
+        documentId: 'doc-policy',
+        action: 'PUBLISH_KNOWLEDGE',
+      }),
+      expect.objectContaining({
+        kind: 'ARTIFACT',
+        inputKey: 'api',
+        fromStepKey: 'backend',
+        artifactKind: 'API_SPEC',
+        action: 'DELIVER_UPSTREAM',
+      }),
+      expect.objectContaining({
+        kind: 'ARTIFACT',
+        inputKey: 'design',
+        fromStepKey: 'ui',
+        artifactKind: 'UI_SPEC',
+      }),
+    ]);
+    expect(repo.createCalls).toHaveLength(0);
+    expect(repo.task.taskVersion).toBe(2);
+    await expect(
+      build(repo).service.create(
+        humanPrincipal(),
+        'task-1',
+        { expectedVersion: 2, claimId: 'claim-1' },
+        snapshotContext(),
+      ),
+    ).rejects.toMatchObject({ code: 'BASELINE_STALE' });
+    expect(repo.createCalls).toHaveLength(0);
+  });
+
+  it('identifies a readable obsolete PRD revision and distinguishes it from absent publication', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.revisions.get(PRD_ID)!.isCurrentPublished = false;
+    const result = await build(repo).service.inspectInputs(humanPrincipal(), 'task-1');
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        kind: 'PRD',
+        reason: 'NOT_CURRENT_PUBLISHED',
+        revisionId: PRD_ID,
+        documentId: `doc-${PRD_ID}`,
+        action: 'REFRESH_BASELINE',
+      }),
+    ]);
+  });
+
+  it('redacts private and foreign unpublished document identities', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.task.knowledgeInputs = [
+      { inputKey: 'first', documentId: 'private-doc' },
+      { inputKey: 'second', documentId: 'foreign-doc' },
+    ];
+    repo.documents.set('private-doc', {
+      documentId: 'private-doc',
+      projectId: 'proj-1',
+      knowledgeBaseId: 'private-kb',
+      documentKind: 'KNOWLEDGE',
+    });
+    repo.documents.set('foreign-doc', {
+      documentId: 'foreign-doc',
+      projectId: 'foreign-project',
+      knowledgeBaseId: 'kb-1',
+      documentKind: 'KNOWLEDGE',
+    });
+    const { service, authz } = build(repo);
+    authz.unreadableKnowledgeBaseIds = ['private-kb'];
+    const result = await service.inspectInputs(humanPrincipal(), 'task-1');
+    expect(result.issues).toHaveLength(2);
+    expect(
+      result.issues!.every(
+        (issue) =>
+          issue.reason === 'UNAVAILABLE_OR_UNREADABLE' && !issue.documentId && !issue.revisionId,
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(result)).not.toMatch(/private-|foreign-/);
+  });
+
+  it('reports content failure separately and preserves infrastructure failures as failed reads', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.verifyResourceContent = async (resource) =>
+      resource.refId === 'prd' ? 'UNAVAILABLE' : 'VERIFIED';
+    const { service } = build(repo);
+    expect(await service.inspectInputs(humanPrincipal(), 'task-1')).toMatchObject({
+      availability: 'UNAVAILABLE',
+      issue: 'INPUT_UNAVAILABLE',
+      issuesComplete: true,
+      issues: [
+        expect.objectContaining({
+          kind: 'PRD',
+          reason: 'CONTENT_UNAVAILABLE',
+          revisionId: PRD_ID,
+          action: 'RESTORE_CONTENT',
+        }),
+      ],
+    });
+    vi.spyOn(repo, 'listRoleKnowledgeBindings').mockRejectedValueOnce(
+      new Error('database offline'),
+    );
+    await expect(service.inspectInputs(humanPrincipal(), 'task-1')).rejects.toThrow(
+      'database offline',
+    );
+  });
+
+  it('preserves optional input requirements when content diagnostics are generated', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.revisions.set(KNOWLEDGE_ID, revision(KNOWLEDGE_ID, 'KNOWLEDGE', null, 'optional-doc'));
+    repo.bindings = [
+      {
+        bindingId: 'optional',
+        documentId: 'optional-doc',
+        knowledgeBaseId: 'kb-1',
+        roleId: null,
+        required: false,
+        currentPublishedRevisionId: KNOWLEDGE_ID,
+      },
+    ];
+    repo.verifyResourceContent = async (ref) =>
+      ref.targetId === KNOWLEDGE_ID ? 'UNAVAILABLE' : 'VERIFIED';
+    const result = await build(repo).service.inspectInputs(humanPrincipal(), 'task-1');
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        kind: 'KNOWLEDGE',
+        required: false,
+        reason: 'CONTENT_UNAVAILABLE',
+      }),
+    ]);
+  });
+
+  it('rechecks permission for diagnostic-only documents after slow verification', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.documents.set('readable', {
+      documentId: 'readable',
+      projectId: 'proj-1',
+      knowledgeBaseId: 'diagnostic-kb',
+      documentKind: 'KNOWLEDGE',
+    });
+    repo.task.knowledgeInputs = [{ inputKey: 'contract', documentId: 'readable' }];
+    const { service, authz } = build(repo);
+    repo.verifyResourceContent = async () => {
+      authz.unreadableKnowledgeBaseIds = ['diagnostic-kb'];
+      return 'VERIFIED';
+    };
+    await expect(service.inspectInputs(humanPrincipal(), 'task-1')).rejects.toMatchObject({
+      status: 404,
+    });
+    expect(repo.createCalls).toHaveLength(0);
+  });
+  it('checks inputs before claim without creating or changing task state', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.task.currentClaim = null;
+    const { service } = build(repo);
+    const result = await service.inspectInputs(humanPrincipal(), 'task-1');
+    expect(result.availability).toBe('VERIFIED');
+    expect(result.comparison.status).toBe('NO_SNAPSHOT');
+    expect(result.resources).toHaveLength(2);
+    expect(repo.createCalls).toHaveLength(0);
+    expect(repo.task.currentClaim).toBeNull();
+  });
+
+  it('reports unavailable required knowledge without leaking unreadable resource references', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.task.knowledgeInputs = [{ inputKey: 'contract', documentId: 'private-doc' }];
+    const result = await build(repo).service.inspectInputs(humanPrincipal(), 'task-1');
+    expect(result).toMatchObject({
+      availability: 'UNAVAILABLE',
+      issue: 'INPUT_UNAVAILABLE',
+      resources: [],
+    });
+    expect(JSON.stringify(result)).not.toContain('private-doc');
+  });
+
+  it('compares the exact current task snapshot, not a global notification version', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    const { service } = build(repo);
+    const created = await service.create(
+      humanPrincipal(),
+      'task-1',
+      { expectedVersion: 2, claimId: 'claim-1' },
+      snapshotContext(),
+    );
+    repo.task.currentSnapshotId = created.snapshot.id;
+    repo.task.knowledgeBindingsVersion += 1;
+    expect((await service.inspectInputs(humanPrincipal(), 'task-1')).comparison.status).toBe(
+      'CURRENT',
+    );
+    const next = revision('new-prd', 'PRD', 'req-1');
+    repo.revisions.set('new-prd', next);
+    repo.task.currentPrdRevisionId = 'new-prd';
+    const result = await service.inspectInputs(humanPrincipal(), 'task-1');
+    expect(result.comparison).toMatchObject({
+      status: 'CHANGED',
+      changes: [
+        { refId: 'prd', status: 'CHANGED', previousTargetId: PRD_ID, currentTargetId: 'new-prd' },
+      ],
+    });
+  });
+
+  it('withholds comparison data after snapshot input read access is revoked', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    const { service, authz } = build(repo);
+    const created = await service.create(
+      humanPrincipal(),
+      'task-1',
+      { expectedVersion: 2, claimId: 'claim-1' },
+      snapshotContext(),
+    );
+    repo.task.currentSnapshotId = created.snapshot.id;
+    repo.revisions.get(PRD_ID)!.knowledgeBaseId = 'old-private';
+    repo.task.currentPrdRevisionId = 'new-prd';
+    repo.revisions.set('new-prd', revision('new-prd', 'PRD', 'req-1'));
+    authz.unreadableKnowledgeBaseIds = ['old-private'];
+    const result = await service.inspectInputs(humanPrincipal(), 'task-1');
+    expect(result.comparison).toEqual({ status: 'UNAVAILABLE', changes: [], metadataChanges: [] });
+  });
+
+  it('distinguishes external references requiring local verification from server-verified bytes', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.verifyResourceContent = async () => 'EXTERNAL_REFERENCE';
+    expect((await build(repo).service.inspectInputs(humanPrincipal(), 'task-1')).availability).toBe(
+      'REQUIRES_LOCAL_CHECK',
+    );
+  });
+
+  it('does not interpret read permission or infrastructure failures as missing inputs', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    const { service, authz } = build(repo);
+    authz.scopeToDeny = 'context:read';
+    await expect(service.inspectInputs(humanPrincipal(), 'task-1')).rejects.toMatchObject({
+      status: 403,
+    });
+  });
+
+  it('rejects a foreign-project knowledge binding even when the human can read both projects', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.bindings = [
+      {
+        bindingId: 'foreign-binding',
+        documentId: 'foreign-document',
+        knowledgeBaseId: 'foreign-kb',
+        roleId: null,
+        required: true,
+        currentPublishedRevisionId: 'foreign-revision',
+      },
+    ];
+    repo.revisions.set('foreign-revision', {
+      ...revision('foreign-revision', 'KNOWLEDGE', null, 'foreign-document'),
+      projectId: 'foreign-project',
+      knowledgeBaseId: 'foreign-kb',
+    });
+    const result = await build(repo).service.inspectInputs(humanPrincipal(), 'task-1');
+    expect(result).toMatchObject({ availability: 'UNAVAILABLE', resources: [] });
+    expect(JSON.stringify(result)).not.toMatch(/foreign/);
+  });
+
+  it('does not label a different document as the bound knowledge document', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.bindings = [
+      {
+        bindingId: 'binding',
+        documentId: 'expected-doc',
+        knowledgeBaseId: 'kb-1',
+        roleId: null,
+        required: true,
+        currentPublishedRevisionId: 'wrong-revision',
+      },
+    ];
+    repo.revisions.set(
+      'wrong-revision',
+      revision('wrong-revision', 'KNOWLEDGE', null, 'different-doc'),
+    );
+    expect(await build(repo).service.inspectInputs(humanPrincipal(), 'task-1')).toMatchObject({
+      availability: 'UNAVAILABLE',
+      resources: [],
+    });
+  });
+
+  it.each(['project', 'task', 'requirement'])(
+    'withholds a current-snapshot pointer for another %s before reading its resources',
+    async (subject) => {
+      const repo = new InMemorySnapshotRepo();
+      seedBaseline(repo);
+      const { service } = build(repo);
+      const created = await service.create(
+        humanPrincipal(),
+        'task-1',
+        { expectedVersion: 2, claimId: 'claim-1' },
+        snapshotContext(),
+      );
+      repo.task.currentSnapshotId = created.snapshot.id;
+      const stored = repo.snapshots.get(created.snapshot.id)!;
+      if (subject === 'project') stored.projectId = 'foreign-project';
+      if (subject === 'task') stored.taskId = 'foreign-task';
+      if (subject === 'requirement') stored.requirementId = 'foreign-requirement';
+      const reads = vi.spyOn(service, 'getSnapshot');
+      expect(await service.inspectInputs(humanPrincipal(), 'task-1')).toMatchObject({
+        snapshotId: null,
+        comparison: { status: 'UNAVAILABLE', changes: [], metadataChanges: [] },
+      });
+      expect(reads).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps an older generation of the same task comparable and reports generation changes', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    const { service } = build(repo);
+    const created = await service.create(
+      humanPrincipal(),
+      'task-1',
+      { expectedVersion: 2, claimId: 'claim-1' },
+      snapshotContext(),
+    );
+    repo.task.currentSnapshotId = created.snapshot.id;
+    repo.task.taskGeneration += 1;
+    repo.task.requirementGeneration += 1;
+    expect((await service.inspectInputs(humanPrincipal(), 'task-1')).comparison).toEqual({
+      status: 'CHANGED',
+      changes: [],
+      metadataChanges: ['requirementGeneration', 'taskGeneration'],
+    });
+  });
+
+  it('distinguishes actual external upstream refs and explicitly rejects creating an unmaterializable required input', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    repo.task.upstreamInputs = [{ inputKey: 'impl', fromStepKey: 'upstream', kind: 'IMPL' }];
+    repo.prerequisiteArtifacts = [
+      {
+        artifactId: 'git-artifact',
+        sourceStepKey: 'upstream',
+        kind: 'IMPL',
+        storage: 'GIT_REF',
+        sha256: SHA,
+        byteLength: 10,
+        mediaType: 'text/plain',
+      },
+    ];
+    repo.verifyResourceContent = async (resource: V1SnapshotManifestResource) =>
+      resource.kind === 'ARTIFACT' ? 'EXTERNAL_REFERENCE' : 'VERIFIED';
+    const { service } = build(repo);
+    expect(await service.inspectInputs(humanPrincipal(), 'task-1')).toMatchObject({
+      availability: 'REQUIRES_LOCAL_CHECK',
+      issue: 'SNAPSHOT_EXTERNAL_INPUT_UNSUPPORTED',
+      resources: expect.arrayContaining([
+        expect.objectContaining({ targetId: 'git-artifact', contentStatus: 'EXTERNAL_REFERENCE' }),
+      ]),
+    });
+    await expect(
+      service.create(
+        humanPrincipal(),
+        'task-1',
+        { expectedVersion: 2, claimId: 'claim-1' },
+        snapshotContext(),
+      ),
+    ).rejects.toMatchObject({
+      code: 'INPUT_UNAVAILABLE',
+      message: 'SNAPSHOT_EXTERNAL_INPUT_UNSUPPORTED',
+    });
+    expect(repo.createCalls).toHaveLength(0);
+  });
+
+  it('rechecks read access after slow body verification before returning any references', async () => {
+    const repo = new InMemorySnapshotRepo();
+    seedBaseline(repo);
+    const { service, authz } = build(repo);
+    repo.verifyResourceContent = async () => {
+      authz.unreadableKnowledgeBaseIds = ['kb-1'];
+      return 'VERIFIED';
+    };
+    await expect(service.inspectInputs(humanPrincipal(), 'task-1')).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+});
 
 describe('V1SnapshotService.create', () => {
   it('404 when task missing', async () => {
@@ -354,8 +912,8 @@ describe('V1SnapshotService.create', () => {
         currentPublishedRevisionId: 'rev-policy',
       },
     ];
-    repo.revisions.set('rev-contract', revision('rev-contract', 'KNOWLEDGE', null));
-    repo.revisions.set('rev-policy', revision('rev-policy', 'DECISION', null));
+    repo.revisions.set('rev-contract', revision('rev-contract', 'KNOWLEDGE', null, 'doc-contract'));
+    repo.revisions.set('rev-policy', revision('rev-policy', 'DECISION', null, 'doc-policy'));
     const { service } = build(repo);
 
     const result = await service.create(
@@ -473,7 +1031,7 @@ describe('V1SnapshotService.create', () => {
     const buildWithOrder = async (reverse: boolean) => {
       const repo = new InMemorySnapshotRepo();
       seedBaseline(repo);
-      repo.revisions.set(KNOWLEDGE_ID, revision(KNOWLEDGE_ID, 'KNOWLEDGE', null));
+      repo.revisions.set(KNOWLEDGE_ID, revision(KNOWLEDGE_ID, 'KNOWLEDGE', null, 'doc-knowledge'));
       repo.bindings = [
         {
           bindingId: 'binding-1',
@@ -643,6 +1201,67 @@ describe('V1SnapshotService.getSnapshot / getResource', () => {
     });
   });
 
+  it('rejects a foreign-project document even when its KB is readable', async () => {
+    const repo = new InMemorySnapshotRepo();
+    repo.snapshots.set('snap-1', storedView());
+    repo.revisions.set(KNOWLEDGE_ID, {
+      ...revision(KNOWLEDGE_ID, 'KNOWLEDGE', null),
+      projectId: 'another-project',
+    });
+    await expect(build(repo).service.getSnapshot(humanPrincipal(), 'snap-1')).rejects.toMatchObject(
+      { status: 404 },
+    );
+  });
+
+  it('does not expose manifest refs that differ from the indexed resources actually authorized', async () => {
+    const repo = new InMemorySnapshotRepo();
+    const stored = storedView();
+    stored.manifest = {
+      ...stored.manifest,
+      resources: [{ ...stored.resources[0], targetId: 'unauthorized-manifest-only' }],
+    };
+    repo.snapshots.set('snap-1', stored);
+    repo.revisions.set(KNOWLEDGE_ID, revision(KNOWLEDGE_ID, 'KNOWLEDGE', null));
+    await expect(build(repo).service.getSnapshot(humanPrincipal(), 'snap-1')).rejects.toMatchObject(
+      { status: 404 },
+    );
+  });
+
+  it('allows built-in role resources but rejects missing or foreign private role resources', async () => {
+    const repo = new InMemorySnapshotRepo();
+    const resource: V1SnapshotManifestResource = {
+      refId: 'role:sop',
+      kind: 'ROLE_RESOURCE',
+      targetId: ROLE_RESOURCE_ID,
+      sha256: SHA,
+      byteLength: 10,
+      mediaType: 'text/plain',
+      authority: 'PUBLISHED',
+    };
+    const stored = storedView();
+    stored.resources = [resource];
+    stored.manifest = { ...stored.manifest, resources: [resource] };
+    repo.snapshots.set('snap-1', stored);
+    const { service } = build(repo);
+    await expect(service.getSnapshot(humanPrincipal(), 'snap-1')).rejects.toMatchObject({
+      status: 404,
+    });
+    repo.roleResources = [
+      {
+        rolePackageResourceId: ROLE_RESOURCE_ID,
+        refKey: 'sop',
+        sha256: SHA,
+        byteLength: 10,
+        mediaType: 'text/plain',
+      },
+    ];
+    expect((await service.getSnapshot(humanPrincipal(), 'snap-1')).id).toBe('snap-1');
+    repo.roleResourceProjectId = 'foreign-project';
+    await expect(service.getSnapshot(humanPrincipal(), 'snap-1')).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
   it('rejects resource read when stored body no longer matches the manifest (503)', async () => {
     const repo = new InMemorySnapshotRepo();
     repo.snapshots.set('snap-1', storedView());
@@ -668,21 +1287,32 @@ describe('V1SnapshotService.getSnapshot / getResource', () => {
 
   it('serves a matching resource body by refId only', async () => {
     const repo = new InMemorySnapshotRepo();
-    repo.snapshots.set('snap-1', storedView());
-    repo.revisions.set(KNOWLEDGE_ID, revision(KNOWLEDGE_ID, 'KNOWLEDGE', null));
+    const bytes = new Uint8Array(10);
+    const digest = await sha256Bytes(bytes);
+    const stored = storedView();
+    stored.resources[0].sha256 = digest;
+    repo.snapshots.set('snap-1', stored);
+    repo.revisions.set(KNOWLEDGE_ID, {
+      ...revision(KNOWLEDGE_ID, 'KNOWLEDGE', null),
+      sha256: digest,
+    });
     repo.bodies.set('snap-1/knowledge:doc-knowledge', {
       refId: 'knowledge:doc-knowledge',
       kind: 'DOCUMENT_REVISION',
       targetId: KNOWLEDGE_ID,
-      sha256: SHA,
+      sha256: digest,
       byteLength: 10,
       mediaType: 'text/markdown',
       authority: 'PUBLISHED',
-      bodyBytes: new Uint8Array(10),
+      bodyBytes: bytes,
     });
     const { service } = build(repo);
     const body = await service.getResource(humanPrincipal(), 'snap-1', 'knowledge:doc-knowledge');
-    expect(body.sha256).toBe(SHA);
+    expect(body.sha256).toBe(digest);
     expect(body.bodyBytes).toHaveLength(10);
+    repo.bodies.get('snap-1/knowledge:doc-knowledge')!.bodyBytes[0] = 1;
+    await expect(
+      service.getResource(humanPrincipal(), 'snap-1', 'knowledge:doc-knowledge'),
+    ).rejects.toMatchObject({ status: 503, code: V1_ERROR_CODES.CONTENT_UNAVAILABLE });
   });
 });

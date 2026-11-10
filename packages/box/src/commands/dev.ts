@@ -3,17 +3,19 @@ import { closeSync, existsSync, mkdirSync, openSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { BoxContext } from '../context';
 import { isPortOpen, waitForHttp, waitForPort } from '../lib/net';
-import { readinessFailureDetail } from './status';
+import { isReadyPayload, readinessFailureDetail } from './status';
 
 export type DevStep = {
   name: string;
   port: number;
   listening: boolean;
+  ready?: boolean;
   started: boolean;
   detail: string;
 };
 
 export type DevReport = {
+  ok: boolean;
   steps: DevStep[];
   urls: { web: string; api: string };
   hint: string | null;
@@ -50,19 +52,25 @@ function databaseStart(ctx: BoxContext): { command: string; args: string[] } | n
   return { command: 'node', args: [startScript] };
 }
 
-/** 已有的 API 是否真的能干活（就绪），而不是仅端口在监听。 */
-async function readinessDetail(port: number): Promise<string> {
+/** 验证数据库与迁移的就绪证据，同时保留失败原因。 */
+async function readinessDetail(port: number): Promise<{ ok: boolean; detail: string }> {
   try {
     const response = await fetch(`http://127.0.0.1:${port}/api/health/ready`, {
       signal: AbortSignal.timeout(3_000),
     });
-    if (response.ok) return 'ok';
     const body = (await response.json().catch(() => null)) as {
+      data?: unknown;
       error?: { details?: { reason?: string } };
     } | null;
-    return `不就绪：${readinessFailureDetail(response.status, body?.error?.details?.reason)}`;
+    if (response.ok && isReadyPayload(body)) return { ok: true, detail: 'ok' };
+    return {
+      ok: false,
+      detail: response.ok
+        ? '不就绪：响应缺少数据库可达与迁移证据'
+        : `不就绪：${readinessFailureDetail(response.status, body?.error?.details?.reason)}`,
+    };
   } catch (caught) {
-    return (caught as Error).message;
+    return { ok: false, detail: (caught as Error).message };
   }
 }
 
@@ -106,7 +114,9 @@ export async function runDev(
 
   const apiListeningBefore = await isPortOpen(ctx.apiPort);
   let apiListening = apiListeningBefore;
-  let apiHealth = apiListeningBefore ? await readinessDetail(ctx.apiPort) : '未运行';
+  let apiHealth = apiListeningBefore
+    ? await readinessDetail(ctx.apiPort)
+    : { ok: false, detail: '未运行' };
   let apiStarted = false;
   if (!apiListening && !input.check) {
     if (!ctx.repoRoot)
@@ -118,20 +128,26 @@ export async function runDev(
       logFile: join(ctx.dataDir, 'logs', 'api.log'),
     });
     // 等「就绪」而不是等「存活」：数据库没迁移或连不上时不能报启动成功。
-    apiListening = await waitForHttp(`http://127.0.0.1:${ctx.apiPort}/api/health/ready`, {
+    const apiReady = await waitForHttp(`http://127.0.0.1:${ctx.apiPort}/api/health/ready`, {
       timeoutMs: 120_000,
+      accept: async (response) => isReadyPayload(await response.json().catch(() => null)),
     });
+    apiListening = await isPortOpen(ctx.apiPort);
     apiStarted = apiListening;
-    apiHealth = apiListening
-      ? 'ok'
-      : `启动超时（120s 内就绪探针未通过：${await readinessDetail(ctx.apiPort)}）`;
+    apiHealth = apiReady
+      ? { ok: true, detail: 'ok' }
+      : {
+          ok: false,
+          detail: `启动超时（120s 内就绪探针未通过：${(await readinessDetail(ctx.apiPort)).detail}）`,
+        };
   }
   steps.push({
     name: 'api',
     port: ctx.apiPort,
     listening: apiListening,
+    ready: apiHealth.ok,
     started: apiStarted,
-    detail: apiHealth,
+    detail: apiHealth.detail,
   });
 
   const webListeningBefore = await isPortOpen(ctx.webPort);
@@ -159,10 +175,11 @@ export async function runDev(
   if (hint) steps[0].detail = hint;
 
   return {
+    ok: steps.every((step) => step.ready ?? step.listening),
     steps,
     urls: {
       web: `http://127.0.0.1:${ctx.webPort}`,
-      api: `http://127.0.0.1:${ctx.apiPort}/api/health`,
+      api: `http://127.0.0.1:${ctx.apiPort}/api/health/ready`,
     },
     hint,
   };

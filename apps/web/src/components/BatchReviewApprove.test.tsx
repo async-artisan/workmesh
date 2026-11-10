@@ -122,7 +122,7 @@ describe('BatchReviewApprove（批量批准）', () => {
     fireEvent.change(screen.getByLabelText(/给交付方的说明/), { target: { value: '证据齐全' } });
     fireEvent.click(screen.getByRole('button', { name: '验证密码并批量批准' }));
 
-    expect(await screen.findByText(/已批准 1 条 · 失败 1 条/)).toBeInTheDocument();
+    expect(await screen.findByText(/已批准 1 条 · 未批准或待核实 1 条/)).toBeInTheDocument();
     expect(screen.getByText(/版本已变化/)).toBeInTheDocument();
     expect(onCompleted).toHaveBeenCalledWith({ approved: 1, failed: 1 });
 
@@ -214,6 +214,126 @@ describe('BatchReviewApprove（批量批准）', () => {
     expect(screen.queryByRole('button', { name: '验证密码并批量批准' })).not.toBeInTheDocument();
 
     release();
-    expect(await screen.findByText(/已批准 1 条 · 失败 1 条/)).toBeInTheDocument();
+    expect(await screen.findByText(/已批准 1 条 · 未批准或待核实 1 条/)).toBeInTheDocument();
+  });
+
+  it('先核对全部评审，版本变化不签票；显式选择有效子集后仍绑定原版本和独立票据', async () => {
+    const inner = handler();
+    const mock = mockFetch((url, init) => {
+      if (pathOf(url) === '/api/v1/review-requests/review-2')
+        return { status: 200, body: envelope(reviewOf('review-2', 4, 'slot-2')) };
+      return inner(url, init);
+    });
+    render(<BatchReviewApprove open targets={targets} onClose={() => {}} onCompleted={() => {}} />);
+    fireEvent.change(screen.getByLabelText(/登录密码/), { target: { value: 'password' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证密码并批量批准' }));
+    expect(await screen.findByText(/评审已从 v3 更新到 v4/)).toBeInTheDocument();
+    expect(mock.mock.calls.filter(([url]) => pathOf(String(url)).includes('/auth/'))).toHaveLength(
+      0,
+    );
+    expect(
+      mock.mock.calls.filter(([url]) => pathOf(String(url)).includes('/batch-decisions')),
+    ).toHaveLength(0);
+    fireEvent.change(screen.getByLabelText(/登录密码/), { target: { value: 'password' } });
+    fireEvent.click(screen.getByRole('button', { name: '仅批准可用的 1 条' }));
+    expect(await screen.findByText(/已批准 1 条 · 未批准或待核实 1 条/)).toBeInTheDocument();
+    const batchCall = mock.mock.calls.find(([url]) =>
+      pathOf(String(url)).includes('/batch-decisions'),
+    )!;
+    expect(bodyOf(batchCall[1] ?? {}).items).toEqual([
+      expect.objectContaining({ reviewId: 'review-1', expectedVersion: 2 }),
+    ]);
+    expect(
+      mock.mock.calls.filter(
+        ([url]) => pathOf(String(url)) === '/api/v1/auth/confirmation-tickets',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it.each([
+    [
+      '已关闭',
+      (review: ReturnType<typeof reviewOf>) => ({ ...review, status: 'APPROVED' }),
+      /评审已关闭/,
+    ],
+    [
+      '无资格',
+      (review: ReturnType<typeof reviewOf>) => ({
+        ...review,
+        slots: review.slots.map((slot) => ({ ...slot, viewerCanDecide: false })),
+      }),
+      /未确认你有该槽位的签字资格/,
+    ],
+    [
+      '槽位变化',
+      (review: ReturnType<typeof reviewOf>) => ({
+        ...review,
+        slots: review.slots.map((slot) => ({ ...slot, id: 'different-slot' })),
+      }),
+      /槽位或角色已变化/,
+    ],
+    [
+      '已有决定',
+      (review: ReturnType<typeof reviewOf>) => ({
+        ...review,
+        decisions: [{ approvalSlotId: 'slot-1' }],
+      }),
+      /槽位已有决定/,
+    ],
+  ])('%s的评审在签票前阻止提交并给出逐项原因', async (_name, mutate, reason) => {
+    const inner = handler();
+    const mock = mockFetch((url, init) =>
+      pathOf(url) === '/api/v1/review-requests/review-1'
+        ? { status: 200, body: envelope(mutate(reviewOf('review-1', 2, 'slot-1'))) }
+        : inner(url, init),
+    );
+    render(
+      <BatchReviewApprove open targets={[targets[0]!]} onClose={() => {}} onCompleted={() => {}} />,
+    );
+    fireEvent.change(screen.getByLabelText(/登录密码/), { target: { value: 'password' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证密码并批量批准' }));
+    expect(await screen.findByText(reason)).toBeInTheDocument();
+    expect(mock.mock.calls.filter(([url]) => pathOf(String(url)).includes('/auth/'))).toHaveLength(
+      0,
+    );
+  });
+
+  it('任何一条签票失败均不提交批准，展示每条保留或失败结果', async () => {
+    const inner = handler();
+    const mock = mockFetch((url, init) =>
+      pathOf(url) === '/api/v1/auth/confirmation-tickets' && bodyOf(init).targetId === 'review-2'
+        ? { status: 403, body: { error: { code: 'NO_AUTH', message: '资格发生变化' } } }
+        : inner(url, init),
+    );
+    render(<BatchReviewApprove open targets={targets} onClose={() => {}} onCompleted={() => {}} />);
+    fireEvent.change(screen.getByLabelText(/登录密码/), { target: { value: 'password' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证密码并批量批准' }));
+    expect(await screen.findByText(/已批准 0 条 · 未批准或待核实 2 条/)).toBeInTheDocument();
+    expect(screen.getByText(/本次尚未提交批准/)).toBeInTheDocument();
+    expect(screen.getByText(/签票失败/)).toBeInTheDocument();
+    expect(
+      mock.mock.calls.filter(([url]) => pathOf(String(url)).includes('/batch-decisions')),
+    ).toHaveLength(0);
+  });
+
+  it('批量响应丢失时要求逐项核实，不把未知结果写成失败或自动重提', async () => {
+    const inner = handler();
+    const onCompleted = vi.fn();
+    const mock = mockFetch((url, init) => {
+      if (pathOf(url).includes('/batch-decisions')) throw new Error('connection closed');
+      return inner(url, init);
+    });
+    render(
+      <BatchReviewApprove open targets={targets} onClose={() => {}} onCompleted={onCompleted} />,
+    );
+    fireEvent.change(screen.getByLabelText(/登录密码/), { target: { value: 'password' } });
+    fireEvent.click(screen.getByRole('button', { name: '验证密码并批量批准' }));
+    expect(await screen.findByText(/批量请求未取得可确认结果/)).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: '打开评审核实' })).toHaveLength(2);
+    expect(
+      mock.mock.calls.filter(([url]) => pathOf(String(url)).includes('/batch-decisions')),
+    ).toHaveLength(1);
+    expect(onCompleted).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: '验证密码并批量批准' })).not.toBeInTheDocument();
   });
 });

@@ -1,7 +1,7 @@
 {
   "packageSchemaVersion": "1.1",
   "id": "workmesh.role.frontend",
-  "version": "1.1.0",
+  "version": "1.2.1",
   "protocolVersion": "1.0",
   "title": "前端角色包",
   "description": "按契约与设计规格实现界面，先脚手架后细节，交付可复核的实现说明。",
@@ -74,7 +74,7 @@
       "id": "template-impl",
       "kind": "template",
       "path": "assets/templates/impl.md",
-      "sha256": "ff7fda170ccab8abb0c23c1b6689a0d8cc1292fe45bda0dc28c15cb385c4de32",
+      "sha256": "607eafffd4eb85c24c86fe66f93d87b4078c991af8852068fa13a5032167324c",
       "byteLength": 962,
       "mediaType": "text/markdown"
     },
@@ -87,11 +87,19 @@
       "mediaType": "text/markdown"
     },
     {
+      "id": "checklist-spec-driven",
+      "kind": "checklist",
+      "path": "checklists/spec-driven.md",
+      "sha256": "eddb341cf017d46fc1a03cf0a89de031acdc1d72ec318fa2ae8a55a48ade6bac",
+      "byteLength": 1124,
+      "mediaType": "text/markdown"
+    },
+    {
       "id": "guide",
       "kind": "prompt",
       "path": "guide.md",
-      "sha256": "c7c71a4b6c90cfce5e5165e235c9aa12339587b2cfa2b766088f0f33f1cdf4eb",
-      "byteLength": 2653,
+      "sha256": "9da3a5d151e1b39bd1e9650d5bad711a072c99e97d71e720f980eafc6244aa05",
+      "byteLength": 3388,
       "mediaType": "text/markdown"
     },
     {
@@ -106,8 +114,8 @@
       "id": "skill-consume-contract",
       "kind": "skill",
       "path": "skills/consume-contract/SKILL.md",
-      "sha256": "f8ac134a9e270e335a1d2275aa0800dd52e5febfbbc84bc715978f322ab884ba",
-      "byteLength": 1107,
+      "sha256": "d2c055f6b390cdeeff73317f7ecf8dc4959dc702cbadae627a99be3293107c86",
+      "byteLength": 1398,
       "mediaType": "text/markdown"
     },
     {

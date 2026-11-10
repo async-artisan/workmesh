@@ -52,6 +52,11 @@ describe('production bootstrap global HTTP limiter', () => {
       ...process.env,
       NODE_ENV: 'test',
       PORT: String(port),
+      // This fixture serves HTTP on loopback; do not inherit deployment cookie
+      // settings or fall back to SECURE with the production HTTP default origin.
+      WORKMESH_COOKIE_MODE: 'LOCAL_INSECURE',
+      WORKMESH_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`,
+      WEB_ORIGIN: `http://127.0.0.1:${port}`,
       RATE_LIMIT_MAX: '1',
       RATE_LIMIT_BUCKETS: '10000',
       TRUSTED_PROXY_IPS: '',

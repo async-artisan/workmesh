@@ -186,11 +186,15 @@ export function isStrictSemver(value: unknown): value is string {
 
 /** semver 排序按 2.0 规则：核心数字先行，预发布低于同核心的正式版。 */
 export function compareSemver(left: string, right: string): number {
+  // Strict numeric identifiers have no leading zeroes. Compare their decimal strings
+  // so SemVer's unbounded integers never lose precision through JavaScript Number.
+  const compareNumeric = (a: string, b: string) =>
+    a.length !== b.length ? (a.length < b.length ? -1 : 1) : a === b ? 0 : a < b ? -1 : 1;
   const parse = (value: string) => {
     const match = STRICT_SEMVER.exec(value);
     if (!match) return null;
     return {
-      core: [Number(match[1]), Number(match[2]), Number(match[3])] as const,
+      core: [match[1], match[2], match[3]] as const,
       pre: match[4] ? match[4].split('.') : null,
     };
   };
@@ -198,7 +202,8 @@ export function compareSemver(left: string, right: string): number {
   const b = parse(right);
   if (!a || !b) throw new Error('compareSemver requires strict SemVer values');
   for (let index = 0; index < 3; index += 1) {
-    if (a.core[index] !== b.core[index]) return a.core[index] < b.core[index] ? -1 : 1;
+    const difference = compareNumeric(a.core[index], b.core[index]);
+    if (difference) return difference;
   }
   if (a.pre === null && b.pre === null) return 0;
   if (a.pre === null) return 1;
@@ -211,9 +216,8 @@ export function compareSemver(left: string, right: string): number {
     const leftNumeric = /^[0-9]+$/.test(leftPart);
     const rightNumeric = /^[0-9]+$/.test(rightPart);
     if (leftNumeric && rightNumeric) {
-      const leftNumber = Number(leftPart);
-      const rightNumber = Number(rightPart);
-      if (leftNumber !== rightNumber) return leftNumber < rightNumber ? -1 : 1;
+      const difference = compareNumeric(leftPart, rightPart);
+      if (difference) return difference;
     } else if (leftNumeric) return -1;
     else if (rightNumeric) return 1;
     else if (leftPart !== rightPart) return leftPart < rightPart ? -1 : 1;

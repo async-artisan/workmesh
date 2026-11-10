@@ -1,8 +1,10 @@
 # WorkMesh 当前交付与验证状态
 
-> 更新时间：2026-11-07。本文汇总当前能力与验证边界；历史验收和本次工作树检查分别标注。工作树仍有未提交改动，本次本地结果不能代替最终待发布 commit 的远端 CI 或发布验收。
+> 更新时间：2026-11-10。本文汇总当前能力与验证边界；历史验收和本次工作树检查分别标注。工作树仍有未提交改动，本次本地结果不能代替最终待发布 commit 的远端 CI 或发布验收。
 >
 > 有日期的原始证据见 [工程整改验证](testing/remediation-verification-2026-11-03.md) 和 [本机部署与团队使用验收](testing/team-acceptance-2026-11-03.md)。工作计划见 [dev-plan.md](dev-plan.md)，仍未完成的外部条件见 [BLOCKED.md](../BLOCKED.md)。
+
+当前源码的本地证据以[统一本地入口验收](testing/local-verification-validation-2026-11-07.md)和[Board 分页验收](testing/board-pagination-validation-2026-11-09.md)为准：r13 于 2026-11-09 完整运行 `pnpm verify -- --apply-migrations`，exit 0 / LOCAL_QUALITY_PASSED，2026-11-10 核对终态及 915 个源码文件指纹。真实 PostgreSQL 194 passed / 1 skipped、Chromium 4/4、UI 55/55、API coverage lines 83.39%；r12 的浏览器和独立 UI 失败继续保留。两组同源 HTTP 基准随后通过，见[基准记录](testing/api-benchmark.md)。随后同源新 Box `09d0d2ba…` / CLI `7c06512d…` 完成实际 ZIP 核验、隔离本机完整生命周期、独立扫描、许可证字节核对及保守合并后的 CycloneDX 1.7 校验，见[生命周期记录](testing/box-lifecycle-validation-2026-11-07.md)。供应链覆盖仍为部分，Box 保留 23 条 UNKNOWN。全量依赖审计保留 1 项低危，生产审计为零。后续 live 工作区改动不自动进入 r13 或该制品，最终 clean SHA、远端 CI 与外部发布门禁尚未满足。
 
 ## 已交付能力
 
@@ -65,14 +67,62 @@
 
 首次使用脚本与浏览器链已共享修正后的流程 helper，但独立启动 API 实跑该脚本的命令被自动审批审核以 `blocked by policy` 拒绝，未给更具体理由；该独立脚本本轮仍未验证，没有通过其他启动方式绕过。
 
+## 2026-11-07 登录与制品后续验证
+
+登录邮箱限流已按失败次数契约修复，沿用既有双 hash 邮箱键，bcrypt 前预约最多五个失败或在途请求；成功只退还自身原窗口的额度。认证目录 92 项、全 API 单测 688 项通过；专属 PostgreSQL 空库应用 20 项迁移后，根集成套件为 159 项通过、1 项真实 Ollama POC 跳过，包括新增的五项真实登录数据库回归。这一阶段尚未修复的共享 IP 与通用冷却差异，后续结果单独记录。详见[登录限流验证](testing/login-rate-limit-validation-2026-11-07.md)。
+
+Prisma CLI 从 API 开发依赖移为运行依赖，版本仍为 5.22.0；Box 改用 production deploy。隔离 staging 的 Prisma CLI、生成客户端、引擎和 20 项迁移检查通过，恢复依赖链接后仍能独立加载。随后同步当前源码，在隔离副本完成 frozen 安装和无缓存全仓构建 6/6，真实重打包新 Windows ZIP。新 ZIP 为 197721487 字节，SHA-256 `ff80618f58e2eb2c6f7b592a4abd0d01e06603c6f9d07802f2efa011b28b10bf`，包含二验和登录限流修复；实际扫描已不含此前匹配公告的 deepmerge、glob 和 minimatch。
+
+该新 ZIP 的完整生命周期检查通过：20 项迁移，首次、冷、重复、恢复库四阶段 API/代理/Web 健康，备份验证、55 张表（含验证标记表）和恢复标记核对，以及自有服务停止。扫描仍为 `DRAFT_PARTIAL_COVERAGE`，Box 276 条组件、160 条 npm、23 条 UNKNOWN，独立 CLI 仍只识别 Node。详情见[运行依赖缩减验证](testing/box-production-dependencies-2026-11-07.md)。这是一份声明来源 `739367a` 加未提交改动的本机快照；没有 final clean SHA 的远端 CI、新机器、旧版本升级、卸载、完整 SBOM 或生产验收证据，P0/P1/P2 尚未全部完成。
+
+后续源码已将注册和登录统一写入既有 `login-ip`，原子递增并叠加同 IP/同窗口的遗留注册预算；账户和 CLI 授权冷却返回真实剩余秒数。认证 117 项、全 API 单元 713 项通过；新空库经根入口应用 20 项迁移后，真实集成为 172 passed / 1 skipped（Ollama POC）。停止旧认证写入并排空后才可保证切换后的共享上限；不能称混合版本滚动严格限流已通过。旧 `ff80618f…` ZIP 不含这次修复，详见[共享 IP 限流验证](testing/shared-ip-rate-limit-validation-2026-11-07.md)。
+
+当时的 Box `029bbab62a26a4e168d96bb23d4a1525e015972942f5f4f252d7a3a0213e102d` 已包含共享 IP 与 bundle 证据，并通过同包完整本机生命周期。shared、CLI、Web 导出实际模块图、固定版本/PURL 与许可证据；预打包内层仅标候选，缺失许可保留 UNKNOWN。独立审查发现的主机路径泄露已修复，45 项 bundle 与 17 项 schema 回归共 62 项通过；修复后重构建 6/6，61 个受管输出/侧车与已验收归档哈希相同。当时扫描逐文件绑定 Box 12491 个文件，276 条组件、23 条 UNKNOWN；独立 CLI 74 个文件、仍只由 Syft 识别 Node。两份实际 CycloneDX 1.7 文档通过严格离线结构/格式语法校验；这没有证明组件覆盖或许可合规，整体仍为 `DRAFT_PARTIAL_COVERAGE`。见[bundle 验证](testing/bundle-evidence-validation-2026-11-07.md)、[制品扫描](testing/artifact-sbom-validation-2026-11-07.md)和[UNKNOWN 分类](testing/artifact-unknown-classification-2026-11-07.md)。最终干净 SHA、远端 CI、B1–B6 外部或产品门禁仍未关闭。
+
+## 2026-11-07 全仓格式与 ESLint 收尾
+
+Node.js 24.22.1 下完整执行 `pnpm format:check` 与 `pnpm lint:eslint`，两项均 exit 0。本轮修正历史 `.p0a` 隔离生成目录和临时预览脚本的忽略范围，删除 Knowledge 页未使用的 import，为 pnpm 定位器的空 catch 添加说明，并格式化两份 onboarding 文档。定向改动、日志 SHA-256 和适用范围见[质量检查收尾记录](testing/quality-closeout-2026-11-07.md)。
+
+Knowledge 输入文件的 SHA-256 已由旧 bundle 记录的 `22212f6f48a9604e293bd1f0d5d22bb94671d5f251ac63a28aabebb0031867eb` 变为 `3f3f714cc770e06d66917591e6e1127f7c65a002283ea2db4065fce0f057a541`。上述 Box `029bbab6…` 的构建、扫描和生命周期证据继续只对应其历史来源，不能据此称当前源码已完成制品验收；当前源码仍需新的隔离构建、打包和相应验证。依赖四项公告继续保持开放，最终干净 SHA、远端 CI 和外部验收门禁仍未关闭。
+
+## 2026-11-07 Node.js 20.19.0 后续验证
+
+后续使用官方校验的 Node.js 20.19.0 与 pnpm 10.28.2，在隔离源码副本完成 frozen 安装、无缓存全仓 build 6/6、type-check 10/10、test 8/8，以及 18 项契约、71 项脚本防护。完整 API coverage 为 904 passed / 1 skipped，全局 lines 82.18%、branches 68.71%；工件仓储新增 19 项有意义的安全回归后达到该路径门槛，未降低任何阈值。根入口真实 PostgreSQL 集成为 172 passed / 1 skipped，20 项迁移已在同一新建测试库应用，漂移检查无发现。真实 Chromium 3 项通过仍只覆盖账户、CSRF 和 QA 人工签字；mock API UI review 54 项不能当作完整产品闭环。首次失败、修复、各次来源及日志摘要见[质量收尾记录](testing/quality-closeout-2026-11-07.md)。
+
+当时的 Box ZIP 为 197865930 字节，SHA-256 `96d555cd90526eee9b3ad6aaf541fdb2d1bbb604d6b155c26f3e1a70b24ec49e`；CLI ZIP 为 36718187 字节，SHA-256 `f7c1ed041b90c51be34028a56ad2c757c8190c3941e14bbd923463552632ae30`。该包已纳入 Knowledge 输入变化、共享 IP 修复和依赖处置，同包完整本机生命周期通过：20 项迁移、四阶段健康、备份验证、55 张表、恢复标记及自有服务停止。该 ZIP 的独立扫描、bundle 验证、两份 CycloneDX 1.7 校验及 62+30 项防护通过；Box 仍为 276 条组件、23 条 UNKNOWN，独立 CLI 的 Syft 记录仍只有 Node，整体继续 `DRAFT_PARTIAL_COVERAGE`。完整输入绑定和覆盖缺口见[制品扫描](testing/artifact-sbom-validation-2026-11-07.md)、[bundle 验证](testing/bundle-evidence-validation-2026-11-07.md)和[UNKNOWN 分类](testing/artifact-unknown-classification-2026-11-07.md)。
+
+工作区依赖的 esbuild、glob 和 minimatch 公告路径已用限定调用方的兼容覆盖处置，deepmerge 加入本地补丁并通过 12 项回归；全量审计为 840 个依赖、1 项低危，其余严重程度为零，生产 166 个依赖零项。deepmerge 的版本公告继续保留，无审计忽略或风险豁免，详见[依赖处置记录](security/dependency-audit-2026-11-07.md#同日后续兼容覆盖与本地补丁)。上述各项均来自 `739367a` 加未提交改动的本机快照，仍未满足最终 clean SHA、远端 CI、新机、旧版本升级、卸载、生产或外部真实团队验收，不能把 P0/P1/P2 标记为全部完成。
+
+## 2026-11-07 基线、列表与页面后续验证
+
+正式 PRD/Understanding 发布已在同一事务推进基线、失效受影响任务与开放评审、保留历史，并生成角色确认通知。九项真实数据库回归和新增真实浏览器链覆盖旧认领及快照拒绝、新基线交付、三角色确认和重新批准。详情页标签切换竞争已修复，Web 单测 529 项和最终真实 Chromium 四项通过。API 完整覆盖率 923 passed / 1 skipped，全局 lines 82.93%、branches 69.57%；真实集成 181 passed / 1 skipped。跳过项仍为真实 Ollama POC。这些后续检查不能改写前述全仓快照的时间和范围。详见[基线变更验收](testing/baseline-change-validation-2026-11-07.md)。
+
+修订列表已改为只读元数据，去除正文加载；真实本地单次微基准显示仓储方法 p50 从 59.2194 ms 到 3.7751 ms，100 个 128 KiB 修订的逻辑正文读取从 12.5 MiB 到零。该结果不代表 HTTP、并发容量或生产延迟；历史行数、N+1 及其他列表聚合仍需设计，见[分页审查](testing/pagination-review-2026-11-07.md)。
+
+含上述冻结改动的最新本机 Box 为 `554eae8b559c33f2cf771fae36eb4163aaca1c2bd976287da1c302e3c9035c6e`，CLI 为 `6c5bd81bd745971856337aff6febe0e76a431857714ba0f47db6fb24f56f1780`。同包完整生命周期、实际 ZIP 扫描、模块侧车和两份 CycloneDX 1.7 校验通过，SBOM 仍部分覆盖。具体长度、摘要和来源见[质量收尾](testing/quality-closeout-2026-11-07.md#同日后续基线失效列表优化与最新本机包)。本机包和验证绑定该轮冻结源码，不自动涵盖其后工作树的并行改动。
+
 ## 当前仍未验证
 
+统一的 `pnpm verify` 已接入 CI。2026-11-09 r8 的 901 文件完整通过保留历史范围；r12 的完整浏览器失败和独立 UI 失败也没有改写。r13 由 r12 的 915 个冻结文件加三个最小测试修复构成，frozen 安装成功，冻结前无 dist/generated client；在新空库完整运行 exit 0 / LOCAL_QUALITY_PASSED：API 812、Web 556、CLI 288 passed / 2 skipped、脚本 240 passed / 1 skipped、真实 PostgreSQL 194 passed / 1 skipped、Chromium 4/4、UI 55/55、API coverage 1006 passed / 1 skipped，lines 83.39%（5995/7189）、branches 70.54%（4548/6447）。20 项正式迁移、18 项契约、无缓存生产构建 6/6 和 schema drift 均通过，915 个文件后置指纹一致。清单 SHA256 为 `d5f9c6c7afd9e73fd9a2fa85a2cacb1cf07a5c932b22d4921c4cdc7308aa596b`，完整日志为 `d17d33f102fde6be4862df4aa723928ea25cebc632fc4dc165d06d31c4840fdc`，稳定证据在 `G:/yesgoo/workmesh-validation/20261109-r13/completed/`。本次状态文字和后续并发 live 修改不属于该清单。
+
+生产首页为 6 个 JS 文件、284314 B raw / 94516 B gzip，入口为 239134 B raw / 78646 B gzip；React 生产实现 8 个、开发实现 0 个。原始首屏 <200000 B 目标仍开放，gzip 是本机逐文件 level 6 估算。2026-11-10 同源 small/history 两组 HTTP 基准实际 exit 0 / PASS，各 160 个测量请求零错误、16 个权限探针通过，Board `limit=7` 遍历分别以 4/25 个正确性请求验证 5/50 个任务和需求，两库独立 SQL 确认 53 张业务表全零，源码 915 文件后置无变。history 为 100 文档 × 100 修订，文档列表响应仍达 5352332 B、并发 8 p95 为 1453.4321 ms，显现修订历史读取放大；不是生产容量承诺。原 PostgreSQL 进程在 11 月 9 日异常退出，次日重启并重新核验后才运行基准，不能据这些成功结果称服务连续稳定，详见[HTTP 基准记录](testing/api-benchmark.md)。
+
+Board 已实现准确统计、全局筛选和服务端分页；文档修订、需求完整历史、ready 扫描预算、flow metrics 和 Workbench 完整性仍需逐项整改，见[分页审查](testing/pagination-review-2026-11-07.md)。109 处 findMany 的全量语义清单是历史盘点，不能当作后续并发 live 源码的当前计数或容量验收。
+
+2026-11-10 从 r13 实际生产输出重新生成的 Box `09d0d2ba…` / CLI `7c06512d…` 已完成同包隔离生命周期与独立扫描。20 项冻结迁移、四阶段健康、55 表备份、恢复标记和自有服务停止通过；扫描与两份 CycloneDX 1.7、许可证文本字节核验通过。915 源码和 807 项选定打包输入仍一致。整体继续为 `DRAFT_PARTIAL_COVERAGE`，不等于完整原生许可或正式发布，也不覆盖后续 live 改动。发布入口已加入 Security 与 CI、Platform smoke 同 SHA 联动；18 项门禁回归通过，真实远端结果仍待。详情见[同包生命周期](testing/box-lifecycle-validation-2026-11-07.md)、[制品扫描](testing/artifact-sbom-validation-2026-11-07.md)和[许可证分发验收](testing/license-distribution-validation-2026-11-07.md)。
+
 1. GitHub live：真实仓库、PR、reviews 分页、Webhook 投递和提交级代码证据的端到端联调。
-2. 完整浏览器产品闭环：需求详情、任务交付、评审决定、发布和变更传播；跨浏览器与无障碍验收。
+2. 完整浏览器产品闭环：代码项目从 IMPL 到 RELEASE 的发布链、超出上述范围的变更传播；跨浏览器与无障碍验收。
 3. 生产运维：生产库迁移、生产备份恢复、升级回滚、容量、长时间稳定性和灾备。
-4. 跨平台：Linux/macOS 的安装、服务管理、备份恢复和卸载验收。
+4. 安装生命周期：Windows 最终制品的新机、旧版本升级与卸载仍待；Linux/macOS 安装、服务管理及恢复是扩大平台支持范围前的门禁。
 5. 外部使用证据：尚无外部真实团队完成并签署一条交付链路。
-6. 未来协议：澄清服务 API、任务精确恢复、15 章 PRD、原型 verify 和产品/QA 归档闭环仍在开发计划中。
+6. 未来协议：澄清服务 API、任务精确恢复、15 章 PRD、原型 verify 和产品/QA 归档闭环仍在开发计划中，应作为路线图公布，并按实际完成范围说明开发版能力。
+
+## 2026-11-10 工作台交互模块按需加载
+
+后续 live 的 ChangeDrawer 静态 shared 依赖使隔离生产首页达到 468746 B raw。仅叠加工作台两个窗口的按需加载及相关测试四文件后，首页降至 **284700 B raw / 94926 B gzip**，减少 184046 B / 39.26%，原 `<200000 B raw` 目标仍未达。该比较用同一份 1025 文件基线加四文件覆盖得到 1027 文件，没有混入同时进行的 API/CLI/shared 修改；运行后指纹一致。Web 658/658、类型检查、定向 ESLint、生产构建及生产 Chromium 的三项受控脚本加载/关闭/失败检查均实际通过。首次旧同步单测失败和浏览器 harness 焦点预期失败各自保留，见[按需加载验收](testing/workbench-dialog-loading-validation-2026-11-10.md)。本切片未重跑 API/数据库/完整门禁、未重新打包；r13 的完整门禁和包不覆盖该四文件，当前 live 其他改动也未自动纳入此轮。
+
+Prisma 5 → 6 的精确候选、审计关联兼容、引擎矩阵和旧包升级/回退方案已形成[升级计划](operations/prisma-6-upgrade-plan.md)，补齐原 P2 的计划要求；依赖仍为 5.22.0，升级验收均未执行。
 
 ## 解释
 

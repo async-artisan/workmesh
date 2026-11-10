@@ -23,7 +23,10 @@ test('real registration, cookie session, lazy pages, reload and logout', async (
   ).toEqual([]);
 
   await page.goto('/projects');
-  await page.getByRole('button', { name: '新建项目', exact: true }).click();
+  await page
+    .locator('header.page-head')
+    .getByRole('button', { name: '新建项目', exact: true })
+    .click();
   const projectName = `Browser project ${randomUUID()}`;
   const projectKey = Array.from({ length: 6 }, () => String.fromCharCode(65 + randomInt(26))).join(
     '',

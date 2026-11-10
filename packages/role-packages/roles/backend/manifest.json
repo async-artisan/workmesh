@@ -1,7 +1,7 @@
 {
   "packageSchemaVersion": "1.1",
   "id": "workmesh.role.backend",
-  "version": "1.1.0",
+  "version": "1.2.2",
   "protocolVersion": "1.0",
   "title": "后端角色包",
   "description": "把 PRD 转成可并行的接口契约，按契约实现并交付可验证证据。",
@@ -30,6 +30,18 @@
       "path": "skills/attach-evidence/SKILL.md",
       "description": "收集提交级证据与检查结果，组成可复核的交付。",
       "whenToUse": "实现完成、准备交付时。"
+    },
+    {
+      "key": "plan-change",
+      "path": "skills/plan-change/SKILL.md",
+      "description": "调查既有实现并记录技术取舍，按验收场景拆解带文件归属的任务。",
+      "whenToUse": "老项目接入、跨模块改动或复杂契约变更需要规划时。"
+    },
+    {
+      "key": "diagnose-bug",
+      "path": "skills/diagnose-bug/SKILL.md",
+      "description": "保存原始复现、定位根因、限定修复并记录实际复验结果。",
+      "whenToUse": "既有行为损坏，需要诊断和修复时。"
     }
   ],
   "inputs": [
@@ -80,6 +92,14 @@
   ],
   "resources": [
     {
+      "id": "template-change-plan",
+      "kind": "template",
+      "path": "assets/templates/change-plan.md",
+      "sha256": "830b2b7d8aa03396eaf2e47ef9ad9ded9a186d3643722afcc4cf14e56ae9baca",
+      "byteLength": 1528,
+      "mediaType": "text/markdown"
+    },
+    {
       "id": "template-contract",
       "kind": "template",
       "path": "assets/templates/contract.md",
@@ -91,7 +111,7 @@
       "id": "template-impl",
       "kind": "template",
       "path": "assets/templates/impl.md",
-      "sha256": "a35f8362c4ba99182da42b39627661afc1f3aec29339038fbef65cd91a3d6938",
+      "sha256": "761a1be26b825b47fd7a38a7761f80172b8cbb7738a6d47956643a011cb54aee",
       "byteLength": 908,
       "mediaType": "text/markdown"
     },
@@ -104,11 +124,19 @@
       "mediaType": "text/markdown"
     },
     {
+      "id": "checklist-spec-driven",
+      "kind": "checklist",
+      "path": "checklists/spec-driven.md",
+      "sha256": "d0f3d468bd25d3c0da8d1cd48955e25e821803ffe7e0f9117e9637f084ded542",
+      "byteLength": 1253,
+      "mediaType": "text/markdown"
+    },
+    {
       "id": "guide",
       "kind": "prompt",
       "path": "guide.md",
-      "sha256": "1de9edf872f465e139c64eecb59bdd1a766b144dbceea4e43fe13dd611616f22",
-      "byteLength": 2433,
+      "sha256": "3468003131caea11d551d566a6df72d9851b2a692e8f97da2099233e17966a7e",
+      "byteLength": 3972,
       "mediaType": "text/markdown"
     },
     {
@@ -131,8 +159,16 @@
       "id": "skill-design-contract",
       "kind": "skill",
       "path": "skills/design-contract/SKILL.md",
-      "sha256": "ae12d626347f5f9ce0840691e5aa7a73624604203394824237aed254dfb01521",
-      "byteLength": 1618,
+      "sha256": "dc5b1da4d174f24da1e7b26b393beeeb43178078b708c63b116952826e391e99",
+      "byteLength": 1793,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "skill-diagnose-bug",
+      "kind": "skill",
+      "path": "skills/diagnose-bug/SKILL.md",
+      "sha256": "c1a3dabbf8aaf1385f35e883ad1422d078aeeb3756e8893e7cdd8172d168f51d",
+      "byteLength": 1234,
       "mediaType": "text/markdown"
     },
     {
@@ -147,8 +183,16 @@
       "id": "skills-index",
       "kind": "index",
       "path": "skills/index.md",
-      "sha256": "c5536fdd9bd69df0b30e0610db91c1adcfba52862254bdabe82695727b4fa533",
-      "byteLength": 982,
+      "sha256": "a7f8e7411e514e34ecf241a90b7e6e378c620cb9bd858f1f1b9c95d037037211",
+      "byteLength": 1424,
+      "mediaType": "text/markdown"
+    },
+    {
+      "id": "skill-plan-change",
+      "kind": "skill",
+      "path": "skills/plan-change/SKILL.md",
+      "sha256": "806d12def1507648159f14b1ab5f4c16e7af4df16e785775f9d1191a8485f853",
+      "byteLength": 1942,
       "mediaType": "text/markdown"
     }
   ],

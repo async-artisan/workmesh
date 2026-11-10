@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { formatApiError } from '../api/client';
 import {
@@ -16,7 +16,7 @@ import { InlineLoading, SkeletonLines, TableSkeletonRows } from '../components/S
 import { WorkflowInstanceDialog } from '../components/WorkflowInstanceDialog';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { useAuthStore } from '../store/auth';
-import { describeRequirementState, phaseLabelOf } from '../lib/pipelineStatus';
+import { describeRequirementState, PIPELINE_PHASE_DEFINITIONS } from '../lib/pipelineStatus';
 import { publishedWorkflowDefinitions } from '../lib/workflowInitState';
 
 /**
@@ -63,19 +63,31 @@ export function Requirements() {
   const [createError, setCreateError] = useState('');
   const [workflowTarget, setWorkflowTarget] = useState<RequirementView | null>(null);
   const [query, setQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [phaseFilter, setPhaseFilter] = useState('');
-  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<{ key: string; cursors: Array<string | undefined> }>(
+    {
+      key: '',
+      cursors: [undefined],
+    },
+  );
+  const [total, setTotal] = useState<number | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [listLoading, setListLoading] = useState(false);
-  // 记录列表已加载完成的项目：换了项目但还没拿到数据时，必须显示骨架而不是空态。
-  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+  const [setupError, setSetupError] = useState('');
+  const [setupProjectId, setSetupProjectId] = useState<string | null>(null);
+  const [loadedListKey, setLoadedListKey] = useState<string | null>(null);
   const loadRequestRef = useRef(0);
   const PAGE_SIZE = 12;
+  const listKey = JSON.stringify([projectId, searchQuery, phaseFilter]);
+  const cursors = pagination.key === listKey ? pagination.cursors : [undefined];
+  const page = cursors.length;
+  const cursor = cursors[page - 1];
+  const pageKey = JSON.stringify([listKey, cursor]);
   // 项目列表还在加载、尚未选出当前项目时，列表同样属于“首屏加载中”，不能先闪空态。
   const awaitingProject = !projectId && projectListLoading;
-  const firstLoad = Boolean(projectId) && loadedProjectId !== projectId;
-  const listPending = firstLoad || awaitingProject;
+  const firstLoad = Boolean(projectId) && loadedListKey !== pageKey;
+  const listPending = firstLoad || awaitingProject || query.trim() !== searchQuery;
   const showListLoading = listPending || listLoading;
 
   useEffect(() => {
@@ -96,9 +108,11 @@ export function Requirements() {
   const emptyListText = error
     ? '加载失败，请重试。'
     : projectId
-      ? items.length === 0
-        ? '还没有需求，点右上角「新建需求」创建。'
-        : '没有匹配的需求，清空搜索或阶段筛选。'
+      ? searchQuery || phaseFilter
+        ? '没有匹配的需求，清空搜索或阶段筛选。'
+        : page > 1
+          ? '当前页没有需求，请返回上一页。'
+          : '还没有需求，点右上角「新建需求」创建。'
       : '先选择项目。';
 
   /** 表格与卡片共用同一套行内操作，避免窄屏丢失「详情 / 初始化流程」入口。 */
@@ -140,88 +154,86 @@ export function Requirements() {
     );
   }
 
-  const phaseOptions = useMemo(() => [...new Set(items.map((item) => item.phase))].sort(), [items]);
-
-  const filteredRequirements = useMemo(() => {
-    const text = query.trim().toLowerCase();
-    return items.filter((item) => {
-      if (phaseFilter && item.phase !== phaseFilter) return false;
-      if (!text) return true;
-      return [item.code, item.title, item.description ?? ''].join(' ').toLowerCase().includes(text);
-    });
-  }, [items, phaseFilter, query]);
-
-  const pageCount = Math.max(1, Math.ceil(filteredRequirements.length / PAGE_SIZE));
-  const visibleRequirements = filteredRequirements.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchQuery(query.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [query]);
 
   useEffect(() => {
-    setPage(1);
-  }, [projectId, phaseFilter, query]);
+    setPagination({ key: listKey, cursors: [undefined] });
+  }, [listKey]);
 
-  useEffect(() => {
-    if (page > pageCount) setPage(pageCount);
-  }, [page, pageCount]);
-
-  async function load() {
+  const load = useCallback(async () => {
     // 切项目 / 并发刷新时，旧请求的响应不允许覆盖新一轮列表与首屏状态。
     const requestId = ++loadRequestRef.current;
     if (!projectId) {
       setItems([]);
-      setRoles([]);
-      setMembers([]);
-      setDefinitions([]);
       setNextCursor(null);
+      setTotal(null);
       setListLoading(false);
       return;
     }
     setListLoading(true);
     try {
-      const [requirementPage, memberList, roleList, definitionPage] = await Promise.all([
-        requirementApi.list(projectId),
-        projectApi.members(projectId),
-        projectApi.roles(projectId),
-        workflowApi.listDefinitions(projectId),
-      ]);
+      const requirementPage = await requirementApi.list(projectId, {
+        limit: PAGE_SIZE,
+        cursor,
+        q: searchQuery,
+        phase: phaseFilter,
+      });
       if (requestId !== loadRequestRef.current) return;
       setItems(requirementPage.items);
       setNextCursor(requirementPage.nextCursor ?? null);
-      setMembers(memberList);
-      setRoles(roleList);
-      setDefinitions(definitionPage.items);
+      setTotal(requirementPage.total ?? null);
       setError('');
-      setLoadedProjectId(projectId);
+      setLoadedListKey(pageKey);
     } catch (caught) {
       if (requestId !== loadRequestRef.current) return;
       setError(formatApiError(caught));
+      setItems([]);
+      setNextCursor(null);
+      setTotal(null);
       // 失败也要结束首屏骨架：显示错误提示而不是无限转圈或空态文案。
-      setLoadedProjectId(projectId);
+      setLoadedListKey(pageKey);
     } finally {
       if (requestId === loadRequestRef.current) setListLoading(false);
     }
-  }
-
-  /** 服务端游标分页：首屏只取第一页，列表底部明确提供「加载更多」，不静默丢掉 >limit 的需求。 */
-  async function loadMore() {
-    if (!projectId || !nextCursor || loadingMore) return;
-    setLoadingMore(true);
-    try {
-      const page = await requirementApi.list(projectId, nextCursor);
-      setItems((previous) => {
-        const byId = new Map(previous.map((item) => [item.id, item]));
-        for (const item of page.items) byId.set(item.id, item);
-        return [...byId.values()];
-      });
-      setNextCursor(page.nextCursor ?? null);
-      setError('');
-    } catch (caught) {
-      setError(formatApiError(caught));
-    } finally {
-      setLoadingMore(false);
-    }
-  }
+  }, [projectId, cursor, searchQuery, phaseFilter, pageKey]);
 
   useEffect(() => {
     void load();
+    return () => {
+      loadRequestRef.current += 1;
+    };
+  }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMembers([]);
+    setRoles([]);
+    setDefinitions([]);
+    setSetupError('');
+    setSetupProjectId(null);
+    if (projectId) {
+      void Promise.all([
+        projectApi.members(projectId),
+        projectApi.roles(projectId),
+        workflowApi.listDefinitions(projectId),
+      ])
+        .then(([memberList, roleList, definitionPage]) => {
+          if (cancelled) return;
+          setMembers(memberList);
+          setRoles(roleList);
+          setDefinitions(definitionPage.items);
+          setSetupProjectId(projectId);
+        })
+        .catch((caught) => {
+          if (!cancelled) setSetupError(formatApiError(caught));
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
   }, [projectId]);
 
   async function create() {
@@ -258,7 +270,7 @@ export function Requirements() {
             这里提交最小产品意图并查看状态；PRD、知识和实现产物由本地 Agent 生成后送入 Web
             评审。流程实例由项目管理员初始化。
           </p>
-          {!listPending && !error && definitions.length === 0 && (
+          {!listPending && !error && setupProjectId === projectId && definitions.length === 0 && (
             <p className="page-sub wm-definition-hint">当前项目还没有已发布的流程定义。</p>
           )}
         </div>
@@ -283,6 +295,14 @@ export function Requirements() {
       {error && (
         <p className="error" role="alert">
           {error}
+          <button className="ghost" disabled={listLoading} onClick={() => void load()}>
+            重试加载需求
+          </button>
+        </p>
+      )}
+      {setupError && (
+        <p className="error" role="alert">
+          项目成员、角色或流程定义加载失败：{setupError}
         </p>
       )}
       {notice && <p className="kb-notice">{notice}</p>}
@@ -293,7 +313,7 @@ export function Requirements() {
             需求列表
             {!listPending && (
               <small>
-                {filteredRequirements.length} / {items.length}
+                {items.length} / {total ?? '总数待确认'}
               </small>
             )}
           </h3>
@@ -313,9 +333,9 @@ export function Requirements() {
               onChange={(event) => setPhaseFilter(event.target.value)}
             >
               <option value="">全部阶段</option>
-              {phaseOptions.map((phase) => (
-                <option key={phase} value={phase}>
-                  {phaseLabelOf(phase)}
+              {PIPELINE_PHASE_DEFINITIONS.map((phase) => (
+                <option key={phase.key} value={phase.key}>
+                  {phase.label}
                 </option>
               ))}
             </select>
@@ -335,7 +355,7 @@ export function Requirements() {
               ))
             ) : (
               <>
-                {visibleRequirements.map((item) => {
+                {items.map((item) => {
                   const state = describeRequirementState(item);
                   return (
                     <li key={item.id} className="wm-mobile-card" data-testid="requirement-card">
@@ -364,9 +384,7 @@ export function Requirements() {
                     </li>
                   );
                 })}
-                {visibleRequirements.length === 0 && (
-                  <li className="wm-mobile-empty">{emptyListText}</li>
-                )}
+                {items.length === 0 && <li className="wm-mobile-empty">{emptyListText}</li>}
               </>
             )}
           </ul>
@@ -393,7 +411,7 @@ export function Requirements() {
                   <TableSkeletonRows rows={5} columns={7} />
                 ) : (
                   <>
-                    {visibleRequirements.map((item) => {
+                    {items.map((item) => {
                       const state = describeRequirementState(item);
                       return (
                         <tr key={item.id}>
@@ -421,7 +439,7 @@ export function Requirements() {
                         </tr>
                       );
                     })}
-                    {visibleRequirements.length === 0 && (
+                    {items.length === 0 && (
                       <tr className="table-empty">
                         <td colSpan={7}>{emptyListText}</td>
                       </tr>
@@ -432,35 +450,32 @@ export function Requirements() {
             </table>
           </div>
         )}
-        {filteredRequirements.length > PAGE_SIZE && (
+        {!listPending && (page > 1 || nextCursor || (total !== null && total > PAGE_SIZE)) && (
           <div className="table-pagination">
             <span>
-              第 {page} / {pageCount} 页 · 共 {filteredRequirements.length} 条
+              {total === null
+                ? `第 ${page} 页 · 当前页 ${items.length} 条`
+                : `第 ${page} / ${Math.max(1, Math.ceil(total / PAGE_SIZE))} 页 · 共 ${total} 条`}
             </span>
             <div>
               <button
                 className="ghost"
-                disabled={page <= 1}
-                onClick={() => setPage((value) => Math.max(1, value - 1))}
+                disabled={page <= 1 || listLoading}
+                onClick={() => setPagination({ key: listKey, cursors: cursors.slice(0, -1) })}
               >
                 上一页
               </button>
               <button
                 className="ghost"
-                disabled={page >= pageCount}
-                onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+                disabled={!nextCursor || listLoading}
+                onClick={() => {
+                  if (nextCursor)
+                    setPagination({ key: listKey, cursors: [...cursors, nextCursor] });
+                }}
               >
                 下一页
               </button>
             </div>
-          </div>
-        )}
-        {nextCursor && (
-          <div className="table-pagination">
-            <span>已加载 {items.length} 条，服务端还有更多需求</span>
-            <button className="ghost" disabled={loadingMore} onClick={() => void loadMore()}>
-              {loadingMore ? '加载中…' : '加载更多'}
-            </button>
           </div>
         )}
       </div>

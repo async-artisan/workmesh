@@ -14,6 +14,7 @@
 ```bash
 workmesh auth login
 
+workmesh context --task <taskId> --inspect
 workmesh claim --task <taskId>
 workmesh context --task <taskId> --claim <claimId> --expected-version <taskVersion> --materialize
 
@@ -26,9 +27,11 @@ workmesh deliver \
   --expected-version <taskVersion> \
   --manifest deliver-manifest.json
 
-# 交付完成后请求人工验收（subject 是刚交付的 artifact set）
-workmesh review --artifact-set <artifactSetId> --expected-version <artifactSetVersion>
+# 使用 deliver 返回的真实 reviewRequestId 查询自动创建的评审
+workmesh review show --review <reviewRequestId>
 ```
+
+`deliver` 返回 `reviewRequestId`、Web 地址和 `operationId`，不用再次创建同一轮评审。输出丢失时，用 `workmesh receipt show --operation <原交付operationId> --json` 读取 `data.resultRefs.reviewRequestId`；收据仍为 PENDING 或结果未知时，先用原操作编号执行 `workmesh receipt reconcile --operation <原交付operationId>`。正式决定仍由 HUMAN 在 Web 完成。
 
 ## deliver manifest 要点
 
@@ -59,4 +62,8 @@ workmesh review --artifact-set <artifactSetId> --expected-version <artifactSetVe
 
 - 写操作不自动重试：用同一个 `--operation <uuid>` 重放，避免重复交付。
 - 结果不明时先 `workmesh receipt show --operation <uuid>`，不要直接再交一次。
-- 验收被要求修改：在同一 claim 下补充交付并再次 `workmesh review`。
+- 验收被要求修改：按当前任务和 claim 状态返修后重新 `deliver`，再用本轮返回的 `reviewRequestId` 执行 `review show`；新交付会自动创建本轮评审。
+
+## 规格与交付自检
+
+开工或返修时按 `checklists/spec-driven.md` 核对范围、依据、版本与交接；只读取当前阶段需要的资源。

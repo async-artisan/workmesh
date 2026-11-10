@@ -47,6 +47,14 @@ if (-not $SkipBuild) {
   Run 'pnpm' @('--filter','@workmesh/cli','build')
   Run 'pnpm' @('--filter','@workmesh/box','build')
 }
+$bundleVerifier = Join-Path $scriptRoot 'verify-bundle-evidence.mjs'
+Require-Path $bundleVerifier 'Bundle evidence verifier'
+$licensePackager = Join-Path $scriptRoot 'package-licenses.mjs'
+Require-Path $licensePackager 'Distribution license-text packager'
+Require-Path (Join-Path $root 'LICENSE') 'WorkMesh license'
+foreach ($bundleDist in @('apps\cli\dist', 'apps\web\dist')) {
+  Run $NodeExe @($bundleVerifier, (Join-Path $root $bundleDist))
+}
 New-Item -ItemType Directory -Force -Path $releasePath, "$releasePath\runtime", "$releasePath\app", "$releasePath\roles", "$releasePath\scripts" | Out-Null
 Copy-Item -LiteralPath $NodeExe -Destination "$releasePath\runtime\node.exe" -Force
 $pgRuntime = "$releasePath\runtime\pgsql"
@@ -60,15 +68,21 @@ foreach ($name in @('extension','locale','timezone','timezonesets','tsearch_data
 Get-ChildItem -LiteralPath $pgShare -File | Copy-Item -Destination "$pgRuntime\share" -Force
 Copy-Tree (Join-Path $root 'apps\web\dist') "$releasePath\app\web\dist"
 Copy-Tree (Join-Path $root 'apps\cli\dist') "$releasePath\app\cli\dist"
+Run $NodeExe @($bundleVerifier, "$releasePath\app\cli\dist")
+Run $NodeExe @($bundleVerifier, "$releasePath\app\web\dist")
 Copy-Tree (Join-Path $root 'packages\box\dist') "$releasePath\app\box\dist"
 Copy-Item -LiteralPath (Join-Path $root 'apps\cli\package.json') -Destination "$releasePath\app\cli\package.json" -Force
+foreach ($component in @('apps\cli','apps\web')) {
+  $componentName = Split-Path $component -Leaf
+  Copy-Item -LiteralPath (Join-Path $root "$component\LICENSE") -Destination "$releasePath\app\$componentName\LICENSE" -Force
+}
 Copy-Item -LiteralPath (Join-Path $root 'packages\box\package.json') -Destination "$releasePath\app\box\package.json" -Force
 Copy-Tree (Join-Path $root 'packages\role-packages\roles') "$releasePath\roles"
 $apiOut = "$releasePath\app\api"
 New-Item -ItemType Directory -Force -Path $apiOut | Out-Null
-# Keep devDependencies in this deployment because install.ps1 runs Prisma's
-# migration CLI from app\api\node_modules\prisma during first-run setup.
-Run 'pnpm' @('--filter','@workmesh/api','deploy','--legacy',$apiOut)
+# Prisma is an explicit runtime dependency because install.ps1 runs its migration
+# CLI during first-run setup. Build and test tools are not needed in the Box.
+Run 'pnpm' @('--filter','@workmesh/api','deploy','--legacy','--prod',$apiOut)
 foreach ($requiredApiPath in @(
   (Join-Path $apiOut 'dist\main.js'),
   (Join-Path $apiOut 'prisma\schema.prisma'),
@@ -92,6 +106,7 @@ foreach ($packageName in @('shared','role-packages')) {
   }
   New-Item -ItemType Directory -Force -Path $packageTarget | Out-Null
   Copy-Item -LiteralPath (Join-Path $packageSource 'package.json') -Destination $packageTarget -Force
+  if (Test-Path -LiteralPath (Join-Path $packageSource 'LICENSE')) { Copy-Item -LiteralPath (Join-Path $packageSource 'LICENSE') -Destination $packageTarget -Force }
   Copy-Tree (Join-Path $packageSource 'dist') (Join-Path $packageTarget 'dist')
   if ($packageName -eq 'role-packages') { Copy-Tree (Join-Path $packageSource 'roles') (Join-Path $packageTarget 'roles') }
 }
@@ -114,7 +129,9 @@ Set-Content -LiteralPath "$cliStage\workmesh.cmd" -Encoding ASCII -Value '@echo 
 Add-Content -LiteralPath "$cliStage\workmesh.cmd" -Encoding ASCII -Value '"%~dp0runtime\node.exe" "%~dp0app\cli\index.js" %*'
 # Validate the staged distribution, including package bytes and setup from an
 # unrelated business directory, before publishing the downloadable archive.
+Run $NodeExe @($bundleVerifier, "$cliStage\app\cli")
 Run $NodeExe @((Join-Path $scriptRoot 'verify-cli-package.mjs'), $cliStage)
+Run $NodeExe @($licensePackager, 'cli', $root, $cliStage, $NodeExe)
 $cliZip = "$downloads\workmesh-cli-win-x64.zip"
 Compress-Archive -Path "$cliStage\*" -DestinationPath $cliZip -Force
 $cliHash = (Get-FileHash $cliZip -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -133,16 +150,18 @@ $writtenManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Jso
 if ([System.IO.Path]::IsPathRooted([string]$writtenManifest.node)) { throw 'Release manifest node path must be relative to the package root.' }
 Require-Path (Join-Path $releasePath ([string]$writtenManifest.node)) 'Packaged Node runtime from release manifest'
 $releaseDownloadPage = '<!doctype html><meta charset="utf-8"><title>WorkMesh Downloads</title><h1>WorkMesh Downloads</h1><p><a href="/download/workmesh-box-win-x64.zip">Windows x64 Box Package</a> <a href="/download/workmesh-box-win-x64.zip.sha256">SHA-256</a></p><p><a href="/download/workmesh-cli-win-x64.zip">Windows x64 CLI ZIP</a> <a href="/download/workmesh-cli-win-x64.zip.sha256">SHA-256</a></p>'
-Set-Content -LiteralPath "$downloads\index.html" -Encoding UTF8 -Value $releaseDownloadPage
 $archive = Join-Path (Split-Path $releasePath -Parent) ((Split-Path $releasePath -Leaf) + '.zip')
 $archiveDownload = "$downloads\workmesh-box-win-x64.zip"
 if (Test-Path $archive) { Remove-Item $archive -Force }
 if (Test-Path $archiveDownload) { Remove-Item $archiveDownload -Force }
+Run $NodeExe @($licensePackager, 'box', $root, $releasePath, $NodeExe, $PostgresRoot)
 Compress-Archive -Path "$releasePath\*" -DestinationPath $archive -Force
 Copy-Item -LiteralPath $archive -Destination $archiveDownload -Force
 $archiveHash = (Get-FileHash $archiveDownload -Algorithm SHA256).Hash.ToLowerInvariant()
 $archiveHashLine = $archiveHash + '  workmesh-box-win-x64.zip'
 Set-Content -LiteralPath "$archiveDownload.sha256" -Encoding ASCII -Value $archiveHashLine
 Set-Content -LiteralPath "$archive.sha256" -Encoding ASCII -Value ($archiveHash + '  ' + [System.IO.Path]::GetFileName($archive))
+# The archive contains the CLI-only page; expose its own download only after it exists.
+Set-Content -LiteralPath "$downloads\index.html" -Encoding UTF8 -Value $releaseDownloadPage
 Write-Host "Windows box package ready: $releasePath" -ForegroundColor Green
 Write-Host "Download archive: $archiveDownload" -ForegroundColor Green

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@workmesh/shared';
 import {
   actionDigestOf,
@@ -282,6 +282,9 @@ function repository(state: State): V1PublicationRepository {
       // bob 只被指派为 rev-1 的评审者
       return revisionId === 'rev-1' && state.reviewers.includes(userId);
     },
+    async listAssignedReviewerRevisionIds(revisionIds, userId) {
+      return revisionIds.filter((id) => id === 'rev-1' && state.reviewers.includes(userId));
+    },
     async findRequirement(requirementId) {
       return requirementId === 'req-1'
         ? {
@@ -440,6 +443,21 @@ describe('V1PublicationService', () => {
 
   it('shows a candidate to the explicitly assigned reviewer', async () => {
     await expect(service.getRevision(reviewer, 'rev-1')).resolves.toMatchObject({ id: 'rev-1' });
+  });
+
+  it('retains the single-revision reviewer lookup and propagates its errors', async () => {
+    const failure = new Error('Single revision lookup unavailable');
+    const isAssignedReviewer = vi.fn().mockRejectedValue(failure);
+    const listAssignedReviewerRevisionIds = vi.fn();
+    const instance = build(null, {
+      ...repository(state),
+      isAssignedReviewer,
+      listAssignedReviewerRevisionIds,
+    });
+
+    await expect(instance.getRevision(reviewer, 'rev-1')).rejects.toBe(failure);
+    expect(isAssignedReviewer).toHaveBeenCalledExactlyOnceWith('rev-1', 'bob');
+    expect(listAssignedReviewerRevisionIds).not.toHaveBeenCalled();
   });
 
   it('hides a candidate from the author once the author loses READ', async () => {
@@ -616,6 +634,152 @@ describe('V1PublicationService', () => {
     // bob 只是 rev-1 的明确评审者，看不到他人候选
     const forReviewer = await service.listRevisions(reviewer, 'doc-1');
     expect(forReviewer.map((item) => item.id)).toEqual(['rev-1']);
+  });
+
+  describe.each(['history', 'detail', 'documents'] as const)('%s revision summaries', (kind) => {
+    async function readSummaries(principal: Principal, instance = service) {
+      if (kind === 'history') return instance.listRevisions(principal, 'doc-1');
+      if (kind === 'detail') return (await instance.getDocument(principal, 'doc-1')).revisions;
+      return (await instance.listDocuments(principal, 'p-a', {})).items[0]!.revisions;
+    }
+
+    it('preserves all visible metadata and order without returning bodyBytes', async () => {
+      const repo = repository(state);
+      const findRevision = vi.fn().mockRejectedValue(new Error('Summary must not load content'));
+      const instance = build(null, { ...repo, findRevision });
+      // The fake deliberately still returns full views: the public boundary must strip bytes too.
+      const summaries = await readSummaries(author, instance);
+
+      expect(summaries.map((item) => item.id)).toEqual(['rev-1', 'rev-2']);
+      const expected = revision();
+      delete (expected as Partial<V1RevisionView>).bodyBytes;
+      expect(summaries[0]).toEqual(expected);
+      for (const summary of summaries) expect(summary).not.toHaveProperty('bodyBytes');
+      expect(findRevision).not.toHaveBeenCalled();
+    });
+
+    it('still hides other authors candidates from READ-only members and reviewers', async () => {
+      await expect(readSummaries(reader)).resolves.toEqual([]);
+      const summaries = await readSummaries(reviewer);
+      expect(summaries.map((item) => item.id)).toEqual(['rev-1']);
+      expect(summaries[0]).not.toHaveProperty('bodyBytes');
+    });
+
+    it('batches reviewer checks while preserving all visibility states, metadata and history order', async () => {
+      const history = [
+        revision({ id: 'published', state: 'PUBLISHED', createdBy: 'dave' }),
+        revision({ id: 'assigned', createdBy: 'dave' }),
+        revision({ id: 'own-reader', createdBy: 'carol' }),
+        revision({ id: 'withdrawn', state: 'WITHDRAWN', createdBy: 'carol' }),
+        ...Array.from({ length: 1001 }, (_, index) =>
+          revision({ id: `candidate-${index}`, createdBy: 'dave', seq: 1001 - index }),
+        ),
+      ];
+      const assigned = new Set(['assigned', 'withdrawn', 'candidate-0', 'candidate-1000']);
+      const listAssignedReviewerRevisionIds = vi
+        .fn()
+        .mockImplementation(async (ids, userId) =>
+          userId === 'bob' ? ids.filter((id: string) => assigned.has(id)) : [],
+        );
+      const isAssignedReviewer = vi.fn().mockRejectedValue(new Error('Unexpected per-row lookup'));
+      const repo = {
+        ...repository(state),
+        listRevisions: vi.fn().mockResolvedValue(history),
+        listAssignedReviewerRevisionIds,
+        isAssignedReviewer,
+      };
+      const instance = build(null, repo);
+
+      for (const [principal, expectedIds] of [
+        [reviewer, ['published', 'assigned', 'candidate-0', 'candidate-1000']],
+        [reader, ['published', 'own-reader']],
+        [author, history.map((item) => item.id)],
+        [agentRead, ['published']],
+      ] as const) {
+        const summaries = await readSummaries(principal, instance);
+        expect(summaries.map((item) => item.id)).toEqual(expectedIds);
+        expect(listAssignedReviewerRevisionIds).toHaveBeenLastCalledWith(
+          history.map((item) => item.id),
+          principal.userId,
+        );
+        for (const summary of summaries) {
+          const expected = { ...history.find((item) => item.id === summary.id)! };
+          delete (expected as Partial<V1RevisionView>).bodyBytes;
+          expect(summary).toEqual(expected);
+        }
+      }
+      expect(listAssignedReviewerRevisionIds).toHaveBeenCalledTimes(4);
+      expect(isAssignedReviewer).not.toHaveBeenCalled();
+    });
+
+    it('resolves current assignments per request and fails closed on a lookup error', async () => {
+      const failure = new Error('Reviewer lookup unavailable');
+      const listAssignedReviewerRevisionIds = vi
+        .fn()
+        .mockResolvedValueOnce(['rev-1'])
+        .mockResolvedValueOnce([])
+        .mockRejectedValueOnce(failure);
+      const instance = build(null, { ...repository(state), listAssignedReviewerRevisionIds });
+
+      expect((await readSummaries(reviewer, instance)).map((item) => item.id)).toEqual(['rev-1']);
+      await expect(readSummaries(reviewer, instance)).resolves.toEqual([]);
+      await expect(readSummaries(reviewer, instance)).rejects.toBe(failure);
+      expect(listAssignedReviewerRevisionIds).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not look up assignments for empty history or bypass a revoked READ grant', async () => {
+      const listAssignedReviewerRevisionIds = vi.fn().mockResolvedValue(['rev-1']);
+      const empty = build(null, {
+        ...repository(state),
+        listRevisions: vi.fn().mockResolvedValue([]),
+        listAssignedReviewerRevisionIds,
+      });
+      await expect(readSummaries(reviewer, empty)).resolves.toEqual([]);
+      expect(listAssignedReviewerRevisionIds).not.toHaveBeenCalled();
+
+      const listRevisions = vi.fn().mockResolvedValue([revision()]);
+      const denied = new V1PublicationService(
+        { ...repository(state), listRevisions, listAssignedReviewerRevisionIds },
+        new V1AuthorizationService({
+          ...authorizationRepository(),
+          async findGrants() {
+            return [];
+          },
+        }),
+        ticketRepository(null),
+        operations,
+      );
+      if (kind === 'documents') {
+        await expect(denied.listDocuments(reviewer, 'p-a', {})).resolves.toEqual({
+          items: [],
+          nextCursor: null,
+        });
+      } else {
+        await expect(readSummaries(reviewer, denied)).rejects.toMatchObject({
+          code: 'RESOURCE_NOT_FOUND',
+          status: 404,
+        });
+      }
+      expect(listRevisions).not.toHaveBeenCalled();
+      expect(listAssignedReviewerRevisionIds).not.toHaveBeenCalled();
+    });
+  });
+
+  it('keeps published metadata body-free and retrieves unchanged bytes from the content path', async () => {
+    const detail = await service.getDocument(reader, 'doc-understanding');
+
+    expect(detail.publishedRevision).toMatchObject({
+      id: 'rev-understanding',
+      state: 'PUBLISHED',
+    });
+    expect(detail.publishedRevision).not.toHaveProperty('bodyBytes');
+    for (const summary of detail.revisions) expect(summary).not.toHaveProperty('bodyBytes');
+    const content = await service.getRevisionContent(reader, 'rev-understanding');
+    expect(content.bodyBytes).toEqual(revision().bodyBytes);
+    await expect(service.getRevisionContent(reader, 'rev-1')).rejects.toMatchObject({
+      code: 'KNOWLEDGE_ACCESS_DENIED',
+      status: 404,
+    });
   });
 
   it('denies an Agent proposing without the derived propose scope', async () => {

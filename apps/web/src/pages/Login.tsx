@@ -50,7 +50,10 @@ export function Login() {
           密码
           <input name="password" type="password" required autoComplete="current-password" />
         </label>
-        <p className="muted">忘记密码？请联系项目管理员重置账号密码。</p>
+        <p className="muted">
+          忘记密码？当前版本未提供自助密码找回。请联系此 WorkMesh
+          实例的部署运营人员，核实可用的账号恢复流程；项目管理员身份本身不包含重置平台账号密码的能力。
+        </p>
         {error && (
           <div className="error" role="alert">
             <p>{error.message}</p>

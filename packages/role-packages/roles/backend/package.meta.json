@@ -1,6 +1,6 @@
 {
   "id": "workmesh.role.backend",
-  "version": "1.1.0",
+  "version": "1.2.2",
   "title": "后端角色包",
   "description": "把 PRD 转成可并行的接口契约，按契约实现并交付可验证证据。",
   "license": "MIT",
@@ -28,6 +28,18 @@
       "path": "skills/attach-evidence/SKILL.md",
       "description": "收集提交级证据与检查结果，组成可复核的交付。",
       "whenToUse": "实现完成、准备交付时。"
+    },
+    {
+      "key": "plan-change",
+      "path": "skills/plan-change/SKILL.md",
+      "description": "调查既有实现并记录技术取舍，按验收场景拆解带文件归属的任务。",
+      "whenToUse": "老项目接入、跨模块改动或复杂契约变更需要规划时。"
+    },
+    {
+      "key": "diagnose-bug",
+      "path": "skills/diagnose-bug/SKILL.md",
+      "description": "保存原始复现、定位根因、限定修复并记录实际复验结果。",
+      "whenToUse": "既有行为损坏，需要诊断和修复时。"
     }
   ],
   "inputs": [

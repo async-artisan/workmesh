@@ -1,6 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { V1_ERROR_CODES, WorkmeshError, type Principal } from '@workmesh/shared';
+import {
+  V1_ERROR_CODES,
+  WorkmeshError,
+  type Principal,
+  type TaskClaimEligibility,
+} from '@workmesh/shared';
 import { V1AuthorizationService, type V1ProjectContext } from '../auth/v1-authorization';
+import { taskClaimEligibilityOf } from './v1-task-eligibility';
 import {
   V1_READY_REPOSITORY,
   type V1ReadyCandidate,
@@ -21,6 +27,8 @@ export type V1ReadyTaskView = {
   executionStatus: string;
   workStatus: string;
   currentClaim: null;
+  /** Authorization for this viewer, separate from completed workflow predecessors. */
+  claimEligibility: TaskClaimEligibility;
 };
 
 export type V1ReadyPage = {
@@ -75,7 +83,8 @@ function decodeCursor(raw: string | null | undefined): V1ReadyCursor | null {
  * 就绪任务列表（只读）。
  *
  * 先按项目/角色/责任范围做 SQL 过滤，再按工作流修订的步骤依赖批量判定：
- * 实例无基线修订、修订或步骤缺失、任一前序任务未 DONE 时一律不就绪；读取失败按不就绪处理，不抛 500。
+ * 实例无基线修订、修订或步骤缺失、任一前序任务未 DONE 时一律不就绪；
+ * 数据读取失败返回可重试错误，避免把未知状态伪装成空列表。
  */
 @Injectable()
 export class V1ReadyService {
@@ -109,7 +118,7 @@ export class V1ReadyService {
           take: limit,
         });
       } catch {
-        break;
+        throw this.readUnavailable();
       }
       if (page.items.length === 0) break;
 
@@ -117,7 +126,7 @@ export class V1ReadyService {
       try {
         readyIds = await this.evaluateReady(page.items);
       } catch {
-        readyIds = new Set<string>();
+        throw this.readUnavailable();
       }
 
       let overflow = false;
@@ -129,7 +138,7 @@ export class V1ReadyService {
           overflow = true;
           break;
         }
-        items.push(this.toView(candidate));
+        items.push(this.toView(candidate, principal, context));
         nextCursor = encodeCursor(scanCursor);
       }
       if (overflow) break;
@@ -138,6 +147,15 @@ export class V1ReadyService {
 
     if (!hasMore) nextCursor = null;
     return { items, nextCursor, hasMore };
+  }
+
+  private readUnavailable(): WorkmeshError {
+    return new WorkmeshError(
+      V1_ERROR_CODES.INPUT_UNAVAILABLE,
+      '前置任务状态读取失败，请重试。',
+      { reason: 'TASK_READY_DATA_UNAVAILABLE', retryable: true },
+      503,
+    );
   }
 
   private roleFilter(
@@ -193,7 +211,7 @@ export class V1ReadyService {
     const statusByInstanceStep = new Map(
       instanceTasks.map((task) => [
         `${task.workflowInstanceId}:${task.stepKey}`,
-        task.executionStatus,
+        task.executionStatus === 'DONE' && task.workStatus === 'ACTIVE',
       ]),
     );
 
@@ -211,14 +229,18 @@ export class V1ReadyService {
       const step = revision.steps.find((item) => item.key === candidate.stepKey);
       if (!step) continue;
       const predecessorsDone = step.deps.every(
-        (dep) => statusByInstanceStep.get(`${candidate.workflowInstanceId}:${dep}`) === 'DONE',
+        (dep) => statusByInstanceStep.get(`${candidate.workflowInstanceId}:${dep}`) === true,
       );
       if (predecessorsDone) ready.add(candidate.id);
     }
     return ready;
   }
 
-  private toView(candidate: V1ReadyCandidate): V1ReadyTaskView {
+  private toView(
+    candidate: V1ReadyCandidate,
+    principal: Principal,
+    context: V1ProjectContext,
+  ): V1ReadyTaskView {
     return {
       id: candidate.id,
       projectId: candidate.projectId,
@@ -231,6 +253,7 @@ export class V1ReadyService {
       executionStatus: candidate.executionStatus,
       workStatus: candidate.workStatus,
       currentClaim: null,
+      claimEligibility: taskClaimEligibilityOf(principal, candidate, context),
     };
   }
 }

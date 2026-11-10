@@ -104,6 +104,7 @@ export function buildStandardWorkflowTemplate(
       },
       {
         key: 'cases',
+        displayName: '测试执行与结果',
         roleKey: 'qa',
         kind: 'VERIFY',
         deps: ['impl'],
@@ -200,6 +201,7 @@ export function buildSoftwareDeliveryWorkflowTemplate(
           ]),
       {
         key: 'cases',
+        displayName: '用例设计与覆盖',
         roleKey: 'qa',
         kind: 'VERIFY',
         deps: ['prd'],
@@ -239,10 +241,13 @@ export function buildSoftwareDeliveryWorkflowTemplate(
       },
       {
         key: 'accept',
+        displayName: '测试执行与结果',
         roleKey: 'qa',
         kind: 'VERIFY',
         deps: ['backend', 'frontend', 'cases'],
-        outputKinds: [],
+        // 用例设计可以与实现并行；执行必须在实现就绪后产生独立、可验收的结果。
+        // 此修改只影响新载入并发布的模板修订，既有实例仍引用其不可变修订。
+        outputKinds: ['CASES'],
         baselinePolicy: 'PUBLISHED_PRD',
         inputBindings: [{ inputKey: 'prd', source: 'UPSTREAM_ARTIFACT', fromStepKey: 'prd' }],
         gates: implGates,

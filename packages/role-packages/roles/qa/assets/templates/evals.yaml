@@ -2,7 +2,9 @@
 # 固定环境与版本，结果才可比较；失败必须分类，不重跑到绿。
 
 suite: <suite 名称>
+phase: EXECUTION
 requirement: <PROJECT_KEY>-<序号>
+casesRevision: <用例工件或修订标识>
 commit: <40 位 sha>
 environment:
   build: <版本或镜像>

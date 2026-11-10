@@ -1,10 +1,12 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useSearchParams } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes, useSearchParams } from 'react-router-dom';
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RequirementDetail } from './RequirementDetail';
 import { setCsrfToken } from '../api/client';
 import { useAuthStore } from '../store/auth';
 import { envelope, mockFetch, pathOf, useProject } from '../test-utils';
+import type { RequirementTrustChain } from '@workmesh/shared';
 
 const project = { id: 'p1', key: 'DEMO', name: 'Demo', version: 1 };
 
@@ -14,6 +16,8 @@ function task(overrides: Record<string, unknown> = {}) {
     stepKey: 'backend-impl',
     role: { key: 'backend', title: '后端' },
     responsibleUser: { id: 'u-1', email: 'bob@example.com' },
+    claimEligibility: { canClaim: true, reason: null },
+    workflowWorkStatus: 'ACTIVE',
     version: 2,
     generation: 1,
     executionStatus: 'OPEN',
@@ -118,10 +122,11 @@ function LocationProbe() {
   );
 }
 
-function renderDetail(path: string) {
+function renderDetail(path: string, navigation?: ReactNode) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <LocationProbe />
+      {navigation}
       <Routes>
         <Route path="/requirements/:requirementId" element={<RequirementDetail />} />
       </Routes>
@@ -130,6 +135,172 @@ function renderDetail(path: string) {
 }
 
 describe('RequirementDetail（需求详情读模型）', () => {
+  it('按工件所属交付集显式展开代码证据状态，不预取也不把未关联投递写成验签失败', async () => {
+    let reads = 0;
+    const fallback = handler({
+      body: detail({
+        artifacts: [
+          {
+            id: 'artifact-code',
+            taskId: 'task-1',
+            artifactSetId: 'set-history',
+            kind: 'IMPL',
+            storage: 'GIT_REF',
+            mediaType: 'text/plain',
+            byteLength: 0,
+            sha256: 'a'.repeat(64),
+            commitSha: 'b'.repeat(40),
+            repoPath: 'src/payments.ts',
+            summary: null,
+            checks: [],
+            createdAt: '2026-11-10T01:00:00Z',
+          },
+        ],
+        counts: { tasks: 0, artifacts: 1, reviews: 0, changes: 0 },
+      }),
+    });
+    mockFetch((url, init) => {
+      if (pathOf(url) === '/api/v1/artifact-sets/set-history') {
+        reads += 1;
+        return {
+          status: 200,
+          body: envelope({
+            codeReview: {
+              required: true,
+              acceptable: false,
+              diagnostics: {
+                checkedAt: '2026-11-10T01:00:00Z',
+                complete: true,
+                currentBinding: 'CURRENT',
+                taskGeneration: 1,
+                currentTaskGeneration: 1,
+                signaturePolicy: 'REJECTED_BEFORE_RECEIPT',
+                references: [
+                  {
+                    artifactId: 'artifact-code',
+                    projectRepositoryId: 'repository',
+                    commitSha: 'b'.repeat(40),
+                    repository: null,
+                    status: 'NO_ASSOCIATED_DELIVERY',
+                    deliveries: [],
+                    reviews: [],
+                    tickets: [],
+                  },
+                ],
+              },
+            },
+          }),
+        };
+      }
+      return fallback(url, init);
+    });
+    renderDetail('/requirements/DEMO-001?tab=artifacts');
+    const disclosure = await screen.findByRole('button', { name: '代码证据状态' });
+    expect(reads).toBe(0);
+    fireEvent.click(disclosure);
+    await waitFor(() => expect(reads).toBe(1));
+    expect(await screen.findByText('尚未找到与此提交关联的可信投递记录')).toBeInTheDocument();
+    expect(screen.getByText(/没有关联记录不能判断是否曾投递或验签失败/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '代码证据状态' }));
+    fireEvent.click(screen.getByRole('button', { name: '代码证据状态' }));
+    expect(reads).toBe(1);
+  });
+
+  it('从需求证据摘要展开正式时间线并把缺口定位到具体任务', async () => {
+    const trustChain: RequirementTrustChain = {
+      scope: 'FORMAL_FACT_CHAIN',
+      checkedAt: '2026-11-10T01:00:00Z',
+      requirementGeneration: 1,
+      status: 'GAPS',
+      visibility: 'FULL',
+      baselines: [{ kind: 'PRD', state: 'CURRENT', seq: 3, title: '产品需求 3' }],
+      tasks: [
+        {
+          taskId: 'task-1',
+          taskGeneration: 1,
+          stepLabel: '后端实现',
+          state: 'PENDING',
+          baselineRelation: 'CURRENT',
+          artifactSetId: null,
+          snapshotId: null,
+          reviewId: null,
+          gapCodes: ['DELIVERY_MISSING'],
+        },
+      ],
+      acceptance: [{ key: 'A1', taskIds: ['task-1'], acceptedTaskIds: [] }],
+      gaps: [{ code: 'DELIVERY_MISSING', taskId: 'task-1' }],
+      timeline: [
+        {
+          id: 'delivery',
+          kind: 'DELIVERY',
+          at: '2026-11-10T01:00:00Z',
+          source: 'AGENT_SUBMITTED',
+          applicability: 'CURRENT',
+          label: '后端实现',
+          actors: [{ kind: 'AGENT', userId: 'u-1', label: 'agent@example.test' }],
+          taskId: 'task-1',
+        },
+        {
+          id: 'decision',
+          kind: 'DECISION',
+          at: '2026-11-09T01:00:00Z',
+          source: 'HUMAN_SIGNED',
+          applicability: 'HISTORICAL',
+          label: '旧交付',
+          actors: [{ kind: 'HUMAN', userId: 'owner', label: 'owner@example.test' }],
+          reviewId: 'review-old',
+          decision: 'APPROVE',
+        },
+      ],
+    };
+    mockFetch(handler({ body: detail({ tasks: [task()], trustChain }), withDefinitions: true }));
+    renderDetail('/requirements/DEMO-001');
+    fireEvent.click(await screen.findByRole('button', { name: '展开信任链时间线（2）' }));
+    expect(screen.getByTestId('location')).toHaveTextContent('trace|');
+    const timeline = screen.getByRole('list', { name: '正式事实时间线' });
+    expect(within(timeline).getByText(/Agent 提交/)).toBeInTheDocument();
+    expect(within(timeline).getByText(/历史事实 · HUMAN 签字/)).toBeInTheDocument();
+    expect(within(timeline).getByRole('link', { name: '查看评审与证据' })).toHaveAttribute(
+      'href',
+      '/reviews/review-old',
+    );
+    fireEvent.change(screen.getByLabelText('信任链事件类型'), { target: { value: 'DELIVERY' } });
+    expect(within(timeline).getAllByRole('listitem')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: '定位 后端实现' }));
+    expect(screen.getByTestId('location')).toHaveTextContent('tasks|task-1');
+    expect(await screen.findByRole('button', { name: '复制任务 ID' })).toBeEnabled();
+  });
+
+  it('选择真实任务后复制领取命令，未选任务时先引导选择', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    mockFetch(handler({ body: detail({ tasks: [task()] }), withDefinitions: true }));
+    renderDetail('/requirements/DEMO-001');
+    fireEvent.click(await screen.findByRole('button', { name: '更多' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '选择任务并复制命令' }));
+    expect(writeText).not.toHaveBeenCalled();
+    const copy = await screen.findByRole('button', { name: '复制领取命令' });
+    await waitFor(() => expect(copy).toBeEnabled());
+    fireEvent.click(copy);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('workmesh claim --task task-1'));
+    expect(screen.getByTestId('location')).toHaveTextContent('tasks|task-1');
+  });
+
+  it.each([undefined, { canClaim: false, reason: 'NOT_RESPONSIBLE' }])(
+    '缺少本人领取资格时只允许复制任务ID (%s)',
+    async (claimEligibility) => {
+      mockFetch(
+        handler({ body: detail({ tasks: [task({ claimEligibility })] }), withDefinitions: true }),
+      );
+      renderDetail('/requirements/DEMO-001?taskId=task-1');
+      expect(await screen.findByRole('button', { name: '复制任务 ID' })).toBeEnabled();
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: '复制领取命令' })).toBeDisabled(),
+      );
+      fireEvent.click(screen.getByRole('button', { name: '更多' }));
+      expect(screen.getByRole('menuitem', { name: '复制所选任务领取命令' })).toBeDisabled();
+    },
+  );
   beforeEach(() => {
     setCsrfToken('csrf-1');
     useProject('p1');
@@ -238,15 +409,15 @@ describe('RequirementDetail（需求详情读模型）', () => {
 
     // 协作流程图默认折叠，先展开团队视图才能点击任务卡。
     fireEvent.click(await screen.findByRole('button', { name: '展开团队视图' }));
-    const card = await screen.findByRole('button', { name: /后端实现，状态：可立即领取/ });
+    const card = await screen.findByRole('button', { name: /后端实现，状态：前置任务已完成/ });
     expect(card.tagName).toBe('BUTTON');
     fireEvent.click(card);
 
-    const row = await screen.findByRole('group', { name: /后端实现.*可立即领取/ });
+    const row = await screen.findByRole('group', { name: /后端实现.*前置任务已完成/ });
     expect(row).toHaveAttribute('id', 'requirement-task-task-1');
     expect(row).toHaveAttribute('data-task-id', 'task-1');
     expect(row).toHaveAttribute('tabindex', '-1');
-    expect(row).toHaveAccessibleName(/后端实现.*可立即领取/);
+    expect(row).toHaveAccessibleName(/后端实现.*前置任务已完成/);
     const labelledBy = row.getAttribute('aria-labelledby') ?? '';
     const titleId = labelledBy.split(' ')[0];
     expect(document.getElementById(titleId)?.textContent).toContain('后端实现');
@@ -277,7 +448,7 @@ describe('RequirementDetail（需求详情读模型）', () => {
     );
     renderDetail('/requirements/DEMO-001');
     fireEvent.click(await screen.findByRole('button', { name: '展开团队视图' }));
-    await screen.findByRole('button', { name: /后端实现，状态：可立即领取/ });
+    await screen.findByRole('button', { name: /后端实现，状态：前置任务已完成/ });
 
     const cards = document.querySelectorAll<HTMLButtonElement>('.pipeline-task-card');
     expect(cards.length).toBeGreaterThanOrEqual(2);
@@ -307,6 +478,83 @@ describe('RequirementDetail（需求详情读模型）', () => {
     await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('tasks|'));
   });
 
+  it('从任务深链点击交付物后保持页签、正文与 URL 一致', async () => {
+    mockFetch(
+      handler({
+        body: detail({
+          tasks: [task()],
+          artifacts: [
+            {
+              id: 'artifact-1',
+              taskId: 'task-1',
+              kind: 'IMPL',
+              storage: 'HOSTED',
+              mediaType: 'text/markdown',
+              byteLength: 128,
+              sha256: 'a'.repeat(64),
+              commitSha: null,
+              repoPath: null,
+              summary: '深链任务的交付证据',
+              checks: [],
+              createdAt: '2026-11-02T00:00:00.000Z',
+            },
+          ],
+          counts: { tasks: 1, artifacts: 1, reviews: 0, changes: 0 },
+        }),
+        withDefinitions: true,
+      }),
+    );
+    renderDetail('/requirements/DEMO-001?tab=tasks&taskId=task-1');
+    const row = await screen.findByRole('group', { name: /后端实现/ });
+    await waitFor(() => expect(row).toHaveFocus());
+    fireEvent.click(screen.getByRole('tab', { name: /交付物/ }));
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('artifacts|'));
+    expect(screen.getByRole('tab', { name: /交付物/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /任务/ })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'req-tab-artifacts');
+    expect(
+      within(screen.getByRole('tabpanel')).getByText('深链任务的交付证据'),
+    ).toBeInTheDocument();
+  });
+
+  it('同页后续深链恢复任务定位，清除定位后的 URL 页签也同步显示', async () => {
+    mockFetch(
+      handler({
+        body: detail({
+          tasks: [
+            task(),
+            task({ id: 'task-2', stepKey: 'verify', role: { key: 'qa', title: '测试' } }),
+          ],
+        }),
+        withDefinitions: true,
+      }),
+    );
+    renderDetail(
+      '/requirements/DEMO-001?tab=overview&taskId=task-1',
+      <>
+        <Link to="/requirements/DEMO-001?tab=artifacts&taskId=task-2">后续任务深链</Link>
+        <Link to="/requirements/DEMO-001?tab=overview">概览链接</Link>
+      </>,
+    );
+    const first = await screen.findByRole('group', { name: /后端实现/ });
+    await waitFor(() => expect(first).toHaveFocus());
+    expect(screen.getByRole('tab', { name: /任务/ })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: /交付物/ }));
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /交付物/ })).toHaveAttribute('aria-selected', 'true'),
+    );
+    fireEvent.click(screen.getByRole('link', { name: '后续任务深链' }));
+    const second = await screen.findByRole('group', { name: /测试/ });
+    await waitFor(() => expect(second).toHaveFocus());
+    expect(second.querySelector('details')?.open).toBe(true);
+    expect(screen.getByRole('tab', { name: /任务/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('location')).toHaveTextContent('artifacts|task-2');
+    fireEvent.click(screen.getByRole('link', { name: '概览链接' }));
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('overview|'));
+    expect(screen.getByRole('tab', { name: /概览/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'req-tab-overview');
+  });
+
   it('依赖信息可用时：无前置任务可领取，前置未完成显示等待前置任务', async () => {
     mockFetch(
       handler({
@@ -323,7 +571,7 @@ describe('RequirementDetail（需求详情读模型）', () => {
 
     renderDetail('/requirements/DEMO-001?tab=tasks');
 
-    expect(await screen.findAllByText('可立即领取')).not.toHaveLength(0);
+    expect(await screen.findAllByText('前置任务已完成')).not.toHaveLength(0);
     expect(screen.getAllByText('等待前置任务').length).toBeGreaterThan(0);
     expect(screen.getByText(/前置步骤 backend-impl 尚未完成/)).toBeInTheDocument();
   });
@@ -340,13 +588,13 @@ describe('RequirementDetail（需求详情读模型）', () => {
     expect(screen.queryByText('后端实现')).not.toBeInTheDocument();
   });
 
-  it('依赖信息不可用时显示「状态待确认」，不显示「可立即领取」', async () => {
+  it('依赖信息不可用时显示「状态待确认」，不显示「前置任务已完成」', async () => {
     mockFetch(handler({ body: detail({ tasks: [task()] }), withDefinitions: false }));
 
     renderDetail('/requirements/DEMO-001?tab=tasks');
 
     expect((await screen.findAllByText('状态待确认')).length).toBeGreaterThan(0);
-    expect(screen.queryByText('可立即领取', { selector: 'em' })).not.toBeInTheDocument();
+    expect(screen.queryByText('前置任务已完成', { selector: 'em' })).not.toBeInTheDocument();
     expect(screen.getByText(/服务端没有提供可用的依赖信息/)).toBeInTheDocument();
   });
 
@@ -570,7 +818,7 @@ describe('RequirementDetail（返修：依赖完整性 / workStatus / 初始化�
     localStorage.clear();
   });
 
-  it('未知依赖不会被当成「无依赖」：显示状态待确认，不显示可立即领取', async () => {
+  it('未知依赖不会被当成「无依赖」：显示状态待确认，不显示前置任务已完成', async () => {
     mockFetch(
       handler({
         body: detail({
@@ -591,10 +839,12 @@ describe('RequirementDetail（返修：依赖完整性 / workStatus / 初始化�
 
     expect((await screen.findAllByText('状态待确认')).length).toBeGreaterThan(0);
     expect(screen.getByText(/无法识别的依赖步骤/)).toBeInTheDocument();
-    expect(screen.queryByText('可立即领取', { selector: '.status-tag' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('前置任务已完成', { selector: '.status-tag' }),
+    ).not.toBeInTheDocument();
   });
 
-  it('定义缺少目标步骤：显示状态待确认，不显示可立即领取', async () => {
+  it('定义缺少目标步骤：显示状态待确认，不显示前置任务已完成', async () => {
     mockFetch(
       handler({
         body: detail({
@@ -610,10 +860,12 @@ describe('RequirementDetail（返修：依赖完整性 / workStatus / 初始化�
 
     expect((await screen.findAllByText('状态待确认')).length).toBeGreaterThan(0);
     expect(screen.getByText(/找不到该任务的步骤/)).toBeInTheDocument();
-    expect(screen.queryByText('可立即领取', { selector: '.status-tag' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('前置任务已完成', { selector: '.status-tag' }),
+    ).not.toBeInTheDocument();
   });
 
-  it('OPEN 任务缺少 workStatus：显示状态待确认，不显示可立即领取', async () => {
+  it('OPEN 任务缺少 workStatus：显示状态待确认，不显示前置任务已完成', async () => {
     mockFetch(
       handler({
         body: detail({
@@ -628,7 +880,9 @@ describe('RequirementDetail（返修：依赖完整性 / workStatus / 初始化�
 
     expect((await screen.findAllByText('状态待确认')).length).toBeGreaterThan(0);
     expect(screen.getByText(/缺少工作状态/)).toBeInTheDocument();
-    expect(screen.queryByText('可立即领取', { selector: '.status-tag' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('前置任务已完成', { selector: '.status-tag' }),
+    ).not.toBeInTheDocument();
   });
 
   it('成员读取失败：明确显示权限上下文失败 + 重试，不冒充普通成员无权限', async () => {
@@ -960,7 +1214,7 @@ describe('RequirementDetail（首屏折叠 / 本地头像 / 任务去重）', ()
     // 页签「任务 6」与折叠摘要的分母一致。
     expect(screen.getByRole('tab', { name: /任务\s*6/ })).toBeInTheDocument();
     expect(screen.getByText('阶段进度')).toBeInTheDocument();
-    expect(screen.getByText('0/6')).toBeInTheDocument();
+    expect(screen.getByText('0/5')).toBeInTheDocument();
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
@@ -978,6 +1232,41 @@ describe('RequirementDetail（首屏折叠 / 本地头像 / 任务去重）', ()
     expect(document.querySelectorAll('img[src^="http"]')).toHaveLength(0);
     expect(document.querySelectorAll('img[src*="trae-api"]')).toHaveLength(0);
     expect(document.querySelectorAll('.wm-role-avatar').length).toBeGreaterThan(0);
+  });
+
+  it('六任务已发布时只统计实际阶段，摘要停留发布且不再等待交付', async () => {
+    const completed = sixTasks.map((item) => ({
+      ...item,
+      executionStatus: 'DONE',
+      workStatus: 'ACTIVE',
+      responsibleUser: { id: 'owner-' + item.id, email: item.stepKey + '@example.com' },
+    }));
+    mockFetch(
+      handler({
+        body: detail({
+          requirement: { ...detail().requirement, phase: 'RELEASED' },
+          tasks: completed,
+          counts: { tasks: completed.length, artifacts: 0, reviews: 0, changes: 0 },
+        }),
+        withDefinitions: true,
+        definition: sixStepDefinition,
+      }),
+    );
+    renderDetail('/requirements/DEMO-001');
+
+    expect((await screen.findAllByText('需求已发布，全部任务已完成')).length).toBeGreaterThan(0);
+    expect(screen.getByRole('img', { name: '阶段进度：5/5 个阶段已完成' })).toBeInTheDocument();
+    const summary = screen.getByLabelText('当前阶段执行信息');
+    expect(within(summary).getByText('发布上线')).toBeInTheDocument();
+    expect(within(summary).getByText('release@example.com')).toBeInTheDocument();
+    expect(within(summary).getByText('全部任务已完成，无待处理阻塞')).toBeInTheDocument();
+    expect(within(summary).queryByText('需求发现')).not.toBeInTheDocument();
+    expect(within(summary).queryByText('状态待确认')).not.toBeInTheDocument();
+    expect(screen.queryByText('等待 Agent 交付或下一次评审触发。')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '展开团队视图' }));
+    expect(document.querySelectorAll('.pipeline-task-card')).toHaveLength(6);
+    expect(screen.getByText('6/6')).toBeInTheDocument();
   });
 
   it('「更多」菜单支持 Escape 与点击外部关闭', async () => {

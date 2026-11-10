@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Workflows } from './Workflows';
 import { setCsrfToken } from '../api/client';
+import { useProjectStore } from '../store/project';
 import {
   bodyOf,
   envelope,
@@ -110,7 +111,9 @@ function readSavedDraftDefinition() {
 }
 
 async function loadTemplateAndValidate(withDisplayName = false) {
-  fireEvent.click(await screen.findByRole('button', { name: '载入标准模板' }));
+  const button = await screen.findByRole('button', { name: '载入标准模板' });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
   if (withDisplayName) addNamedStepFields();
   fireEvent.click(screen.getByRole('button', { name: '校验并准备发布' }));
 }
@@ -125,6 +128,131 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
     setCsrfToken(null);
     localStorage.clear();
   });
+
+  it.each([true, false])(
+    '软件交付模板提供真实资料选择和管理员绑定路径（canManage=%s）',
+    async (canManage) => {
+      const softwareRoles = [
+        ...roles,
+        { id: 'r-backend', projectId: 'p1', key: 'backend', title: '后端', isActive: true },
+        { id: 'r-ui', projectId: 'p1', key: 'ui', title: '设计', isActive: true },
+      ];
+      let bindingVersion = 3;
+      let bindings: Array<{
+        id: string;
+        documentId: string;
+        roleId: string | null;
+        required: boolean;
+      }> = [];
+      const docId = '11111111-1111-4111-8111-111111111111';
+      const mock = mockFetch((url, init) => {
+        const path = pathOf(url);
+        const method = methodOf(init);
+        if (path === '/api/v1/projects/p1/roles' && method === 'GET')
+          return { status: 200, body: envelope(softwareRoles) };
+        if (path === '/api/v1/projects/p1/knowledge-bindings' && method === 'GET')
+          return {
+            status: 200,
+            body: envelope({ version: bindingVersion, canManage, items: bindings }),
+          };
+        if (path === '/api/v1/projects/p1/knowledge-bindings' && method === 'PUT') {
+          const body = bodyOf(init) as {
+            documentId: string;
+            roleId: string;
+            expectedVersion: number;
+            required: boolean;
+          };
+          expect(body).toEqual({
+            documentId: docId,
+            roleId: 'r-frontend',
+            expectedVersion: 3,
+            required: true,
+          });
+          bindings = [
+            {
+              id: 'binding-1',
+              documentId: body.documentId,
+              roleId: body.roleId,
+              required: body.required,
+            },
+          ];
+          bindingVersion += 1;
+          return { status: 200, body: envelope({ version: bindingVersion, binding: bindings[0] }) };
+        }
+        if (path === '/api/v1/projects/p1/documents' && method === 'GET')
+          return {
+            status: 200,
+            body: envelope({
+              items: [
+                {
+                  document: {
+                    id: docId,
+                    projectId: 'p1',
+                    kind: 'KNOWLEDGE',
+                    archivedAt: null,
+                    currentPublishedRevisionId: 'revision-1',
+                  },
+                  revisions: [],
+                  publishedRevision: { id: 'revision-1', title: '已发布接口契约' },
+                },
+              ],
+              nextCursor: null,
+            }),
+          };
+        return baseHandler({ packages: softwareRoles.map((role) => packageFor(role.key)) })(
+          url,
+          init,
+        );
+      });
+      render(
+        <MemoryRouter>
+          <Workflows />
+        </MemoryRouter>,
+      );
+      const templateButton = screen.getByRole('button', { name: '载入软件交付模板' });
+      await waitFor(() => expect(templateButton).toBeEnabled());
+      fireEvent.click(templateButton);
+      expect(screen.getByRole('region', { name: '流程前置资料' })).toBeInTheDocument();
+      expect(screen.getByText(/请后端负责人准备接口契约与系统单元说明/)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: '准备与发布知识资料' })).toHaveAttribute(
+        'href',
+        '/knowledge?projectId=p1',
+      );
+      const selector = screen.getByLabelText('选择已发布文档：接口契约（前端）');
+      await waitFor(() => expect(selector).toBeEnabled());
+      fireEvent.change(selector, { target: { value: docId } });
+      expect(
+        JSON.parse((screen.getByLabelText('流程定义 JSON') as HTMLTextAreaElement).value).steps,
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            key: 'frontend',
+            inputBindings: expect.arrayContaining([
+              expect.objectContaining({ inputKey: 'contract', knowledgeKey: docId }),
+            ]),
+          }),
+        ]),
+      );
+      if (canManage) {
+        fireEvent.click(screen.getByRole('button', { name: '绑定给前端' }));
+        expect(await screen.findByText(/资料已绑定给接收角色/)).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: '绑定给前端' })).not.toBeInTheDocument();
+      } else {
+        expect(
+          screen.getAllByText(/请项目 OWNER 或 ADMIN 在本页完成资料绑定/).length,
+        ).toBeGreaterThan(0);
+        expect(screen.queryByRole('button', { name: '绑定给前端' })).not.toBeInTheDocument();
+        expect(
+          mock.mock.calls.some(
+            ([url, init]) =>
+              pathOf(String(url)) === '/api/v1/projects/p1/knowledge-bindings' &&
+              methodOf(init ?? {}) === 'PUT',
+          ),
+        ).toBe(false);
+      }
+      await waitFor(() => expect(JSON.stringify(readSavedDraftDefinition())).toContain(docId));
+    },
+  );
 
   it('载入标准模板后校验通过，并给出可供票据绑定的编译摘要', async () => {
     mockFetch(baseHandler());
@@ -446,7 +574,9 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
         <Workflows />
       </MemoryRouter>,
     );
-    fireEvent.click(await screen.findByRole('button', { name: '载入标准模板' }));
+    const templateButton = await screen.findByRole('button', { name: '载入标准模板' });
+    await waitFor(() => expect(templateButton).toBeEnabled());
+    fireEvent.click(templateButton);
     const definition = addNamedStepFields();
     await waitFor(() => expectNamedStepFields(readSavedDraftDefinition()));
     initial.unmount();
@@ -508,5 +638,57 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
       await screen.findByText('还没有已发布的流程定义，先载入标准模板并发布。'),
     ).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('正在加载流程定义…')).not.toBeInTheDocument());
+  });
+
+  it('项目切换立即隔离编辑状态、保存旧草稿，并忽略旧请求的成功响应', async () => {
+    const oldDefinitions = deferred<StubReply>();
+    const second = { ...project, id: 'p2', key: 'NEXT', name: 'Next' };
+    let p1Loads = 0;
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      if (path === '/api/v1/projects') return { status: 200, body: envelope([project, second]) };
+      if (path === '/api/v1/projects/p1/workflow-definitions') {
+        p1Loads += 1;
+        if (p1Loads > 1) return oldDefinitions.promise;
+      }
+      if (path.startsWith('/api/v1/projects/p2/'))
+        return {
+          status: 200,
+          body: envelope(
+            path.endsWith('/roles')
+              ? roles.map((role) => ({ ...role, projectId: 'p2' }))
+              : { items: [], nextCursor: null },
+          ),
+        };
+      return baseHandler()(url, init);
+    });
+    render(
+      <MemoryRouter>
+        <Workflows />
+      </MemoryRouter>,
+    );
+    const templateButton = screen.getByRole('button', { name: '载入标准模板' });
+    await waitFor(() => expect(templateButton).toBeEnabled());
+    fireEvent.click(templateButton);
+    addNamedStepFields();
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    fireEvent.change(screen.getByLabelText('选择项目'), { target: { value: 'p2' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: '载入标准模板' })).toBeEnabled());
+    expect((screen.getByLabelText('流程定义 JSON') as HTMLTextAreaElement).value).toBe('');
+    expectNamedStepFields(readSavedDraftDefinition());
+    expect(localStorage.getItem('workmesh.workflowDraft.p2')).toBeNull();
+    await act(async () =>
+      oldDefinitions.resolve({
+        status: 200,
+        body: envelope({
+          items: [
+            { workflowKey: 'old-only', title: '旧项目流程', currentPublishedRevisionId: null },
+          ],
+          nextCursor: null,
+        }),
+      }),
+    );
+    expect(screen.queryByText('旧项目流程')).not.toBeInTheDocument();
+    expect(useProjectStore.getState().projectId).toBe('p2');
   });
 });

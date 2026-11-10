@@ -11,8 +11,9 @@ import {
   type WorkbenchReviewItem,
   type WorkbenchSnapshot,
 } from '../api/resources';
-import { ChangeDrawer } from '../components/ChangeDrawer';
-import { BatchReviewApprove, type BatchReviewTarget } from '../components/BatchReviewApprove';
+import { DependencyImpactHint } from '../components/DependencyImpactHint';
+import type { BatchReviewTarget } from '../components/BatchReviewApprove';
+import { DeferredBatchReviewApprove, DeferredChangeDrawer } from '../components/WorkbenchDialogs';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { Modal } from '../components/Modal';
@@ -22,11 +23,12 @@ import { InlineLoading } from '../components/Skeleton';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { ACTION_LABELS, STEP_LABELS, REVIEW_STATUS_LABELS, labelFor } from '../lib/labels';
 import { getWorkbenchSnapshot } from '../lib/workbenchSnapshot';
+import { changeFieldLabel } from '../lib/changeDisplay';
 import { useProjectStore } from '../store/project';
 import '../styles/workbench-actions.css';
 
 type Tab = 'all' | 'signOffs' | 'approvals' | 'changes' | 'ready';
-type SortKey = 'oldest' | 'newest' | 'project' | 'type';
+type SortKey = 'oldest' | 'newest' | 'project' | 'type' | 'impact';
 
 /**
  * 工作台数据状态机：
@@ -74,7 +76,7 @@ const TAB_LABELS: Record<Tab, string> = {
   signOffs: '待签字',
   approvals: '待审批',
   changes: '待确认变更',
-  ready: '可开工',
+  ready: '待领取',
 };
 
 function isSignOffKind(kind: string): boolean {
@@ -97,7 +99,12 @@ function itemSearchText(item: WorkbenchItem): string {
       item.data.role?.title ?? '',
     );
   if (item.type === 'ready')
-    parts.push(item.data.stepKey, item.data.stepDisplayName ?? '', item.data.role?.title ?? '');
+    parts.push(
+      item.data.stepKey,
+      item.data.stepDisplayName ?? '',
+      item.data.role?.title ?? '',
+      item.data.responsibleUser?.email ?? '',
+    );
   if (item.type === 'change') parts.push(item.data.changedFields.join(' '));
   return parts.join(' ').toLowerCase();
 }
@@ -138,6 +145,25 @@ function batchStatusLabel(status: BatchItemStatus): string {
   if (status === 'success') return '已确认';
   if (status === 'failed') return '失败';
   return '未处理';
+}
+
+function readyTaskNextAction(task: WorkbenchReadyTaskItem): string {
+  const eligibility = task.claimEligibility;
+  if (!eligibility) return '领取资格尚未确认，请刷新后查看。';
+  if (eligibility.canClaim)
+    return '由你的本地 Agent 领取，再获取上下文；必需输入会在获取上下文时检查。';
+  switch (eligibility.reason) {
+    case 'NOT_RESPONSIBLE':
+      return '等待指定负责人领取；如需交接，请联系项目管理员调整责任分配。';
+    case 'ROLE_INACTIVE':
+      return '你尚未持有此任务的活动角色，请联系项目管理员确认角色分配。';
+    case 'CREDENTIAL_ROLE_MISMATCH':
+      return '当前 Agent 凭据角色不匹配，请使用此任务对应角色的凭据。';
+    case 'SCOPE_DENIED':
+      return '当前 Agent 凭据不含领取权限，请重新确认授权范围。';
+    case 'PROJECT_ARCHIVED':
+      return '项目已归档，当前只可查看。';
+  }
 }
 
 /**
@@ -505,6 +531,16 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
 
     const ageOf = (item: WorkbenchItem) => item.data.ageSeconds ?? -1;
     return [...filtered].sort((a, b) => {
+      if (sort === 'impact') {
+        const impactOf = (item: WorkbenchItem) => item.data.dependencyImpact;
+        const left = impactOf(a);
+        const right = impactOf(b);
+        const score = (value: typeof left) =>
+          value?.status === 'AVAILABLE' ? (value.readyAfterAction ?? -1) : -1;
+        const difference =
+          score(right) - score(left) || (right?.blocking ?? -1) - (left?.blocking ?? -1);
+        if (difference) return difference;
+      }
       if (a.data.ageSeconds === null) return b.data.ageSeconds === null ? 0 : 1;
       if (b.data.ageSeconds === null) return -1;
       if (sort === 'newest') return ageOf(a) - ageOf(b);
@@ -577,7 +613,7 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
     },
     {
       key: 'ready',
-      label: '可开工任务',
+      label: '前置任务已完成',
       count: filteredReady.length,
       age: oldest(filteredReady)?.ageSeconds ?? null,
       open: () => {
@@ -640,10 +676,9 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
 
   /** 批量批准完成后的收尾：清空选择、提示结果、强制刷新工作台。 */
   function handleReviewBatchCompleted(summary: { approved: number; failed: number }) {
-    setSelectedReviews(new Set());
-    setReviewBatchOpen(false);
-    setNotice(`批量批准完成：已批准 ${summary.approved} 条 · 失败 ${summary.failed} 条。`);
-    void load();
+    setNotice(
+      `批量批准完成：已批准 ${summary.approved} 条 · 未批准或待核实 ${summary.failed} 条；请查看逐项结果。`,
+    );
   }
 
   function renderReview(review: WorkbenchReviewItem) {
@@ -694,6 +729,7 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
           <p className="wb-card-owner">
             下一步：{decidableSlot ? '打开评审并核验证据' : '查看评审与授权状态'}
           </p>
+          <DependencyImpactHint impact={review.dependencyImpact} />
           <details className="wb-card-details">
             <summary>证据与版本</summary>
             <div className="wb-row-context">
@@ -723,7 +759,9 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
   }
 
   function renderChange(change: WorkbenchChangeItem) {
-    const fields = change.changedFields.length ? change.changedFields.join(' / ') : '未标注字段';
+    const fields = change.changedFields.length
+      ? change.changedFields.map(changeFieldLabel).join(' / ')
+      : '未标注字段';
     const roles = change.pendingRoles.length
       ? change.pendingRoles.map((role) => role.title).join(' / ')
       : '—';
@@ -754,7 +792,8 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
             变更字段：{fields} · 待确认：{roles} · 等待 {ageLabel(change.ageSeconds)}
           </div>
           <p className="wb-card-owner">状态：待确认 · 当前负责人：服务端未提供姓名</p>
-          <p className="wb-card-owner">下一步：查看变更并确认处理结果</p>
+          <p className="wb-card-owner">下一步：查看影响并确认已知悉；实际调整需另行交付与验收。</p>
+          <DependencyImpactHint impact={change.dependencyImpact} />
           <details className="wb-card-details">
             <summary>变更版本与时间</summary>
             <div className="wb-row-context">
@@ -780,6 +819,8 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
   function renderReady(task: WorkbenchReadyTaskItem) {
     const item: WorkbenchItem = { type: 'ready', data: task };
     const path = itemRequirementPath(item);
+    const canClaim = task.claimEligibility?.canClaim === true;
+    const nextAction = readyTaskNextAction(task);
     return (
       <article
         className="wb-row is-ready"
@@ -796,11 +837,15 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
           </div>
           <div className="wb-row-detail">
             {task.role?.title ?? '未指定角色'} ·{' '}
-            {task.stepDisplayName?.trim() || labelFor(STEP_LABELS, task.stepKey)} · 可开工 · 任务{' '}
-            {task.taskId.slice(0, 8)}
+            {task.stepDisplayName?.trim() || labelFor(STEP_LABELS, task.stepKey)} · 前置任务已完成 ·
+            任务 {task.taskId.slice(0, 8)}
           </div>
-          <p className="wb-card-owner">状态：可开工 · 当前负责人：服务端未提供负责人</p>
-          <p className="wb-card-owner">下一步：打开任务确认条件，由本地 Agent 领取</p>
+          <p className="wb-card-owner">
+            当前负责人：{task.responsibleUser?.email ?? '责任人信息待同步'} ·{' '}
+            {canClaim ? '本人可领取' : task.claimEligibility ? '本人不可领取' : '领取资格待确认'}
+          </p>
+          <p className="wb-card-owner">下一步：{nextAction}</p>
+          <DependencyImpactHint impact={task.dependencyImpact} />
         </div>
         <div className="wb-row-actions">
           <button
@@ -815,12 +860,14 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
           </button>
           <button
             className="ghost"
+            disabled={!canClaim}
+            title={canClaim ? '复制本任务的领取命令' : nextAction}
             onClick={(event) => {
               event.stopPropagation();
-              void copyCli(task.taskId);
+              if (canClaim) void copyCli(task.taskId);
             }}
           >
-            复制命令
+            复制领取命令
           </button>
         </div>
       </article>
@@ -1031,6 +1078,7 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
                 onChange={(event) => setSort(event.target.value as SortKey)}
               >
                 <option value="oldest">最久未处理</option>
+                <option value="impact">依赖影响与前置就绪</option>
                 <option value="newest">最近更新</option>
                 <option value="project">按项目</option>
                 <option value="type">按类型</option>
@@ -1137,7 +1185,7 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
                   />
                   <span className="wb-stat-value">{countText(counts.changes)}</span>
                   <span className="wb-stat-label">待确认变更</span>
-                  <span className="wb-stat-hint">角色确认已处理</span>
+                  <span className="wb-stat-hint">角色确认已知悉</span>
                 </button>
                 <button
                   className={`wb-stat${tab === 'ready' ? ' is-active' : ''}`}
@@ -1151,8 +1199,8 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
                     }}
                   />
                   <span className="wb-stat-value">{countText(counts.readyTasks)}</span>
-                  <span className="wb-stat-label">可开工</span>
-                  <span className="wb-stat-hint">依赖已满足</span>
+                  <span className="wb-stat-label">待领取</span>
+                  <span className="wb-stat-hint">前置任务已完成，按责任分配领取</span>
                 </button>
               </div>
 
@@ -1455,10 +1503,14 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
         )}
       </Modal>
 
-      <BatchReviewApprove
+      <DeferredBatchReviewApprove
         open={reviewBatchOpen}
         targets={reviewBatchTargets}
-        onClose={() => setReviewBatchOpen(false)}
+        onClose={() => {
+          setReviewBatchOpen(false);
+          setSelectedReviews(new Set());
+          void load();
+        }}
         onCompleted={handleReviewBatchCompleted}
       />
 
@@ -1471,7 +1523,7 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
         }}
       />
 
-      <ChangeDrawer
+      <DeferredChangeDrawer
         change={changeTarget}
         busy={changeBusy}
         error={changeError}

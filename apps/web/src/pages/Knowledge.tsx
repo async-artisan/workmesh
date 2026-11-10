@@ -18,7 +18,7 @@ import { formatApiError } from '../api/client';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { DiffViewer } from '../components/DiffViewer';
 import { ProjectSelect } from '../components/ProjectSelect';
-import { InlineLoading, SkeletonLines, TableSkeletonRows } from '../components/Skeleton';
+import { InlineLoading, SkeletonLines } from '../components/Skeleton';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { REVISION_STATE_LABELS } from '../lib/labels';
 import { loadDocumentIndex } from '../lib/documentIndex';
@@ -1338,16 +1338,16 @@ export function Knowledge() {
                 role={readyState === 'loading' ? 'status' : undefined}
                 aria-busy={readyState === 'loading'}
               >
-                <strong>可开工任务：</strong>
+                <strong>前置已完成的团队任务：</strong>
                 {readyState === 'loading' ? (
-                  '正在读取可开工任务…'
+                  '正在读取前置已完成的团队任务…'
                 ) : readyState === 'error' ? (
-                  '可开工任务读取失败，请稍后重试或打开工作台。'
+                  '前置已完成的团队任务读取失败，请稍后重试或打开工作台。'
                 ) : readyTasks.length === 0 ? (
-                  '当前项目没有可开工任务。'
+                  '当前项目没有前置已完成的团队任务。'
                 ) : (
                   <>
-                    {readyTasks.length} 项可开工任务。{' '}
+                    {readyTasks.length} 项前置已完成的团队任务。{' '}
                     <button
                       type="button"
                       className="ghost"
@@ -1355,7 +1355,7 @@ export function Knowledge() {
                         navigate(`/?type=ready&project=${encodeURIComponent(projectId)}`)
                       }
                     >
-                      查看可开工任务
+                      查看前置已完成的团队任务
                     </button>
                   </>
                 )}

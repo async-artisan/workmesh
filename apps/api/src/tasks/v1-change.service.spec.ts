@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { V1_ERROR_CODES, WorkmeshError, type Principal, type Scope } from '@workmesh/shared';
 import type { V1AuthorizationRepository } from '../auth/v1-authorization';
@@ -135,7 +135,9 @@ class InMemoryChangeRepo implements V1ChangeRepository {
   async listRecipients(query: V1ChangeListQuery): Promise<V1ChangeListResult> {
     let rows = [...this.recipients.values()].filter((r) => r.userId === query.userId);
     if (query.projectId) rows = rows.filter((r) => r.projectId === query.projectId);
-    if (query.ackedOnly) rows = rows.filter((r) => r.ackedAt !== null);
+    if (query.roleId) rows = rows.filter((r) => r.roleId === null || r.roleId === query.roleId);
+    if (query.ackedOnly !== undefined)
+      rows = rows.filter((r) => (query.ackedOnly ? r.ackedAt !== null : r.ackedAt === null));
     rows.sort((a, b) =>
       a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.id < b.id ? 1 : -1,
     );
@@ -253,6 +255,17 @@ describe('V1ChangeService.ack', () => {
     });
   });
 
+  it('rejects acknowledgement of another credential role for the same human user', async () => {
+    const repo = new InMemoryChangeRepo();
+    const { service } = build(repo, new InMemoryAuthz());
+    const rec = await seedRecipient(repo, 'p1', 'u2');
+    rec.roleId = 'another-role';
+    await expect(
+      service.ack(agent(), rec.id, ackInput(rec.id, 'other-role', agent())),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(rec.ackedAt).toBeNull();
+  });
+
   it('replays identical idempotency key (same result, no double ack)', async () => {
     const repo = new InMemoryChangeRepo();
     const { service } = build(repo, new InMemoryAuthz());
@@ -283,6 +296,45 @@ describe('V1ChangeService.ack', () => {
 });
 
 describe('V1ChangeService.listRecipients (>100 pagination, no loss)', () => {
+  it('forwards the credential role and active authorization snapshot to read aggregation', async () => {
+    const repo = new InMemoryChangeRepo();
+    const authz = new InMemoryAuthz();
+    const read = vi.spyOn(repo, 'listRecipients');
+    const { service } = build(repo, authz);
+    await service.listRecipients(agent('u2', 'c1', ['change:read']), {
+      projectId: 'p1',
+      limit: 20,
+    });
+    expect(read).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'u2',
+        roleId: 'r1',
+        activeRoleIds: ['r1'],
+        projectArchived: false,
+      }),
+    );
+  });
+
+  it('does not release derived facts when roles change during aggregation', async () => {
+    const repo = new InMemoryChangeRepo();
+    const authz = new InMemoryAuthz();
+    vi.spyOn(authz, 'resolveProjectContext')
+      .mockResolvedValueOnce({
+        project: { id: 'p1' },
+        membership: { userId: 'u1', revokedAt: null },
+        activeRoleIds: ['r1'],
+      })
+      .mockResolvedValueOnce({
+        project: { id: 'p1' },
+        membership: { userId: 'u1', revokedAt: null },
+        activeRoleIds: [],
+      });
+    const { service } = build(repo, authz);
+    await expect(
+      service.listRecipients(human(), { projectId: 'p1', limit: 20 }),
+    ).rejects.toMatchObject({ status: 409, message: 'CHANGE_GUIDANCE_AUTHORIZATION_CHANGED' });
+  });
+
   it('returns all 120 recipients across pages of 50 without loss or duplication', async () => {
     const repo = new InMemoryChangeRepo();
     const { service } = build(repo, new InMemoryAuthz());

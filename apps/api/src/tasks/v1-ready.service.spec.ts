@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { type Principal, type Scope } from '@workmesh/shared';
 import {
@@ -210,6 +210,44 @@ const REVISION: V1ReadyRevisionSteps = {
 };
 
 describe('V1ReadyService.ready', () => {
+  it('同角色同事可查看团队任务，但只有指定负责人可领取', async () => {
+    const own = candidate({ id: 'own', responsibleUserId: 'alice' });
+    const teammate = candidate({ id: 'teammate', responsibleUserId: 'bob' });
+    const { service } = build([own, teammate], [REVISION], []);
+    const page = await service.ready(human('alice'), P1, {});
+    expect(page.items.map((item) => [item.id, item.claimEligibility])).toEqual([
+      ['own', { canClaim: true, reason: null }],
+      ['teammate', { canClaim: false, reason: 'NOT_RESPONSIBLE' }],
+    ]);
+  });
+
+  it('管理员查看团队任务不代表可以代替责任人领取', async () => {
+    const { service } = build([candidate({ responsibleUserId: 'bob' })], [REVISION], []);
+    const page = await service.ready(human('owner'), P1, {});
+    expect(page.items[0].claimEligibility).toEqual({
+      canClaim: false,
+      reason: 'NOT_RESPONSIBLE',
+    });
+  });
+
+  it('本人负责但没有活动角色时保留任务可见性并提示不可领取', async () => {
+    const { service } = build([candidate({ roleId: R2 })], [REVISION], []);
+    const page = await service.ready(human('alice'), P1, {});
+    expect(page.items[0].claimEligibility).toEqual({ canClaim: false, reason: 'ROLE_INACTIVE' });
+  });
+
+  it('Agent 只有读取 scope 时不能把团队就绪误认为有领取权限', async () => {
+    const { service } = build([candidate({})], [REVISION], []);
+    expect((await service.ready(agent(), P1, {})).items[0].claimEligibility).toEqual({
+      canClaim: false,
+      reason: 'SCOPE_DENIED',
+    });
+    expect(
+      (await service.ready(agent(R1, ['task:read', 'task:claim']), P1, {})).items[0]
+        .claimEligibility,
+    ).toEqual({ canClaim: true, reason: null });
+  });
+
   it('AGENT 试图通过 query.roleId 改角色返回 403 SCOPE_DENIED', async () => {
     const { service } = build([candidate({ stepKey: 'design' })], [REVISION], []);
     await expect(service.ready(agent(R1), P1, { roleId: R2 })).rejects.toMatchObject({
@@ -290,14 +328,28 @@ describe('V1ReadyService.ready', () => {
     const { service: notReady } = build(
       [impl],
       [REVISION],
-      [{ workflowInstanceId: 'instance-1', stepKey: 'design', executionStatus: 'OPEN' }],
+      [
+        {
+          workflowInstanceId: 'instance-1',
+          stepKey: 'design',
+          executionStatus: 'OPEN',
+          workStatus: 'ACTIVE',
+        },
+      ],
     );
     expect((await notReady.ready(human('alice'), P1, {})).items).toEqual([]);
 
     const { service: ready } = build(
       [impl],
       [REVISION],
-      [{ workflowInstanceId: 'instance-1', stepKey: 'design', executionStatus: 'DONE' }],
+      [
+        {
+          workflowInstanceId: 'instance-1',
+          stepKey: 'design',
+          executionStatus: 'DONE',
+          workStatus: 'ACTIVE',
+        },
+      ],
     );
     expect((await ready.ready(human('alice'), P1, {})).items.map((item) => item.id)).toEqual([
       impl.id,
@@ -312,6 +364,22 @@ describe('V1ReadyService.ready', () => {
     const unknownStep = candidate({ stepKey: 'unknown' });
     const { service: missingStep } = build([unknownStep], [REVISION], []);
     expect((await missingStep.ready(human('alice'), P1, {})).items).toEqual([]);
+  });
+
+  it('前序虽已完成但被暂停时不提供下游领取入口，与事务内领取条件一致', async () => {
+    const { service } = build(
+      [candidate({ stepKey: 'impl' })],
+      [REVISION],
+      [
+        {
+          workflowInstanceId: 'instance-1',
+          stepKey: 'design',
+          executionStatus: 'DONE',
+          workStatus: 'PAUSED',
+        },
+      ],
+    );
+    expect((await service.ready(human('alice'), P1, {})).items).toEqual([]);
   });
 
   it('已有活动认领或非 OPEN/ACTIVE 的任务不就绪', async () => {
@@ -345,13 +413,24 @@ describe('V1ReadyService.ready', () => {
     expect((await service.ready(human('alice'), P1, {})).items).toEqual([]);
   });
 
-  it('依赖读取失败时按不就绪处理，不抛 500', async () => {
+  it('依赖读取失败返回可重试错误，不把未知状态显示为空任务', async () => {
     const { service, repository } = build([candidate({ stepKey: 'design' })], [REVISION], []);
     repository.failDependencyRead = true;
-    await expect(service.ready(human('alice'), P1, {})).resolves.toEqual({
-      items: [],
-      nextCursor: null,
-      hasMore: false,
+    await expect(service.ready(human('alice'), P1, {})).rejects.toMatchObject({
+      status: 503,
+      code: 'INPUT_UNAVAILABLE',
+      details: { reason: 'TASK_READY_DATA_UNAVAILABLE', retryable: true },
+    });
+  });
+
+  it('候选任务读取失败不返回成功空列表或已经扫描的部分结果', async () => {
+    const { service, repository } = build([candidate({ stepKey: 'design' })], [REVISION], []);
+    vi.spyOn(repository, 'listCandidates').mockRejectedValue(
+      new Error('connection details must stay private'),
+    );
+    await expect(service.ready(human('alice'), P1, {})).rejects.toMatchObject({
+      status: 503,
+      message: '前置任务状态读取失败，请重试。',
     });
   });
 

@@ -25,6 +25,10 @@ import {
   type RequirementPipelineTask,
 } from '../components/RequirementPipeline';
 import { WorkflowInstanceDialog } from '../components/WorkflowInstanceDialog';
+import { TaskInputStatusPanel } from '../components/TaskInputStatusPanel';
+import { TaskRelations } from '../components/TaskRelations';
+import { RequirementTrustChain } from '../components/RequirementTrustChain';
+import { LazyCodeEvidenceStatus } from '../components/CodeEvidenceStatus';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { useAuthStore } from '../store/auth';
 import {
@@ -339,9 +343,13 @@ export function RequirementDetail({
 
   const [detail, setDetail] = useState<RequirementDetailView | null>(null);
   const [prdDocs, setPrdDocs] = useState<DocumentDetail[]>([]);
-  const [tab, setTab] = useState<DetailTab>(
-    isDetailTab(searchParams.get('tab')) ? (searchParams.get('tab') as DetailTab) : 'overview',
-  );
+  const focusedTaskId = searchParams.get('taskId');
+  // 页签只由 URL 派生。taskId 深链优先显示任务，切换页签会同时清除该定位参数。
+  const tab: DetailTab = focusedTaskId
+    ? 'tasks'
+    : isDetailTab(searchParams.get('tab'))
+      ? (searchParams.get('tab') as DetailTab)
+      : 'overview';
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
@@ -580,13 +588,6 @@ export function RequirementDetail({
     };
   }, [detail]);
 
-  const focusedTaskId = searchParams.get('taskId');
-
-  // 带 taskId 的链接（刷新/复制）即使 tab 不是 tasks，也自动切到任务页签。
-  useEffect(() => {
-    if (focusedTaskId && tab !== 'tasks') setTab('tasks');
-  }, [focusedTaskId, tab]);
-
   useEffect(() => {
     if (focusedTaskId) setExpandedTaskId(focusedTaskId);
   }, [focusedTaskId]);
@@ -690,7 +691,7 @@ export function RequirementDetail({
   const doneStepKeysByInstance = useMemo(() => {
     const map = new Map<string, Set<string>>();
     for (const task of detail?.tasks ?? []) {
-      if (task.executionStatus !== 'DONE') continue;
+      if (task.executionStatus !== 'DONE' || task.workStatus !== 'ACTIVE') continue;
       const set = map.get(task.instanceId) ?? new Set<string>();
       set.add(task.stepKey);
       map.set(task.instanceId, set);
@@ -720,6 +721,20 @@ export function RequirementDetail({
     }
     return states;
   }, [detail, stepDepsByInstance, doneStepKeysByInstance]);
+
+  const selectedTask = detail?.tasks.find((task) => task.id === focusedTaskId);
+  function canCopyClaim(task: RequirementTaskDetail) {
+    return (
+      detail?.requirement.workStatus === 'ACTIVE' &&
+      task.workflowWorkStatus === 'ACTIVE' &&
+      task.claimEligibility?.canClaim === true &&
+      taskStates[task.id]?.claimable === true
+    );
+  }
+  function copyClaim(task: RequirementTaskDetail) {
+    if (!canCopyClaim(task)) return;
+    void copyText(`workmesh claim --task ${task.id}`, '领取命令');
+  }
 
   const currentMember =
     membersStatus === 'ready' ? members.find((member) => member.id === user?.id) : undefined;
@@ -972,7 +987,11 @@ export function RequirementDetail({
       tasksByPhase.set('discovery', [...(tasksByPhase.get('discovery') ?? []), ...leftovers]);
     }
 
-    return phaseDefs.map((def) => {
+    // Empty template stages are not part of this requirement's actual task flow.
+    const visiblePhaseDefs = pipelineTasks.length
+      ? phaseDefs.filter((def) => (tasksByPhase.get(def.id)?.length ?? 0) > 0)
+      : phaseDefs;
+    return visiblePhaseDefs.map((def) => {
       const phaseTasks = tasksByPhase.get(def.id) ?? [];
       const liveTask = phaseTasks.find((task) =>
         ['IN_PROGRESS', 'BLOCKED_OR_FROZEN', 'CLAIMABLE'].includes(task.displayState?.kind ?? ''),
@@ -1090,10 +1109,10 @@ export function RequirementDetail({
       };
     if (claimableTasks.length > 0)
       return {
-        title: `有 ${claimableTasks.length} 个任务可立即领取`,
-        text: '判定依据：已发布流程的直接前置步骤均已完成。任务由本地 Agent 认领与交付；这里只读。',
+        title: `有 ${claimableTasks.length} 个任务的前置任务已完成`,
+        text: '已发布流程的直接前置步骤均已完成；请在任务详情核对本人领取资格与必需输入，再由本地 Agent 认领。',
         action: {
-          label: '定位可领取任务',
+          label: '查看前置已完成的任务',
           run: () => focusTask(claimableTasks[0].id),
         },
       };
@@ -1103,12 +1122,30 @@ export function RequirementDetail({
         text: '服务端没有返回可用的流程依赖信息，无法确认哪些任务可以领取；请稍后刷新或联系项目管理员。',
         action: null,
       };
+    if (
+      detail.requirement.phase === 'RELEASED' &&
+      detail.tasks.every((task) => taskStates[task.id]?.kind === 'DONE')
+    )
+      return {
+        title: '需求已发布，全部任务已完成',
+        text: '交付与验收已完成，可查看交付物和追溯记录。',
+        action: null,
+      };
     return {
       title: '当前没有待处理动作',
       text: '等待 Agent 交付或下一次评审触发。',
       action: null,
     };
-  }, [detail, openReviews, claimableTasks, unknownStateTasks, initState, navigate, copyText]);
+  }, [
+    detail,
+    openReviews,
+    claimableTasks,
+    unknownStateTasks,
+    taskStates,
+    initState,
+    navigate,
+    copyText,
+  ]);
 
   async function copyText(text: string, label: string) {
     try {
@@ -1121,7 +1158,6 @@ export function RequirementDetail({
   }
 
   function changeTab(next: DetailTab, taskId?: string) {
-    setTab(next);
     setSearchParams(
       (current) => {
         const nextParams = new URLSearchParams(current);
@@ -1454,13 +1490,18 @@ export function RequirementDetail({
                 </button>
                 <button
                   role="menuitem"
+                  disabled={Boolean(selectedTask) && !canCopyClaim(selectedTask!)}
                   onClick={() => {
-                    void copyText('workmesh claim --task <taskId>', 'CLI 命令');
+                    if (selectedTask) copyClaim(selectedTask);
+                    else {
+                      changeTab('tasks');
+                      setNotice('请在任务列表选择要操作的任务，再复制该任务的领取命令。');
+                    }
                     setMoreOpen(false);
                   }}
                 >
                   <Terminal size={14} />
-                  复制 CLI 命令
+                  {selectedTask ? '复制所选任务领取命令' : '选择任务并复制命令'}
                 </button>
               </div>
             )}
@@ -1560,7 +1601,12 @@ export function RequirementDetail({
       )}
       <ol className="req-tabs" role="tablist" aria-label="需求详情" onKeyDown={onTabKeyDown}>
         {DETAIL_STAGES.map((item, index) => {
-          const count = stageCountOf(item.key, detail, prdDocs.length, trace.length);
+          const count = stageCountOf(
+            item.key,
+            detail,
+            prdDocs.length,
+            detail.trustChain?.timeline.length ?? trace.length,
+          );
           const active = tab === item.key;
           return (
             <li key={item.key}>
@@ -1595,6 +1641,11 @@ export function RequirementDetail({
         >
           {tab === 'overview' && (
             <div className="detail-card">
+              <RequirementTrustChain
+                chain={detail.trustChain}
+                onTask={focusTask}
+                onTimeline={() => changeTab('trace')}
+              />
               <h3>需求描述</h3>
               <p className="detail-text">{requirement.description || '暂无描述。'}</p>
               {detail.changes.length > 0 && (
@@ -1703,6 +1754,7 @@ export function RequirementDetail({
                                 onToggle={(event) => {
                                   if (!event.currentTarget.open && expandedTaskId === task.id)
                                     setExpandedTaskId(null);
+                                  else if (event.currentTarget.open) setExpandedTaskId(task.id);
                                 }}
                               >
                                 <summary>查看任务状态与证据详情</summary>
@@ -1731,10 +1783,45 @@ export function RequirementDetail({
                                   ) : (
                                     <p>当前没有关联评审。</p>
                                   )}
+                                  <TaskRelations
+                                    task={task}
+                                    tasks={detail.tasks}
+                                    graph={stepDepsByInstance[task.instanceId]}
+                                    onFocus={focusTask}
+                                  />
+                                  {expandedTaskId === task.id && (
+                                    <TaskInputStatusPanel key={task.id} taskId={task.id} />
+                                  )}
                                 </div>
                               </details>
                             </div>
                             <div className="task-row-actions">
+                              <button
+                                className="ghost"
+                                onClick={() => {
+                                  focusTask(task.id);
+                                  void copyText(task.id, '任务 ID');
+                                }}
+                              >
+                                <Copy size={14} />
+                                复制任务 ID
+                              </button>
+                              <button
+                                className="ghost"
+                                disabled={readOnly || !canCopyClaim(task)}
+                                onClick={() => {
+                                  focusTask(task.id);
+                                  copyClaim(task);
+                                }}
+                                title={
+                                  task.claimEligibility?.canClaim === true
+                                    ? '前置完成后可复制；实际领取仍由服务端复核，输入可用性在获取上下文时检查。'
+                                    : '仅当前负责人且拥有活动角色时可领取；资格缺失时请刷新。'
+                                }
+                              >
+                                <Terminal size={14} />
+                                复制领取命令
+                              </button>
                               {!readOnly && task.review?.status === 'OPEN' ? (
                                 <button
                                   className="primary"
@@ -1818,6 +1905,10 @@ export function RequirementDetail({
                               {artifact.summary && (
                                 <div className="task-row-meta">{artifact.summary}</div>
                               )}
+                              {(artifact.storage === 'GIT_REF' || artifact.commitSha) &&
+                                artifact.artifactSetId && (
+                                  <LazyCodeEvidenceStatus artifactSetId={artifact.artifactSetId} />
+                                )}
                               {checks.length > 0 && (
                                 <div className="artifact-checks">
                                   <span>
@@ -2070,7 +2161,10 @@ export function RequirementDetail({
             </div>
           )}
 
-          {tab === 'trace' && (
+          {tab === 'trace' && detail.trustChain && (
+            <RequirementTrustChain chain={detail.trustChain} mode="timeline" onTask={focusTask} />
+          )}
+          {tab === 'trace' && !detail.trustChain && (
             <div className="detail-card">
               <div className="detail-card-head">
                 <h3>

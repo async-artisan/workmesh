@@ -16,7 +16,12 @@ import {
   type V1Principal,
 } from './v1-policy';
 import { V1_AUTH_REPOSITORY } from './v1-auth.service';
-import type { V1AuthRepository, V1SessionRecord, V1UserRecord } from './v1-auth.repository';
+import type {
+  V1AuthRepository,
+  V1PasswordRateReservation,
+  V1SessionRecord,
+  V1UserRecord,
+} from './v1-auth.repository';
 
 export type V1CookiePayload = {
   sessionId: string;
@@ -203,7 +208,7 @@ export class V1AccountService {
     now?: Date;
   }): Promise<{ user: V1UserRecord; cookies: V1CookiePayload }> {
     const now = input.now ?? new Date();
-    await this.consumeRate('register-ip', input.ip, 30, RATE_WINDOW_15M, now);
+    await this.consumeRate('login-ip', input.ip, 30, RATE_WINDOW_15M, now);
     const email = normalizeEmail(input.email);
     if (!EMAIL_RX.test(email))
       throw new WorkmeshError(V1_ERROR_CODES.INVALID_REQUEST, '邮箱格式无效', undefined, 400);
@@ -259,13 +264,15 @@ export class V1AccountService {
     const now = input.now ?? new Date();
     const email = normalizeEmail(input.email);
     await this.consumeRate('login-ip', input.ip, 30, RATE_WINDOW_15M, now);
-    await this.consumeRate('login-email', hashSecret(email), 5, RATE_WINDOW_15M, now);
+    // Preserve the existing rate-key derivation so an upgrade keeps active windows.
+    const reservation = await this.reservePasswordAttempt('login-email', hashSecret(email), now);
 
     const user = await this.repository.findUserByEmail(email);
     // 不存在的用户也执行等价 bcrypt 比较，避免通过响应时间枚举账号。
     const hash = user?.passwordHash ?? DUMMY_PASSWORD_HASH;
     const matches = await bcrypt.compare(input.password, hash);
     if (!user || !matches || !user.isActive) throw authInvalid();
+    await this.repository.releasePasswordRateWindow(reservation);
 
     await this.repository.revokeSession(input.session.id, now);
     const cookies = await this.createSession(
@@ -285,27 +292,38 @@ export class V1AccountService {
     input: V1PasswordAttemptInput & { password: string; now?: Date },
   ): Promise<V1UserRecord> {
     const now = input.now ?? new Date();
-    const reservation = await this.repository.reservePasswordRateWindow({
-      kind: 'password-verify-session',
-      keyHash: hashSecret(input.sessionId),
+    const reservation = await this.reservePasswordAttempt(
+      'password-verify-session',
+      input.sessionId,
       now,
-      windowMs: RATE_WINDOW_15M,
-      limit: 5,
-    });
-    if (!reservation) {
-      const remainingMs = RATE_WINDOW_15M - (now.getTime() % RATE_WINDOW_15M);
-      throw new WorkmeshError(
-        V1_ERROR_CODES.RATE_LIMITED,
-        '请求过于频繁',
-        { retryAfterSeconds: Math.ceil(remainingMs / 1000), window: 'password-verify-session' },
-        429,
-      );
-    }
+    );
     const user = await this.repository.findUser(input.userId);
     if (!user || !user.isActive) throw authInvalid();
     if (!(await bcrypt.compare(input.password, user.passwordHash))) throw authInvalid();
     await this.repository.releasePasswordRateWindow(reservation);
     return user;
+  }
+
+  private async reservePasswordAttempt(
+    kind: string,
+    key: string,
+    now: Date,
+  ): Promise<V1PasswordRateReservation> {
+    const reservation = await this.repository.reservePasswordRateWindow({
+      kind,
+      keyHash: hashSecret(key),
+      now,
+      windowMs: RATE_WINDOW_15M,
+      limit: 5,
+    });
+    if (reservation) return reservation;
+    const remainingMs = RATE_WINDOW_15M - (now.getTime() % RATE_WINDOW_15M);
+    throw new WorkmeshError(
+      V1_ERROR_CODES.RATE_LIMITED,
+      '请求过于频繁',
+      { retryAfterSeconds: Math.ceil(remainingMs / 1000), window: kind },
+      429,
+    );
   }
 
   async me(principal: Principal): Promise<Record<string, unknown>> {
@@ -391,7 +409,8 @@ export class V1AccountService {
       windowMs,
     });
     if (attempts > limit) {
-      const retryAfterSeconds = Math.ceil(windowMs / 1000);
+      const remainingMs = windowMs - (now.getTime() % windowMs);
+      const retryAfterSeconds = Math.ceil(remainingMs / 1000);
       throw new WorkmeshError(
         V1_ERROR_CODES.RATE_LIMITED,
         '请求过于频繁',

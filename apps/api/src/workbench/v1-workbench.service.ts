@@ -1,10 +1,16 @@
 import { Injectable } from '@nestjs/common';
-import { workflowStepDisplayNameOf, type Principal } from '@workmesh/shared';
+import {
+  workflowStepDisplayNameOf,
+  type Principal,
+  type TaskClaimEligibility,
+  type ChangeGuidance,
+} from '@workmesh/shared';
 import { V1AuthorizationService } from '../auth/v1-authorization';
 import { PrismaService } from '../prisma/prisma.service';
 import { V1ReviewService } from '../reviews/v1-review.service';
 import { V1ChangeService } from '../tasks/v1-change.service';
 import { V1ReadyService } from '../tasks/v1-ready.service';
+import { attachDependencyImpact } from './v1-workbench-dependency-impact';
 
 type ProjectRow = { id: string; key: string; name: string };
 
@@ -12,6 +18,8 @@ type WorkbenchRequirement = { code: string; title: string };
 type WorkbenchRole = { id: string; key: string; title: string };
 
 export type WorkbenchReviewItem = {
+  blocking?: number | null;
+  dependencyImpact?: import('@workmesh/shared').DependencyImpact;
   reviewId: string;
   kind: string;
   status: string;
@@ -42,6 +50,8 @@ export type WorkbenchReviewItem = {
 };
 
 export type WorkbenchChangeItem = {
+  blocking?: number | null;
+  dependencyImpact?: import('@workmesh/shared').DependencyImpact;
   recipientId: string;
   eventId: string;
   projectId: string;
@@ -54,9 +64,12 @@ export type WorkbenchChangeItem = {
   version: number;
   createdAt: string;
   ageSeconds: number;
+  guidance?: ChangeGuidance;
 };
 
 export type WorkbenchReadyTaskItem = {
+  blocking?: number | null;
+  dependencyImpact?: import('@workmesh/shared').DependencyImpact;
   taskId: string;
   projectId: string;
   projectKey: string;
@@ -68,6 +81,8 @@ export type WorkbenchReadyTaskItem = {
   executionStatus: string;
   workStatus: string;
   ageSeconds: number | null;
+  responsibleUser: { id: string; email: string } | null;
+  claimEligibility: TaskClaimEligibility;
 };
 
 /** 逾期审批（到期未决定）：工作台置顶展示，跨项目按 dueAt 升序。 */
@@ -108,7 +123,7 @@ function ageSecondsOf(value: Date | string | null | undefined): number | null {
 }
 
 /**
- * 工作台只读聚合：一次请求返回“待我签字 / 待确认变更 / 可开工任务”。
+ * 工作台只读聚合：一次请求返回“待我签字 / 待知悉变更 / 前置任务已完成”。
  * 权限过滤复用各领域 service；本服务只做跨实体补齐人类可读标签，不写任何事实。
  */
 @Injectable()
@@ -133,8 +148,17 @@ export class V1WorkbenchService {
     });
 
     const warnings: string[] = [];
-    const results = await Promise.all(
-      projects.map((project) => this.loadProject(principal, project, warnings)),
+    // Bound database fan-out while retaining every authorized project and its order.
+    // Each project also performs several domain reads and enrichment queries.
+    const results = new Array<ProjectResult>(projects.length);
+    let nextProject = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(4, projects.length) }, async () => {
+        while (nextProject < projects.length) {
+          const index = nextProject++;
+          results[index] = await this.loadProject(principal, projects[index], warnings);
+        }
+      }),
     );
     const reviews = results.flatMap((result) => result.reviews);
     const changes = results.flatMap((result) => result.changes);
@@ -233,7 +257,7 @@ export class V1WorkbenchService {
     if (changePage.status === 'rejected')
       warnings.push(`${project.key}：变更数据加载失败（${errorText(changePage.reason)}）`);
     if (readyPage.status === 'rejected')
-      warnings.push(`${project.key}：可开工任务加载失败（${errorText(readyPage.reason)}）`);
+      warnings.push(`${project.key}：前置任务状态加载失败（${errorText(readyPage.reason)}）`);
 
     const reviewItems = reviewPage.status === 'fulfilled' ? reviewPage.value.items : [];
     const recipients =
@@ -248,7 +272,12 @@ export class V1WorkbenchService {
       this.enrichReadyTasks(project, readyItems),
     ]);
 
-    return { reviews, changes, readyTasks };
+    const result = { reviews, changes, readyTasks };
+    await attachDependencyImpact(this.prisma, project.id, result, async () => {
+      await this.authorization.requireScope(principal, project.id, 'task:read');
+      await this.authorization.resolveProjectContext(principal, project.id, 'read');
+    });
+    return result;
   }
 
   private async enrichReviews(
@@ -449,7 +478,7 @@ export class V1WorkbenchService {
     const eventIds = [...new Set(recipients.map((recipient) => recipient.eventId))];
     const [events, pending] = await Promise.all([
       this.prisma.changeEvent.findMany({
-        where: { id: { in: eventIds } },
+        where: { id: { in: eventIds }, projectId: project.id },
         select: {
           id: true,
           requirementId: true,
@@ -459,7 +488,7 @@ export class V1WorkbenchService {
         },
       }),
       this.prisma.changeRecipient.findMany({
-        where: { eventId: { in: eventIds }, ackedAt: null },
+        where: { eventId: { in: eventIds }, projectId: project.id, ackedAt: null },
         select: { eventId: true, roleId: true },
       }),
     ]);
@@ -519,6 +548,7 @@ export class V1WorkbenchService {
         version: recipient.version,
         createdAt: recipient.createdAt,
         ageSeconds: ageSecondsOf(recipient.createdAt) ?? 0,
+        guidance: recipient.guidance,
       };
     });
   }
@@ -535,6 +565,7 @@ export class V1WorkbenchService {
         id: true,
         stepKey: true,
         roleId: true,
+        responsibleUser: { select: { id: true, email: true } },
         instance: {
           select: {
             definitionRevisionId: true,
@@ -581,6 +612,8 @@ export class V1WorkbenchService {
         executionStatus: item.executionStatus,
         workStatus: item.workStatus,
         ageSeconds: null,
+        responsibleUser: task?.responsibleUser ?? null,
+        claimEligibility: item.claimEligibility,
       };
     });
   }

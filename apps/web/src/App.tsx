@@ -1,11 +1,26 @@
-import { Fragment, Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Fragment,
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { Bell, ChevronDown, Menu, User, X } from 'lucide-react';
 import { Navigate, matchPath, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError, SESSION_EXPIRED_EVENT, formatApiError } from './api/client';
 import { authApi, bootstrapSession } from './api/auth';
 import { activityApi, notificationApi, type ActivityItem } from './api/resources';
 import { getWorkbenchSnapshot, invalidateWorkbenchSnapshot } from './lib/workbenchSnapshot';
-import { countUnreadActivity, markActivitySeen, readActivityLastSeenAt } from './lib/activitySeen';
+import {
+  activitySeenStorageKey,
+  countUnreadActivity,
+  markActivitySeen,
+  readActivitySeenIds,
+} from './lib/activitySeen';
+import { actionableNotificationCounts, activityDestination } from './lib/notificationDisplay';
 import { ACTION_LABELS, labelFor } from './lib/labels';
 import { formatDateTime } from './lib/datetime';
 import { useAuthStore } from './store/auth';
@@ -15,10 +30,10 @@ import { ErrorState } from './components/ErrorState';
 import { PageState } from './components/PageState';
 import { ToastHost } from './components/ToastHost';
 import { ProjectContextBoundary } from './components/ProjectContextBoundary';
-import { Login } from './pages/Login';
-import { Register } from './pages/Register';
 import { toast } from './store/toast';
 
+const Login = lazy(() => import('./pages/Login').then((m) => ({ default: m.Login })));
+const Register = lazy(() => import('./pages/Register').then((m) => ({ default: m.Register })));
 const Authorization = lazy(() =>
   import('./pages/Authorization').then((m) => ({ default: m.Authorization })),
 );
@@ -123,7 +138,13 @@ export function App() {
   });
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
-  const [activityLastSeenAt, setActivityLastSeenAt] = useState(() => readActivityLastSeenAt());
+  const [activitySeenIds, setActivitySeenIds] = useState<Set<string>>(new Set());
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState('');
+  const [activityRefresh, setActivityRefresh] = useState(0);
+  const [todoLoading, setTodoLoading] = useState(false);
+  const [todoError, setTodoError] = useState('');
+  const [todoRefresh, setTodoRefresh] = useState(0);
   /** 只在需要冷却倒计时时按秒更新；不再让整棵 App 每秒重渲染。 */
   const [cooldownNow, setCooldownNow] = useState(() => Date.now());
   const [mailBusy, setMailBusy] = useState(false);
@@ -184,67 +205,79 @@ export function App() {
     };
   }, [isPublicPage, runBootstrap]);
 
+  // 在子页面开始加载前清掉旧账号缓存，避免既泄露旧快照又把子页面的新请求清掉。
+  // 本地已读记录只属于当前账号；旧账号的在途加载由后续 effect 的清理函数失效。
+  useLayoutEffect(() => {
+    invalidateWorkbenchSnapshot();
+    setTodoCounts({ signOffs: 0, approvals: 0, changes: 0, readyTasks: 0, total: 0 });
+    setRecentActivity([]);
+    setTodoError('');
+    setActivityError('');
+    setMailNotice('');
+    setActivitySeenIds(readActivitySeenIds(user?.id));
+    const userId = user?.id;
+    if (!userId) return;
+    const syncReadState = (event: StorageEvent) => {
+      if (event.key === null || event.key === activitySeenStorageKey(userId)) {
+        setActivitySeenIds(readActivitySeenIds(userId));
+      }
+    };
+    window.addEventListener('storage', syncReadState);
+    return () => window.removeEventListener('storage', syncReadState);
+  }, [user?.id]);
+
   useEffect(() => {
-    if (!user) {
-      setTodoCounts({ signOffs: 0, approvals: 0, changes: 0, readyTasks: 0, total: 0 });
-      return;
-    }
+    if (!user?.id) return;
     let alive = true;
-    const load = () => {
-      getWorkbenchSnapshot()
+    let requestSequence = 0;
+    const load = (force = false) => {
+      const request = ++requestSequence;
+      setTodoLoading(true);
+      getWorkbenchSnapshot(null, { force })
         .then((value) => {
-          if (!alive) return;
-          const signOffs = value.reviews.filter(
-            (review) => review.kind === 'TASK_ACCEPTANCE' || review.kind === 'RELEASE_ACCEPTANCE',
-          ).length;
-          setTodoCounts({
-            signOffs,
-            approvals: value.reviews.length - signOffs,
-            changes: value.counts.changes,
-            readyTasks: value.counts.readyTasks,
-            total: value.counts.total,
-          });
+          if (!alive || request !== requestSequence) return;
+          setTodoCounts(actionableNotificationCounts(value));
+          setTodoError('');
         })
-        .catch(() => {
-          // 通知徽标失败不阻塞页面。
+        .catch((caught: unknown) => {
+          if (alive && request === requestSequence)
+            setTodoError(`我的待办未能更新：${formatApiError(caught)}。当前数字可能已过期。`);
+        })
+        .finally(() => {
+          if (alive && request === requestSequence) setTodoLoading(false);
         });
     };
-    void load();
-    const timer = window.setInterval(load, 60_000);
+    load(todoRefresh > 0);
+    const timer = window.setInterval(() => load(), 60_000);
     return () => {
       alive = false;
       window.clearInterval(timer);
     };
-  }, [user]);
+  }, [user?.id, notificationsOpen, todoRefresh]);
 
+  // 后台刷新与打开面板共享同一条加载路径；失败保留旧活动并明确提示。
   useEffect(() => {
-    if (!notificationsOpen) return;
+    if (!user?.id) return;
     let alive = true;
-    activityApi
-      .list(8)
-      .then((page) => {
-        if (alive) setRecentActivity(page.items);
-      })
-      .catch(() => {
-        if (alive) setRecentActivity([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [notificationsOpen]);
-
-  // 后台刷新最近活动，用于铃铛的未读点；1 分钟一次，失败静默保留旧列表。
-  useEffect(() => {
-    if (!user) return;
-    let alive = true;
+    let requestSequence = 0;
     const load = () => {
+      const request = ++requestSequence;
+      setActivityLoading(true);
       activityApi
         .list(8)
         .then((page) => {
-          if (alive) setRecentActivity(page.items);
+          if (!alive || request !== requestSequence) return;
+          setRecentActivity(page.items);
+          setActivityError('');
         })
-        .catch(() => {
-          // 通知中心是辅助信息，失败不打扰用户。
+        .catch((caught: unknown) => {
+          if (alive && request === requestSequence)
+            setActivityError(
+              `审计活动未能更新：${formatApiError(caught)}。已加载的记录保留在下方。`,
+            );
+        })
+        .finally(() => {
+          if (alive && request === requestSequence) setActivityLoading(false);
         });
     };
     load();
@@ -253,12 +286,12 @@ export function App() {
       alive = false;
       window.clearInterval(timer);
     };
-  }, [user]);
+  }, [user?.id, notificationsOpen, activityRefresh]);
 
-  const unreadActivity = countUnreadActivity(recentActivity, activityLastSeenAt);
+  const unreadActivity = countUnreadActivity(recentActivity, activitySeenIds);
 
   function markAllActivitySeen() {
-    setActivityLastSeenAt(markActivitySeen());
+    if (user) setActivitySeenIds((seen) => markActivitySeen(recentActivity, user.id, seen));
   }
 
   // 冷却倒计时按秒刷新；无冷却时不跑定时器，避免整页每秒重渲染。
@@ -342,11 +375,6 @@ export function App() {
     window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
     return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
   }, []);
-
-  // 切换账号后工作台快照属于上一个用户，必须让缓存失效。
-  useEffect(() => {
-    invalidateWorkbenchSnapshot();
-  }, [user?.id]);
 
   useEffect(() => {
     if (!drawerOpen && !menuOpen && !notificationsOpen) return;
@@ -589,10 +617,10 @@ export function App() {
             <button
               ref={bellRef}
               className="nav-bell"
-              aria-label={`通知：${todoCounts.total} 件待办${unreadActivity > 0 ? `，${unreadActivity} 条未读活动` : ''}`}
+              aria-label={`通知：${todoError ? '待办更新失败' : `${todoCounts.total} 件我的待办`}${unreadActivity > 0 ? `，${unreadActivity} 条未读活动` : ''}`}
               aria-expanded={notificationsOpen}
               aria-controls="notifications-panel"
-              title={`待办 ${todoCounts.total} 件${unreadActivity > 0 ? ` · ${unreadActivity} 条未读` : ''}`}
+              title={`我的待办 ${todoCounts.total} 件${todoError ? '（未更新）' : ''}${unreadActivity > 0 ? ` · 当前活动 ${unreadActivity} 条未读` : ''}`}
               onClick={() => setNotificationsOpen((value) => !value)}
             >
               <Bell size={16} />
@@ -623,7 +651,7 @@ export function App() {
                       disabled={unreadActivity === 0}
                       onClick={markAllActivitySeen}
                     >
-                      全部标为已读
+                      将当前活动标为已读
                     </button>
                     <button
                       className="ghost"
@@ -637,6 +665,27 @@ export function App() {
                     </button>
                   </div>
                 </div>
+                <h4>我的待办</h4>
+                <p className="page-sub">
+                  仅统计服务端确认我可签字、待我确认的变更和我可领取的任务。
+                </p>
+                {todoLoading && (
+                  <p className="page-sub" role="status">
+                    正在更新我的待办…
+                  </p>
+                )}
+                {todoError && (
+                  <div role="alert">
+                    <p className="field-error">{todoError}</p>
+                    <button
+                      className="ghost"
+                      disabled={todoLoading}
+                      onClick={() => setTodoRefresh((value) => value + 1)}
+                    >
+                      重试待办
+                    </button>
+                  </div>
+                )}
                 <div className="notification-stats">
                   <button
                     onClick={() => {
@@ -671,7 +720,7 @@ export function App() {
                       navigate('/?type=ready');
                     }}
                   >
-                    <span>可开工</span>
+                    <span>我可领取</span>
                     <strong>{todoCounts.readyTasks}</strong>
                   </button>
                 </div>
@@ -684,12 +733,32 @@ export function App() {
                 </button>
                 {mailNotice && <p className="page-sub">{mailNotice}</p>}
                 <div className="notification-list">
-                  <h4>最近活动</h4>
-                  {recentActivity.length === 0 ? (
+                  <h4>审计活动</h4>
+                  <p className="page-sub">
+                    最近 8 条审计记录用于追溯，可能无需你处理。已读仅保存在此浏览器的当前账号下。
+                  </p>
+                  {activityLoading && (
+                    <p className="page-sub" role="status">
+                      正在更新审计活动…
+                    </p>
+                  )}
+                  {activityError && (
+                    <div role="alert">
+                      <p className="field-error">{activityError}</p>
+                      <button
+                        className="ghost"
+                        disabled={activityLoading}
+                        onClick={() => setActivityRefresh((value) => value + 1)}
+                      >
+                        重试活动
+                      </button>
+                    </div>
+                  )}
+                  {recentActivity.length === 0 && !activityLoading && !activityError ? (
                     <p className="detail-empty">暂无审计事件。</p>
                   ) : (
                     recentActivity.map((item) => {
-                      const path = activityPath(item);
+                      const destination = activityDestination(item);
                       const content = (
                         <>
                           <span className="status-tag">{labelFor(ACTION_LABELS, item.action)}</span>
@@ -699,17 +768,19 @@ export function App() {
                           </small>
                         </>
                       );
-                      return path ? (
+                      return destination ? (
                         <button
                           type="button"
                           className="notification-item is-link"
                           key={item.id}
                           onClick={() => {
+                            setActivitySeenIds((seen) => markActivitySeen([item], user.id, seen));
                             setNotificationsOpen(false);
-                            navigate(path);
+                            navigate(destination.path);
                           }}
                         >
                           {content}
+                          <small>{destination.label}</small>
                         </button>
                       ) : (
                         <div className="notification-item" key={item.id}>
@@ -851,28 +922,4 @@ function NavClock() {
     return () => window.clearInterval(timer);
   }, []);
   return <>{now.toLocaleTimeString('zh-CN', { hour12: false })}</>;
-}
-
-/** 把最近活动映射到可到达的页面；没有可跳转目标时返回 null，保持纯展示。 */
-function activityPath(item: ActivityItem): string | null {
-  switch (item.targetType) {
-    case 'REVIEW_REQUEST':
-      return `/reviews/${encodeURIComponent(item.targetId)}`;
-    case 'PROJECT':
-      return '/projects';
-    case 'KNOWLEDGE_DOCUMENT':
-      return '/knowledge';
-    case 'WORKFLOW_DEFINITION':
-    case 'WORKFLOW_DEFINITION_REVISION':
-      return '/workflows';
-    case 'CREDENTIAL':
-      return '/profile';
-    case 'CLI_AUTHORIZATION':
-      return '/authorization';
-    case 'PROJECT_MEMBER':
-    case 'PROJECT_INVITATION':
-      return '/roles';
-    default:
-      return null;
-  }
 }

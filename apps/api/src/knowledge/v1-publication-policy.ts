@@ -1,4 +1,4 @@
-import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
+import { ACCEPTANCE_KEY_PATTERN, V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
 import type { V1KnowledgeAccess } from '../auth/v1-authorization';
 
 export type KnowledgePermission = 'READ' | 'PROPOSE' | 'PUBLISH' | 'REVOKE';
@@ -101,7 +101,6 @@ export type V1DeliveryScope = {
   excludedRoles: Array<{ roleId: string; reason: string }>;
 };
 
-const ACCEPTANCE_KEY = /^[a-z][a-z0-9-]{1,63}$/;
 const ARTIFACT_KINDS = new Set(['PRD', 'DESIGN', 'IMPL', 'CASES', 'RELEASE']);
 const VERIFICATIONS = new Set<V1AcceptanceVerification>(['TEST', 'INSPECTION', 'DEMO']);
 
@@ -190,7 +189,7 @@ export function normalizeAcceptance(input: unknown): V1AcceptanceItem[] {
       text?: unknown;
       verification?: unknown;
     };
-    if (typeof key !== 'string' || !ACCEPTANCE_KEY.test(key))
+    if (typeof key !== 'string' || !ACCEPTANCE_KEY_PATTERN.test(key))
       throw invalid('验收条款 key 必须匹配 [a-z][a-z0-9-]{1,63}', { key });
     if (keys.has(key)) throw invalid('验收条款 key 必须唯一', { key });
     if (typeof text !== 'string' || text.trim().length === 0 || text.length > 2000)

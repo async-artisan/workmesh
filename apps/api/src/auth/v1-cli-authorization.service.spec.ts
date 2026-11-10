@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { V1AuthorizationService } from './v1-authorization';
-import { hashSecret } from './v1-policy';
+import { hashSecret, type V1Principal } from './v1-policy';
 import { V1CliAuthorizationService } from './v1-cli-authorization.service';
 import type {
   V1AuthRepository,
   V1CliAuthorizationCreateInput,
   V1CliAuthorizationRecord,
   V1CredentialRecord,
+  V1RateWindowInput,
 } from './v1-auth.repository';
 
 const NOW = new Date('2026-11-01T00:00:00.000Z');
@@ -194,6 +195,123 @@ function poll(service: V1CliAuthorizationService) {
     now: NOW,
   });
 }
+
+function rateHarness() {
+  const counts = new Map<string, number>();
+  const repository = {
+    bumpRateWindow: vi.fn(async (input: V1RateWindowInput) => {
+      const key = [
+        input.kind,
+        input.keyHash,
+        Math.floor(input.now.getTime() / input.windowMs),
+      ].join('/');
+      const count = (counts.get(key) ?? 0) + 1;
+      counts.set(key, count);
+      return count;
+    }),
+    createCliAuthorization: vi.fn(async (input: V1CliAuthorizationCreateInput) =>
+      approvedRequest({ expiresAt: input.expiresAt }),
+    ),
+    findCliAuthorizationByUserCodeHash: vi.fn(async () => null),
+    recordCliAuthorizationView: vi.fn(async () => {}),
+  };
+  return { repository, service: serviceWith(repository as unknown as V1AuthRepository) };
+}
+
+function rateCreate(service: V1CliAuthorizationService, now: Date, ip = '192.0.2.20') {
+  return service.create({
+    clientName: 'cli',
+    codeChallenge: CODE_CHALLENGE,
+    codeChallengeMethod: 'S256',
+    credentialSecretHash: 'a'.repeat(64),
+    ip,
+    now,
+  });
+}
+
+function rateLookup(service: V1CliAuthorizationService, now: Date, sessionId = 'web-session') {
+  const principal: V1Principal = { kind: 'HUMAN', userId: 'user-1', scopes: [], sessionId };
+  return service.lookup({
+    userCode: 'ABCD-EFGH',
+    principal,
+    now,
+  });
+}
+
+describe('CLI fixed-window rate limits', () => {
+  it.each([
+    [120_100, 480],
+    [599_999, 1],
+    [600_000, 600],
+  ])('returns remaining creation cooldown at offset %i', async (offset, expected) => {
+    const { service, repository } = rateHarness();
+    const at = new Date(NOW.getTime() + offset);
+    for (let i = 0; i < 10; i++) await rateCreate(service, at);
+    await expect(rateCreate(service, at)).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      status: 429,
+      details: { window: 'cli-create-ip', retryAfterSeconds: expected },
+    });
+    expect(repository.createCliAuthorization).toHaveBeenCalledTimes(10);
+  });
+
+  it.each([
+    [120_100, 480],
+    [599_999, 1],
+    [600_000, 600],
+  ])('returns remaining lookup cooldown at offset %i', async (offset, expected) => {
+    const { service, repository } = rateHarness();
+    const at = new Date(NOW.getTime() + offset);
+    for (let i = 0; i < 10; i++)
+      await expect(rateLookup(service, at)).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
+    await expect(rateLookup(service, at)).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      status: 429,
+      details: { window: 'cli-lookup-session', retryAfterSeconds: expected },
+    });
+    expect(repository.findCliAuthorizationByUserCodeHash).toHaveBeenCalledTimes(10);
+    expect(repository.recordCliAuthorizationView).not.toHaveBeenCalled();
+  });
+
+  it('isolates creation IPs and starts a fresh budget in the next window', async () => {
+    const { service } = rateHarness();
+    const last = new Date(NOW.getTime() + 599_999);
+    for (let i = 0; i < 10; i++) await rateCreate(service, last);
+    await expect(rateCreate(service, last)).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+    await expect(rateCreate(service, last, '192.0.2.21')).resolves.toHaveProperty(
+      'authorizationId',
+    );
+    await expect(rateCreate(service, new Date(NOW.getTime() + 600_000))).resolves.toHaveProperty(
+      'authorizationId',
+    );
+  });
+
+  it('isolates lookup sessions and starts a fresh budget in the next window', async () => {
+    const { service } = rateHarness();
+    const last = new Date(NOW.getTime() + 599_999);
+    for (let i = 0; i < 10; i++)
+      await expect(rateLookup(service, last)).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
+    await expect(rateLookup(service, last)).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+    await expect(rateLookup(service, last, 'other-session')).rejects.toMatchObject({
+      code: 'RESOURCE_NOT_FOUND',
+    });
+    await expect(rateLookup(service, new Date(NOW.getTime() + 600_000))).rejects.toMatchObject({
+      code: 'RESOURCE_NOT_FOUND',
+    });
+  });
+
+  it.each([rateCreate, rateLookup])(
+    'fails closed before CLI storage if counter storage fails (%#)',
+    async (attempt) => {
+      const { service, repository } = rateHarness();
+      repository.bumpRateWindow.mockRejectedValueOnce(new Error('counter storage failed'));
+      await expect(attempt(service, NOW)).rejects.toThrow('counter storage failed');
+      expect(repository.createCliAuthorization).not.toHaveBeenCalled();
+      expect(repository.findCliAuthorizationByUserCodeHash).not.toHaveBeenCalled();
+      expect(repository.recordCliAuthorizationView).not.toHaveBeenCalled();
+    },
+  );
+});
 
 describe('V1CliAuthorizationService credential issuance recovery', () => {
   it('revokes the credential that failed to bind and allows a later poll to issue safely', async () => {

@@ -54,6 +54,8 @@ export function verifyWorkspaceVersions(tag, directory = root) {
 }
 
 export function successfulRun(runs, { sha, workflow }) {
+  if (!Array.isArray(runs) || runs.some((run) => !run || typeof run !== 'object'))
+    throw new ReleaseCiError(`Invalid GitHub API response for ${workflow}.`, 'ERROR');
   const eligible = runs.filter(
     (run) =>
       run.head_sha === sha &&
@@ -61,6 +63,18 @@ export function successfulRun(runs, { sha, workflow }) {
       run.event === 'push' &&
       run.path?.split('@')[0] === `.github/workflows/${workflow}`,
   );
+  if (
+    eligible.some(
+      (run) =>
+        !Number.isSafeInteger(run.id) ||
+        run.id < 1 ||
+        !Number.isSafeInteger(run.run_attempt) ||
+        run.run_attempt < 1 ||
+        !Number.isFinite(Date.parse(run.created_at)) ||
+        typeof run.status !== 'string',
+    )
+  )
+    throw new ReleaseCiError(`Invalid GitHub run identity or timestamp for ${workflow}.`, 'ERROR');
   eligible.sort(
     (left, right) =>
       Date.parse(right.created_at) - Date.parse(left.created_at) ||
@@ -76,11 +90,25 @@ export function successfulRun(runs, { sha, workflow }) {
   return { workflow, id: latest.id, attempt: latest.run_attempt, url: latest.html_url };
 }
 
-export async function verifyCi(
+export const RELEASE_WORKFLOWS = ['ci.yml', 'platform-smoke.yml', 'security.yml'];
+
+export class ReleaseCiError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.gateStatus = status;
+  }
+}
+
+export async function verifyWorkflowCi(
   { repository, sha, token, apiUrl = 'https://api.github.com' },
+  workflow,
   request = fetch,
 ) {
-  if (!/^[A-Za-z0-9_.-]+[/][A-Za-z0-9_.-]+$/.test(repository ?? '')) {
+  if (!RELEASE_WORKFLOWS.includes(workflow)) throw new Error('Unknown release workflow.');
+  if (
+    !/^[A-Za-z0-9_.-]+[/][A-Za-z0-9_.-]+$/.test(repository ?? '') ||
+    repository.split('/').some((part) => part === '.' || part === '..')
+  ) {
     throw new Error('GITHUB_REPOSITORY must identify owner/repository.');
   }
   if (!/^[a-f0-9]{40}$/.test(sha ?? '')) throw new Error('GITHUB_SHA must be a full commit SHA.');
@@ -89,38 +117,50 @@ export async function verifyCi(
   if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash) {
     throw new Error('GITHUB_API_URL must be an HTTPS API base URL.');
   }
-  return Promise.all(
-    ['ci.yml', 'platform-smoke.yml'].map(async (workflow) => {
-      const runs = [];
-      for (let page = 1; page <= 10; page += 1) {
-        const url = new URL(
-          `${base.href.endsWith('/') ? base.href.slice(0, -1) : base.href}/repos/${repository}/actions/workflows/${workflow}/runs`,
-        );
-        url.search = new URLSearchParams({
-          head_sha: sha,
-          branch: 'main',
-          event: 'push',
-          per_page: '100',
-          page: String(page),
-        }).toString();
-        const response = await request(url, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: 'application/vnd.github+json',
-            'X-GitHub-Api-Version': '2022-11-28',
-          },
-          signal: AbortSignal.timeout(20_000),
-        });
-        if (!response.ok)
-          throw new Error(`Cannot verify ${workflow}: GitHub API HTTP ${response.status}.`);
-        const body = await response.json();
-        if (!Array.isArray(body.workflow_runs))
-          throw new Error(`Invalid GitHub API response for ${workflow}.`);
-        runs.push(...body.workflow_runs);
-        if (body.workflow_runs.length < 100) return successfulRun(runs, { sha, workflow });
+  const runs = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const url = new URL(
+      `${base.href.endsWith('/') ? base.href.slice(0, -1) : base.href}/repos/${repository}/actions/workflows/${workflow}/runs`,
+    );
+    url.search = new URLSearchParams({
+      head_sha: sha,
+      branch: 'main',
+      event: 'push',
+      per_page: '100',
+      page: String(page),
+    }).toString();
+    const response = await request(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok)
+      throw new ReleaseCiError(
+        `Cannot verify ${workflow}: GitHub API HTTP ${response.status}.`,
+        'ERROR',
+      );
+    const body = await response.json();
+    if (!Array.isArray(body.workflow_runs))
+      throw new ReleaseCiError(`Invalid GitHub API response for ${workflow}.`, 'ERROR');
+    runs.push(...body.workflow_runs);
+    if (body.workflow_runs.length < 100) {
+      try {
+        return successfulRun(runs, { sha, workflow });
+      } catch (error) {
+        if (error instanceof ReleaseCiError) throw error;
+        throw new ReleaseCiError(error.message, 'FAIL');
       }
-      throw new Error(`Too many ${workflow} runs to verify safely; narrow the release candidate.`);
-    }),
+    }
+  }
+  throw new Error(`Too many ${workflow} runs to verify safely; narrow the release candidate.`);
+}
+
+export async function verifyCi(options, request = fetch) {
+  return Promise.all(
+    RELEASE_WORKFLOWS.map((workflow) => verifyWorkflowCi(options, workflow, request)),
   );
 }
 

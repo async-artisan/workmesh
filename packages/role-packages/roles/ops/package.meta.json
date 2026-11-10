@@ -1,6 +1,6 @@
 {
   "id": "workmesh.role.ops",
-  "version": "1.1.0",
+  "version": "1.2.1",
   "title": "运维角色包",
   "description": "准备发布、验证回滚、执行冒烟，把上线从「发出去」变成「可证明地发出去」。",
   "license": "MIT",

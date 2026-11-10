@@ -24,6 +24,47 @@ function fakeTx(input: FakeInput): {
 } {
   const queries: { model: string; args: unknown }[] = [];
   const tx = {
+    artifactSet: {
+      findFirst: async () => ({
+        taskGeneration: 1,
+        artifacts: input.artifacts.map((row, index) => ({
+          ...row,
+          id: `artifact-${index}`,
+          projectRepositoryId: 'registered-repo',
+        })),
+        task: {
+          generation: 1,
+          currentArtifactSetId: 'set-1',
+          workStatus: 'ACTIVE',
+          instance: { retiredAt: null },
+        },
+      }),
+    },
+    projectRepository: {
+      findMany: async () => [
+        {
+          id: 'registered-repo',
+          owner: 'owner',
+          name: 'repo',
+          externalId: 'repo-1',
+          identityMode: 'PROVIDER',
+          adapter: 'GITHUB',
+          archivedAt: null,
+        },
+      ],
+    },
+    webhookReceipt: {
+      findMany: async () => [
+        {
+          id: 'receipt',
+          signatureValid: true,
+          eventType: 'pull_request',
+          status: 'PROCESSED',
+          receivedAt: new Date(),
+          processedAt: new Date(),
+        },
+      ],
+    },
     artifact: {
       findMany: async (args: unknown) => {
         queries.push({ model: 'artifact', args });
@@ -35,7 +76,28 @@ function fakeTx(input: FakeInput): {
         queries.push({ model: 'codeReviewEvidence', args });
         const where = (args as { where?: Record<string, unknown> }).where;
         // 第二次查询按 id 取证据本体；第一次取票据行。
-        return where && 'id' in where ? (input.evidence ?? []) : (input.tickets ?? []);
+        return where && 'artifactSetId' in where
+          ? (input.tickets ?? []).map((row) => ({
+              id: 'ticket',
+              repositoryId: 'repo-1',
+              changeRequestId: 'PR-1',
+              headSha: 'a'.repeat(40),
+              ticketGeneration: 1,
+              ...row,
+            }))
+          : (input.evidence ?? []).map((row) => ({
+              id: 'ev-1',
+              repositoryId: 'repo-1',
+              changeRequestId: 'PR-1',
+              headSha: 'a'.repeat(40),
+              commitSha: 'a'.repeat(40),
+              reviewerExternalId: 'reviewer',
+              authorExternalId: 'author',
+              submittedAt: new Date(),
+              createdAt: new Date(),
+              receiptId: 'receipt',
+              ...row,
+            }));
       },
     },
   };
@@ -95,13 +157,17 @@ describe('code evidence acceptance gate', () => {
     const error = await rejectionOf({
       artifacts: [{ storage: 'GIT_REF', commitSha: 'a'.repeat(40) }],
       tickets: [
-        { preparedSecretHash: 'h', preparedExpiresAt: new Date(), preparedEvidenceId: 'ev-1' },
+        {
+          preparedSecretHash: 'h',
+          preparedExpiresAt: new Date(Date.now() + 60_000),
+          preparedEvidenceId: 'ev-1',
+        },
       ],
       evidence: [{ state: 'APPROVED', reviewerKind: 'USER' }],
     });
     expect(error.details).toMatchObject({
-      reason: 'CODE_CLAIM_REQUIRES_APPROVED_PR_REVIEW',
-      boundEvidenceCount: 0,
+      reason: 'CODE_EVIDENCE_CHAIN_INCOMPLETE',
+      references: [{ status: 'TICKET_LIVE' }],
     });
     expect(error.status).toBe(422);
   });
@@ -113,8 +179,8 @@ describe('code evidence acceptance gate', () => {
       evidence: [{ state: 'CHANGES_REQUESTED', reviewerKind: 'USER' }],
     });
     expect(error.details).toMatchObject({
-      reason: 'BOUND_EVIDENCE_NOT_APPROVED',
-      boundEvidenceCount: 1,
+      reason: 'CODE_EVIDENCE_CHAIN_INCOMPLETE',
+      references: [{ status: 'REVIEW_NOT_QUALIFYING' }],
     });
   });
 
@@ -125,8 +191,8 @@ describe('code evidence acceptance gate', () => {
       evidence: [{ state: 'APPROVED', reviewerKind: 'BOT' }],
     });
     expect(error.details).toMatchObject({
-      reason: 'BOUND_EVIDENCE_NOT_APPROVED',
-      acceptedEvidenceCount: 0,
+      reason: 'CODE_EVIDENCE_CHAIN_INCOMPLETE',
+      references: [{ status: 'REVIEW_NOT_QUALIFYING' }],
     });
   });
 
@@ -137,7 +203,7 @@ describe('code evidence acceptance gate', () => {
       evidence: [],
     });
     // 带 commitSha 的托管工件同样声称包含代码。
-    expect(error.details).toMatchObject({ reason: 'CODE_CLAIM_REQUIRES_APPROVED_PR_REVIEW' });
+    expect(error.details).toMatchObject({ reason: 'CODE_EVIDENCE_CHAIN_INCOMPLETE' });
   });
 
   it('excludes placeholder rows from the evidence body query', async () => {
@@ -150,7 +216,6 @@ describe('code evidence acceptance gate', () => {
     const evidenceQuery = queries.filter((query) => query.model === 'codeReviewEvidence')[1];
     expect((evidenceQuery.args as { where: Record<string, unknown> }).where).toMatchObject({
       projectId: 'p1',
-      id: { in: ['ev-1'] },
       preparedSecretHash: null,
     });
   });

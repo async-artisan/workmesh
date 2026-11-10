@@ -172,6 +172,7 @@ export interface V1AuthRepository {
     credentialId: string,
     now: Date,
   ): Promise<V1CliAuthorizationRecord | null>;
+  /** login-ip includes the same fixed window's legacy register-ip count without rewriting it. */
   bumpRateWindow(input: V1RateWindowInput): Promise<number>;
   reservePasswordRateWindow(
     input: V1RateWindowInput & { limit: number },

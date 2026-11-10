@@ -394,6 +394,14 @@ class InMemoryPublicationRepo implements V1PublicationRepository {
   async isAssignedReviewer(revisionId: string, userId: string): Promise<boolean> {
     return (this.reviewerMap.get(revisionId) ?? []).includes(userId);
   }
+  async listAssignedReviewerRevisionIds(
+    revisionIds: readonly string[],
+    userId: string,
+  ): Promise<string[]> {
+    return [...new Set(revisionIds)].filter((id) =>
+      (this.reviewerMap.get(id) ?? []).includes(userId),
+    );
+  }
   async proposeRevision(input: {
     document: V1DocumentView;
     title: string;

@@ -1343,6 +1343,7 @@ P0a 不能只拼本机命令：只要产品承诺团队共享逻辑仓库键、�
   4. 双配置五态模型：`NONE/V1_ONLY/V2_ONLY/MIGRATED/DUAL_ACTIVE`；`MIGRATED` 的 `.bak` 不是活动配置；`DUAL_ACTIVE` 除 `workspace status`（只读）、`migrate --inspect`（只读不删）、满足条件的 `--resolve keep-v2`（显式修复）外统一拒绝；`workspace discover` 拒绝；新增适配层读取规则（§8.2.1、§14.1、§14.3、§17.1、§19.2.1、§24 T5/T8、§25）。
   5. 统一 P0a 口径：D12 冻结为不做真实 provider verify，从 §21.1 待决项移除；`T8 → T6` 写入正式依赖（§1.2.1、§18.1、§21.1、§24、§25）。
 - v1.3 修订时新增接口、表、命令、状态是拟议契约；其后是否落地及其验收证据，以本文件顶部的当前状态注记和验收记录为准。冻结契约与历史决策记录保留，不因实现状态变化而自动变更。
+
 ## 离线 locator 强认证与新鲜度：待产品决策（2026-11-06）
 
 P0a 继续保留 §9.4 的有效 revision 缓存与精确 canonical locator 匹配；本记录不改变冻结范围。服务端 revision digest 对规范化的 definition payload 计算，不覆盖响应中另行返回的仓库 locator、归档状态等元数据。客户端检查 payload 的项目、仓库 key、projectRepositoryId 与缓存元数据的关联以及精确 revision；本地 checksum 可发现未同步修改的损坏，但与缓存同存本机，不能阻止有能力同时改写内容和 checksum 的人。离线时不能知道服务端撤销、归档或 locator 变更，当前没有既定 TTL，也不承诺缓存新鲜度。

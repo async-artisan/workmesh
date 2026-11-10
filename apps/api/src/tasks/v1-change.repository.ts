@@ -1,4 +1,4 @@
-import type { Principal } from '@workmesh/shared';
+import type { ChangeGuidance, Principal } from '@workmesh/shared';
 import type { V1OperationRecord } from '../common/v1-idempotency';
 
 /** 变更收件人快照（只读派生自 ChangeRecipient 行）。 */
@@ -11,6 +11,9 @@ export interface V1ChangeRecipientSnapshot {
   version: number;
   ackedAt: string | null;
   createdAt: string;
+  /** Present on list reads; acknowledgement responses remain the immutable recipient fact. */
+  guidance?: ChangeGuidance;
+  event?: Omit<V1ChangeEventSnapshot, 'targets'>;
 }
 
 /** 变更事件快照（recordChange 创建后返回）。 */
@@ -50,6 +53,10 @@ export interface V1AckResult {
 
 export interface V1ChangeListQuery {
   userId: string;
+  /** Agent credential role; role-less notifications remain visible. */
+  roleId?: string;
+  activeRoleIds?: readonly string[];
+  projectArchived?: boolean;
   projectId?: string;
   ackedOnly?: boolean;
   /** 上一页最后一条的 id（keyset 游标），稳定排序 (createdAt DESC, id DESC)。 */

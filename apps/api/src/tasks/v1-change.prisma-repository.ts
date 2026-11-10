@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
 import { V1_ERROR_CODES, WorkmeshError } from '@workmesh/shared';
 import type { V1OperationRecord } from '../common/v1-idempotency';
+import { changeGuidanceOf, changeTargetTaskIds } from './v1-change-guidance';
 
 import {
   type V1AckInput,
@@ -311,12 +312,21 @@ export class V1ChangePrismaRepository implements V1ChangeRepository {
   async listRecipients(query: V1ChangeListQuery): Promise<V1ChangeListResult> {
     const where: Prisma.ChangeRecipientWhereInput = { userId: query.userId };
     if (query.projectId) where.projectId = query.projectId;
-    if (query.ackedOnly) where.ackedAt = { not: null };
+    if (query.roleId) where.AND = [{ OR: [{ roleId: query.roleId }, { roleId: null }] }];
+    const cursorScope = { ...where };
+    if (query.ackedOnly !== undefined) where.ackedAt = query.ackedOnly ? { not: null } : null;
 
     if (query.cursor) {
-      const cursorRow = await this.prisma.changeRecipient.findUnique({
-        where: { id: query.cursor },
+      const cursorRow = await this.prisma.changeRecipient.findFirst({
+        where: { ...cursorScope, id: query.cursor },
       });
+      if (!cursorRow)
+        throw new WorkmeshError(
+          V1_ERROR_CODES.RESOURCE_NOT_FOUND,
+          'CHANGE_RECIPIENT_CURSOR_NOT_FOUND',
+          undefined,
+          404,
+        );
       if (cursorRow) {
         where.OR = [
           { createdAt: { lt: cursorRow.createdAt } },
@@ -329,12 +339,158 @@ export class V1ChangePrismaRepository implements V1ChangeRepository {
       where,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: query.limit + 1,
+      include: { event: true },
     });
 
     const hasMore = rows.length > query.limit;
     const page = hasMore ? rows.slice(0, query.limit) : rows;
     const nextCursor = hasMore ? page[page.length - 1].id : null;
-    return { items: page.map(toRecipientSnapshot), nextCursor };
+    const readable = page.filter((row) => row.event.projectId === row.projectId);
+    const eventTaskIds = [
+      ...new Set(readable.flatMap((row) => changeTargetTaskIds(row.event.targets) ?? [])),
+    ].filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+    const requirementIds = [
+      ...new Set(
+        readable.flatMap((row) =>
+          changeTargetTaskIds(row.event.targets) === null &&
+          row.event.sourceKind === 'CHANGE_REQUEST' &&
+          row.event.requirementId
+            ? [row.event.requirementId]
+            : [],
+        ),
+      ),
+    ];
+    const roleIds = (
+      query.roleId
+        ? [query.roleId]
+        : [
+            ...new Set(
+              readable.flatMap((row) =>
+                row.roleId ? [row.roleId] : [...(query.activeRoleIds ?? [])],
+              ),
+            ),
+          ]
+    ).filter((roleId) => query.activeRoleIds?.includes(roleId));
+    const tasks =
+      eventTaskIds.length || requirementIds.length
+        ? await this.prisma.task.findMany({
+            where: {
+              projectId: query.projectId ?? {
+                in: [...new Set(readable.map((row) => row.projectId))],
+              },
+              AND: [
+                {
+                  OR: [
+                    { id: { in: eventTaskIds } },
+                    { instance: { requirementId: { in: requirementIds } } },
+                  ],
+                },
+                { OR: [{ responsibleUserId: query.userId }, { roleId: { in: roleIds } }] },
+              ],
+            },
+            select: {
+              id: true,
+              projectId: true,
+              stepKey: true,
+              roleId: true,
+              responsibleUserId: true,
+              version: true,
+              generation: true,
+              acceptanceKeys: true,
+              executionStatus: true,
+              workStatus: true,
+              currentClaimId: true,
+              currentSnapshotId: true,
+              role: { select: { id: true, key: true, title: true } },
+              instance: {
+                select: {
+                  requirementId: true,
+                  retiredAt: true,
+                  workStatus: true,
+                  definitionRevisionId: true,
+                  requirement: { select: { code: true, generation: true } },
+                },
+              },
+            },
+            orderBy: [{ stepKey: 'asc' }, { id: 'asc' }],
+          })
+        : [];
+    const snapshotIds = tasks.flatMap((task) =>
+      task.currentSnapshotId ? [task.currentSnapshotId] : [],
+    );
+    const revisionIds = [
+      ...new Set(
+        tasks.flatMap((task) =>
+          task.instance.definitionRevisionId ? [task.instance.definitionRevisionId] : [],
+        ),
+      ),
+    ];
+    const [snapshots, revisions] = await Promise.all([
+      snapshotIds.length
+        ? this.prisma.contextSnapshot.findMany({
+            where: {
+              id: { in: snapshotIds },
+              projectId: query.projectId ?? {
+                in: [...new Set(readable.map((row) => row.projectId))],
+              },
+            },
+            select: {
+              id: true,
+              taskId: true,
+              projectId: true,
+              taskGeneration: true,
+              requirementGeneration: true,
+            },
+          })
+        : Promise.resolve([]),
+      revisionIds.length
+        ? this.prisma.workflowRevision.findMany({
+            where: {
+              id: { in: revisionIds },
+              projectId: query.projectId ?? {
+                in: [...new Set(readable.map((row) => row.projectId))],
+              },
+            },
+            select: { id: true, definition: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const snapshotById = new Map(snapshots.map((value) => [value.id, value]));
+    const revisionById = new Map(revisions.map((value) => [value.id, value.definition]));
+    const taskSources = tasks.map((task) => ({
+      ...task,
+      instance: {
+        ...task.instance,
+        revision: task.instance.definitionRevisionId
+          ? revisionById.get(task.instance.definitionRevisionId)
+          : null,
+      },
+    }));
+    const now = new Date();
+    return {
+      items: readable.map((row) => {
+        const recipient = toRecipientSnapshot(row);
+        const event = toEventSnapshot(row.event);
+        const { targets: _targets, ...eventSummary } = event;
+        return {
+          ...recipient,
+          event: eventSummary,
+          guidance: changeGuidanceOf(
+            recipient,
+            event,
+            taskSources,
+            snapshotById,
+            {
+              credentialRoleId: query.roleId,
+              activeRoleIds: query.activeRoleIds,
+              projectArchived: query.projectArchived,
+            },
+            now,
+          ),
+        };
+      }),
+      nextCursor,
+    };
   }
 
   private toOperationRecord(op: {

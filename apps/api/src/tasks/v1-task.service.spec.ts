@@ -69,7 +69,12 @@ class InMemoryTaskRepository implements V1TaskRepository {
         method: input.operation.method,
         route: input.operation.route,
         requestDigest: input.operation.requestDigest,
-        resultRefs: { claimId },
+        resultRefs: {
+          taskId: task.id,
+          claimId,
+          taskVersion: task.version,
+          taskGeneration: task.generation,
+        },
         committedAt: input.now,
       },
     );
@@ -186,8 +191,8 @@ function makeAuthStub(opts: { denyProjectAccess?: boolean } = {}): V1Authorizati
       return {
         project: { id: projectId },
         membership: {} as never,
-        activeRoleIds: [],
-        selectableRoleIds: [],
+        activeRoleIds: ['r1'],
+        selectableRoleIds: ['r1'],
       } as never;
     },
     async requireScope(principal: Principal, _projectId: string, scope: Scope): Promise<void> {
@@ -289,6 +294,21 @@ describe('V1TaskService (T04 task-claim domain)', () => {
     expect(second.replayed).toBe(true);
     expect(second.claimId).toBe(first.claimId);
     expect(second.task.generation).toBe(first.task.generation);
+  });
+
+  it('claim replay keeps the committed version after later task updates and marks legacy version unknown', async () => {
+    const context = ctx({ idempotencyKey: 'exact-claim', operationId: randomUUID() });
+    const first = await service.claim(human(), 't1', context);
+    const task = store.tasks.get('t1')!;
+    task.version += 8;
+    task.generation += 2;
+    const replay = await service.claim(human(), 't1', context);
+    expect(replay.task.version).toBe(task.version);
+    expect(replay.committedState).toEqual(first.committedState);
+    const record = [...store.operations.values()].find((op) => op.key === context.idempotencyKey)!;
+    delete record.resultRefs.taskVersion;
+    delete record.resultRefs.taskGeneration;
+    expect((await service.claim(human(), 't1', context)).committedState).toBeNull();
   });
 
   it('claim: 同键异 body（异摘要）重放返回 IDEMPOTENCY_CONFLICT 409', async () => {
@@ -418,5 +438,31 @@ describe('V1TaskService (T04 task-claim domain)', () => {
         ctx({ idempotencyKey: 'k1', operationId: randomUUID() }),
       ),
     ).rejects.toMatchObject({ code: V1_ERROR_CODES.SCOPE_DENIED, status: 403 });
+  });
+
+  it('claim: 未领取任务仍拒绝跨角色 Agent，不能借 task:claim scope 抢占 QA 任务', async () => {
+    const frontend = { ...agent('u1'), roleIds: ['frontend'] };
+    await expect(service.claim(frontend, 't1', ctx())).rejects.toMatchObject({
+      code: V1_ERROR_CODES.FORBIDDEN,
+      status: 403,
+      message: 'TASK_NOT_IN_RESPONSIBILITY',
+    });
+    expect(store.tasks.get('t1')!.currentClaim).toBeNull();
+    expect(store.operations.size).toBe(0);
+  });
+
+  it('claim: 同角色的其他用户及管理身份也不能静默接管责任人的任务', async () => {
+    for (const principal of [human('other'), agent('other')])
+      await expect(service.claim(principal, 't1', ctx())).rejects.toMatchObject({
+        code: V1_ERROR_CODES.FORBIDDEN,
+        status: 403,
+      });
+    expect(store.tasks.get('t1')!.currentClaim).toBeNull();
+  });
+
+  it('claim: 责任人自己的同角色受限 Agent 可以正常认领', async () => {
+    const result = await service.claim(agent('u1'), 't1', ctx());
+    expect(result.task.currentClaim?.userId).toBe('u1');
+    expect(result.replayed).toBe(false);
   });
 });

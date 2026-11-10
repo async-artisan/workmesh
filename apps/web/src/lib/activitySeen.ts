@@ -1,37 +1,46 @@
-/**
- * 最近活动"已读时间"：只记住用户最后一次点「全部标为已读」的时间点。
- * 通知的已读状态属于个人偏好的本地记忆，不写服务端、不进 localStorage 之外的存储。
- */
-const KEY = 'workmesh.activity.lastSeenAt';
+/** Activity read state is local to this browser and account; no server read-state API exists. */
+const MAX_SEEN = 1000;
 
-export function readActivityLastSeenAt(): number {
+export function activitySeenStorageKey(userId: string): string {
+  return `workmesh.activity.seen.v2.${encodeURIComponent(userId)}`;
+}
+
+export function readActivitySeenIds(userId: string | null | undefined): Set<string> {
+  if (!userId) return new Set();
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return 0;
-    const value = Number(raw);
-    return Number.isFinite(value) && value > 0 ? value : 0;
+    const stored: unknown = JSON.parse(
+      localStorage.getItem(activitySeenStorageKey(userId)) ?? '[]',
+    );
+    return new Set(
+      Array.isArray(stored)
+        ? stored.filter((value): value is string => typeof value === 'string').slice(-MAX_SEEN)
+        : [],
+    );
   } catch {
-    return 0;
+    return new Set();
   }
 }
 
-export function markActivitySeen(now = Date.now()): number {
+/** Mark exactly the loaded events, including same-timestamp events; never use the client clock. */
+export function markActivitySeen(
+  items: Array<{ id: string }>,
+  userId: string,
+  previous: ReadonlySet<string> = readActivitySeenIds(userId),
+): Set<string> {
+  const ids = [
+    ...new Set([...readActivitySeenIds(userId), ...previous, ...items.map((item) => item.id)]),
+  ].slice(-MAX_SEEN);
   try {
-    localStorage.setItem(KEY, String(now));
+    localStorage.setItem(activitySeenStorageKey(userId), JSON.stringify(ids));
   } catch {
-    // 隐私模式等场景不可写：已读状态只在本次会话内生效。
+    /* Read state remains valid in memory when browser storage is unavailable. */
   }
-  return now;
+  return new Set(ids);
 }
 
-/** 统计 createdAt 晚于最后已读时间的活动条数。 */
 export function countUnreadActivity(
-  items: Array<{ createdAt: string }>,
-  lastSeenAt: number,
+  items: Array<{ id: string }>,
+  seenIds: ReadonlySet<string>,
 ): number {
-  if (items.length === 0) return 0;
-  return items.filter((item) => {
-    const at = new Date(item.createdAt).getTime();
-    return Number.isFinite(at) && at > lastSeenAt;
-  }).length;
+  return items.filter((item) => !seenIds.has(item.id)).length;
 }

@@ -35,13 +35,17 @@ export async function waitForPort(
 
 export async function waitForHttp(
   url: string,
-  options: { timeoutMs?: number; intervalMs?: number } = {},
+  options: {
+    timeoutMs?: number;
+    intervalMs?: number;
+    accept?: (response: Response) => Promise<boolean>;
+  } = {},
 ): Promise<boolean> {
   const deadline = Date.now() + (options.timeoutMs ?? 60_000);
   while (Date.now() < deadline) {
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(2_000) });
-      if (response.status < 500) return true;
+      if (response.ok && (!options.accept || (await options.accept(response)))) return true;
     } catch {
       // 连接被拒或尚未就绪，继续等。
     }

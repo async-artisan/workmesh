@@ -1,12 +1,20 @@
-import { lstat, readFile } from 'node:fs/promises';
+import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { canonicalJson, sha256Bytes } from '@workmesh/shared';
 import { CliError } from './errors';
 import { receiptsDir } from './config';
-import { writePrivateFile } from './private-fs';
+import { ensurePrivateDir, IS_WINDOWS, hardenWindowsPath, writePrivateFile } from './private-fs';
 
 export type SourceFile = { path: string; sha256: string; byteLength: number };
+export type ExecutionLink = {
+  id: string;
+  taskId: string;
+  stage: 'CLAIM' | 'CONTEXT' | 'DELIVER' | 'REVIEW';
+  claimId?: string;
+  snapshotId?: string;
+  expectedTaskVersion?: number;
+};
 
 export type OperationReceipt = {
   schemaVersion: '1.0';
@@ -19,6 +27,7 @@ export type OperationReceipt = {
   sourceFiles: SourceFile[];
   status: 'PENDING' | 'COMMITTED' | 'REJECTED';
   resultRefs?: Record<string, string | number | null>;
+  execution?: ExecutionLink;
   createdAt: string;
   updatedAt: string;
 };
@@ -51,9 +60,29 @@ export function receiptPath(workspaceDir: string, operationId: string): string {
   return join(receiptsDir(workspaceDir), `${operationId}.json`);
 }
 
-async function writeReceipt(workspaceDir: string, receipt: OperationReceipt): Promise<void> {
+async function writeReceipt(
+  workspaceDir: string,
+  receipt: OperationReceipt,
+  exclusive = false,
+): Promise<void> {
   const path = receiptPath(workspaceDir, receipt.operationId);
-  await writePrivateFile(path, `${JSON.stringify(receipt)}\n`, { flag: 'wx' });
+  if (exclusive) {
+    // wx must apply to the destination, not a temporary file later renamed over it.
+    await ensurePrivateDir(receiptsDir(workspaceDir));
+    try {
+      await writeFile(path, `${JSON.stringify(receipt)}\n`, { flag: 'wx', mode: 0o600 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      throw new CliError('IDEMPOTENCY_CONFLICT', '原操作记录已存在；请保留原编号并核对其结果。', {
+        details: {
+          operationId: receipt.operationId,
+          operationOutcome: 'UNKNOWN',
+          recoveryAction: 'RECONCILE',
+        },
+      });
+    }
+    if (IS_WINDOWS) await hardenWindowsPath(path, false);
+  } else await writePrivateFile(path, `${JSON.stringify(receipt)}\n`);
 }
 
 function assertReceipt(value: unknown, path: string): asserts value is OperationReceipt {
@@ -68,8 +97,35 @@ function assertReceipt(value: unknown, path: string): asserts value is Operation
     throw new CliError('CONTENT_INTEGRITY_FAILED', `receipt ${path} status 非法`);
   if (typeof record.requestDigest !== 'string' || !/^[0-9a-f]{64}$/.test(record.requestDigest))
     throw new CliError('CONTENT_INTEGRITY_FAILED', `receipt ${path} digest 非法`);
+  if (
+    typeof record.scopeKey !== 'string' ||
+    typeof record.credentialId !== 'string' ||
+    typeof record.method !== 'string' ||
+    typeof record.relativeRoute !== 'string' ||
+    !Array.isArray(record.sourceFiles) ||
+    typeof record.createdAt !== 'string' ||
+    !Number.isFinite(Date.parse(record.createdAt)) ||
+    typeof record.updatedAt !== 'string' ||
+    !Number.isFinite(Date.parse(record.updatedAt))
+  )
+    throw new CliError('CONTENT_INTEGRITY_FAILED', `receipt ${path} 元数据非法`);
   if (record.body !== undefined || record.response !== undefined)
     throw new CliError('CONTENT_INTEGRITY_FAILED', `receipt ${path} 不得保存请求/响应正文`);
+  if (record.execution !== undefined) {
+    const link = record.execution as ExecutionLink;
+    if (
+      !link ||
+      typeof link !== 'object' ||
+      !UUID.test(link.id) ||
+      !UUID.test(link.taskId) ||
+      !['CLAIM', 'CONTEXT', 'DELIVER', 'REVIEW'].includes(link.stage) ||
+      (link.claimId !== undefined && !UUID.test(link.claimId)) ||
+      (link.snapshotId !== undefined && !UUID.test(link.snapshotId)) ||
+      (link.expectedTaskVersion !== undefined &&
+        (!Number.isSafeInteger(link.expectedTaskVersion) || link.expectedTaskVersion < 1))
+    )
+      throw new CliError('CONTENT_INTEGRITY_FAILED', `receipt ${path} execution 非法`);
+  }
 }
 
 export async function readReceipt(
@@ -80,13 +136,17 @@ export async function readReceipt(
   let info;
   try {
     info = await lstat(path);
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+      throw new CliError('LOCAL_RECEIPT_READ_FAILED', '无法读取本地操作记录，请检查路径访问权限。');
     throw new CliError('RESOURCE_NOT_FOUND', `本地没有 operation ${operationId} 的 receipt`, {
       status: 404,
     });
   }
   if (info.isSymbolicLink())
     throw new CliError('CONTENT_INTEGRITY_FAILED', `receipt ${path} 是符号链接`);
+  if (!info.isFile())
+    throw new CliError('CONTENT_INTEGRITY_FAILED', `receipt ${path} 不是普通文件`);
   const raw = await readFile(path, 'utf8');
   let parsed: unknown;
   try {
@@ -95,7 +155,33 @@ export async function readReceipt(
     throw new CliError('CONTENT_INTEGRITY_FAILED', `receipt ${path} 不是合法 JSON`);
   }
   assertReceipt(parsed, path);
+  if (parsed.operationId !== operationId)
+    throw new CliError('CONTENT_INTEGRITY_FAILED', `receipt ${path} 与 operationId 不一致`);
   return parsed;
+}
+
+/** Local discovery works offline, including after the original command lost its response. */
+export async function listReceipts(
+  workspaceDir: string,
+  status: OperationReceipt['status'] | 'ALL' = 'PENDING',
+): Promise<OperationReceipt[]> {
+  const dir = receiptsDir(workspaceDir);
+  let files;
+  try {
+    files = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
+  const records: OperationReceipt[] = [];
+  for (const file of files) {
+    if (!file.name.endsWith('.json') || !UUID.test(file.name.slice(0, -5))) continue;
+    const record = await readReceipt(workspaceDir, file.name.slice(0, -5));
+    if (status === 'ALL' || record.status === status) records.push(record);
+  }
+  return records.sort(
+    (a, b) => b.createdAt.localeCompare(a.createdAt) || a.operationId.localeCompare(b.operationId),
+  );
 }
 
 export type BeginOperationInput = {
@@ -107,6 +193,7 @@ export type BeginOperationInput = {
   relativeRoute: string;
   requestDigest: string;
   sourceFiles: SourceFile[];
+  execution?: ExecutionLink;
   now?: Date;
 };
 
@@ -123,10 +210,11 @@ export async function beginOperation(input: BeginOperationInput): Promise<Operat
     requestDigest: input.requestDigest,
     sourceFiles: input.sourceFiles,
     status: 'PENDING',
+    ...(input.execution ? { execution: input.execution } : {}),
     createdAt: now,
     updatedAt: now,
   };
-  await writeReceipt(input.workspaceDir, receipt);
+  await writeReceipt(input.workspaceDir, receipt, true);
   return receipt;
 }
 

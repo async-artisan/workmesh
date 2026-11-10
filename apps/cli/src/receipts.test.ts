@@ -8,6 +8,7 @@ import {
   assertReusable,
   beginOperation,
   finishOperation,
+  listReceipts,
   readReceipt,
   receiptPath,
   requestDigestOf,
@@ -28,6 +29,71 @@ async function workspace(): Promise<string> {
 }
 
 describe('operation receipts', () => {
+  it('creates a pending operation exclusively instead of replacing a concurrent original', async () => {
+    const dir = await workspace();
+    const operationId = randomUUID();
+    const input = {
+      workspaceDir: dir,
+      operationId,
+      scopeKey: SCOPE,
+      credentialId: CREDENTIAL,
+      method: 'POST',
+      relativeRoute: '/fixture',
+      requestDigest: 'a'.repeat(64),
+      sourceFiles: [],
+    };
+    const results = await Promise.allSettled([
+      beginOperation(input),
+      beginOperation({ ...input, requestDigest: 'b'.repeat(64) }),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const winner = results.find((r) => r.status === 'fulfilled');
+    if (!winner || winner.status !== 'fulfilled') throw new Error('missing original receipt');
+    expect((await readReceipt(dir, operationId)).requestDigest).toBe(winner.value.requestDigest);
+  });
+  it('离线列表默认仅待核对，支持状态筛选并按时间稳定排序', async () => {
+    const dir = await workspace();
+    expect(await listReceipts(dir)).toEqual([]);
+    const ids = [randomUUID(), randomUUID(), randomUUID()];
+    for (const [index, operationId] of ids.entries()) {
+      await beginOperation({
+        workspaceDir: dir,
+        operationId,
+        scopeKey: SCOPE,
+        credentialId: CREDENTIAL,
+        method: 'POST',
+        relativeRoute: '/tasks/x/claims',
+        requestDigest: 'a'.repeat(64),
+        sourceFiles: [],
+        now: new Date(2026, 10, 9, index),
+      });
+    }
+    await finishOperation(dir, ids[1]!, 'COMMITTED', {});
+    await finishOperation(dir, ids[2]!, 'REJECTED', {});
+    await writeFile(join(dir, '.workmesh', 'local', 'receipts', 'unrelated.json'), '{}');
+    expect((await listReceipts(dir)).map((r) => r.operationId)).toEqual([ids[0]]);
+    expect((await listReceipts(dir, 'COMMITTED')).map((r) => r.operationId)).toEqual([ids[1]]);
+    expect((await listReceipts(dir, 'ALL')).map((r) => r.operationId)).toEqual([...ids].reverse());
+  });
+
+  it('收据文件名必须匹配内部操作编号', async () => {
+    const dir = await workspace();
+    const operationId = randomUUID();
+    await beginOperation({
+      workspaceDir: dir,
+      operationId,
+      scopeKey: SCOPE,
+      credentialId: CREDENTIAL,
+      method: 'POST',
+      relativeRoute: '/tasks/x/claims',
+      requestDigest: 'a'.repeat(64),
+      sourceFiles: [],
+    });
+    const path = receiptPath(dir, operationId);
+    const value = JSON.parse(await readFile(path, 'utf8'));
+    await writeFile(path, JSON.stringify({ ...value, operationId: randomUUID() }));
+    await expect(listReceipts(dir)).rejects.toMatchObject({ code: 'CONTENT_INTEGRITY_FAILED' });
+  });
   it('PENDING receipt 为 0600，只含摘要与安全元数据', async () => {
     const dir = await workspace();
     const operationId = randomUUID();

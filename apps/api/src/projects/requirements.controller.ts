@@ -9,7 +9,11 @@ import { RequirementsService } from './requirements.service';
 class ListRequirementsQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) limit?: number;
 
-  @IsOptional() @IsString() @MaxLength(20) cursor?: string;
+  @IsOptional() @IsString() @MaxLength(2048) cursor?: string;
+
+  @IsOptional() @IsString() @MaxLength(500) q?: string;
+
+  @IsOptional() @IsString() @MaxLength(32) phase?: string;
 }
 
 function principalOf(request: V1Request) {
@@ -32,6 +36,8 @@ export class RequirementsController {
     return this.requirements.list(principalOf(request), projectId, {
       limit: query.limit,
       cursor: query.cursor ?? null,
+      q: query.q,
+      phase: query.phase,
     });
   }
 

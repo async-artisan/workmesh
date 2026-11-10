@@ -261,6 +261,9 @@ describe('workspace bind 在线（预览后才写）', () => {
       clientFactory: client.factory as never,
       indexSaver,
     });
+    // Observe rejections immediately while the assertions wait for a barrier.
+    // Promise.all below still verifies failures after releasing that barrier.
+    void first.catch(() => undefined);
     let second: Promise<unknown> | undefined;
     try {
       await saverEntered;
@@ -273,6 +276,7 @@ describe('workspace bind 在线（预览后才写）', () => {
         credential: makeCredential() as never,
         clientFactory: client.factory as never,
       });
+      void second.catch(() => undefined);
       await waitForBoundConfig(rootB);
       releaseSaver();
       await Promise.all([first, second]);
@@ -324,6 +328,7 @@ describe('workspace bind 在线（预览后才写）', () => {
       clientFactory: client.factory as never,
       indexSaver: failingSaver,
     });
+    void failedBind.catch(() => undefined);
     await saverEntered;
     const successfulBind = runWorkspaceBind({
       root: rootB,
@@ -334,6 +339,7 @@ describe('workspace bind 在线（预览后才写）', () => {
       credential: makeCredential() as never,
       clientFactory: client.factory as never,
     });
+    void successfulBind.catch(() => undefined);
     await waitForBoundConfig(rootB);
     releaseSaver();
     const [failed, succeeded] = await Promise.allSettled([failedBind, successfulBind]);
