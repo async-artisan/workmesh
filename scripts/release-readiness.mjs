@@ -101,8 +101,9 @@ export async function releaseReadiness(options, dependencies = {}) {
     });
   let source = { head: null, dirty: null };
   try {
-    source = await (dependencies.readSource ?? readSource)(directory);
-    if (!SHA.test(source.head ?? '') || typeof source.dirty !== 'boolean') throw new Error();
+    const observed = await (dependencies.readSource ?? readSource)(directory);
+    if (!observed || !SHA.test(observed.head ?? '') || typeof observed.dirty !== 'boolean') throw new Error();
+    source = { head: observed.head, dirty: observed.dirty };
     record(
       'CANDIDATE_SOURCE',
       source.head === options.sha && !source.dirty ? 'PASS' : 'FAIL',
@@ -115,7 +116,7 @@ export async function releaseReadiness(options, dependencies = {}) {
   } catch {
     record('CANDIDATE_SOURCE', 'ERROR', 'SOURCE_IDENTITY_UNAVAILABLE');
   }
-  const candidateBound = source.head === options.sha && source.dirty === false;
+  let candidateBound = source.head === options.sha && source.dirty === false;
   try {
     const versions = (dependencies.verifyVersions ?? verifyWorkspaceVersions)(
       options.tag,
@@ -171,6 +172,27 @@ export async function releaseReadiness(options, dependencies = {}) {
     }
   } else record('ARTIFACT_IDENTITY', 'NOT_CHECKED', 'ARTIFACT_NOT_SELECTED');
   record('ARTIFACT_PROVENANCE_AND_ACCEPTANCE', 'NOT_CHECKED', 'REQUIRES_EXISTING_RELEASE_EVIDENCE');
+  // File and network reads can outlive a checkout change. A clean preflight cannot bind
+  // worktree observations to the candidate after HEAD or local bytes have moved.
+  let finalSource = { head: null, dirty: null };
+  const sourceCheck = checks.find((check) => check.id === 'CANDIDATE_SOURCE');
+  try {
+    const observed = await (dependencies.readSource ?? readSource)(directory);
+    if (!observed || !SHA.test(observed.head ?? '') || typeof observed.dirty !== 'boolean') throw new Error();
+    finalSource = { head: observed.head, dirty: observed.dirty };
+    if (finalSource.head !== source.head || finalSource.dirty !== source.dirty) {
+      sourceCheck.status = 'FAIL';
+      sourceCheck.reason = 'SOURCE_CHANGED_DURING_CHECKS';
+    }
+    candidateBound = candidateBound && finalSource.head === options.sha && finalSource.dirty === false;
+  } catch {
+    candidateBound = false;
+    sourceCheck.status = 'ERROR';
+    sourceCheck.reason = 'SOURCE_IDENTITY_UNAVAILABLE';
+  }
+  sourceCheck.checkedAt = now().toISOString();
+  const versionCheck = checks.find((check) => check.id === 'WORKSPACE_VERSIONS');
+  versionCheck.details.candidateBound = candidateBound;
   const machineChecksPassed = checks
     .filter(
       (check) =>
@@ -184,7 +206,7 @@ export async function releaseReadiness(options, dependencies = {}) {
     authority: 'READ_ONLY_DIAGNOSTIC',
     checkedAt,
     candidate: { tag: options.tag, sha: options.sha, repository: ciOptions.repository ?? null },
-    source: { ...source, candidateBound },
+    source: { ...source, final: finalSource, candidateBound },
     artifact,
     checks,
     machineChecksPassed,

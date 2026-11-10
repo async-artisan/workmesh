@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
   artifactIdentity,
@@ -81,6 +82,27 @@ test('dirty source, different HEAD and failed source probes cannot bind local ve
     assert.equal(report.source.candidateBound, false);
     assert.notEqual(check(report, 'CANDIDATE_SOURCE').status, 'PASS');
     assert.equal(check(report, 'WORKSPACE_VERSIONS').details.candidateBound, false);
+  }
+});
+
+test('a changed or unavailable final source observation revokes clean candidate binding', async () => {
+  for (const final of [
+    { head: sha, dirty: true },
+    { head: 'b'.repeat(40), dirty: false },
+    null,
+    new Error('git failed'),
+  ]) {
+    let reads = 0;
+    const report = await releaseReadiness(candidate, dependencies({ readSource: () => {
+      if (++reads === 1) return { head: sha, dirty: false };
+      if (final instanceof Error) throw final;
+      return final;
+    } }));
+    assert.equal(reads, 2);
+    assert.equal(report.machineChecksPassed, false);
+    assert.equal(report.source.candidateBound, false);
+    assert.equal(check(report, 'WORKSPACE_VERSIONS').details.candidateBound, false);
+    assert.equal(check(report, 'CANDIDATE_SOURCE').status, !final || final instanceof Error ? 'ERROR' : 'FAIL');
   }
 });
 
@@ -209,6 +231,30 @@ test('malformed matching run identity is a query error rather than a successful 
   assert.equal(report.machineChecksPassed, false);
 });
 
+test('a malformed run path is a remote query error, never a known failed CI gate', async () => {
+  const report = await releaseReadiness(candidate, dependencies({
+    verifyWorkflow: (options, workflow) => verifyWorkflowCi(options, workflow, async () => ({
+      ok: true,
+      json: async () => ({ workflow_runs: [{ head_sha: sha, head_branch: 'main', event: 'push', path: 42 }] }),
+    })),
+  }));
+  assert.equal(check(report, 'REMOTE_CI:ci.yml').status, 'ERROR');
+  assert.equal(check(report, 'REMOTE_CI:ci.yml').reason, 'REMOTE_QUERY_FAILED');
+});
+
+test('the executable distinguishes argument errors from incomplete diagnostics', () => {
+  const script = fileURLToPath(new URL('./release-readiness.mjs', import.meta.url));
+  const invalid = spawnSync(process.execPath, [script, '--sha', sha], { encoding: 'utf8', windowsHide: true });
+  assert.equal(invalid.status, 2);
+  assert.match(invalid.stderr, /READINESS_REPORT_FAILED/);
+  const report = spawnSync(process.execPath, [script, '--tag', 'v1.0.0', '--sha', sha], { encoding: 'utf8', windowsHide: true });
+  assert.equal(report.status, 1);
+  const parsed = JSON.parse(report.stdout);
+  assert.equal(parsed.machineChecksPassed, false);
+  assert.equal(parsed.releaseApproved, false);
+  assert.equal(check(parsed, 'REMOTE_CI:ci.yml').status, 'NOT_CHECKED');
+});
+
 test('real isolated checkout versions and tracked/untracked changes are observed without repository writes', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'wm-readiness-source-'));
   try {
@@ -245,6 +291,18 @@ test('real isolated checkout versions and tracked/untracked changes are observed
     const clean = await releaseReadiness({ ...candidate, sha: head }, deps);
     assert.equal(clean.machineChecksPassed, true);
     assert.equal(check(clean, 'WORKSPACE_VERSIONS').details.packages, 3);
+    const racing = await releaseReadiness({ ...candidate, sha: head }, {
+      ...deps,
+      verifyVersions: () => {
+        // Same version, different uncommitted bytes between identity and inventory reads.
+        writeFileSync(join(directory, 'packages/shared/package.json'), JSON.stringify({ version: '1.2.3', changed: true }));
+        return { version: '1.2.3', packages: 3 };
+      },
+    });
+    assert.equal(racing.machineChecksPassed, false);
+    assert.equal(racing.source.candidateBound, false);
+    assert.equal(check(racing, 'CANDIDATE_SOURCE').reason, 'SOURCE_CHANGED_DURING_CHECKS');
+    writeFileSync(join(directory, 'packages/shared/package.json'), JSON.stringify({ name: 'packages/shared/package.json', version: '1.2.3' }));
     writeFileSync(join(directory, 'extra.txt'), 'untracked');
     assert.equal(readSource(directory).dirty, true);
     const dirty = await releaseReadiness({ ...candidate, sha: head }, deps);
@@ -256,6 +314,12 @@ test('real isolated checkout versions and tracked/untracked changes are observed
     );
     const mismatch = await releaseReadiness({ ...candidate, sha: head }, deps);
     assert.equal(check(mismatch, 'WORKSPACE_VERSIONS').status, 'FAIL');
+    for (const content of ['null', '[]', '{}', '{"version":123}', '{"version":"latest"}', '{']) {
+      writeFileSync(join(directory, 'packages/shared/package.json'), content);
+      const malformed = await releaseReadiness({ ...candidate, sha: head }, deps);
+      assert.equal(check(malformed, 'WORKSPACE_VERSIONS').status, 'ERROR');
+      assert.equal(check(malformed, 'WORKSPACE_VERSIONS').reason, 'VERSION_INVENTORY_UNAVAILABLE');
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

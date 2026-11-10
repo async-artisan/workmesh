@@ -33,7 +33,9 @@ export function verifyWorkspaceVersions(tag, directory = root) {
       workspace,
     )
   ) {
-    throw new Error('Update release workspace discovery for the changed pnpm-workspace.yaml.');
+    const error = new Error('Update release workspace discovery for the changed pnpm-workspace.yaml.');
+    error.code = 'VERSION_INVENTORY_UNSUPPORTED';
+    throw error;
   }
   const manifests = [join(directory, 'package.json')];
   for (const group of ['apps', 'packages']) {
@@ -44,6 +46,12 @@ export function verifyWorkspaceVersions(tag, directory = root) {
   }
   for (const manifest of manifests) {
     const metadata = JSON.parse(readFileSync(manifest, 'utf8'));
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata) ||
+        typeof metadata.version !== 'string' || !semver.test(metadata.version)) {
+      const error = new Error(`Invalid release version inventory in ${manifest}.`);
+      error.code = 'VERSION_MANIFEST_INVALID';
+      throw error;
+    }
     if (metadata.version !== version) {
       throw new Error(
         `${metadata.name ?? manifest} version ${metadata.version} does not match ${tag}.`,
@@ -54,7 +62,7 @@ export function verifyWorkspaceVersions(tag, directory = root) {
 }
 
 export function successfulRun(runs, { sha, workflow }) {
-  if (!Array.isArray(runs) || runs.some((run) => !run || typeof run !== 'object'))
+  if (!Array.isArray(runs) || runs.some((run) => !run || typeof run !== 'object' || typeof run.path !== 'string'))
     throw new ReleaseCiError(`Invalid GitHub API response for ${workflow}.`, 'ERROR');
   const eligible = runs.filter(
     (run) =>

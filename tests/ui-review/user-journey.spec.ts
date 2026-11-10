@@ -316,23 +316,10 @@ for (const width of [1440, 390]) {
         },
       }),
     );
-    await page.route('**/api/v1/documents/doc-1', (route) =>
+    await page.route('**/api/v1/documents/doc-1/revisions/rev-2/metadata', (route) =>
       route.fulfill({
         json: {
-          data: {
-            document: {
-              id: 'doc-1',
-              projectId: 'p1',
-              knowledgeBaseId: 'kb-1',
-              requirementId: 'req-1',
-              kind: 'PRD',
-              version: 2,
-              currentPublishedRevisionId: 'rev-1',
-              archivedAt: null,
-            },
-            revisions,
-            publishedRevision: revisions[0],
-          },
+          data: revisions[1],
           meta: { requestId: 'journey-review-document' },
         },
       }),

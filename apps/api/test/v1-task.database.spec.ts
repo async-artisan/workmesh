@@ -117,6 +117,8 @@ suite('PostgreSQL task ownership and transactional writes', () => {
         await db.rolePackageResource.deleteMany({ where: { packageVersion: { projectId } } });
         await db.rolePackageVersion.deleteMany({ where: { projectId } });
         await db.codeReviewEvidence.deleteMany({ where: { projectId } });
+        await db.webhookReceipt.deleteMany({ where: { projectId } });
+        await db.projectRepository.deleteMany({ where: { projectId } });
         await db.artifactSet.deleteMany({ where: { projectId } });
         await db.principalStamp.deleteMany({ where: { projectId } });
         await db.taskClaim.deleteMany({ where: { projectId } });
@@ -716,15 +718,65 @@ suite('PostgreSQL task ownership and transactional writes', () => {
         createdByStampId: stamp.id,
       },
     });
+    await db.task.update({ where: { id: row.id }, data: { currentArtifactSetId: artifact.id } });
+    const registered = await db.projectRepository.create({
+      data: { projectId, adapter: 'GITHUB', externalId: 'repo', owner: 'team', name: 'source' },
+    });
+    await db.artifact.create({
+      data: {
+        projectId,
+        taskId: row.id,
+        artifactSetId: artifact.id,
+        kind: 'IMPL',
+        schemaVersion: '1.0',
+        storage: 'GIT_REF',
+        mediaType: 'text/plain',
+        byteLength: 0,
+        sha256: 'a'.repeat(64),
+        projectRepositoryId: registered.id,
+        commitSha: 'a'.repeat(40),
+        repoPath: 'src/index.ts',
+        checks: [],
+        submittedByStampId: stamp.id,
+      },
+    });
+    const receipt = await db.webhookReceipt.create({
+      data: {
+        projectId,
+        source: 'GITHUB',
+        deliveryId: randomUUID(),
+        eventType: 'pull_request_review',
+        signatureValid: true,
+        payloadDigest: 'a'.repeat(64),
+        status: 'PROCESSED',
+        processedAt: new Date(),
+      },
+    });
+    const approved = await db.codeReviewEvidence.create({
+      data: {
+        projectId,
+        repositoryId: 'repo',
+        changeRequestId: randomUUID(),
+        headSha: 'a'.repeat(40),
+        authorExternalId: 'author',
+        reviewerExternalId: 'reviewer',
+        reviewerKind: 'USER',
+        state: 'APPROVED',
+        commitSha: 'a'.repeat(40),
+        reviewExternalId: randomUUID(),
+        evidenceFingerprint: randomUUID(),
+        receiptId: receipt.id,
+      },
+    });
     const evidence = new V1GithubEvidencePrismaRepository(db as PrismaService);
     const input = {
       projectId,
       repositoryId: 'repo',
-      changeRequestId: randomUUID(),
+      changeRequestId: approved.changeRequestId,
       headSha: 'a'.repeat(40),
       artifactSetId: artifact.id,
       generation: 1,
-      evidenceId: randomUUID(),
+      evidenceId: approved.id,
       now: new Date(),
       expiresInMs: 60000,
     };
@@ -747,7 +799,11 @@ suite('PostgreSQL task ownership and transactional writes', () => {
     const ticket = winners[0].status === 'fulfilled' ? winners[0].value : null;
     expect(
       await db.codeReviewEvidence.count({
-        where: { projectId, changeRequestId: input.changeRequestId },
+        where: {
+          projectId,
+          changeRequestId: input.changeRequestId,
+          preparedSecretHash: { not: null },
+        },
       }),
     ).toBe(1);
     const stored = await db.idempotentOperation.findUniqueOrThrow({ where: { id: op.id } });
@@ -756,13 +812,19 @@ suite('PostgreSQL task ownership and transactional writes', () => {
     expect(openTicketSecret(refs.encryptedSecret, key, refs.ticketId)).toBe(ticket!.secret);
     expect(JSON.stringify(refs)).not.toContain(ticket!.secret);
     await expect(
-      evidence.createVersionedTicket({ ...input, changeRequestId: 'rollback' }, () => {
+      evidence.createVersionedTicket(input, () => {
         throw new Error('seal failed');
       }),
     ).rejects.toThrow('seal failed');
     expect(
-      await db.codeReviewEvidence.count({ where: { projectId, changeRequestId: 'rollback' } }),
-    ).toBe(0);
+      await db.codeReviewEvidence.count({
+        where: {
+          projectId,
+          changeRequestId: input.changeRequestId,
+          preparedSecretHash: { not: null },
+        },
+      }),
+    ).toBe(1);
   });
 
   it('creates one immutable current snapshot under concurrent requests', async () => {

@@ -2,10 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '../../node_modules/.prisma/workmesh-v1-client';
 import { evaluateSuiteTestDatabase, verifiedTestDatabase } from '../src/common/v1-test-database';
-import {
-  assertCodeEvidenceAcceptable,
-  type CodeEvidenceGateTx,
-} from '../src/reviews/v1-review-code-evidence';
+import { assertCodeEvidenceAcceptable } from '../src/reviews/v1-review-code-evidence';
 
 /**
  * 验收闸门在真实 PostgreSQL 上的证据绑定链路。
@@ -25,6 +22,7 @@ suite('code review evidence binding on real PostgreSQL', () => {
   let projectId: string;
   let userId: string;
   let artifactSetId: string;
+  let taskId: string;
   let approvedEvidenceId: string;
 
   beforeAll(async () => {
@@ -83,6 +81,7 @@ suite('code review evidence binding on real PostgreSQL', () => {
         responsibleUserId: userId,
       },
     });
+    taskId = task.id;
     const stamp = await db.principalStamp.create({
       data: { kind: 'HUMAN', userId, projectId, userAuthVersion: 1, scopeSnapshot: [] },
     });
@@ -99,6 +98,40 @@ suite('code review evidence binding on real PostgreSQL', () => {
       },
     });
     artifactSetId = set.id;
+    await db.task.update({ where: { id: taskId }, data: { currentArtifactSetId: set.id } });
+    const repository = await db.projectRepository.create({
+      data: { projectId, adapter: 'GITHUB', externalId: REPO_ID, owner: 'team', name: 'source' },
+    });
+    await db.artifact.create({
+      data: {
+        projectId,
+        taskId,
+        artifactSetId,
+        kind: 'IMPL',
+        schemaVersion: '1.0',
+        storage: 'GIT_REF',
+        mediaType: 'text/plain',
+        byteLength: 0,
+        sha256: 'a'.repeat(64),
+        projectRepositoryId: repository.id,
+        commitSha: SHA,
+        repoPath: 'src/index.ts',
+        checks: [],
+        submittedByStampId: stamp.id,
+      },
+    });
+    const receipt = await db.webhookReceipt.create({
+      data: {
+        projectId,
+        source: 'GITHUB',
+        deliveryId: randomUUID(),
+        eventType: 'pull_request_review',
+        signatureValid: true,
+        payloadDigest: 'a'.repeat(64),
+        status: 'PROCESSED',
+        processedAt: new Date(),
+      },
+    });
 
     // 真实的人类批准证据：与 webhook 写入形态一致，不带 artifactSetId。
     const approved = await db.codeReviewEvidence.create({
@@ -114,6 +147,7 @@ suite('code review evidence binding on real PostgreSQL', () => {
         commitSha: SHA,
         reviewExternalId: 'review-1',
         evidenceFingerprint: 'd'.repeat(64),
+        receiptId: receipt.id,
       },
     });
     approvedEvidenceId = approved.id;
@@ -146,6 +180,9 @@ suite('code review evidence binding on real PostgreSQL', () => {
     try {
       if (projectId) {
         await db.codeReviewEvidence.deleteMany({ where: { projectId } });
+        await db.webhookReceipt.deleteMany({ where: { projectId } });
+        await db.artifact.deleteMany({ where: { projectId } });
+        await db.projectRepository.deleteMany({ where: { projectId } });
         await db.artifactSet.deleteMany({ where: { projectId } });
         await db.task.deleteMany({ where: { projectId } });
         await db.workflowInstance.deleteMany({ where: { projectId } });
@@ -163,16 +200,6 @@ suite('code review evidence binding on real PostgreSQL', () => {
     }
   });
 
-  /** 工件查询用固定声称，本套件验证的是证据解析；工件集本身由其它套件覆盖。 */
-  function gateTx(): CodeEvidenceGateTx {
-    return {
-      artifact: { findMany: async () => [{ storage: 'GIT_REF', commitSha: SHA }] },
-      codeReviewEvidence: {
-        findMany: (args: unknown) => db.codeReviewEvidence.findMany(args as never),
-      },
-    };
-  }
-
   async function setTicketConsumed(consumed: boolean): Promise<void> {
     await db.codeReviewEvidence.updateMany({
       where: { artifactSetId, preparedSecretHash: { not: null } },
@@ -188,10 +215,13 @@ suite('code review evidence binding on real PostgreSQL', () => {
     await setTicketConsumed(false);
     await setApprovedState('APPROVED');
     await expect(
-      assertCodeEvidenceAcceptable({ tx: gateTx(), projectId, artifactSetId, taskId: 'task' }),
+      assertCodeEvidenceAcceptable({ tx: db, projectId, artifactSetId, taskId }),
     ).rejects.toMatchObject({
       status: 422,
-      details: { reason: 'CODE_CLAIM_REQUIRES_APPROVED_PR_REVIEW', boundEvidenceCount: 0 },
+      details: {
+        reason: 'CODE_EVIDENCE_CHAIN_INCOMPLETE',
+        references: [{ status: 'TICKET_LIVE' }],
+      },
     });
   });
 
@@ -200,7 +230,7 @@ suite('code review evidence binding on real PostgreSQL', () => {
     await setApprovedState('APPROVED');
     // 占位行本身是 PENDING；能通过说明解析到的是真实批准证据，而不是占位行。
     await expect(
-      assertCodeEvidenceAcceptable({ tx: gateTx(), projectId, artifactSetId, taskId: 'task' }),
+      assertCodeEvidenceAcceptable({ tx: db, projectId, artifactSetId, taskId }),
     ).resolves.toBeUndefined();
   });
 
@@ -208,13 +238,12 @@ suite('code review evidence binding on real PostgreSQL', () => {
     await setTicketConsumed(true);
     await setApprovedState('CHANGES_REQUESTED');
     await expect(
-      assertCodeEvidenceAcceptable({ tx: gateTx(), projectId, artifactSetId, taskId: 'task' }),
+      assertCodeEvidenceAcceptable({ tx: db, projectId, artifactSetId, taskId }),
     ).rejects.toMatchObject({
       status: 422,
       details: {
-        reason: 'BOUND_EVIDENCE_NOT_APPROVED',
-        boundEvidenceCount: 1,
-        acceptedEvidenceCount: 0,
+        reason: 'CODE_EVIDENCE_CHAIN_INCOMPLETE',
+        references: [{ status: 'REVIEW_NOT_QUALIFYING' }],
       },
     });
   });
@@ -223,8 +252,8 @@ suite('code review evidence binding on real PostgreSQL', () => {
     await setTicketConsumed(false);
     await setApprovedState('APPROVED');
     await expect(
-      assertCodeEvidenceAcceptable({ tx: gateTx(), projectId, artifactSetId, taskId: 'task' }),
-    ).rejects.toMatchObject({ details: { boundEvidenceCount: 0 } });
+      assertCodeEvidenceAcceptable({ tx: db, projectId, artifactSetId, taskId }),
+    ).rejects.toMatchObject({ details: { references: [{ status: 'TICKET_LIVE' }] } });
   });
 
   it('documents why the legacy artifactSet-only query could never pass', async () => {

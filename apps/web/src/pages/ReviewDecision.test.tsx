@@ -98,23 +98,10 @@ describe('ReviewDecision（证据 + 一次确认 + 回执）', () => {
       const method = init?.method ?? 'GET';
       if (path === '/api/v1/review-requests/review-1' && method === 'GET')
         return { status: 200, body: envelope(review) };
-      if (path === '/api/v1/documents/doc-1' && method === 'GET')
+      if (path === '/api/v1/documents/doc-1/revisions/rev-2/metadata' && method === 'GET')
         return {
           status: 200,
-          body: envelope({
-            document: {
-              id: 'doc-1',
-              projectId: 'p1',
-              knowledgeBaseId: 'kb-1',
-              requirementId: null,
-              kind: 'PRD',
-              version: 2,
-              currentPublishedRevisionId: 'rev-1',
-              archivedAt: null,
-            },
-            revisions,
-            publishedRevision: revisions[0],
-          }),
+          body: envelope(revisions[1]),
         };
       if (path === '/api/v1/document-revisions/rev-2/content' && method === 'GET')
         return {
@@ -206,6 +193,166 @@ describe('ReviewDecision（证据 + 一次确认 + 回执）', () => {
     expect(await screen.findByText(/批准 · product/)).toBeInTheDocument();
     expect(screen.getByText(/复制审计行/)).toBeInTheDocument();
     expect((await screen.findAllByText('alice@example.com')).length).toBeGreaterThan(0);
+  });
+
+  it('直接打开首批历史之外的精确修订，保留完整正文和该版验收', async () => {
+    const historicalRevision = {
+      ...revisions[1],
+      title: '保留的第 2 版评审',
+      acceptance: [{ key: 'old-rule', text: '按第 2 版保留退款凭证', verification: 'TEST' }],
+    };
+    const fullText = '# 第 2 版完整正文\n' + '保留历史证据\n'.repeat(700) + '正文末尾的精确标记';
+    const fetch = mockFetch((url, init) => {
+      const path = pathOf(url);
+      if (methodOf(init) !== 'GET') return undefined;
+      if (path === '/api/v1/review-requests/review-1')
+        return { status: 200, body: envelope(review) };
+      if (path === '/api/v1/documents/doc-1/revisions/rev-2/metadata')
+        return { status: 200, body: envelope(historicalRevision) };
+      // 该文档已有 205 版，历史首页不含被评审的第 2 版；评审页无需读取它。
+      if (path === '/api/v1/documents/doc-1/history')
+        return {
+          status: 200,
+          body: envelope({
+            items: Array.from({ length: 50 }, (_, index) => ({
+              ...revisions[1],
+              id: `rev-${205 - index}`,
+              seq: 205 - index,
+              title: `最新版本 ${205 - index}`,
+            })),
+            total: 205,
+            nextCursor: 'next-history-page',
+            documentVersion: 205,
+          }),
+        };
+      if (path === '/api/v1/documents/doc-1')
+        return {
+          status: 500,
+          body: { error: { code: 'UNBOUNDED_READ', message: '不应读取全部历史' } },
+        };
+      if (path === '/api/v1/document-revisions/rev-2/content')
+        return { status: 200, body: envelope(contentOf('rev-2', fullText)) };
+      if (path === '/api/v1/document-revisions/rev-1/content')
+        return { status: 200, body: envelope(contentOf('rev-1', '# 首个已发布版本\n')) };
+      return undefined;
+    });
+    const { container } = render(
+      <MemoryRouter>
+        <ReviewDecision reviewId="review-1" />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: '保留的第 2 版评审' })).toBeInTheDocument();
+    expect(screen.getByText('按第 2 版保留退款凭证')).toBeInTheDocument();
+    expect(container.querySelector('.paper-content')?.textContent).toBe(fullText);
+    expect(screen.getByText('与已发布版本的差异')).toBeInTheDocument();
+    const paths = fetch.mock.calls.map(([url]) => pathOf(String(url)));
+    expect(paths).toContain('/api/v1/documents/doc-1/revisions/rev-2/metadata');
+    expect(paths).toContain('/api/v1/document-revisions/rev-2/content');
+    expect(paths).toContain('/api/v1/document-revisions/rev-1/content');
+    expect(paths).not.toContain('/api/v1/documents/doc-1');
+    expect(paths).not.toContain('/api/v1/documents/doc-1/history');
+    expect(paths).not.toContain('/api/v1/documents/doc-1/revisions');
+  });
+
+  it('目标修订元数据不可读时显示错误，不回退到已发布版本或完整文档', async () => {
+    const fetch = mockFetch((url, init) => {
+      const path = pathOf(url);
+      if (methodOf(init) !== 'GET') return undefined;
+      if (path === '/api/v1/review-requests/review-1')
+        return { status: 200, body: envelope(review) };
+      if (path === '/api/v1/documents/doc-1/revisions/rev-2/metadata')
+        return {
+          status: 404,
+          body: { error: { code: 'RESOURCE_NOT_FOUND', message: '目标修订不可读' } },
+        };
+      if (path === '/api/v1/documents/doc-1')
+        return {
+          status: 200,
+          body: envelope({ document: { id: 'doc-1' }, revisions, publishedRevision: revisions[0] }),
+        };
+      if (path.startsWith('/api/v1/document-revisions/'))
+        return { status: 200, body: envelope(contentOf('rev-1', '不应替代目标修订的发布正文')) };
+      return undefined;
+    });
+    render(
+      <MemoryRouter>
+        <ReviewDecision reviewId="review-1" />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('目标修订不可读');
+    expect(screen.queryByText('PRD v1')).not.toBeInTheDocument();
+    expect(screen.queryByText('登录失败 3 次锁定')).not.toBeInTheDocument();
+    const paths = fetch.mock.calls.map(([url]) => pathOf(String(url)));
+    expect(paths).not.toContain('/api/v1/documents/doc-1');
+    expect(paths.some((path) => path.startsWith('/api/v1/document-revisions/'))).toBe(false);
+  });
+
+  it('切换评审后忽略迟到的旧修订元数据，不继续读取旧正文', async () => {
+    let resolveMetadata!: (reply: StubReply) => void;
+    const delayedMetadata = new Promise<StubReply>((resolve) => {
+      resolveMetadata = resolve;
+    });
+    const nextReview = {
+      ...review,
+      id: 'review-next',
+      documentRevisionId: 'rev-next',
+      subject: { ...review.subject, revisionId: 'rev-next', currentPublishedRevisionId: null },
+    };
+    const fetch = mockFetch((url, init) => {
+      const path = pathOf(url);
+      if (methodOf(init) !== 'GET') return undefined;
+      if (path === '/api/v1/review-requests/review-1')
+        return { status: 200, body: envelope(review) };
+      if (path === '/api/v1/review-requests/review-next')
+        return { status: 200, body: envelope(nextReview) };
+      if (path === '/api/v1/documents/doc-1/revisions/rev-2/metadata') return delayedMetadata;
+      if (path === '/api/v1/documents/doc-1/revisions/rev-next/metadata')
+        return {
+          status: 200,
+          body: envelope({ ...revisions[1], id: 'rev-next', title: '新评审的精确版本' }),
+        };
+      if (path === '/api/v1/document-revisions/rev-next/content')
+        return { status: 200, body: envelope(contentOf('rev-next', '新评审完整正文')) };
+      if (path === '/api/v1/document-revisions/rev-2/content')
+        return { status: 200, body: envelope(contentOf('rev-2', '迟到的旧评审正文')) };
+      return undefined;
+    });
+    const { rerender } = render(
+      <MemoryRouter>
+        <ReviewDecision reviewId="review-1" />
+      </MemoryRouter>,
+    );
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.some(
+          ([url]) => pathOf(String(url)) === '/api/v1/documents/doc-1/revisions/rev-2/metadata',
+        ),
+      ).toBe(true),
+    );
+
+    rerender(
+      <MemoryRouter>
+        <ReviewDecision reviewId="review-next" />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('heading', { name: '新评审的精确版本' })).toBeInTheDocument();
+    expect(screen.getByText('新评审完整正文')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveMetadata({ status: 200, body: envelope({ ...revisions[1], title: '迟到的旧版本' }) });
+      await delayedMetadata;
+    });
+
+    expect(screen.getByRole('heading', { name: '新评审的精确版本' })).toBeInTheDocument();
+    expect(screen.queryByText('迟到的旧版本')).not.toBeInTheDocument();
+    expect(screen.queryByText('迟到的旧评审正文')).not.toBeInTheDocument();
+    expect(
+      fetch.mock.calls.some(
+        ([url]) => pathOf(String(url)) === '/api/v1/document-revisions/rev-2/content',
+      ),
+    ).toBe(false);
   });
 
   it('让代码交付物具备可审阅的需求、仓库、检查与代码评审证据', async () => {
@@ -1456,23 +1603,10 @@ describe('ReviewDecision 证据完整性与上下文状态', () => {
       };
       if (path === '/api/v1/review-requests/review-embedded' && method === 'GET')
         return { status: 200, body: envelope(embeddedReview) };
-      if (path === '/api/v1/documents/doc-1' && method === 'GET')
+      if (path === '/api/v1/documents/doc-1/revisions/rev-2/metadata' && method === 'GET')
         return {
           status: 200,
-          body: envelope({
-            document: {
-              id: 'doc-1',
-              projectId: 'p1',
-              knowledgeBaseId: 'kb-1',
-              requirementId: null,
-              kind: 'PRD',
-              version: 2,
-              currentPublishedRevisionId: 'rev-1',
-              archivedAt: null,
-            },
-            revisions,
-            publishedRevision: revisions[0],
-          }),
+          body: envelope(revisions[1]),
         };
       if (path === '/api/v1/document-revisions/rev-2/content' && method === 'GET')
         return {
