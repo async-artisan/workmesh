@@ -74,6 +74,6 @@ jobs:
         # Forked pull requests receive a read-only token and cannot upload to
         # GitHub code scanning. The image scan still runs and enforces its exit code.
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: github/codeql-action/upload-sarif@f3bbb05694c2f74569081c28664c0866d64dec21 # v4.39.3
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: trivy-results.sarif
