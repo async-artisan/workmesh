@@ -19,7 +19,7 @@ WP0–WP10 的主要代码工作已在当前仓库实现并有源码、测试或
 
 ### WP11 Product Agent 协议收尾
 
-状态：第一阶段已实现，候选评审接入已完成；仍需补齐协议边界和验证。
+状态：第一阶段已实现，候选评审接入已完成；仍需补齐协议边界和验证。最新状态见 [phase-status.md](phase-status.md)。
 
 - 本地 Product Agent 支持 `product start/resume/update/answer/confirm/draft` 命令、本地状态和 PRD 草稿；理解稿字段、每轮单题、原话与落点记录、未解决项门禁等约定见 [API 文档中的本地协议](api.md#product-agent-本地协议)。
 - `candidate --kind PRD` 已提交到既有修订/评审路径，并返回 `reviewRequestId`；正式发布仍由 Web 中的 HUMAN 决定。
@@ -27,7 +27,7 @@ WP0–WP10 的主要代码工作已在当前仓库实现并有源码、测试或
 
 ### WP12 澄清服务 API 与任务阻塞/恢复
 
-状态：待实现。
+状态：待实现。最新状态见 [phase-status.md](phase-status.md)。
 
 - 新增 Clarification / ClarificationResponse 资源，支持 Agent 提案、HUMAN 确认或延期、依赖和引用校验。
 - 创建澄清与任务 `BLOCKED`、确认答复与精确恢复在同一事务完成，沿用权限、幂等键和版本 CAS。
@@ -35,7 +35,7 @@ WP0–WP10 的主要代码工作已在当前仓库实现并有源码、测试或
 
 ### WP13 按风险组织 PRD、原型 verify、产品/QA 验收与归档
 
-状态：待实现。
+状态：待实现。最新状态见 [phase-status.md](phase-status.md)。
 
 - 将当前草稿按实际风险组织为评审版，补齐场景、边界、异常、非功能要求和成功标准；允许简单需求合并章节，不强制固定 15 章。补齐修改任务、PRD/原型 hash 绑定和返修失效。
 - 原型作为绑定 PRD 的工件；build/verify 只提供机器证据，产品与 QA 仍需 HUMAN 验收。

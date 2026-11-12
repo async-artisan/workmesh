@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Evidence-driven project collaboration hub for local AI agents",
+  "description": "Sign-off and evidence layer for teams shipping with local AI agents",
   "license": "MIT",
   "repository": {
     "type": "git",
