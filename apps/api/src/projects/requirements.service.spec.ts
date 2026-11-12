@@ -98,6 +98,12 @@ describe('RequirementsService.list', () => {
       where: expectedWhere,
       orderBy: { seq: 'asc' },
       take: 3,
+      select: expect.objectContaining({
+        id: true,
+        seq: true,
+        code: true,
+        title: true,
+      }),
     });
     expect(prisma.requirement.count).toHaveBeenLastCalledWith({ where: expectedWhere });
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
@@ -111,10 +117,25 @@ describe('RequirementsService.list', () => {
       where: { ...expectedWhere, seq: { gt: 85 } },
       orderBy: { seq: 'asc' },
       take: 3,
+      select: expect.objectContaining({
+        id: true,
+        seq: true,
+        code: true,
+        title: true,
+      }),
     });
     expect(prisma.requirement.count).toHaveBeenLastCalledWith({ where: expectedWhere });
     expect(second.nextCursor).toBeNull();
     expect(second.total).toBe(74);
+  });
+
+  it('list items omit description to reduce response size', async () => {
+    const { service, prisma } = createHarness();
+    prisma.requirement.count.mockResolvedValue(1);
+    prisma.requirement.findMany.mockResolvedValue([row(1)]);
+    const result = await service.list(principal, 'p1', { limit: 10 });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).not.toHaveProperty('description');
   });
 
   it('does not query records when permission is denied or cursor belongs to another search', async () => {

@@ -20,6 +20,25 @@ import {
   type RequirementListQuery,
 } from './requirements.pagination';
 
+/** Plain list-view item (no description, no deliveryScope) for paginated list endpoints. */
+export type RequirementListItem = {
+  id: string;
+  projectId: string;
+  seq: number;
+  code: string;
+  title: string;
+  version: number;
+  generation: number;
+  phase: string;
+  workStatus: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+type RequirementListPage = {
+  items: RequirementListItem[];
+  nextCursor: string | null;
+  total: number;
+};
 @Injectable()
 export class RequirementsService {
   constructor(
@@ -27,7 +46,11 @@ export class RequirementsService {
     private readonly authorization: V1AuthorizationService,
   ) {}
 
-  async list(principal: Principal, projectId: string, query: RequirementListQuery) {
+  async list(
+    principal: Principal,
+    projectId: string,
+    query: RequirementListQuery,
+  ): Promise<RequirementListPage> {
     await this.authorization.resolveProjectContext(principal, projectId, 'read');
     await this.authorization.requireScope(principal, projectId, 'requirement:read');
 
@@ -48,6 +71,25 @@ export class RequirementsService {
         : {}),
     };
     // 页内数据与全范围计数使用同一快照，游标只限制当前页，不限制 total。
+    // Select only list-view fields: skip description, deliveryScope, and
+    // timestamps that are not shown in the list to avoid pulling large text
+    // columns for every row on a full-project list.
+    const listSelect = {
+      id: true,
+      projectId: true,
+      seq: true,
+      code: true,
+      title: true,
+      version: true,
+      generation: true,
+      phase: true,
+      workStatus: true,
+      currentUnderstandingRevisionId: true,
+      currentPrdRevisionId: true,
+      frozenAt: true,
+      createdAt: true,
+      updatedAt: true,
+    } as const;
     const { rows, total } = await this.prisma.$transaction(
       async (tx) => ({
         total: await tx.requirement.count({ where }),
@@ -55,6 +97,7 @@ export class RequirementsService {
           where: { ...where, ...(cursor !== null ? { seq: { gt: cursor } } : {}) },
           orderBy: { seq: 'asc' },
           take: normalized.limit + 1,
+          select: listSelect,
         }),
       }),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
@@ -62,7 +105,21 @@ export class RequirementsService {
     const hasMore = rows.length > normalized.limit;
     const page = hasMore ? rows.slice(0, normalized.limit) : rows;
     return {
-      items: page.map((row) => this.viewOf(row)),
+      items: page.map((row) => ({
+        id: row.id,
+        projectId: row.projectId,
+        seq: row.seq,
+        code: row.code,
+        title: row.title,
+        // description is omitted in list view to reduce response size;
+        // fetch the detail endpoint for the full requirement including description.
+        version: row.version,
+        generation: row.generation,
+        phase: row.phase,
+        workStatus: row.workStatus,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      })),
       nextCursor: hasMore
         ? encodeRequirementCursor(projectId, normalized, page[page.length - 1].seq)
         : null,

@@ -188,9 +188,12 @@ export class V1FlowMetricsService {
     const [events, recipients, ackedRows] = await Promise.all([
       this.prisma.changeEvent.count({ where: { projectId, createdAt: { gte: from } } }),
       this.prisma.changeRecipient.count({ where: { projectId, createdAt: { gte: from } } }),
+      // Bounded read: cap at 10000 acked rows for ack-rate and avg-ack-hours
+      // calculation. Beyond this the sample is statistically sufficient.
       this.prisma.changeRecipient.findMany({
         where: { projectId, createdAt: { gte: from }, ackedAt: { not: null } },
         select: { createdAt: true, ackedAt: true },
+        take: 10_000,
       }),
     ]);
     const ackHours = ackedRows.map((row) => hoursBetween(row.ackedAt as Date, row.createdAt));
