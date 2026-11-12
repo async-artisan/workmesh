@@ -55,6 +55,10 @@ services:
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-120}
       RATE_LIMIT_BUCKETS: ${RATE_LIMIT_BUCKETS:-10000}
       TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-}
+      # REDIS_URL: redis://:password@redis:6379/0
+      # Set REDIS_URL to enable shared rate limiting for multi-instance deployments.
+      # Uncomment the redis service below and set REDIS_URL here.
+      # See docker-compose.redis.yml for the Redis service definition.
       WORKMESH_SMTP_URL: ${WORKMESH_SMTP_URL:-}
       WORKMESH_EMAIL_FROM: ${WORKMESH_EMAIL_FROM:-no-reply@workmesh.local}
     ports:

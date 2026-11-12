@@ -6,21 +6,22 @@ WorkMesh 使用 Node.js 20.19+、pnpm 10.28.2 与 PostgreSQL 15+。PostgreSQL �
 
 数据库连接串只来自 `WORKMESH_V1_DATABASE_URL`，领域代码不读取隐式数据源，也不提供旧连接变量回退。
 
-| 变量                             | 作用                                                                                           |
-| -------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `WORKMESH_V1_DATABASE_URL`       | 正式 PostgreSQL 连接串（`workmesh_v1` schema）。                                               |
-| `WORKMESH_TEST_DATABASE_URL`     | 隔离测试库连接串；仅在显式确认后由 `pnpm test:integration` 使用。                              |
-| `WORKMESH_COOKIE_MODE`           | `SECURE`（默认，要求 HTTPS 与 `__Host-` Cookie）或 `LOCAL_INSECURE`（仅 loopback HTTP 开发）。 |
-| `WORKMESH_PUBLIC_ORIGIN`         | Web 公共源；用于 Origin 精确匹配与 Cookie 部署校验。                                           |
-| `WEB_ORIGIN`                     | CORS 允许源，默认 `http://127.0.0.1:5173`。                                                    |
-| `RATE_LIMIT_MAX`                 | 每 IP 每分钟请求上限，默认 120。                                                               |
-| `RATE_LIMIT_BUCKETS`             | 进程内 IP 限流桶容量，默认 10000；多实例需要上游共享限流。                                     |
-| `TRUSTED_PROXY_IPS`              | 受控反向代理地址列表；默认不信任转发 IP。                                                      |
-| `GITHUB_WEBHOOK_SECRET`          | GitHub webhook 签名密钥，缺失时拒绝 webhook。                                                  |
-| `WORKMESH_TICKET_ENCRYPTION_KEY` | 代码证据票据准备所需独立 32 字节随机密钥的十六进制编码；见发布升级说明。                       |
-| `PORT`                           | API 端口，默认 3000。                                                                          |
-| `WORKMESH_SMTP_URL`              | 可选；SMTP 连接串（如 `smtp://user:pass@host:587`），用于手动“邮件摘要”。                      |
-| `WORKMESH_EMAIL_FROM`            | 可选；邮件发件人，默认 `no-reply@workmesh.local`。                                             |
+| 变量                             | 作用                                                                                                                 |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `WORKMESH_V1_DATABASE_URL`       | 正式 PostgreSQL 连接串（`workmesh_v1` schema）。                                                                     |
+| `WORKMESH_TEST_DATABASE_URL`     | 隔离测试库连接串；仅在显式确认后由 `pnpm test:integration` 使用。                                                    |
+| `WORKMESH_COOKIE_MODE`           | `SECURE`（默认，要求 HTTPS 与 `__Host-` Cookie）或 `LOCAL_INSECURE`（仅 loopback HTTP 开发）。                       |
+| `WORKMESH_PUBLIC_ORIGIN`         | Web 公共源；用于 Origin 精确匹配与 Cookie 部署校验。                                                                 |
+| `WEB_ORIGIN`                     | CORS 允许源，默认 `http://127.0.0.1:5173`。                                                                          |
+| `RATE_LIMIT_MAX`                 | 每 IP 每分钟请求上限，默认 120。                                                                                     |
+| `RATE_LIMIT_BUCKETS`             | 进程内 IP 限流桶容量，默认 10000；**多实例需配置 `REDIS_URL`**（见下方）。                                           |
+| `REDIS_URL`                      | 可选；Redis 连接串（如 `redis://:password@host:6379/0`），配置后启用跨实例共享限流，未配置时降级为进程内单实例限流。 |
+| `TRUSTED_PROXY_IPS`              | 受控反向代理地址列表；默认不信任转发 IP。                                                                            |
+| `GITHUB_WEBHOOK_SECRET`          | GitHub webhook 签名密钥，缺失时拒绝 webhook。                                                                        |
+| `WORKMESH_TICKET_ENCRYPTION_KEY` | 代码证据票据准备所需独立 32 字节随机密钥的十六进制编码；见发布升级说明。                                             |
+| `PORT`                           | API 端口，默认 3000。                                                                                                |
+| `WORKMESH_SMTP_URL`              | 可选；SMTP 连接串（如 `smtp://user:pass@host:587`），用于手动“邮件摘要”。                                            |
+| `WORKMESH_EMAIL_FROM`            | 可选；邮件发件人，默认 `no-reply@workmesh.local`。                                                                   |
 
 `WORKMESH_COOKIE_MODE=SECURE` 必须配合 HTTPS；`LOCAL_INSECURE` 只允许 loopback 且必须为 HTTP，不会根据 Host/Origin/Forwarded 头自动降级。
 

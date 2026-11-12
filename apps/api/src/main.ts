@@ -7,7 +7,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { assertCookieDeployment, resolveCookieMode } from './auth/v1-cookie-policy';
-import { RateLimiter } from './common/rate-limit';
+import { createRateLimitBackend } from './common/rate-limit';
 import { MAX_JSON_BODY_BYTES } from './common/strict-json.interceptor';
 
 let bootstrapApp: NestExpressApplication | undefined;
@@ -18,7 +18,14 @@ async function bootstrap() {
     process.env.WORKMESH_PUBLIC_ORIGIN ?? 'http://127.0.0.1:5173',
   );
   const rateLimit = Number(process.env.RATE_LIMIT_MAX ?? 120);
-  const limiter = new RateLimiter(rateLimit, Number(process.env.RATE_LIMIT_BUCKETS ?? 10_000));
+  const { backend: rateLimitBackend, cleanup: rateLimitCleanup } = await createRateLimitBackend(
+    process.env,
+  );
+  if (process.env.REDIS_URL) {
+    new Logger('Bootstrap').log(
+      `Rate limiting backed by Redis: ${process.env.REDIS_URL.replace(/:[^:@]+@/, ':***@')}`,
+    );
+  }
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
   bootstrapApp = app;
   // Let Nest drain the HTTP server and invoke OnModuleDestroy hooks (Prisma,
@@ -38,7 +45,7 @@ async function bootstrap() {
     app.getHttpAdapter().getInstance().set('trust proxy', trustedProxies);
   }
   app.use(
-    (
+    async (
       request: { ip?: string },
       response: {
         setHeader: (name: string, value: string) => void;
@@ -47,7 +54,7 @@ async function bootstrap() {
       next: () => void,
     ) => {
       const key = request.ip ?? 'unknown';
-      const result = limiter.take(key);
+      const result = await rateLimitBackend.take(key);
       response.setHeader('X-RateLimit-Limit', String(rateLimit));
       response.setHeader('X-RateLimit-Remaining', String(result.remaining));
       if (!result.allowed) {
@@ -93,6 +100,11 @@ async function bootstrap() {
   const swagger = new DocumentBuilder().setTitle('WorkMesh API').setVersion('1.0').build();
   SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, swagger));
   await app.listen(process.env.PORT ?? 3000);
+  // Drain the Redis rate limit connection when the app shuts down so the
+  // process can exit cleanly during rolling updates.
+  const cleanup = rateLimitCleanup;
+  process.once('SIGTERM', () => void cleanup());
+  process.once('SIGINT', () => void cleanup());
 }
 
 void bootstrap().catch(async (error: unknown) => {
