@@ -36,9 +36,42 @@ RUN apt-get update \
   && groupadd --system --gid 1001 workmesh \
   && useradd --system --uid 1001 --gid workmesh --home-dir /workspace --shell /usr/sbin/nologin workmesh
 
-# Keep the workspace layout in the local deployment image. pnpm workspace links and
-# Prisma's generated client then resolve exactly as they do during the build.
-COPY --from=build --chown=workmesh:workmesh /workspace ./
+# Copy only production artefacts from the build stage.
+# pnpm workspace links and Prisma's generated client rely on the workspace
+# layout, so we keep the manifest files and re-install production deps only.
+COPY --from=build /workspace/package.json ./package.json
+COPY --from=build /workspace/pnpm-lock.yaml ./pnpm-lock.yaml
+COPY --from=build /workspace/pnpm-workspace.yaml ./pnpm-workspace.yaml
+
+COPY --from=build /workspace/apps/api/package.json ./apps/api/package.json
+COPY --from=build /workspace/apps/api/dist ./apps/api/dist
+COPY --from=build /workspace/apps/api/prisma ./apps/api/prisma
+
+COPY --from=build /workspace/apps/web/package.json ./apps/web/package.json
+COPY --from=build /workspace/apps/web/dist ./apps/web/dist
+
+COPY --from=build /workspace/packages/shared/package.json ./packages/shared/package.json
+COPY --from=build /workspace/packages/shared/dist ./packages/shared/dist
+
+COPY --from=build /workspace/packages/role-packages/package.json ./packages/role-packages/package.json
+COPY --from=build /workspace/packages/role-packages/dist ./packages/role-packages/dist
+
+COPY --from=build /workspace/packages/ui/package.json ./packages/ui/package.json
+COPY --from=build /workspace/packages/ui/dist ./packages/ui/dist
+
+COPY --from=build /workspace/packages/config/package.json ./packages/config/package.json
+
+COPY --from=build /workspace/packages/box/package.json ./packages/box/package.json
+COPY --from=build /workspace/packages/box/dist ./packages/box/dist
+
+# web-server.mjs is a zero-dependency static file + API proxy server
+COPY --from=build /workspace/scripts/box/web-server.mjs ./scripts/box/web-server.mjs
+
+COPY --from=build /workspace/docker ./docker
+
+# Install production dependencies only (no devDependencies, no build tools)
+RUN pnpm install --frozen-lockfile --prod \
+  && chown -R workmesh:workmesh /workspace
 
 ENV NODE_ENV=production \
     PORT=3000 \

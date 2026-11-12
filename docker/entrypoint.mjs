@@ -11,19 +11,10 @@ if (!env.WORKMESH_V1_DATABASE_URL) {
   process.exit(78);
 }
 
-function run(command, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: 'inherit', ...options });
-    child.once('error', reject);
-    child.once('exit', (code, signal) => {
-      if (code === 0) resolve();
-      else
-        reject(
-          new Error(`${command} exited with code ${code ?? 'null'} (${signal ?? 'no signal'})`),
-        );
-    });
-  });
-}
+// Migrations are intentionally NOT run here. Run docker/migrate.mjs as a
+// separate one-shot job (compose service or Kubernetes Job) before starting
+// the app. This keeps migration and application lifecycle decoupled and
+// prevents concurrent migration races when scaling horizontally.
 
 function waitForExit(child) {
   if (child.exitCode !== null || child.signalCode !== null) {
@@ -31,17 +22,6 @@ function waitForExit(child) {
   }
   return once(child, 'exit');
 }
-
-await run('pnpm', [
-  '--filter',
-  '@workmesh/api',
-  'exec',
-  'prisma',
-  'migrate',
-  'deploy',
-  '--schema',
-  'prisma/schema.prisma',
-]);
 
 const children = [
   spawn(process.execPath, ['apps/api/dist/main.js'], { env, stdio: 'inherit' }),

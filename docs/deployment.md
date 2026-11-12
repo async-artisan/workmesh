@@ -62,4 +62,34 @@ cp docker-compose.env.example .env
 docker compose up --build
 ```
 
-服务只绑定到本机 `127.0.0.1:5173`，默认使用 `LOCAL_INSECURE` 和示例数据库密码；请勿把该配置暴露到公网。生产部署必须改用 HTTPS、强随机数据库密码、`SECURE` Cookie、密钥管理、备份恢复演练，以及受控反向代理。Compose 会在容器启动时执行全部 Prisma 迁移，升级前仍应先备份并在隔离环境验证。
+服务只绑定到本机 `127.0.0.1:5173`，默认使用 `LOCAL_INSECURE` 和示例数据库密码；请勿把该配置暴露到公网。生产部署必须改用 HTTPS、强随机数据库密码、`SECURE` Cookie、密钥管理、备份恢复演练，以及受控反向代理。
+
+迁移由独立的 `migrate` 服务完成（`docker/migrate.mjs`），`app` 服务等待它成功退出后才启动。升级时先执行迁移再重启 app：
+
+```bash
+# 仅执行迁移（不重启 app）
+docker compose run --rm migrate
+
+# 确认迁移结果后再重启 app
+docker compose restart app
+```
+
+## Docker Compose 生产拆分模式
+
+`docker-compose.split.yml` 把 API 和 Web 拆成独立服务，适合横向扩展场景：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.production.yml \
+  -f docker-compose.split.yml \
+  up --build
+```
+
+| 服务      | 进程                              | 端口         | 说明                                |
+| --------- | --------------------------------- | ------------ | ----------------------------------- |
+| `migrate` | `node docker/migrate.mjs`         | 无           | 一次性迁移 job，完成后退出          |
+| `api`     | `node apps/api/dist/main.js`      | 3000（内部） | NestJS API，仅 Compose 内网可达     |
+| `web`     | `node scripts/box/web-server.mjs` | 5173         | 静态文件 + `/api` 反代到 `api:3000` |
+
+TLS 反代（nginx/Caddy/Traefik）应放在 `web` 服务前面，对外暴露 443，不直接暴露 `api` 的 3000 端口。多 `api` 实例时需要上游共享限流（配置 `REDIS_URL`）。

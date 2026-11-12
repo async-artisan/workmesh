@@ -1,0 +1,106 @@
+# Production split-service overlay.
+#
+# Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.production.yml \
+#                  -f docker-compose.split.yml up
+#
+# This overlay replaces the single combined 'app' service with two independent
+# services: 'api' (NestJS) and 'web' (static files + API proxy). They share the
+# same image but run separate processes, enabling:
+#   - Independent scaling (run multiple API replicas behind a load balancer)
+#   - Independent restarts (web restart does not bounce the API)
+#   - Clearer per-service logs and health signals
+#
+# In this topology the web service proxies /api/* requests to the api service
+# over the internal Compose network. A TLS-terminating reverse proxy (nginx,
+# Caddy, Traefik) should sit in front and forward traffic to the web service
+# on port 5173.
+#
+# IMPORTANT: When using this overlay, remove or override the 'app' service from
+# the base docker-compose.yml, as it would conflict. The 'app' service is not
+# redefined here on purpose — the base 'app' service must be explicitly
+# excluded when using this overlay (see usage example above with the
+# production overlay which overrides the restart policy of 'app').
+
+services:
+  # Override the base 'app' service so it no longer starts.
+  # The api and web services below take its place.
+  app:
+    deploy:
+      replicas: 0
+    profiles:
+      - disabled
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      WORKMESH_V1_DATABASE_URL: postgresql://workmesh:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env before starting Compose}@postgres:5432/workmesh?schema=workmesh_v1
+      WORKMESH_COOKIE_MODE: ${WORKMESH_COOKIE_MODE:-SECURE}
+      WORKMESH_PUBLIC_ORIGIN: ${WORKMESH_PUBLIC_ORIGIN:?Set WORKMESH_PUBLIC_ORIGIN}
+      WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      WORKMESH_TICKET_ENCRYPTION_KEY: ${WORKMESH_TICKET_ENCRYPTION_KEY:?Set WORKMESH_TICKET_ENCRYPTION_KEY}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-120}
+      RATE_LIMIT_BUCKETS: ${RATE_LIMIT_BUCKETS:-10000}
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-}
+      WORKMESH_SMTP_URL: ${WORKMESH_SMTP_URL:-}
+      WORKMESH_EMAIL_FROM: ${WORKMESH_EMAIL_FROM:-no-reply@workmesh.local}
+    # API is only accessible within the Compose network; the web service proxies it.
+    # Do not expose port 3000 directly to the host in production.
+    expose:
+      - '3000'
+    command: ['node', 'apps/api/dist/main.js']
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "fetch(\"http://127.0.0.1:3000/api/health\").then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 12
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      WEB_PORT: 5173
+      WEB_HOST: 0.0.0.0
+    ports:
+      - '127.0.0.1:${WORKMESH_WEB_PORT:-5173}:5173'
+    command:
+      - node
+      - scripts/box/web-server.mjs
+      - --root
+      - apps/web/dist
+      - --host
+      - '0.0.0.0'
+      - --port
+      - '5173'
+      - --api-host
+      - api
+      - --api-port
+      - '3000'
+    healthcheck:
+      test: ['CMD', 'node', 'docker/healthcheck.mjs']
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 12

@@ -14,6 +14,23 @@ services:
       timeout: 5s
       retries: 12
 
+  # One-shot migration job. Runs prisma migrate deploy then exits.
+  # The app service will not start until this completes successfully.
+  # On upgrade: stop the app service, run `docker compose run --rm migrate`,
+  # verify the migration output, then restart the app service.
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: 'no'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      WORKMESH_V1_DATABASE_URL: postgresql://workmesh:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env before starting Compose}@postgres:5432/workmesh?schema=workmesh_v1
+    command: ['node', 'docker/migrate.mjs']
+
   app:
     build:
       context: .
@@ -22,6 +39,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       PORT: 3000
