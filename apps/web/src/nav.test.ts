@@ -19,17 +19,17 @@ describe('主导航分组', () => {
     expect(navItems.map((item) => item.path)).toEqual([
       '/',
       '/requirements',
+      '/pipeline',
       '/reviews',
       '/projects',
-      '/workspace',
       '/board',
-      '/pipeline',
       '/knowledge',
       '/prd',
       '/workflows',
       '/roles',
-      '/authorization',
+      '/workspace',
       '/profile',
+      '/authorization',
     ]);
   });
 

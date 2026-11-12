@@ -69,72 +69,72 @@
       "id": "template-design-spec",
       "kind": "template",
       "path": "assets/templates/design-spec.md",
-      "sha256": "6d5e9f4e4efef0fa3c2f19384e1401a1b21a716fa74c359d87c8c32798512cc5",
-      "byteLength": 938,
+      "sha256": "7f9da0d93731c91b61966ae6fc4768589fd35acf9aea40df450754a5ed55dda7",
+      "byteLength": 989,
       "mediaType": "text/markdown"
     },
     {
       "id": "template-reuse-declaration",
       "kind": "template",
       "path": "assets/templates/reuse-declaration.md",
-      "sha256": "34d4b42e829f7fd2a88cab2371e376a7a78124b4d65b13aefd8451efe51fe948",
-      "byteLength": 820,
+      "sha256": "9390fed442c6f7922fb8eaf861b79f354fa23b0581928ae215ec4fd411d3fc5c",
+      "byteLength": 852,
       "mediaType": "text/markdown"
     },
     {
       "id": "checklist-design-coverage",
       "kind": "checklist",
       "path": "checklists/design-coverage.md",
-      "sha256": "1b296c817df48af0d999e9145617dcc38d6005e853ff8762aede2ccd419ccb9c",
-      "byteLength": 791,
+      "sha256": "379db5abd14fa497a4a8396c18a804003e751aaa20431ae56e08717aad1843f5",
+      "byteLength": 809,
       "mediaType": "text/markdown"
     },
     {
       "id": "checklist-spec-driven",
       "kind": "checklist",
       "path": "checklists/spec-driven.md",
-      "sha256": "eddb341cf017d46fc1a03cf0a89de031acdc1d72ec318fa2ae8a55a48ade6bac",
-      "byteLength": 1124,
+      "sha256": "f14e1b1d96d8be04b73192dba26f10acebad4354bbb6f8af8843c0e9320edcaa",
+      "byteLength": 1136,
       "mediaType": "text/markdown"
     },
     {
       "id": "guide",
       "kind": "prompt",
       "path": "guide.md",
-      "sha256": "9dbfc9b304d58e6873f2a0947a8c5311e8125eaa23f656b37691398299d9e594",
-      "byteLength": 2926,
+      "sha256": "0a4df564186f2f4d83808b8038806f6ab7092504c3a43e0ceb239da681cfc628",
+      "byteLength": 2995,
       "mediaType": "text/markdown"
     },
     {
       "id": "reference-references",
       "kind": "reference",
       "path": "references/references.json",
-      "sha256": "518c655eb33446be65fbf2af09867bb638e7bba2ede4e9745361c8665a563a2f",
-      "byteLength": 540,
+      "sha256": "466348d748697129deffe7c6e9ecb9b56c35f7cd204eb7828ebf2a24195e87db",
+      "byteLength": 561,
       "mediaType": "application/json"
     },
     {
       "id": "skill-declare-reuse",
       "kind": "skill",
       "path": "skills/declare-reuse/SKILL.md",
-      "sha256": "7468633c09e994e793483304ec350194ddc20b16b77fd28836d33f23f88dc760",
-      "byteLength": 1126,
+      "sha256": "3c11d8262930590cf5e0203b8ba464ca768876c25280b90ca7d073842d512767",
+      "byteLength": 1160,
       "mediaType": "text/markdown"
     },
     {
       "id": "skills-index",
       "kind": "index",
       "path": "skills/index.md",
-      "sha256": "c2dfc73bbce72d803184937da7dee413fddcc09a222e8cd68d75d11c645d489e",
-      "byteLength": 847,
+      "sha256": "f5f10883c7d51cae595bfc70cb397fbd4c693bca888d49d5fe5d68569a0f4198",
+      "byteLength": 868,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-write-design-spec",
       "kind": "skill",
       "path": "skills/write-design-spec/SKILL.md",
-      "sha256": "18a025296cd55c2a5e34a9f2f490a82b899f137a97d2fd820012b74c585d96c0",
-      "byteLength": 1157,
+      "sha256": "67eab2d1028b6e7e52efee044a607c8960e14241d690ffa6c8a2ad1e927711f9",
+      "byteLength": 1192,
       "mediaType": "text/markdown"
     }
   ],

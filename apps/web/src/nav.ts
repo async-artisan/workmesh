@@ -8,6 +8,7 @@ import {
   Kanban,
   KeyRound,
   LayoutDashboard,
+  Settings2,
   ShieldCheck,
   User,
   Users,
@@ -47,6 +48,13 @@ export const navItems: NavItem[] = [
     group: 'daily',
   },
   {
+    key: '需求流水线',
+    icon: GitBranch,
+    path: '/pipeline',
+    desc: '按阶段查看需求进度与阻塞',
+    group: 'daily',
+  },
+  {
     key: '评审',
     icon: ShieldCheck,
     path: '/reviews',
@@ -61,21 +69,7 @@ export const navItems: NavItem[] = [
     desc: '项目创建、归档与文档入口',
     group: 'delivery',
   },
-  {
-    key: '接入与工作区',
-    icon: FolderGit2,
-    path: '/workspace',
-    desc: '仓库声明、工作区定义与一次性接入码',
-    group: 'delivery',
-  },
   { key: '看板', icon: Kanban, path: '/board', desc: '只读任务与交付状态', group: 'delivery' },
-  {
-    key: '需求流水线',
-    icon: GitBranch,
-    path: '/pipeline',
-    desc: '按阶段查看需求进度与阻塞',
-    group: 'delivery',
-  },
   {
     key: '知识库',
     icon: BookOpen,
@@ -93,7 +87,7 @@ export const navItems: NavItem[] = [
 
   {
     key: '流程配置',
-    icon: GitBranch,
+    icon: Settings2,
     path: '/workflows',
     desc: '流程定义校验、发布与版本基线',
     group: 'admin',
@@ -105,13 +99,12 @@ export const navItems: NavItem[] = [
     desc: '成员、业务角色与知识库访问集合',
     group: 'admin',
   },
-
   {
-    key: '设备授权',
-    icon: KeyRound,
-    path: '/authorization',
-    desc: 'CLI 设备授权批准',
-    group: 'account',
+    key: '接入与工作区',
+    icon: FolderGit2,
+    path: '/workspace',
+    desc: '仓库声明、工作区定义与一次性接入码',
+    group: 'admin',
   },
 
   {
@@ -119,6 +112,13 @@ export const navItems: NavItem[] = [
     icon: User,
     path: '/profile',
     desc: '当前会话与 Agent 凭据',
+    group: 'account',
+  },
+  {
+    key: '设备授权',
+    icon: KeyRound,
+    path: '/authorization',
+    desc: 'CLI 设备授权批准',
     group: 'account',
   },
 ];

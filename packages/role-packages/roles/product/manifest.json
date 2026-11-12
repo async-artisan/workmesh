@@ -84,128 +84,128 @@
       "id": "example-prd-example",
       "kind": "example",
       "path": "assets/examples/prd-example.md",
-      "sha256": "db40f5d3a42a16b8142ff96b056f3432e790c8825ba1eca776bde4bcd4f56ca3",
-      "byteLength": 1550,
+      "sha256": "86764db80718d9fba9b28bb72aff48c753c6940aef8317f334c04129c22a5282",
+      "byteLength": 1597,
       "mediaType": "text/markdown"
     },
     {
       "id": "template-acceptance-json",
       "kind": "template",
       "path": "assets/templates/acceptance.json",
-      "sha256": "c8b92ccde29e80f34f028a77b1267726b7cdd777907a22529ac38adb1f4d0435",
-      "byteLength": 305,
+      "sha256": "6ef5c2de8442fcb018eff93fd2608055b958d8473da9a153834643f33b55c608",
+      "byteLength": 310,
       "mediaType": "application/json"
     },
     {
       "id": "template-acceptance",
       "kind": "template",
       "path": "assets/templates/acceptance.yaml",
-      "sha256": "582781be35b73b9fb8f6ca1f9471a510405adb71b90dd5bd22181a3b57962982",
-      "byteLength": 778,
+      "sha256": "57823f3e61140a59ee63459682faeb1873d599f187896a3c0789cff231c574ea",
+      "byteLength": 802,
       "mediaType": "application/yaml"
     },
     {
       "id": "template-idea-assessment",
       "kind": "template",
       "path": "assets/templates/idea-assessment.md",
-      "sha256": "ca48cd4e7f657022e931a37666440bcd6ae9f4e2fe748ae28c171806e132140c",
-      "byteLength": 826,
+      "sha256": "749f21fbbac96a39f73436c5860397c3f6d9e976d7830db58bd765235eeba7ba",
+      "byteLength": 848,
       "mediaType": "text/markdown"
     },
     {
       "id": "template-prd",
       "kind": "template",
       "path": "assets/templates/prd.md",
-      "sha256": "760d7641a9e1b75351dc32b884058bdf20ce625a116069cc4f8bdcc9bbd19192",
-      "byteLength": 1726,
+      "sha256": "49f0dd404f834d913a07ea964fe56c7ad271849f9be5afa757f89f4a6673468e",
+      "byteLength": 1783,
       "mediaType": "text/markdown"
     },
     {
       "id": "template-understanding",
       "kind": "template",
       "path": "assets/templates/understanding.md",
-      "sha256": "f62c83e1feb7c9b52563b50a240f90e5c3953935a02567422c90206d56716560",
-      "byteLength": 547,
+      "sha256": "d90e0ac274b6b012ce6d3e710d8f40556a05a7b674dc952da25f863a81916bb3",
+      "byteLength": 582,
       "mediaType": "text/markdown"
     },
     {
       "id": "checklist-prd-quality",
       "kind": "checklist",
       "path": "checklists/prd-quality.md",
-      "sha256": "3feaedfcccf41826c5e64e9e8c7e6b7fea88b5472bb41966e715e096e2fd6b3e",
-      "byteLength": 1596,
+      "sha256": "0d6977e8e110a2b28decb83c89168d4a4cf8ebffeace9baccbde29c9b84a09c3",
+      "byteLength": 1620,
       "mediaType": "text/markdown"
     },
     {
       "id": "checklist-spec-driven",
       "kind": "checklist",
       "path": "checklists/spec-driven.md",
-      "sha256": "eddb341cf017d46fc1a03cf0a89de031acdc1d72ec318fa2ae8a55a48ade6bac",
-      "byteLength": 1124,
+      "sha256": "f14e1b1d96d8be04b73192dba26f10acebad4354bbb6f8af8843c0e9320edcaa",
+      "byteLength": 1136,
       "mediaType": "text/markdown"
     },
     {
       "id": "guide",
       "kind": "prompt",
       "path": "guide.md",
-      "sha256": "971e3effb09ae536864e5bb50a32aea77fc93e3806068782cce125134622bec1",
-      "byteLength": 4349,
+      "sha256": "74b72042ba10b374d5e0e8b30a3a912e6563ee29111278e9f72013b65fa9f261",
+      "byteLength": 4428,
       "mediaType": "text/markdown"
     },
     {
       "id": "reference-references",
       "kind": "reference",
       "path": "references/references.json",
-      "sha256": "4e8e6765c903eee2af5d90fd8d1ba70213a138198bb5e7c4f2fa679d25179b87",
-      "byteLength": 541,
+      "sha256": "0421f40552816a85d64f1804ee3f862f9d48ca62c97fe260d287b58ae9e0b34d",
+      "byteLength": 562,
       "mediaType": "application/json"
     },
     {
       "id": "skill-assess-idea",
       "kind": "skill",
       "path": "skills/assess-idea/SKILL.md",
-      "sha256": "dcfb70939a358ee879fb88fa92f0e9425691fd15fc3aa9e82f95efb6708d4de9",
-      "byteLength": 1167,
+      "sha256": "55d1a8a4ffd12449cfe952841f49df700dccdb8bc71249c5b9418011dd8cf348",
+      "byteLength": 1186,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-check-requirements",
       "kind": "skill",
       "path": "skills/check-requirements/SKILL.md",
-      "sha256": "3f7c55dc63283ab5f8238214c8a15f3818df764c7f28712c607a819e32aa77b1",
-      "byteLength": 1640,
+      "sha256": "47f45ae2549d67f4c0d7bb2d22032844a5ec55d0f0fc939fb1880b097adcd5ee",
+      "byteLength": 1662,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-clarify-intent",
       "kind": "skill",
       "path": "skills/clarify-intent/SKILL.md",
-      "sha256": "da0dc50e8bd7ea9ae2819c991451b8050dd783807769aee1baecbdef1b6b4f23",
-      "byteLength": 1904,
+      "sha256": "039509702185badda3518a59b89bb6eedf713264cd3a118e3ca4fe0b1e617f24",
+      "byteLength": 1942,
       "mediaType": "text/markdown"
     },
     {
       "id": "skills-index",
       "kind": "index",
       "path": "skills/index.md",
-      "sha256": "684268cb886023554d04fea7dcdf4c9539db9bb0404fda1072893f32a70b1a0c",
-      "byteLength": 1440,
+      "sha256": "73e04827b4c439c82a79afe383831ec26713d3d063183ca3080399c0de0fd8a4",
+      "byteLength": 1466,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-map-acceptance",
       "kind": "skill",
       "path": "skills/map-acceptance/SKILL.md",
-      "sha256": "5d1c0c9c537407cc6d33649a4136820e4aec66f25c34c80c50c1ad5ad423cf2b",
-      "byteLength": 2494,
+      "sha256": "4a55c9194e6271027e23822269ca40555157cb1bee1682d849b3b208a901a7e5",
+      "byteLength": 2544,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-write-prd",
       "kind": "skill",
       "path": "skills/write-prd/SKILL.md",
-      "sha256": "45adab2d85603584e020bbba17d239bcbadb3567db6e43fb962250356fa53f2b",
-      "byteLength": 2059,
+      "sha256": "529702e36cc56b999c3ff74ae91f2828bdf8409bcd957fc15f2c2acc65afc1be",
+      "byteLength": 2103,
       "mediaType": "text/markdown"
     }
   ],

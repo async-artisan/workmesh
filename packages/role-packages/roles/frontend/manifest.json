@@ -74,64 +74,64 @@
       "id": "template-impl",
       "kind": "template",
       "path": "assets/templates/impl.md",
-      "sha256": "607eafffd4eb85c24c86fe66f93d87b4078c991af8852068fa13a5032167324c",
-      "byteLength": 962,
+      "sha256": "515cdc5eb37d90e99f06717e17761765a7c1244fe6d0aa70a9c0d745b2b85230",
+      "byteLength": 1007,
       "mediaType": "text/markdown"
     },
     {
       "id": "checklist-impl-selfcheck",
       "kind": "checklist",
       "path": "checklists/impl-selfcheck.md",
-      "sha256": "ec1a09251b31bd9cb0a78e641f3fbaf3d5c08956e062c4f4cc6d4536f9592165",
-      "byteLength": 703,
+      "sha256": "73733ec0cfdb8d5a42511fcf05a01d49ade6b33b22e78af5c06b21dd9338ad25",
+      "byteLength": 721,
       "mediaType": "text/markdown"
     },
     {
       "id": "checklist-spec-driven",
       "kind": "checklist",
       "path": "checklists/spec-driven.md",
-      "sha256": "eddb341cf017d46fc1a03cf0a89de031acdc1d72ec318fa2ae8a55a48ade6bac",
-      "byteLength": 1124,
+      "sha256": "f14e1b1d96d8be04b73192dba26f10acebad4354bbb6f8af8843c0e9320edcaa",
+      "byteLength": 1136,
       "mediaType": "text/markdown"
     },
     {
       "id": "guide",
       "kind": "prompt",
       "path": "guide.md",
-      "sha256": "9da3a5d151e1b39bd1e9650d5bad711a072c99e97d71e720f980eafc6244aa05",
-      "byteLength": 3388,
+      "sha256": "28f60eb7ccfc18040874d9b16e567590e5f0da03826037e9ffd04594421367f8",
+      "byteLength": 3471,
       "mediaType": "text/markdown"
     },
     {
       "id": "reference-references",
       "kind": "reference",
       "path": "references/references.json",
-      "sha256": "2cdd11e887066d0901aec56bde5539dc86c36223cf6fd54f38569831d459448d",
-      "byteLength": 541,
+      "sha256": "184b380b96239e4ed6cf122a9bf7c05b4c6b9837ba4a1845a29eccb807821bc3",
+      "byteLength": 562,
       "mediaType": "application/json"
     },
     {
       "id": "skill-consume-contract",
       "kind": "skill",
       "path": "skills/consume-contract/SKILL.md",
-      "sha256": "d2c055f6b390cdeeff73317f7ecf8dc4959dc702cbadae627a99be3293107c86",
-      "byteLength": 1398,
+      "sha256": "4a84bd7c72fb4d89eddf05683bb5166ec7278d3d30a3c7bf72d7f55da1d56f76",
+      "byteLength": 1434,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-implement-ui",
       "kind": "skill",
       "path": "skills/implement-ui/SKILL.md",
-      "sha256": "7e202cb1e166e1aac04f32cde8ac158884989e18c3b710140fbc5c07d43070a6",
-      "byteLength": 1353,
+      "sha256": "3d27bac6b1ec8ad6cf92407692e79b406ef567166fe6e3d636222e26c1b965d4",
+      "byteLength": 1396,
       "mediaType": "text/markdown"
     },
     {
       "id": "skills-index",
       "kind": "index",
       "path": "skills/index.md",
-      "sha256": "70490b65a3141bfb3cf9a71a68ba7d924d94e8545514ae9272fd971ce0ac80e8",
-      "byteLength": 749,
+      "sha256": "65af42c8d335bfdedb4aaa1b606f58477bb3e33f6c117449298bc1a09c31c736",
+      "byteLength": 768,
       "mediaType": "text/markdown"
     }
   ],

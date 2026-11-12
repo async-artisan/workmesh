@@ -563,12 +563,13 @@ export function App() {
     });
   };
 
-  const apiState = (
-    <div className="api-state" title="仅表示 API 连接可用，不代表页面服务可用或业务数据已同步">
-      <i className={apiStatus} />
-      API {apiStatus === 'ready' ? '已连接' : apiStatus === 'offline' ? '未连接' : '检测中'}
-    </div>
-  );
+  const apiState =
+    apiStatus === 'offline' ? (
+      <div className="api-state" title="API 连接不可用">
+        <i className="offline" />
+        API 未连接
+      </div>
+    ) : null;
 
   return (
     <>
@@ -603,15 +604,12 @@ export function App() {
             <span>WorkMesh</span>
           </button>
         </div>
-        <div className="nav-console" aria-hidden="true">
-          <span className={`console-dot ${apiStatus}`} />
-          <span className="console-label">
-            {apiStatus === 'ready' ? '服务连接正常' : '服务连接中断'}
-          </span>
-          <span className="console-clock">
-            <NavClock />
-          </span>
-        </div>
+        {apiStatus === 'offline' && (
+          <div className="nav-console" aria-hidden="true">
+            <span className="console-dot offline" />
+            <span className="console-label">服务连接中断</span>
+          </div>
+        )}
         <div className="navbar-right">
           <div className="nav-notifications" ref={notificationsRef}>
             <button
@@ -912,14 +910,4 @@ export function App() {
       <ToastHost />
     </>
   );
-}
-
-/** 顶部时钟独立成组件：每秒只重渲染自己，不带动整棵 App。 */
-function NavClock() {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
-  return <>{now.toLocaleTimeString('zh-CN', { hour12: false })}</>;
 }

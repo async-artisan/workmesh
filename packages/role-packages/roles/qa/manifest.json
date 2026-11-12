@@ -99,104 +99,104 @@
       "id": "template-cases",
       "kind": "template",
       "path": "assets/templates/cases.yaml",
-      "sha256": "19add92fc4c0e2a57eef01d3232f36652633e43d6154a25109509d6830f4fdaf",
-      "byteLength": 922,
+      "sha256": "d7721e8f1c7252a2d6eb6b6e4a00f539ca9a69a71e46835474e516e471285cc7",
+      "byteLength": 960,
       "mediaType": "application/yaml"
     },
     {
       "id": "template-defect",
       "kind": "template",
       "path": "assets/templates/defect.md",
-      "sha256": "ad21cbe2fb1916b1d2af837544790f090b84678b630c6025b9afd9442fe72aeb",
-      "byteLength": 557,
+      "sha256": "c13021d685c611bf9e7c344035a7641802a66eea65d9a7510f51554fafe3f708",
+      "byteLength": 597,
       "mediaType": "text/markdown"
     },
     {
       "id": "template-delivery-audit",
       "kind": "template",
       "path": "assets/templates/delivery-audit.md",
-      "sha256": "0232504c8938201f537c65c023c7083f9f17af1e44674b4e1429bafecec9d35e",
-      "byteLength": 880,
+      "sha256": "90b57b396403e8b5bff86ddccbca7d6e7bd33f3f1b1c87b8952c166840505fef",
+      "byteLength": 900,
       "mediaType": "text/markdown"
     },
     {
       "id": "template-evals",
       "kind": "template",
       "path": "assets/templates/evals.yaml",
-      "sha256": "4401c6c942814b5144b6d8e222ce0c3c033ac5f6a56a75c71e2c1336748ac68b",
-      "byteLength": 888,
+      "sha256": "37b1a23600a3153e472b060f4b4122363b1b016a2194fe49c65657064eeb3409",
+      "byteLength": 929,
       "mediaType": "application/yaml"
     },
     {
       "id": "checklist-cases-coverage",
       "kind": "checklist",
       "path": "checklists/cases-coverage.md",
-      "sha256": "042413ce126d97cbcdd658b730ce28c7c11e108e9265aab634bcb92b0e5391bb",
-      "byteLength": 1067,
+      "sha256": "760cdc3f3603ad88eac23bbfc23cb0e7a6f449c7d5cc36e5203f3c981ebc1de3",
+      "byteLength": 1087,
       "mediaType": "text/markdown"
     },
     {
       "id": "checklist-spec-driven",
       "kind": "checklist",
       "path": "checklists/spec-driven.md",
-      "sha256": "eddb341cf017d46fc1a03cf0a89de031acdc1d72ec318fa2ae8a55a48ade6bac",
-      "byteLength": 1124,
+      "sha256": "f14e1b1d96d8be04b73192dba26f10acebad4354bbb6f8af8843c0e9320edcaa",
+      "byteLength": 1136,
       "mediaType": "text/markdown"
     },
     {
       "id": "guide",
       "kind": "prompt",
       "path": "guide.md",
-      "sha256": "1d298a05b87532e8c88804dc1cbb0ece272a3ce68737e44e3f13a4ba2ef599dc",
-      "byteLength": 4806,
+      "sha256": "0adc5e673d96314571ee17eea339c43a8374dd819095b8d7544c1008819dfbbd",
+      "byteLength": 4890,
       "mediaType": "text/markdown"
     },
     {
       "id": "reference-references",
       "kind": "reference",
       "path": "references/references.json",
-      "sha256": "69af18e80ef0de74d19a7f2dc3c2222c990f21ed1ee27713cd522ad80a3fea1d",
-      "byteLength": 680,
+      "sha256": "bdd2d557eb289d483cccb56bd4b07649281943542bbcacd2d50b28adb7096257",
+      "byteLength": 706,
       "mediaType": "application/json"
     },
     {
       "id": "skill-audit-delivery",
       "kind": "skill",
       "path": "skills/audit-delivery/SKILL.md",
-      "sha256": "65962f9a7a9397f870476094bbb086116d96f27632ec283122c00efdad54118c",
-      "byteLength": 1497,
+      "sha256": "b765ef2590ec9298586011108c4dc203c24eeb2c2d3545b944f2156533855926",
+      "byteLength": 1517,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-derive-cases",
       "kind": "skill",
       "path": "skills/derive-cases/SKILL.md",
-      "sha256": "8d098e0567340fd9e11e59c1d17ee873cd34dd071fc9b08103fc15ea11faf4c3",
-      "byteLength": 1644,
+      "sha256": "b684f7f9426a89b1bc969bf9d7e613cee99d4a3a2af198f69d7fc119b511a196",
+      "byteLength": 1689,
       "mediaType": "text/markdown"
     },
     {
       "id": "skills-index",
       "kind": "index",
       "path": "skills/index.md",
-      "sha256": "494802558a240a30b9aacda36afecbbda66814f52f8a956b8bb8b2cc2f67a9fa",
-      "byteLength": 1065,
+      "sha256": "97ce081a2dc5ee19b60bd421d7b49829a28e18a68637e1a0b5ae0759e60a9812",
+      "byteLength": 1087,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-report-defects",
       "kind": "skill",
       "path": "skills/report-defects/SKILL.md",
-      "sha256": "74492dac636f7ddd9121c727e5dfa34f34af8f3298aa3c9a2f5985f87d9b471f",
-      "byteLength": 1575,
+      "sha256": "b177d8c110f2c546620812a773f6aa78c50643ea9b593ca070b70d1738d98c11",
+      "byteLength": 1620,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-run-evals",
       "kind": "skill",
       "path": "skills/run-evals/SKILL.md",
-      "sha256": "f9a5d06597522e070c2578a990a31176a7bf90c9246805df6697f384ac7b7d59",
-      "byteLength": 1722,
+      "sha256": "a7fd06a4fba23c7305ae8524f3d796ce6098fbfba84f9322d6eb7c344cd93a17",
+      "byteLength": 1776,
       "mediaType": "text/markdown"
     }
   ],

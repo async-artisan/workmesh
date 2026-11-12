@@ -95,104 +95,104 @@
       "id": "template-change-plan",
       "kind": "template",
       "path": "assets/templates/change-plan.md",
-      "sha256": "830b2b7d8aa03396eaf2e47ef9ad9ded9a186d3643722afcc4cf14e56ae9baca",
-      "byteLength": 1528,
+      "sha256": "357604e6251d8a477a26263067ddbe9f8096a79ba3873a3bf1ee3362b5e21e14",
+      "byteLength": 1560,
       "mediaType": "text/markdown"
     },
     {
       "id": "template-contract",
       "kind": "template",
       "path": "assets/templates/contract.md",
-      "sha256": "5a1b86ef11d592596e2ae8f68486e7b0689e33f72a794e43d03c2986cc824afa",
-      "byteLength": 1320,
+      "sha256": "c086d25db18b0b855d35d8ee2ff6ad23aca79cfa33c007d6fb06e7b19b328f62",
+      "byteLength": 1379,
       "mediaType": "text/markdown"
     },
     {
       "id": "template-impl",
       "kind": "template",
       "path": "assets/templates/impl.md",
-      "sha256": "761a1be26b825b47fd7a38a7761f80172b8cbb7738a6d47956643a011cb54aee",
-      "byteLength": 908,
+      "sha256": "fab3b3d7ca14e415f88635ac28260b1f2fb5ba094c26b3f3c77b23929749f902",
+      "byteLength": 954,
       "mediaType": "text/markdown"
     },
     {
       "id": "checklist-contract-quality",
       "kind": "checklist",
       "path": "checklists/contract-quality.md",
-      "sha256": "2c53afe598d5fb0a7e181bf5967735c36f4d1db662f0de01d0c99fdb6b16dae8",
-      "byteLength": 927,
+      "sha256": "f7c00f5af385bc32cc2f6b47ee66b969eb6cbe56119454ec0cfb0f18f54415fa",
+      "byteLength": 945,
       "mediaType": "text/markdown"
     },
     {
       "id": "checklist-spec-driven",
       "kind": "checklist",
       "path": "checklists/spec-driven.md",
-      "sha256": "d0f3d468bd25d3c0da8d1cd48955e25e821803ffe7e0f9117e9637f084ded542",
-      "byteLength": 1253,
+      "sha256": "5caddca3baed2471f6b8ab97dbac3c0b07278c7a66ffeb6b35bdb93261ef77c9",
+      "byteLength": 1266,
       "mediaType": "text/markdown"
     },
     {
       "id": "guide",
       "kind": "prompt",
       "path": "guide.md",
-      "sha256": "3468003131caea11d551d566a6df72d9851b2a692e8f97da2099233e17966a7e",
-      "byteLength": 3972,
+      "sha256": "b62c509417267920fc3ecb9f91d09124439932dda2586674ee5b84568a163fd8",
+      "byteLength": 4054,
       "mediaType": "text/markdown"
     },
     {
       "id": "reference-references",
       "kind": "reference",
       "path": "references/references.json",
-      "sha256": "2197fd6a363e157902d3d677c09530208e06e3315445284f0cc4aeb555c718e9",
-      "byteLength": 646,
+      "sha256": "896c6298825f963e086416acbf7d361edd9c4a0768e87490fb053ea2744b6798",
+      "byteLength": 672,
       "mediaType": "application/json"
     },
     {
       "id": "skill-attach-evidence",
       "kind": "skill",
       "path": "skills/attach-evidence/SKILL.md",
-      "sha256": "9fc2803fcf8da4fb57a3e4660084f7389a5a86e0ad50a3db6fc1e0c3b5597d6a",
-      "byteLength": 1527,
+      "sha256": "c89b895f6b2ff66c17c6c6759425a196199f67ada65f9e1dd02bd6a6b1e6b6cd",
+      "byteLength": 1572,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-design-contract",
       "kind": "skill",
       "path": "skills/design-contract/SKILL.md",
-      "sha256": "dc5b1da4d174f24da1e7b26b393beeeb43178078b708c63b116952826e391e99",
-      "byteLength": 1793,
+      "sha256": "e544e5b367f3e9b47e39fef78e97157993289c0629ce8959b287ccf10fe3216a",
+      "byteLength": 1837,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-diagnose-bug",
       "kind": "skill",
       "path": "skills/diagnose-bug/SKILL.md",
-      "sha256": "c1a3dabbf8aaf1385f35e883ad1422d078aeeb3756e8893e7cdd8172d168f51d",
-      "byteLength": 1234,
+      "sha256": "c44f5165655f55118567a642ce6f780239545010c88f4cdd6d92aa6bf2074e47",
+      "byteLength": 1252,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-implement-change",
       "kind": "skill",
       "path": "skills/implement-change/SKILL.md",
-      "sha256": "da8e2ae73a3743e39551e515eaefca409175a2f263aaf057c40427a9e96c06ed",
-      "byteLength": 1401,
+      "sha256": "2617ab24c9474a3f18fec4d90572838d5cda31e7feeca972a77f4e142c39d444",
+      "byteLength": 1445,
       "mediaType": "text/markdown"
     },
     {
       "id": "skills-index",
       "kind": "index",
       "path": "skills/index.md",
-      "sha256": "a7f8e7411e514e34ecf241a90b7e6e378c620cb9bd858f1f1b9c95d037037211",
-      "byteLength": 1424,
+      "sha256": "4ec83d2910edaf0179fc5c1bbc6c3d8e7ccc77cdebb95e83ba49820e6848a8f3",
+      "byteLength": 1448,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-plan-change",
       "kind": "skill",
       "path": "skills/plan-change/SKILL.md",
-      "sha256": "806d12def1507648159f14b1ab5f4c16e7af4df16e785775f9d1191a8485f853",
-      "byteLength": 1942,
+      "sha256": "7152371369b1eeeab14f2a2ee06e2f316b387aab15815a0180bb4da45fb9312d",
+      "byteLength": 1964,
       "mediaType": "text/markdown"
     }
   ],

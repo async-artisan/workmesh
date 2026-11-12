@@ -93,88 +93,88 @@
       "id": "template-release",
       "kind": "template",
       "path": "assets/templates/release.md",
-      "sha256": "f40c705938e56ef9dac4497c3b15693f6f89b8a237d21b9d0306d80495b47e7f",
-      "byteLength": 920,
+      "sha256": "2263ea6736c487a646a80fc17525ff004cdc69201db0d28f9bd91a7028230abf",
+      "byteLength": 965,
       "mediaType": "text/markdown"
     },
     {
       "id": "template-rollback",
       "kind": "template",
       "path": "assets/templates/rollback.md",
-      "sha256": "e14255113c45b1bcfa7634c45e904c59b668f356fa5eab29865adab16e30b672",
-      "byteLength": 790,
+      "sha256": "71e69c6269e50424c3618bf91f0258a40552f5d3cd3f5f8eedbadb093c64621d",
+      "byteLength": 833,
       "mediaType": "text/markdown"
     },
     {
       "id": "template-smoke",
       "kind": "template",
       "path": "assets/templates/smoke.md",
-      "sha256": "87a6802b7a63ff7f37d47a8be4a72fafb129f2ddb42b22aed79013ff264e3bf7",
-      "byteLength": 716,
+      "sha256": "7870808c7df3f79179b3f87ea7f52d7151901bd522b3825584aa08908bdfda9b",
+      "byteLength": 745,
       "mediaType": "text/markdown"
     },
     {
       "id": "checklist-release-readiness",
       "kind": "checklist",
       "path": "checklists/release-readiness.md",
-      "sha256": "e44a73126fa9b55ad7af1d73fb3c45bf474a739dd3b5785a1b00caadbf39708c",
-      "byteLength": 735,
+      "sha256": "84442b66aeb83c55b5b9335bba5bc6626fe83ba1f3c93a137fbe88903c887a6f",
+      "byteLength": 753,
       "mediaType": "text/markdown"
     },
     {
       "id": "checklist-spec-driven",
       "kind": "checklist",
       "path": "checklists/spec-driven.md",
-      "sha256": "eddb341cf017d46fc1a03cf0a89de031acdc1d72ec318fa2ae8a55a48ade6bac",
-      "byteLength": 1124,
+      "sha256": "f14e1b1d96d8be04b73192dba26f10acebad4354bbb6f8af8843c0e9320edcaa",
+      "byteLength": 1136,
       "mediaType": "text/markdown"
     },
     {
       "id": "guide",
       "kind": "prompt",
       "path": "guide.md",
-      "sha256": "26aca3fe4a5a5f38f1a0a67e3e22749fd1dc55f4ff2f83242e3e08a7502a37fc",
-      "byteLength": 2877,
+      "sha256": "5a9cf93f936aa4a82186c633bbc896dde8e4b3652718417d5a3a663d13bef564",
+      "byteLength": 2950,
       "mediaType": "text/markdown"
     },
     {
       "id": "reference-references",
       "kind": "reference",
       "path": "references/references.json",
-      "sha256": "b6112bd5141b5fbe94a11c9144d8045ca53fbd6a5f5d5175b7112982f450ddfd",
-      "byteLength": 656,
+      "sha256": "45899bfea7d68db94cd3160062dce2b57db5df068c64d6576a0b82bb81e4cdab",
+      "byteLength": 682,
       "mediaType": "application/json"
     },
     {
       "id": "skills-index",
       "kind": "index",
       "path": "skills/index.md",
-      "sha256": "105614d40dbe2015faa78d7326c3dae37f1b29a422f7acc6537d2ce1a7ac3b9e",
-      "byteLength": 781,
+      "sha256": "20771f2316d33e31aae0d072570b8f404abc0318013d467040a0dcae35405e35",
+      "byteLength": 802,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-prepare-release",
       "kind": "skill",
       "path": "skills/prepare-release/SKILL.md",
-      "sha256": "bc9481e37f406f49877d82cc390cb38f05c7c61ebc38ce4979b6cdfb64556fae",
-      "byteLength": 1127,
+      "sha256": "1d691ac5ac2982df232107dcc512eee39caa3165785e1e336e5d7b4463a3d617",
+      "byteLength": 1163,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-rollback-plan",
       "kind": "skill",
       "path": "skills/rollback-plan/SKILL.md",
-      "sha256": "def32c2500d6519cce425e4bb2e141a447842435172ef0d5b442d83bbd3b3523",
-      "byteLength": 1089,
+      "sha256": "6cbfdca8f06230f593a5fe45cedfe31863a0d3d89b8327f068075cc5f1eaf93f",
+      "byteLength": 1124,
       "mediaType": "text/markdown"
     },
     {
       "id": "skill-smoke-check",
       "kind": "skill",
       "path": "skills/smoke-check/SKILL.md",
-      "sha256": "21057e6f7ab46e3d16508f6c7878e9a4ff4f94f9ed166b05abc52b4db4d7c56a",
-      "byteLength": 895,
+      "sha256": "6db69be169dd7fd5e092f4074f368631680daac46c3c879caf6b5eb4f2032ec8",
+      "byteLength": 929,
       "mediaType": "text/markdown"
     }
   ],
