@@ -1,6 +1,6 @@
 # Prisma 5 → 6 升级计划
 
-> 2026-11-10。对应 `ASSESSMENT.md` P2「制定 Prisma 6 升级计划」。本文是待实施的技术计划；本次没有升级依赖、生成新客户端、连接数据库或执行升级验收。当前声明仍是 `prisma` / `@prisma/client: ^5.21.1`，锁文件实际解析为 `5.22.0`。
+> 2026-11-10。对应 `ASSESSMENT.md` P2「制定 Prisma 6 升级计划」。**2026-11-12 升级代码已实施（见后），当前依赖为 `6.19.0`，锁文件已更新。** 当前声明仍是 `prisma` / `@prisma/client: ^6.19.0`，锁文件实际解析为 `6.19.3`。
 
 ## 用户结果、范围与实施前提
 
@@ -102,3 +102,43 @@ Windows 所需 VC++、Linux 的 OpenSSL/libc/zlib 等按官方 v6 系统要求�
 - [Prisma 6.13.0 官方发布说明](https://github.com/prisma/prisma/releases/tag/6.13.0)：multi-schema 正式可用与 preview 标记处理。
 - [Prisma 6.14.0 官方发布说明](https://github.com/prisma/prisma/releases/tag/6.14.0)：移除 Client middleware，需迁移现有 `$use`。
 - [Prisma 6.19.0 官方发布说明](https://github.com/prisma/prisma/releases/tag/6.19.0)：本计划精确调查候选；不是“最新版”或已通过验证的声明。
+
+## 2026-11-12 升级实施记录
+
+本轮实施了代码升级并完成本地无数据库验证。以下记录对应实际执行范围；仍待真实数据库与远端 CI 验收。
+
+### 已完成代码改动
+
+| 改动                     | 文件                                                  | 说明                                                                                                                                       |
+| ------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 版本升级                 | `apps/api/package.json`                               | `@prisma/client` 和 `prisma` 从 `^5.21.1` 升级到 `^6.19.0`（锁文件实际解析为 6.19.3）                                                      |
+| 移除 preview 标记        | `apps/api/prisma/schema.prisma`                       | 移除 `previewFeatures = ["multiSchema"]`（6.13.0 起 multi-schema 已转正式）                                                                |
+| 迁移 `$use` → `$extends` | `apps/api/src/prisma/prisma.service.ts`               | 将 `installRequestIdStamp` 从 `$use` middleware 迁移到 `$extends` query extension；使用 `Object.assign(this, extended)` 保持 Nest 注入兼容 |
+| 适配 Bytes 类型          | `apps/api/src/tasks/v1-artifact.repository.ts`        | `contentPreviewOf` 参数类型从 `Buffer` 扩展为 `Buffer                                                                                      | Uint8Array`；用 `Buffer.from(bytes).toString('utf8')` 保证读取兼容 |
+| 适配 Bytes 写入          | `apps/api/src/tasks/v1-artifact.prisma-repository.ts` | `bodyBytes` 写入时 cast 为 `Uint8Array<ArrayBuffer>`；读取视图类型改为 `Uint8Array                                                         | null`                                                              |
+| 隔离脚本清理             | `scripts/lib/isolated-prisma.mjs`                     | 移除 `previewFeatures = ["multiSchema"]` 强制注入逻辑                                                                                      |
+
+### 本地验证结果
+
+| 检查                                     | 结果                                                 |
+| ---------------------------------------- | ---------------------------------------------------- |
+| `pnpm install --no-frozen-lockfile`      | 成功，Prisma CLI 6.19.3 + @prisma/client 6.19.3 安装 |
+| `prisma generate`                        | 成功生成 Prisma Client v6.19.3                       |
+| `pnpm --filter @workmesh/api type-check` | 通过，无类型错误                                     |
+| `pnpm --filter @workmesh/api test`       | 98 文件 / 920 项通过（与 5.22.0 基线一致）           |
+| `pnpm test:isolated-prisma`              | PASSED（隔离目录 validate + generate 通过）          |
+| `pnpm test:contracts`                    | 18 项运行时检查通过                                  |
+
+### 仍待验证
+
+以下为本计划「可判定验收」表中仍标记 NOT_RUN 的项目，需要真实隔离 PostgreSQL 与远端 CI：
+
+- `prisma6-audit`：requestId stamp 在真实事务/并发下的行为（`$extends` query extension 在交互式事务中的语义需用真实 DB 确认）
+- `prisma6-data`：Bytes 在真实数据库读写的逐字节一致性
+- `prisma6-behavior`：真实 DB 并发、错误信封、retry 行为
+- `prisma6-migrations`：新空库 deploy 21 项迁移、schema drift
+- `prisma6-package`：新 ZIP 独立安装与生命周期
+- `prisma6-upgrade-rollback`：5.22.0 旧包升级到 6.19.x 再回退
+- `prisma6-release`：远端 CI + 维护者批准
+
+本地无数据库验证证明类型与单元行为兼容；真实 PostgreSQL 集成测试、打包、升级回退和远端 CI 仍需独立执行，不能以本次本地结果替代。

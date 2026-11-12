@@ -67,14 +67,15 @@ export type V1CodeReviewSummary = {
 export function contentPreviewOf(
   storage: string,
   mediaType: string,
-  bodyBytes: Buffer | null | undefined,
+  // Buffer (write path) and Uint8Array (Prisma 6 read path) are both accepted.
+  bodyBytes: Buffer | Uint8Array | null | undefined,
 ): V1ArtifactContentPreview | null {
   const maxBytes = 4096;
   if (storage !== 'HOSTED' || !mediaType.toLowerCase().startsWith('text/') || !bodyBytes)
     return null;
   const truncated = bodyBytes.byteLength > maxBytes;
   const bytes = truncated ? bodyBytes.subarray(0, maxBytes) : bodyBytes;
-  let text = bytes.toString('utf8');
+  let text = Buffer.from(bytes).toString('utf8');
   if (truncated && text.endsWith('\ufffd')) text = text.slice(0, -1);
   return { text, truncated };
 }

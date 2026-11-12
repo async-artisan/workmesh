@@ -24,23 +24,30 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   /**
    * 给每条 `PrincipalStamp` 补上当前请求的 requestId。
    *
-   * 原先 stamp 从不写 requestId：审计记录与日志里的 requestId 对不上，用户把响应里的
-   * requestId 报过来时，数据库里查不到任何关联行。各仓储层有 9 处 stamp 创建点，
-   * 逐个补参数必然遗漏新的写入点，因此在一个地方统一注入。
-   *
-   * 事务内的操作同样经过本中间件（交互式事务取自同一个 client），所以不必额外处理。
+   * Prisma 5 使用 `$use` middleware；Prisma 6.14.0 移除了 Client middleware，
+   * 改用 Client Extensions 的 `query` 扩展实现相同效果。
+   * `$extends` 返回一个新的 extended client；使用 `Object.assign` 把扩展后的
+   * client 属性合并回 `this`，保留 Nest 注入语义与现有调用方的 `PrismaService`
+   * 类型兼容。交互式事务（`$transaction` callback）同样经过 query extension，
+   * 与原 `$use` 行为一致。
    */
   private installRequestIdStamp(): void {
-    this.$use(async (params, next) => {
-      if (params.model === 'PrincipalStamp' && params.action === 'create') {
-        const requestId = currentRequestId();
-        const data = params.args?.data;
-        // 只在请求范围内、且调用方没有显式指定时补：脚本与测试没有 requestId 上下文。
-        if (requestId && data && typeof data === 'object' && !('requestId' in data))
-          params.args.data = { ...data, requestId };
-      }
-      return next(params);
+    const extended = this.$extends({
+      query: {
+        principalStamp: {
+          create({ args, query }) {
+            const requestId = currentRequestId();
+            const data = args.data;
+            // 只在请求范围内、且调用方没有显式指定时补：脚本与测试没有 requestId 上下文。
+            if (requestId && data && typeof data === 'object' && !('requestId' in data)) {
+              args.data = { ...data, requestId };
+            }
+            return query(args);
+          },
+        },
+      },
     });
+    Object.assign(this, extended);
   }
 
   async onModuleInit() {

@@ -42,9 +42,10 @@ try {
   const isolatedOutput = join(workDir, 'generated-client');
 
   const original = readFileSync(sourceSchema, 'utf8');
-  const rewritten = original
-    .replace(/output\s*=\s*"[^"]*"/, 'output = "' + isolatedOutput.replace(/\\/g, '/') + '"')
-    .replace(/previewFeatures\s*=\s*\[[^\]]*\]/, 'previewFeatures = ["multiSchema"]');
+  const rewritten = original.replace(
+    /output\s*=\s*"[^"]*"/,
+    'output = "' + isolatedOutput.replace(/\\/g, '/') + '"',
+  );
   writeFileSync(isolatedSchema, rewritten);
 
   // 让 @prisma/client 在隔离目录内可解析，避免 Prisma 触发 npm 自动安装（会联网）。

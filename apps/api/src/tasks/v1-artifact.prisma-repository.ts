@@ -377,7 +377,10 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
             mediaType: item.mediaType,
             byteLength: item.byteLength,
             sha256: item.sha256,
-            bodyBytes: item.bodyBytes,
+            bodyBytes:
+              item.bodyBytes != null
+                ? (item.bodyBytes as unknown as Uint8Array<ArrayBuffer>)
+                : null,
             projectRepositoryId: item.projectRepositoryId,
             commitSha: item.commitSha,
             repoPath: item.repoPath,
@@ -572,7 +575,8 @@ export class V1ArtifactPrismaRepository implements V1ArtifactRepository {
       repoPath: string | null;
       summary: string | null;
       checks: unknown;
-      bodyBytes?: Buffer | null;
+      // Prisma 6 returns Uint8Array for Bytes columns; Buffer is still accepted on write.
+      bodyBytes?: Uint8Array | null;
     }>;
     items?: Array<{ artifactId: string | null; candidateRevisionId: string | null }>;
   }): V1ArtifactSetSnapshot {
