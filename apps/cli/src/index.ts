@@ -2289,7 +2289,18 @@ function buildProgram(): Command {
       console.log(`用户索引 ${result.userIndex}`);
       for (const warning of result.warnings) console.log(`提示：${warning}`);
       console.log(result.verificationText);
-      for (const next of result.nextActions) console.log(`下一步：${next}`);
+      console.log('\n接入成功。按顺序执行以下命令：');
+      let stepNum = 0;
+      for (const next of result.nextActions) {
+        // The first action is a plain notice, not a numbered step.
+        if (next.startsWith('workmesh') || next.startsWith('根据')) {
+          stepNum += 1;
+          console.log(`  ${stepNum}. ${next}`);
+        } else {
+          console.log(`  ${next}`);
+        }
+      }
+      console.log('\n完整步骤与故障排查见 docs/cli-onboarding.md。');
     });
   });
 
