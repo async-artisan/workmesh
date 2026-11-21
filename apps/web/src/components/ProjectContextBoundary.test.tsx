@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
+import { MemoryRouter, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ProjectContextBoundary } from './ProjectContextBoundary';
 import { ProjectSelect } from './ProjectSelect';
@@ -53,6 +53,32 @@ function setup(
     </MemoryRouter>,
   );
 }
+
+/** The legacy detail branch uses the same replacement navigation as App. */
+function ReviewRoute() {
+  const location = useLocation();
+  const legacyId = new URLSearchParams(location.search).get('id');
+  if (location.pathname === '/reviews' && legacyId)
+    return <Navigate to={`/reviews/${encodeURIComponent(legacyId)}`} replace />;
+  if (location.pathname === '/reviews') return <p>评审列表</p>;
+  if (location.pathname.startsWith('/reviews/'))
+    return <p aria-label="评审决定">{location.pathname.slice('/reviews/'.length)}</p>;
+  return <p>原始页面</p>;
+}
+
+function setupReviewRoute(entry: string) {
+  // A loaded project list makes both navigation effects eligible on the first commit.
+  useProjectStore.setState({ projects, loaded: true });
+  return render(
+    <MemoryRouter initialEntries={['/before-review', entry]} initialIndex={1}>
+      <Location />
+      <ProjectContextBoundary>
+        <ReviewRoute />
+      </ProjectContextBoundary>
+    </MemoryRouter>,
+  );
+}
+
 describe('URL 项目上下文', () => {
   beforeEach(() => {
     useProject('p1');
@@ -90,6 +116,34 @@ describe('URL 项目上下文', () => {
     setup('/requirements?phase=ACTIVE');
     await waitFor(() => expect(screen.getByLabelText('地址')).toHaveTextContent('projectId=p1'));
     expect(screen.getByLabelText('地址')).toHaveTextContent('phase=ACTIVE');
+  });
+  it.each([
+    ['无项目参数', '/reviews?id=review-1', '/reviews/review-1'],
+    ['相同项目参数', '/reviews?id=review-1&projectId=p1', '/reviews/review-1'],
+    ['不同项目参数', '/reviews?id=review-1&projectId=p2', '/reviews/review-1'],
+    ['已编码的评审 ID', '/reviews?id=review%2Fencoded', '/reviews/review%2Fencoded'],
+  ])('旧评审链接%s只替换到规范路径，后退直接回到原始页面', async (_name, entry, canonical) => {
+    setupReviewRoute(entry);
+    await waitFor(() => expect(screen.getByLabelText('地址')).toHaveTextContent(canonical));
+    expect(screen.getByLabelText('地址').textContent).toBe(canonical);
+    expect(screen.getByLabelText('评审决定')).toBeVisible();
+    expect(screen.queryByLabelText('当前项目')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '后退' }));
+    await waitFor(() => expect(screen.getByLabelText('地址').textContent).toBe('/before-review'));
+    expect(screen.getByText('原始页面')).toBeVisible();
+  });
+  it('评审列表的空 id 继续恢复项目上下文，不被当作详情跳转', async () => {
+    setupReviewRoute('/reviews?id=&scope=open');
+    await waitFor(() => expect(screen.getByLabelText('地址')).toHaveTextContent('projectId=p1'));
+    expect(screen.getByLabelText('地址')).toHaveTextContent('id=&scope=open');
+    expect(screen.getByText('评审列表')).toBeVisible();
+    expect(screen.getByLabelText('当前项目')).toHaveTextContent('项目一（ONE）');
+  });
+  it('规范评审路径继续独立于当前项目参数', async () => {
+    setupReviewRoute('/reviews/review-1');
+    expect(screen.getByLabelText('评审决定')).toBeVisible();
+    expect(screen.getByLabelText('地址').textContent).toBe('/reviews/review-1');
+    expect(screen.queryByLabelText('当前项目')).not.toBeInTheDocument();
   });
   it('需求编号深链接在项目列表返回后恢复其项目，不被旧记忆提前固定', async () => {
     let release!: () => void;

@@ -20,6 +20,31 @@ const summary: DecisionSummaryData = {
 };
 
 describe('DecisionSummary（确认前展示完整业务决定）', () => {
+  it('确认前展示四维只读概览，保留原有不完整证据知晓说明和正式决定信息', () => {
+    render(
+      <DecisionSummary
+        summary={{
+          ...summary,
+          evidenceOverview: {
+            acceptanceText: '共 8 项验收：6 项报告通过，待人工核验；1 项失败；1 项未执行。',
+            basisText: 'PRD 字段匹配，1 条证据 commit 不匹配。',
+            discussionText: '此前轮次仍有 2 项问题未解决，问题状态不替代正式批准。',
+            codeReviewText: '当前交付已满足人类代码评审要求。',
+          },
+        }}
+      />,
+    );
+    const section = screen.getByRole('region', { name: '即将提交的决定' });
+    expect(section).toHaveTextContent('6 项报告通过，待人工核验');
+    expect(section).toHaveTextContent('1 项失败；1 项未执行');
+    expect(section).toHaveTextContent('1 条证据 commit 不匹配');
+    expect(section).toHaveTextContent('此前轮次仍有 2 项问题未解决');
+    expect(section).toHaveTextContent('当前交付已满足人类代码评审要求');
+    expect(section).toHaveTextContent('部分证据正文被截断');
+    expect(section).toHaveTextContent('v3（与提交版本一致）');
+    expect(screen.queryByRole('button', { name: /批准/ })).not.toBeInTheDocument();
+  });
+
   it('展示决定、对象、类型、槽位、版本、工件、检查、代码引用、说明与提交后影响', () => {
     render(<DecisionSummary summary={summary} />);
 

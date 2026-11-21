@@ -1,0 +1,38 @@
+{
+  "kind": "WORKMESH_CI_RESULTS",
+  "schemaVersion": "1.0",
+  "run": {
+    "provider": "GITHUB_ACTIONS",
+    "repositoryId": "123",
+    "runId": "456",
+    "runAttempt": 1,
+    "jobKey": "test",
+    "event": "push",
+    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "testedCommitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "basis": {
+    "prdRevisionId": "replace-with-published-prd-revision",
+    "snapshotId": "replace-with-task-snapshot",
+    "projectRepositoryId": "replace-with-registered-workmesh-repository-id",
+    "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "environment": {
+    "summary": "REPLACE: actual runtime and isolated test environment",
+    "startedAt": "2026-11-12T00:00:00Z",
+    "completedAt": "2026-11-12T00:00:00Z"
+  },
+  "results": [
+    {
+      "id": "result-01",
+      "caseRef": {
+        "caseId": "TC-01",
+        "revision": {
+          "artifactId": "replace-with-existing-cases-artifact-id",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "result": "NOT_RUN"
+    }
+  ]
+}

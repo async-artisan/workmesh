@@ -31,6 +31,24 @@ export function codeEvidenceReviewReasons(
       a.id.localeCompare(b.id),
   ))
     latest.set(item.reviewerExternalId, item);
+  const ambiguous = new Set<string>();
+  const latestCandidates = related.filter((item) => {
+    const last = latest.get(item.reviewerExternalId)!;
+    return (
+      (item.submittedAt ?? item.createdAt).getTime() ===
+      (last.submittedAt ?? last.createdAt).getTime()
+    );
+  });
+  for (const item of latestCandidates) {
+    const last = latest.get(item.reviewerExternalId)!;
+    if (
+      item.state !== last.state ||
+      item.commitSha !== last.commitSha ||
+      item.headSha !== last.headSha ||
+      item.reviewerKind !== last.reviewerKind
+    )
+      ambiguous.add(item.reviewerExternalId);
+  }
   const reasons: string[] = [];
   if (!row.receipt?.signatureValid) reasons.push('TRUSTED_RECEIPT_MISSING');
   if (row.receipt?.status !== 'PROCESSED') reasons.push('DELIVERY_NOT_PROCESSED');
@@ -49,7 +67,7 @@ export function codeEvidenceReviewReasons(
   )
     reasons.push('SHA_MISMATCH');
   if (
-    [...latest.values()].some(
+    latestCandidates.some(
       (item) =>
         item.reviewerKind === 'USER' &&
         item.authorExternalId !== item.reviewerExternalId &&
@@ -58,5 +76,6 @@ export function codeEvidenceReviewReasons(
   )
     reasons.push('CHANGES_REQUESTED_ACTIVE');
   if (latest.get(row.reviewerExternalId)?.id !== row.id) reasons.push('SUPERSEDED_REVIEW');
+  if (ambiguous.has(row.reviewerExternalId)) reasons.push('REVIEW_ORDER_AMBIGUOUS');
   return reasons;
 }

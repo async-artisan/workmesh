@@ -6,6 +6,9 @@
 
 - [项目介绍与快速开始](../README.md)：产品边界、能力和最短运行路径。
 - [开始使用](getting-started.md)：面向第一次使用者的最短启动、CLI 闭环和验证路径。
+- [业务项目接入 CLI](cli-onboarding.md)：接入已有团队平台、角色准备与常见恢复步骤。
+- [CLI 执行状态与恢复](cli-execution-state.md)：以 executionId 携带准确任务状态、读取交付评审、核对未知结果与保留显式 API 入口。
+- [角色上下文诊断](role-context-diagnostics.md)：区分新版可用、本地安装不匹配与任务实际角色资源变化。
 - [本地运行](local-dev.md)：Windows 开发环境与本机演示说明。
 - [一个盒子](box.md)：运行检查、备份、恢复及安装边界。
 - [部署说明](deployment.md)：服务端配置、数据库迁移与启动。
@@ -20,10 +23,12 @@
 - [交付与验证状态](phase-status.md)：当前实现和已记录的验证边界。
 - [开发计划](dev-plan.md)：尚未完成的功能与后续工作。
 - [规格与交付质量方法](design/spec-driven-quality.md)：Spec Kit 优点的采用判断、角色入口、本地质量包及边界。
+- [交付验证与评审体验任务计划书](design/verification-evidence-task-plan.md)：评审摘要、用例执行关联、GitHub Actions 只读证据接入与验证定义变化的四阶段待实施计划。
 - [规格与交付质量采用验证](testing/spec-driven-quality-validation-2026-11-09.md)：角色包、模板契约、本地质量命令的测试、构建结果及未验证范围。
 - [2026-11-10 规格方法增补验证](testing/spec-driven-quality-followup-validation-2026-11-10.md)：MVP 切片方法、角色包版本与评审页严格 JSON 解析的回归结果。
 - [使用者路径优化](design/user-journey-optimization.md)：按职责、接入、交接、评审和运维排序的实施清单及开源借鉴。
 - [2026-11-09 使用者路径验证](testing/user-journey-validation-2026-11-09.md)：逐项行为证据、当前迁移集、API/Web/CLI/浏览器结果及尚未实测范围。
+- [信任链与使用体验优化](design/trust-chain-experience-optimization.md)及[验证记录](testing/trust-chain-experience-validation-2026-11-10.md)：输入恢复、变更行动、证据链、执行状态与机器诊断的实施边界。
 - [外部阻塞项](../BLOCKED.md)：仍需外部环境、目标或证据的工作。
 
 ## 运营与验收模板

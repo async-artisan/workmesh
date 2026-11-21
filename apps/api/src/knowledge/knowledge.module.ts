@@ -9,6 +9,10 @@ import { V1KnowledgeBindingController } from './v1-knowledge-binding.controller'
 import { V1KnowledgeBindingService } from './v1-knowledge-binding.service';
 import { V1DocumentHistoryController } from './v1-document-history.controller';
 import { V1DocumentHistoryService } from './v1-document-history.service';
+import { V1DocumentSummaryController } from './v1-document-summary.controller';
+import { V1DocumentSummaryService } from './v1-document-summary.service';
+import { V1RequirementPrdsController } from './v1-requirement-prds.controller';
+import { V1RequirementPrdsService } from './v1-requirement-prds.service';
 import { V1PublicationController } from './v1-publication.controller';
 import { V1PublicationPrismaRepository } from './v1-publication.prisma-repository';
 import { V1PublicationService, V1_PUBLICATION_REPOSITORY } from './v1-publication.service';
@@ -19,12 +23,16 @@ import { V1PublicationService, V1_PUBLICATION_REPOSITORY } from './v1-publicatio
     V1KnowledgeBaseController,
     V1KnowledgeBindingController,
     V1DocumentHistoryController,
+    V1DocumentSummaryController,
+    V1RequirementPrdsController,
   ],
   providers: [
     V1PublicationService,
     V1KnowledgeBaseService,
     V1KnowledgeBindingService,
     V1DocumentHistoryService,
+    V1DocumentSummaryService,
+    V1RequirementPrdsService,
     { provide: V1_PUBLICATION_REPOSITORY, useClass: V1PublicationPrismaRepository },
     { provide: V1_KNOWLEDGE_BASE_REPOSITORY, useClass: V1KnowledgeBasePrismaRepository },
     { provide: V1_IDEMPOTENCY_REPOSITORY, useClass: V1IdempotencyPrismaRepository },

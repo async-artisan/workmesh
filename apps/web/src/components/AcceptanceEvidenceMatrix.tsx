@@ -9,6 +9,10 @@ import {
   type AcceptanceCriterion,
   type QualityArtifactSource,
 } from '../lib/acceptanceEvidence';
+import {
+  buildReviewEvidenceSummary,
+  type ReviewEvidenceSummary,
+} from '../lib/reviewEvidenceSummary';
 
 const rowLabels = {
   REPORTED_PASS: '报告通过，待人工核验',
@@ -30,38 +34,48 @@ const basisLabels = {
   MISMATCH: '版本或条款不匹配',
   UNVERIFIED: '版本依据待核对',
 };
+const EMPTY_SOURCES: QualityArtifactSource[] = [];
+const EMPTY_ISSUES: Array<{ artifactId: string; label: string; message: string }> = [];
 
 export function AcceptanceEvidenceMatrix({
   acceptance,
   requirementId,
   prdRevisionId,
   artifactSet,
+  scopeKey,
+  onSummaryChange,
 }: {
   acceptance: AcceptanceCriterion[];
   requirementId: string | null;
   prdRevisionId: string | null;
   artifactSet: ArtifactSetView | null;
+  scopeKey?: string;
+  onSummaryChange?: (summary: ReviewEvidenceSummary) => void;
 }) {
-  const [sources, setSources] = useState<QualityArtifactSource[]>([]);
-  const [issues, setIssues] = useState<
-    Array<{ artifactId: string; label: string; message: string }>
-  >([]);
-  const [loading, setLoading] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const candidates = useMemo(
     () => artifactSet?.artifacts.filter(isQualityJsonCandidate) ?? [],
     [artifactSet],
   );
+  const request = useMemo(
+    () => ({ artifactSet, candidates, refresh }),
+    [artifactSet, candidates, refresh],
+  );
+  const [readResult, setReadResult] = useState<{
+    request: typeof request;
+    sources: QualityArtifactSource[];
+    issues: Array<{ artifactId: string; label: string; message: string }>;
+  } | null>(null);
+  const currentResult = readResult?.request === request ? readResult : null;
+  const sources = currentResult?.sources ?? EMPTY_SOURCES;
+  const issues = currentResult?.issues ?? EMPTY_ISSUES;
+  const loading = Boolean(artifactSet && candidates.length > 0 && !currentResult);
 
   useEffect(() => {
     let active = true;
-    setSources([]);
-    setIssues([]);
     if (!artifactSet || !candidates.length) {
-      setLoading(false);
       return;
     }
-    setLoading(true);
     void Promise.all(
       candidates.map(async (artifact) => {
         const label = artifact.summary ?? artifact.repoPath ?? artifact.id;
@@ -86,14 +100,16 @@ export function AcceptanceEvidenceMatrix({
       }),
     ).then((results) => {
       if (!active) return;
-      setSources(results.flatMap((result) => (result.source ? [result.source] : [])));
-      setIssues(results.flatMap((result) => (result.issue ? [result.issue] : [])));
-      setLoading(false);
+      setReadResult({
+        request,
+        sources: results.flatMap((result) => (result.source ? [result.source] : [])),
+        issues: results.flatMap((result) => (result.issue ? [result.issue] : [])),
+      });
     });
     return () => {
       active = false;
     };
-  }, [artifactSet, candidates, refresh]);
+  }, [artifactSet, candidates, request]);
 
   const mapping = useMemo(
     () =>
@@ -106,6 +122,33 @@ export function AcceptanceEvidenceMatrix({
       }),
     [acceptance, requirementId, prdRevisionId, artifactSet, sources],
   );
+  const summary = useMemo(
+    () =>
+      buildReviewEvidenceSummary({
+        scopeKey:
+          scopeKey ??
+          JSON.stringify([requirementId, prdRevisionId, artifactSet?.id, artifactSet?.snapshotId]),
+        loading,
+        candidateCount: candidates.length,
+        readableCount: sources.length,
+        unreadableCount: issues.length,
+        rows: mapping.rows,
+      }),
+    [
+      scopeKey,
+      requirementId,
+      prdRevisionId,
+      artifactSet,
+      loading,
+      candidates.length,
+      sources.length,
+      issues.length,
+      mapping.rows,
+    ],
+  );
+  useEffect(() => {
+    onSummaryChange?.(summary);
+  }, [onSummaryChange, summary]);
   return (
     <section aria-label="验收条件与证据映射">
       <p className="page-sub">
@@ -142,6 +185,15 @@ export function AcceptanceEvidenceMatrix({
             </li>
           ))}
         </ul>
+      )}
+      {sources.map(
+        (source) =>
+          source.report.executionLinkage === 'LEGACY_UNLINKED' && (
+            <p className="callout warning" key={`legacy:${source.artifactId}`}>
+              {source.label} 使用质量包 1.0，未建立执行到用例修订的精确关联。其结果仍为
+              LOCAL_REPORTED，不会补造用例版本或提供方验证。
+            </p>
+          ),
       )}
       {sources.map(
         (source) =>
@@ -212,7 +264,8 @@ export function AcceptanceEvidenceMatrix({
                               {item.source === 'AGENT_REPORTED'
                                 ? 'Agent 自报'
                                 : '外部引用（尚未核验）'}{' '}
-                              · 质量包：{item.artifactLabel} · {item.stage}
+                              · 质量包：{item.artifactLabel} · {item.bundleSchemaVersion} ·{' '}
+                              {item.stage} · LOCAL_REPORTED
                             </p>
                             <p>
                               证据引用：
@@ -226,7 +279,7 @@ export function AcceptanceEvidenceMatrix({
                             </p>
                             <details>
                               <summary>
-                                {basisLabels[item.basisState]}：查看 PRD / 快照 / commit
+                                {basisLabels[item.basisState]}：查看 PRD / 快照 / 仓库 / commit
                               </summary>
                               <ul className="detail-list">
                                 <li>
@@ -238,6 +291,21 @@ export function AcceptanceEvidenceMatrix({
                                 <li>
                                   commit：<code>{item.basis.commitSha}</code>
                                 </li>
+                                {'projectRepositoryId' in item.basis && (
+                                  <li>
+                                    登记仓库 ID：<code>{item.basis.projectRepositoryId}</code>
+                                  </li>
+                                )}
+                                {'caseRefs' in item &&
+                                  item.caseRefs.map((ref) => (
+                                    <li
+                                      key={`${ref.caseId}:${ref.revision.artifactId}:${ref.revision.sha256}`}
+                                    >
+                                      执行引用用例：<code>{ref.caseId}</code> · CASES 工件：
+                                      <code>{ref.revision.artifactId}</code> · SHA-256：
+                                      <code>{ref.revision.sha256}</code>
+                                    </li>
+                                  ))}
                                 {item.issues.map((issue) => (
                                   <li key={issue}>{issue}</li>
                                 ))}
@@ -260,6 +328,38 @@ export function AcceptanceEvidenceMatrix({
                   )}
                   {row.caseIds.length > 0 && (
                     <p className="task-row-meta">匹配用例：{row.caseIds.join('、')}</p>
+                  )}
+                  {row.caseCoverage.length > 0 && (
+                    <details>
+                      <summary>查看精确用例修订与执行覆盖</summary>
+                      <ul className="detail-list">
+                        {row.caseCoverage.map((entry, index) => (
+                          <li key={`${entry.artifactId}:${entry.caseId}:${index}`}>
+                            <code>{entry.caseId}</code> ·{' '}
+                            {entry.status === 'REPORTED_PASS'
+                              ? '提交者报告通过'
+                              : entry.status === 'MISSING'
+                                ? '缺少执行关联'
+                                : entry.status === 'PLANNED'
+                                  ? '仅有计划'
+                                  : resultLabels[entry.status]}
+                            {entry.revision && (
+                              <p className="task-row-meta">
+                                CASES 工件：<code>{entry.revision.artifactId}</code> · SHA-256：
+                                <code>{entry.revision.sha256}</code>
+                              </p>
+                            )}
+                            <p className="task-row-meta">
+                              质量包：{entry.artifactLabel} · 关联证据：
+                              {entry.evidenceIds.length ? entry.evidenceIds.join('、') : '无'}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="task-row-meta">
+                        以上是输入内的精确关联；实际 CASES 工件内容、执行及来源仍需核验。
+                      </p>
+                    </details>
                   )}
                   {row.gaps.length > 0 ? (
                     <ul className="detail-list">

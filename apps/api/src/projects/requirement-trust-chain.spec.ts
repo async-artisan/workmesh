@@ -207,6 +207,35 @@ describe('requirement formal fact chain', () => {
     data.reviews[2].kind = 'RELEASE_ACCEPTANCE';
     expect(read(data).tasks[0]).toMatchObject({ state: 'ACCEPTED', baselineRelation: 'CURRENT' });
   });
+  it.each([
+    { baselineKind: 'UNDERSTANDING', index: 0, reviewKind: undefined },
+    { baselineKind: 'UNDERSTANDING', index: 0, reviewKind: '' },
+    { baselineKind: 'UNDERSTANDING', index: 0, reviewKind: 'PRD_PUBLICATION' },
+    { baselineKind: 'PRD', index: 1, reviewKind: undefined },
+    { baselineKind: 'PRD', index: 1, reviewKind: '' },
+    { baselineKind: 'PRD', index: 1, reviewKind: 'UNDERSTANDING_CONFIRM' },
+  ])(
+    'requires the matching document review kind for $baselineKind publication ($reviewKind)',
+    ({ baselineKind, index, reviewKind }) => {
+      const data = fixture();
+      const publicationReview = data.reviews[index];
+      const expectedKind = publicationReview.kind;
+      Object.assign(publicationReview, { kind: reviewKind });
+      const result = read(data);
+      expect(result.status).toBe('GAPS');
+      expect(result.gaps).toContainEqual({ code: 'APPROVAL_MISSING', baselineKind });
+      expect(
+        result.timeline.find((event) => event.id === `review:${publicationReview.id}`),
+      ).toMatchObject({ applicability: 'UNKNOWN' });
+      expect(
+        result.timeline.find(
+          (event) => event.id === `decision:${publicationReview.decisions[0].id}`,
+        ),
+      ).toMatchObject({ applicability: 'UNKNOWN' });
+      publicationReview.kind = expectedKind;
+      expect(read(data)).toMatchObject({ status: 'LINKED', gaps: [] });
+    },
+  );
   it('checks current snapshot baseline revision and resource digests instead of trusting generation alone', () => {
     const data = fixture();
     const manifest = data.snapshots[0].manifest as {
@@ -271,6 +300,71 @@ describe('requirement formal fact chain', () => {
     data.reviews[2].decisions[0].subjectDigest = 'old';
     expect(read(data).tasks[0].gapCodes).toContain('APPROVAL_MISSING');
   });
+  it('does not label a mismatched review or decision digest as currently associated', () => {
+    const data = fixture();
+    const events = () =>
+      Object.fromEntries(read(data).timeline.map((event) => [event.id, event.applicability]));
+    data.reviews[2].subjectDigest = 'old-digest';
+    expect(events()).toMatchObject({
+      'review:acceptance': 'UNKNOWN',
+      'decision:acceptance-decision': 'UNKNOWN',
+    });
+    data.reviews[2].subjectDigest = 'set-digest';
+    data.reviews[2].decisions[0].subjectDigest = 'old-digest';
+    expect(events()).toMatchObject({
+      'review:acceptance': 'CURRENT',
+      'decision:acceptance-decision': 'UNKNOWN',
+    });
+    data.reviews[2].subjectDigest = '';
+    data.reviews[2].decisions[0].subjectDigest = '';
+    expect(events()).toMatchObject({
+      'review:acceptance': 'UNKNOWN',
+      'decision:acceptance-decision': 'UNKNOWN',
+    });
+    data.reviews[1].subjectDigest = 'old-prd-digest';
+    data.reviews[1].decisions[0].subjectDigest = 'old-prd-digest';
+    expect(events()).toMatchObject({
+      'review:review-PRD': 'UNKNOWN',
+      'decision:review-PRD-decision': 'UNKNOWN',
+    });
+    data.reviews[1].subjectDigest = 'digest-PRD';
+    data.reviews[1].decisions[0].subjectDigest = '';
+    expect(events()).toMatchObject({
+      'review:review-PRD': 'CURRENT',
+      'decision:review-PRD-decision': 'UNKNOWN',
+    });
+  });
+  it('keeps known historical subjects separate from missing mappings and incompatible review kinds', () => {
+    const data = fixture();
+    const applicability = (id: string) =>
+      read(data).timeline.find((event) => event.id === id)?.applicability;
+    data.tasks[0].generation++;
+    expect(applicability('review:acceptance')).toBe('HISTORICAL');
+    expect(applicability('decision:acceptance-decision')).toBe('HISTORICAL');
+    data.sets[0].taskId = 'other-task';
+    expect(applicability('review:acceptance')).toBe('UNKNOWN');
+    data.sets[0].taskId = 'task';
+    data.reviews[2].taskId = 'other-task';
+    expect(applicability('review:acceptance')).toBe('UNKNOWN');
+    data.reviews[2].taskId = 'task';
+    data.reviews[2].taskGeneration = null;
+    expect(applicability('review:acceptance')).toBe('UNKNOWN');
+    data.reviews[2].taskGeneration = 4;
+    data.tasks[0].generation = 4;
+    data.definitions[0].definition = {
+      steps: [{ key: 'build', kind: 'RELEASE', baselinePolicy: 'PUBLISHED_PRD' }],
+    };
+    expect(applicability('review:acceptance')).toBe('UNKNOWN');
+    data.reviews[2].kind = 'RELEASE_ACCEPTANCE';
+    expect(applicability('review:acceptance')).toBe('CURRENT');
+    data.reviews[1].kind = 'UNDERSTANDING_CONFIRM';
+    expect(applicability('review:review-PRD')).toBe('UNKNOWN');
+    data.reviews[1].kind = 'PRD_PUBLICATION';
+    data.requirement.currentPrdRevisionId = null;
+    expect(applicability('review:review-PRD')).toBe('HISTORICAL');
+    data.sets = [];
+    expect(applicability('review:acceptance')).toBe('UNKNOWN');
+  });
   it('distinguishes current snapshots from preserved acceptance across requirement generations', () => {
     const data = fixture();
     data.snapshots[0].requirementGeneration = 2;
@@ -321,7 +415,15 @@ describe('requirement formal fact chain', () => {
       projectRepositoryId: 'repo',
     };
     expect(read(data).tasks[0].gapCodes).toContain('CODE_EVIDENCE_MISSING');
-    data.repositories = [{ id: 'repo', externalId: 'github:1', archivedAt: null }];
+    data.repositories = [
+      {
+        id: 'repo',
+        externalId: 'github:1',
+        archivedAt: null,
+        identityMode: 'PROVIDER',
+        adapter: 'GITHUB',
+      },
+    ];
     const base = {
       artifactSetId: null,
       preparedSecretHash: null,
@@ -329,7 +431,12 @@ describe('requirement formal fact chain', () => {
       preparedEvidenceId: null,
       ticketGeneration: null,
       state: 'APPROVED',
-      reviewerKind: 'HUMAN',
+      reviewerKind: 'USER',
+      reviewerExternalId: 'reviewer',
+      authorExternalId: 'author',
+      changeRequestId: '17',
+      createdAt: at,
+      submittedAt: at,
       repositoryId: 'github:1',
       headSha: 'a'.repeat(40),
       commitSha: 'a'.repeat(40),
@@ -347,11 +454,52 @@ describe('requirement formal fact chain', () => {
       { ...base, id: 'evidence' },
     ];
     expect(read(data).status).toBe('LINKED');
+    const valid = structuredClone(data);
+    data.evidence[1].reviewerKind = 'BOT';
+    expect(read(data).tasks[0].gapCodes).toContain('CODE_EVIDENCE_INVALID');
+    data.evidence[1].reviewerKind = 'USER';
+    data.evidence[1].reviewerExternalId = 'author';
+    expect(read(data).tasks[0].gapCodes).toContain('CODE_EVIDENCE_INVALID');
+    data.evidence[1].reviewerExternalId = 'reviewer';
+    data.evidence[0].changeRequestId = 'wrong-pr';
+    expect(read(data).tasks[0].gapCodes).toContain('CODE_EVIDENCE_INVALID');
+    data.evidence[0].changeRequestId = '17';
+    data.evidence[1].commitSha = 'b'.repeat(40);
+    expect(read(data).tasks[0].gapCodes).toContain('CODE_EVIDENCE_INVALID');
     data.evidence[1].headSha = 'b'.repeat(40);
     data.evidence[1].commitSha = null;
     expect(read(data).tasks[0].gapCodes).toContain('CODE_EVIDENCE_INVALID');
     data.evidence[0].ticketGeneration = 3;
     expect(read(data).tasks[0].gapCodes).toContain('CODE_EVIDENCE_MISSING');
+    const superseded = structuredClone(valid);
+    superseded.evidence.push({
+      ...superseded.evidence[1],
+      id: 'later-opinion',
+      state: 'COMMENTED',
+      headSha: 'b'.repeat(40),
+      submittedAt: new Date(at.getTime() + 1000),
+    });
+    expect(read(superseded).tasks[0].gapCodes).toContain('CODE_EVIDENCE_INVALID');
+    const rejected = structuredClone(valid);
+    rejected.evidence.push({
+      ...rejected.evidence[1],
+      id: 'request-changes',
+      reviewerExternalId: 'other-reviewer',
+      state: 'CHANGES_REQUESTED',
+      submittedAt: new Date(at.getTime() + 1000),
+    });
+    expect(read(rejected).tasks[0].gapCodes).toContain('CODE_EVIDENCE_INVALID');
+    const repaired = structuredClone(valid);
+    repaired.evidence.push({
+      ...repaired.evidence[0],
+      id: 'obsolete-consumed-ticket',
+      preparedEvidenceId: 'missing-evidence',
+      headSha: 'b'.repeat(40),
+    });
+    expect(read(repaired).status).toBe('LINKED');
+    const unresolved = structuredClone(valid);
+    unresolved.repositories[0].identityMode = 'DECLARED';
+    expect(read(unresolved).tasks[0].gapCodes).toContain('CODE_EVIDENCE_INVALID');
   });
   it('suppresses unreadable baseline IDs, titles and their reviews and never treats partial visibility as complete', () => {
     const data = fixture();

@@ -9,7 +9,7 @@ import {
   type Principal,
 } from '@workmesh/shared';
 import { V1AuthorizationService } from '../auth/v1-authorization';
-import { isCodeEvidenceAcceptable, needsCodeEvidence } from '../reviews/v1-review-policy';
+import { needsCodeEvidence } from '../reviews/v1-review-policy';
 import { assertClaimForAction, type Claim } from './v1-collaboration-policy';
 import {
   assertReplayable,
@@ -139,10 +139,7 @@ export class V1ArtifactService {
       codeReview: {
         required,
         acceptable:
-          !required ||
-          (diagnostics
-            ? isCodeEvidenceDiagnosticsAcceptable(diagnostics)
-            : isCodeEvidenceAcceptable(evidence)),
+          !required || Boolean(diagnostics && isCodeEvidenceDiagnosticsAcceptable(diagnostics)),
         evidence,
         ...(diagnostics ? { diagnostics } : {}),
       },

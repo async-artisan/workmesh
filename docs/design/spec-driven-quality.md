@@ -48,16 +48,16 @@ workmesh quality --file quality-bundle.json --json
 
 无需登录或联网；只读显式选定文件，不执行任务，不访问证据引用，不修改平台。现有源码开发入口为 `node apps/cli/dist/index.js quality ...`。
 
-| 字段            | 要求                                                                                       |
-| --------------- | ------------------------------------------------------------------------------------------ |
-| `schemaVersion` | `1.0`                                                                                      |
-| `stage`         | `PLAN` 或 `DELIVERY`                                                                       |
-| `requirementId` | 需求标识，用于报告回链；工具不查询服务端真实性                                             |
-| `basis`         | 必填 PRD 修订 `prdRevisionId`、快照 `snapshotId`；DELIVERY 还需完整小写 `commitSha`        |
-| `acceptance[]`  | 1–200 条，`key / text / verification`；key 与正式候选 API 同一约束                         |
-| `tasks[]`       | `id / acceptanceKeys / dependsOn / files`，可选 `parallel`；files 使用仓库相对路径，无点段 |
-| `cases[]`       | `id / covers / kind`；kind 与引用验收的 verification 一致                                  |
-| `evidence[]`    | 必须显式提供，PLAN 可为空；每项 `id / acceptanceKeys / result / source / ref / basis`      |
+| 字段            | 要求                                                                                                                                                           |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schemaVersion` | `1.0` 或 `1.1`；1.0 保留旧语义，并明确缺少执行到用例修订的精确关联                                                                                             |
+| `stage`         | `PLAN` 或 `DELIVERY`                                                                                                                                           |
+| `requirementId` | 需求标识，用于报告回链；工具不查询服务端真实性                                                                                                                 |
+| `basis`         | 必填 PRD 修订 `prdRevisionId`、快照 `snapshotId`；1.1 还需 WorkMesh 登记的 `projectRepositoryId`；DELIVERY 还需完整小写 `commitSha`                            |
+| `acceptance[]`  | 1–200 条，`key / text / verification`；key 与正式候选 API 同一约束                                                                                             |
+| `tasks[]`       | `id / acceptanceKeys / dependsOn / files`，可选 `parallel`；files 使用仓库相对路径，无点段                                                                     |
+| `cases[]`       | `id / covers / kind`；kind 与引用验收的 verification 一致；1.1 增加 `revision: { artifactId, sha256 }`                                                         |
+| `evidence[]`    | 必须显式提供，PLAN 可为空；每项 `id / acceptanceKeys / result / source / ref / basis`；1.1 增加非空 `caseRefs: [{ caseId, revision: { artifactId, sha256 } }]` |
 
 证据 result 为 `PASSED / FAILED / BLOCKED / NOT_RUN`；source 为 `AGENT_REPORTED / EXTERNAL_REFERENCE`。每项证据必须绑定 PRD、快照和完整代码提交。`ref` 是可复核位置，不代表工具已解析、下载或信任其内容。
 
@@ -69,11 +69,31 @@ CONSISTENT 仅表示输入数据满足本地规则。PLAN 的逐条状态是 PLA
 
 多仓库交付按仓库/提交分别出报告，当前单包只绑定一个 commit；不要把不同代码库的证据混在同一 basis 中。
 
+### 1.1 精确用例执行关联
+
+`cases[].revision` 指向已经交付的不可变 CASES 工件 ID 与真实 64 位小写 SHA-256。同一 CASES 工件可以包含多个 case，但同一工件 ID 不能声明多个摘要。先形成用例工件，再从实际交付收据取引用；尚未形成工件时先保存计划，不在 1.1 包里填写假 ID。质量包不得引用自身作为用例设计工件，也不要求 CASES 正文自填自身摘要。
+
+每条 `evidence.caseRefs` 指定实际执行的用例和相同修订，不能只按验收 key 推断。`acceptanceKeys` 必须等于这些用例 `covers` 的并集；未知/重复 case、旧修订、摘要冲突和错误验证方式均不能补齐执行覆盖。DELIVERY 必须为全部声明用例提供明确结果；同一验收下仅一个用例 PASS 而其他用例没有结果时保持 MISSING。所有已报失败、阻塞或未执行继续可见，其他 PASS 不能掩盖它们。证据与包的 PRD、快照、登记仓库 ID 和完整提交都需一致。
+
+分析报告自身的 `schemaVersion` 仍为 `1.0`；`bundleSchemaVersion` 表示输入包版本，`executionLinkage` 为 `LEGACY_UNLINKED / EXPLICIT_CASE_REVISION`，`caseCoverage` 输出 1.1 各用例的修订、证据 ID 与状态。旧包的 `caseCoverage` 为空，并携带 `LEGACY_CASE_LINKAGE_MISSING` 警告；不能只修改 schemaVersion 把旧包升级。
+
+这些判断仍是 `LOCAL_REPORTED`：本地工具不查询 CASES 工件是否存在、是否属于本需求或当前是否可读，不核验测试实际运行。后续服务端关联需按项目、权限和不可变工件字节另行核对。1.1 拒绝未知字段及 `verified / authority` 等自填权威；现有 HUMAN 决定链和门禁不因质量包改变。
+
+主[计划样例](../../project-templates/software/quality-bundle.example.json)展示 1.1；[交付样例](../../project-templates/software/quality-bundle.delivery.example.json)保留 NOT_RUN，[旧版样例](../../project-templates/software/quality-bundle.legacy.example.json)展示 1.0 兼容。所有 ID、摘要、提交和结果均为模板占位，必须替换真实数据后使用，不能当作行为证据。
+
+### CI JSON 结果报告的纯输入契约
+
+`WORKMESH_CI_RESULTS` 1.0 的[样例](../../project-templates/software/ci-result-report.example.json)包含 `run / basis / environment / results`。`run` 声明 GitHub 的十进制 `repositoryId / runId`、正整数 `runAttempt`、`jobKey`、可选 `jobId`、事件、`headSha / testedCommitSha`；`basis.projectRepositoryId` 是 WorkMesh 登记仓库 ID，不能与提供方数字 ID 混用。实际被测提交需等于 basis.commitSha，headSha 可以不同，但这种声明不证明事件的代码绑定有效。
+
+每条 result 携带唯一 ID、精确 `caseRef` 和 `PASSED / FAILED / BLOCKED / NOT_RUN`，同一报告的 caseId 唯一，不混合重试或不同修订；相同 CASES 工件 ID 的摘要必须一致。解析限制为 4 MiB、1–2000 条结果，严格拒绝重复 JSON 键、浮点数、未知结论、额外字段与自行填写的权威。零结果不表示零失败。纯解析成功只返回 `LOCAL_REPORTED`，不会联网或生成提供方证明。
+
+报告不能填写自身 artifact ID 或自身摘要；上传后形成的 provider artifact ID、压缩包与报告字节摘要、采集时间和范围由服务端采集信封另存。GitHub artifact 元数据不直接给出 attempt/job 关系，文件名、时间及报告自行填写的 runAttempt/jobId 不足以证明归属；缺少可核对依据时保留未知。此处只交付输入契约，Actions 采集、服务端授权和真实闭环按交付验证计划 EV-07 以后单独实施。
+
 ## 模板契约与升级
 
 正式验收仅使用 `key / text / verification`。风险分类与优先级写 PRD 或评审记录，不能放进 API 不保存的字段并声称已生效。YAML 模板供人阅读，JSON 数组供 `candidate --acceptance @acceptance.json` 使用；构建会拒绝两者不一致、非法 key、额外字段，以及 QA 示例引用或验证方式漂移。
 
-六个内置角色包的基础方法版本为 1.2.0；增补价值优先级与 MVP 切片后，product/backend 升为 1.2.1。随后修正普通交付自动创建评审的角色指引，backend 升为 1.2.2，frontend/ui/qa/ops 升为 1.2.1，product 保持 1.2.1；最新完整循环先只读检查输入，再使用 deliver 返回或原交付收据中的真实 reviewRequestId 查询评审。既有锁定内容不覆盖。更新通过现有 setup/roles install 的预览与受管文件检查，发现本地修改先按现有诊断处理；项目自定义规则随知识修订发布。新增文档和模板按当前任务允许的工件类型提交，不增加隐含 outputKinds 或审批槽。
+六个内置角色包的基础方法版本为 1.2.0；增补价值优先级与 MVP 切片后，product/backend 升为 1.2.1。随后修正普通交付自动创建评审的角色指引，backend 升为 1.2.2，frontend/ui/qa/ops 升为 1.2.1，product 保持 1.2.1；本轮精确用例修订关联将 QA 升为 1.2.2、backend 升为 1.2.3。最新完整循环先只读检查输入，再使用 deliver 返回或原交付收据中的真实 reviewRequestId 查询评审。既有锁定内容不覆盖。更新通过现有 setup/roles install 的预览与受管文件检查，发现本地修改先按现有诊断处理；项目自定义规则随知识修订发布。新增文档和模板按当前任务允许的工件类型提交，不增加隐含 outputKinds 或审批槽。
 
 ## 未采用的部分
 
@@ -84,9 +104,9 @@ CONSISTENT 仅表示输入数据满足本地规则。PLAN 的逐条状态是 PLA
 
 ## 复核后保留的功能缺口
 
-产品和后端角色已增补按价值排序、MVP 端到端切片与独立验证检查点；质量包本身仍按 1.0 契约运行。评审页与 CLI 统一使用 shared 的严格 JSON 解析，重复字段不能用后值覆盖前值参与验收映射。
+产品和后端角色已增补按价值排序、MVP 端到端切片与独立验证检查点；质量包现支持 1.0/1.1 并存识别。评审页与 CLI 统一使用 shared 的严格 JSON 解析，重复字段不能用后值覆盖前值参与验收映射。
 
-当前仍有两项值得后续交付的功能：质量包执行证据与具体用例 ID/用例修订的机器关联，以及 WP12 澄清问题与任务阻塞/精确恢复。前者已有 QA 模板指导，但质量包 1.0 尚不能验证“这一条 PASS 执行的是哪一版用例”；后者已有开发计划。这些需要分别补齐契约、权限、失败路径与验证，不能以新增模板替代实现。
+1.1 已补充本地执行证据到具体用例 ID/不可变修订的机器关联，1.0 仍明确缺少该能力。服务端实际 CASES 工件授权核对、外部运行来源及当前适用性仍需按交付验证计划继续实施；本地一致性不能替代这些事实。WP12 澄清问题与任务阻塞/精确恢复仍按既有开发计划推进。
 
 ## 官方来源与复核
 

@@ -45,6 +45,8 @@ suite('PostgreSQL baseline publication invalidation', () => {
       await db.confirmationTicket.deleteMany({ where });
       await db.approvalSlot.deleteMany({ where });
       await db.reviewRequest.deleteMany({ where });
+      await db.codeReviewEvidence.deleteMany({ where });
+      await db.webhookReceipt.deleteMany({ where });
       await db.artifactSetItem.deleteMany({ where });
       await db.artifact.deleteMany({ where });
       await db.artifactSet.deleteMany({ where });
@@ -66,6 +68,7 @@ suite('PostgreSQL baseline publication invalidation', () => {
       await db.principalStamp.deleteMany({ where });
       await db.projectRoleAssignment.deleteMany({ where });
       await db.projectRole.deleteMany({ where });
+      await db.projectRepository.deleteMany({ where });
       await db.projectMember.deleteMany({ where });
       await db.project.deleteMany({ where: { id: { in: projectIds } } });
       await db.webSession.deleteMany({ where: { userId: { in: userIds } } });
@@ -596,6 +599,106 @@ suite('PostgreSQL baseline publication invalidation', () => {
       state: 'ACCEPTED',
       baselineRelation: 'CURRENT',
     });
+    const repository = await db.projectRepository.create({
+      data: {
+        projectId: f.projectId,
+        adapter: 'GITHUB',
+        externalId: 'trust-github-repo',
+        owner: 'fixture',
+        name: 'trust',
+      },
+    });
+    const code = await db.artifact.create({
+      data: {
+        projectId: f.projectId,
+        taskId: qa.id,
+        artifactSetId: qa.currentArtifactSetId!,
+        kind: 'IMPL',
+        schemaVersion: '1',
+        storage: 'GIT_REF',
+        mediaType: 'text/plain',
+        byteLength: 0,
+        sha256: digest,
+        checks: [],
+        submittedByStampId: f.stamp.id,
+        projectRepositoryId: repository.id,
+        commitSha: 'c'.repeat(40),
+        repoPath: 'src/index.ts',
+      },
+    });
+    const receipt = await db.webhookReceipt.create({
+      data: {
+        projectId: f.projectId,
+        source: 'GITHUB',
+        eventType: 'pull_request_review',
+        deliveryId: randomUUID(),
+        signatureValid: true,
+        payloadDigest: digest,
+        status: 'PROCESSED',
+      },
+    });
+    const source = await db.codeReviewEvidence.create({
+      data: {
+        projectId: f.projectId,
+        repositoryId: repository.externalId!,
+        changeRequestId: '17',
+        headSha: code.commitSha!,
+        commitSha: code.commitSha,
+        authorExternalId: 'author',
+        reviewerExternalId: 'reviewer',
+        reviewerKind: 'USER',
+        state: 'APPROVED',
+        submittedAt: new Date(),
+        reviewExternalId: randomUUID(),
+        evidenceFingerprint: createHash('sha256').update(randomUUID()).digest('hex'),
+        receiptId: receipt.id,
+      },
+    });
+    await db.codeReviewEvidence.create({
+      data: {
+        projectId: f.projectId,
+        repositoryId: source.repositoryId,
+        changeRequestId: source.changeRequestId,
+        headSha: source.headSha,
+        authorExternalId: source.authorExternalId,
+        reviewerExternalId: source.reviewerExternalId,
+        reviewerKind: 'USER',
+        state: 'PENDING',
+        reviewExternalId: randomUUID(),
+        evidenceFingerprint: createHash('sha256').update(randomUUID()).digest('hex'),
+        artifactSetId: qa.currentArtifactSetId!,
+        preparedSecretHash: digest,
+        preparedExpiresAt: null,
+        preparedEvidenceId: source.id,
+        ticketGeneration: qa.generation,
+      },
+    });
+    const linkedCode = await service.detail(principal, f.projectId, f.requirementId);
+    expect(linkedCode.trustChain.tasks.find((item) => item.taskId === qa.id)?.state).toBe(
+      'ACCEPTED',
+    );
+    await db.codeReviewEvidence.create({
+      data: {
+        projectId: f.projectId,
+        repositoryId: source.repositoryId,
+        changeRequestId: source.changeRequestId,
+        headSha: 'd'.repeat(40),
+        commitSha: 'd'.repeat(40),
+        authorExternalId: source.authorExternalId,
+        reviewerExternalId: source.reviewerExternalId,
+        reviewerKind: 'USER',
+        state: 'COMMENTED',
+        submittedAt: new Date(Date.now() + 1000),
+        reviewExternalId: randomUUID(),
+        evidenceFingerprint: createHash('sha256').update(randomUUID()).digest('hex'),
+        receiptId: receipt.id,
+      },
+    });
+    const supersededCode = await service.detail(principal, f.projectId, f.requirementId);
+    expect(
+      supersededCode.trustChain.tasks.find((item) => item.taskId === qa.id)?.gapCodes,
+    ).toContain('CODE_EVIDENCE_INVALID');
+    await db.artifact.delete({ where: { id: code.id } });
     await db.contextSnapshot.update({
       where: { id: qa.currentSnapshotId! },
       data: {

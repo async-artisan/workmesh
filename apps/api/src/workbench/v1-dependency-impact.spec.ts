@@ -89,13 +89,14 @@ function reviewHarness(slotCount = 1) {
     retiredAt: null,
     workStatus: 'ACTIVE',
     definitionRevisionId: 'rev',
-    requirement: { workStatus: 'ACTIVE' },
+    requirement: { workStatus: 'ACTIVE', generation: 3 },
   };
   const root = {
     ...task('root', { executionStatus: 'REVIEW_PENDING' }),
     workflowInstanceId: 'instance',
     generation: 2,
     currentArtifactSetId: 'set',
+    currentSnapshotId: 'snapshot',
     instance,
   };
   const downstream = {
@@ -112,10 +113,11 @@ function reviewHarness(slotCount = 1) {
     taskId: 'root',
     taskGeneration: 2,
     artifactSetId: 'set',
+    subjectDigest: 'digest',
     documentRevision: null,
     approvalSlots: Array.from({ length: slotCount }, (_, index) => ({
       id: `slot${index}`,
-      decisions: [],
+      decisions: [] as Array<{ decision: string; subjectDigest: string }>,
     })),
   };
   const prisma = {
@@ -130,6 +132,28 @@ function reviewHarness(slotCount = 1) {
       findMany: vi
         .fn()
         .mockResolvedValue([{ id: 'rev', definition: graph({ root: [], next: ['root'] }) }]),
+    },
+    artifactSet: {
+      findMany: vi.fn().mockResolvedValue([
+        {
+          id: 'set',
+          taskId: 'root',
+          taskGeneration: 2,
+          snapshotId: 'snapshot',
+          manifestDigest: 'digest',
+        },
+      ]),
+    },
+    contextSnapshot: {
+      findMany: vi.fn().mockResolvedValue([
+        {
+          id: 'snapshot',
+          taskId: 'root',
+          taskGeneration: 2,
+          requirementId: 'r',
+          requirementGeneration: 3,
+        },
+      ]),
     },
   };
   const item = {
@@ -185,6 +209,65 @@ describe('workbench graph aggregation', () => {
     await revoked.run();
     expect(revoked.item.blocking).toBeNull();
     expect(revoked.authorize).toHaveBeenCalledTimes(2);
+  });
+  it('does not simulate a last signature for a different subject digest, snapshot or requirement generation', async () => {
+    const digest = reviewHarness();
+    digest.review.subjectDigest = 'old-digest';
+    await digest.run();
+    expect(digest.item.dependencyImpact).toMatchObject({
+      readyAfterAction: 0,
+      reason: 'STALE_SUBJECT',
+    });
+    const snapshot = reviewHarness();
+    snapshot.root.currentSnapshotId = 'replacement-snapshot';
+    await snapshot.run();
+    expect(snapshot.item.dependencyImpact).toMatchObject({
+      readyAfterAction: 0,
+      reason: 'STALE_SUBJECT',
+    });
+    const generation = reviewHarness();
+    generation.root.instance.requirement.generation = 4;
+    await generation.run();
+    expect(generation.item.dependencyImpact).toMatchObject({
+      readyAfterAction: 0,
+      reason: 'STALE_SUBJECT',
+    });
+    const absent = reviewHarness();
+    absent.prisma.artifactSet.findMany.mockResolvedValueOnce([]);
+    await absent.run();
+    expect(absent.item.dependencyImpact).toMatchObject({
+      status: 'UNAVAILABLE',
+      readyAfterAction: null,
+    });
+  });
+  it('requires earlier slots to approve this digest and the viewer to own the sole truly undecided slot', async () => {
+    const previous = reviewHarness(2);
+    previous.review.approvalSlots[1].decisions.push({
+      decision: 'APPROVE',
+      subjectDigest: 'old-digest',
+    });
+    await previous.run();
+    expect(previous.item.dependencyImpact).toMatchObject({
+      readyAfterAction: 0,
+      reason: 'OTHER_SLOTS_PENDING',
+    });
+    const current = reviewHarness(2);
+    current.review.approvalSlots[1].decisions.push({
+      decision: 'APPROVE',
+      subjectDigest: 'digest',
+    });
+    await current.run();
+    expect(current.item.dependencyImpact).toMatchObject({
+      readyAfterAction: 1,
+      reason: 'LAST_REQUIRED_SLOT',
+    });
+    const other = reviewHarness(2);
+    other.review.approvalSlots[0].decisions.push({ decision: 'APPROVE', subjectDigest: 'digest' });
+    await other.run();
+    expect(other.item.dependencyImpact).toMatchObject({
+      readyAfterAction: 0,
+      reason: 'NOT_ACTIONABLE',
+    });
   });
   it('does not suggest an approval will advance paused or retired work', async () => {
     const paused = reviewHarness();

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { ApiError, formatApiError } from '../api/client';
@@ -14,7 +14,6 @@ import {
   workflowApi,
   type ArtifactContentView,
   type ArtifactSetView,
-  type DocumentDetail,
   type RequirementView,
   type ReviewSlot,
   type ReviewView,
@@ -26,9 +25,10 @@ import { DiffViewer } from '../components/DiffViewer';
 import type { DecisionArtifactSummary, DecisionSummaryData } from '../components/DecisionSummary';
 import { EmptyState } from '../components/EmptyState';
 import { FullValueDisclosure } from '../components/FullValueDisclosure';
-import { ReviewDiscussions } from '../components/ReviewDiscussions';
+import { ReviewDiscussions, type ReviewDiscussionSummary } from '../components/ReviewDiscussions';
 import { AcceptanceEvidenceMatrix } from '../components/AcceptanceEvidenceMatrix';
 import { CodeEvidenceStatus } from '../components/CodeEvidenceStatus';
+import { VerificationEvidencePanel } from '../components/VerificationEvidencePanel';
 import { useAuthStore } from '../store/auth';
 import {
   ARTIFACT_KIND_LABELS,
@@ -45,6 +45,12 @@ import {
   type ReviewDecisionValue,
 } from '../lib/labels';
 import { diffLines, diffSummary } from '../lib/diff';
+import {
+  formatReviewEvidenceBasisSummary,
+  formatReviewEvidenceSummary,
+  selectReviewEvidenceSummary,
+  type ReviewEvidenceSummary,
+} from '../lib/reviewEvidenceSummary';
 type DecisionValue = ReviewDecisionValue;
 
 type DocumentSubject = {
@@ -267,6 +273,13 @@ export function ReviewDecision({
   );
   const [acceptance, setAcceptance] = useState<NonNullable<RevisionView['acceptance']>>([]);
   const [acceptancePrdRevisionId, setAcceptancePrdRevisionId] = useState<string | null>(null);
+  const [acceptanceSummary, setAcceptanceSummary] = useState<ReviewEvidenceSummary | null>(null);
+  const [discussionSummary, setDiscussionSummary] = useState<ReviewDiscussionSummary | null>(null);
+  const viewIdentity = JSON.stringify([user?.id ?? null, reviewId]);
+  const viewIdentityRef = useRef(viewIdentity);
+  viewIdentityRef.current = viewIdentity;
+  const requirementContextRequestRef = useRef(0);
+  const prdContextRequestRef = useRef(0);
   const [contexts, setContexts] = useState<Record<ContextKind, ContextState>>(() => ({
     ...EMPTY_CONTEXTS,
   }));
@@ -277,6 +290,10 @@ export function ReviewDecision({
   const [decision, setDecision] = useState<DecisionValue>('APPROVE');
   const [comment, setComment] = useState('');
   const [pending, setPending] = useState<{
+    viewIdentity: string;
+    reviewId: string;
+    version: number;
+    subjectDigest: string;
     slot: ReviewSlot;
     decision: DecisionValue;
     comment: string;
@@ -292,6 +309,7 @@ export function ReviewDecision({
     artifact: ArtifactSetView['artifacts'][number],
   ): Promise<ArtifactContentView | null> {
     if (!artifactSet) return null;
+    const identity = viewIdentity;
     const current = artifactContents[artifact.id];
     if (current?.status === 'loaded' && current.data) return current.data;
     setArtifactContents((prev) => ({
@@ -300,12 +318,14 @@ export function ReviewDecision({
     }));
     try {
       const value = await artifactApi.content(artifactSet.id, artifact.id);
+      if (identity !== viewIdentityRef.current) return null;
       setArtifactContents((prev) => ({
         ...prev,
         [artifact.id]: { status: 'loaded', data: value },
       }));
       return value;
     } catch (caught) {
+      if (identity !== viewIdentityRef.current) return null;
       setArtifactContents((prev) => ({
         ...prev,
         [artifact.id]: { status: 'error', error: formatApiError(caught) },
@@ -389,46 +409,57 @@ export function ReviewDecision({
     requirementId: string | null,
     alive: () => boolean = () => true,
   ) {
+    if (!alive()) return;
+    const requestId = ++prdContextRequestRef.current;
+    const current = () => alive() && prdContextRequestRef.current === requestId;
+    if (!current()) return;
+    setAcceptance([]);
+    setAcceptancePrdRevisionId(null);
     if (!requirementId) {
       setContext('prd', { status: 'empty' });
       return;
     }
     setContext('prd', { status: 'loading' });
     try {
-      const items: DocumentDetail[] = [];
-      const seen = new Set<string>();
-      let cursor: string | undefined;
-      for (let pageNumber = 0; pageNumber < 40; pageNumber += 1) {
-        const page = await documentApi.list(reviewValue.projectId, 'PRD', cursor);
-        if (!alive()) return;
-        items.push(...page.items);
-        if (!page.nextCursor) break;
-        if (seen.has(page.nextCursor) || pageNumber === 39)
-          throw new Error('PRD 列表未完整读取，不能确认验收范围，请稍后重试。');
-        seen.add(page.nextCursor);
-        cursor = page.nextCursor;
-      }
-      if (!alive()) return;
-      const matching = [
-        ...new Map(
-          items
-            .filter(
-              (item) =>
-                item.document.requirementId === requirementId &&
-                !item.document.archivedAt &&
-                item.publishedRevision,
-            )
-            .map((item) => [item.document.id, item]),
-        ).values(),
-      ];
-      if (matching.length > 1)
+      const page = await documentApi.publishedPrds(reviewValue.projectId, requirementId);
+      if (!current()) return;
+      if (!Number.isSafeInteger(page.total) || page.total < 0 || !Array.isArray(page.items))
+        throw new Error('PRD 概要读取结果不完整，无法确认验收范围，请刷新后重试。');
+      if (page.total > 1)
         throw new Error('该需求有多份已发布 PRD，无法确定本次验收基线；请管理员确认。');
-      const prd = matching[0];
-      setAcceptance(prd?.publishedRevision?.acceptance ?? []);
-      setAcceptancePrdRevisionId(prd?.publishedRevision?.id ?? null);
-      setContext('prd', { status: prd ? 'loaded' : 'empty' });
+      if (page.items.length !== page.total)
+        throw new Error('PRD 概要读取结果不完整，无法确认验收范围，请刷新后重试。');
+      if (page.total === 0) {
+        setContext('prd', { status: 'empty' });
+        return;
+      }
+      const { document, publishedRevision } = page.items[0]!;
+      if (
+        !document ||
+        !publishedRevision ||
+        !document.id ||
+        !publishedRevision.id ||
+        document.projectId !== reviewValue.projectId ||
+        document.requirementId !== requirementId ||
+        document.kind !== 'PRD' ||
+        document.archivedAt !== null ||
+        document.currentPublishedRevisionId !== publishedRevision.id ||
+        publishedRevision.documentId !== document.id
+      )
+        throw new Error('PRD 发布资料已变化或读取结果不一致，请刷新后重新确认验收范围。');
+      const metadata = await documentApi.revisionMetadata(document.id, publishedRevision.id);
+      if (!current()) return;
+      if (
+        metadata.id !== publishedRevision.id ||
+        metadata.documentId !== document.id ||
+        metadata.state !== 'PUBLISHED'
+      )
+        throw new Error('PRD 发布版本已变化，请刷新后重新确认验收范围。');
+      setAcceptance(metadata.acceptance ?? []);
+      setAcceptancePrdRevisionId(metadata.id);
+      setContext('prd', { status: 'loaded' });
     } catch (caught) {
-      if (!alive()) return;
+      if (!current()) return;
       setContext('prd', toContextState(caught));
     }
   }
@@ -438,6 +469,9 @@ export function ReviewDecision({
     reviewValue: ReviewView,
     alive: () => boolean = () => true,
   ) {
+    if (!alive()) return;
+    const requestId = ++requirementContextRequestRef.current;
+    const current = () => alive() && requirementContextRequestRef.current === requestId;
     if (!reviewValue.taskId) {
       setContext('requirement', { status: reviewValue.requirement ? 'loaded' : 'empty' });
       return;
@@ -446,12 +480,14 @@ export function ReviewDecision({
     setContext('prd', { status: 'loading' });
     try {
       const taskValue = await taskApi.get(reviewValue.taskId);
+      if (!current()) return;
       const instance = await workflowApi.instance(taskValue.workflowInstanceId);
+      if (!current()) return;
       const requirementDetail = await requirementApi.detail(
         reviewValue.projectId,
         instance.requirementId,
       );
-      if (!alive()) return;
+      if (!current()) return;
       const stepKey =
         requirementDetail.tasks.find((item) => item.id === reviewValue.taskId)?.stepKey ??
         taskValue.stepKey;
@@ -465,9 +501,9 @@ export function ReviewDecision({
           null,
       );
       setContext('requirement', { status: 'loaded' });
-      await loadPrdContext(reviewValue, requirementDetail.requirement.id, alive);
+      await loadPrdContext(reviewValue, requirementDetail.requirement.id, current);
     } catch (caught) {
-      if (!alive()) return;
+      if (!current()) return;
       setContext('requirement', toContextState(caught));
       setContext('prd', { status: 'idle' });
     }
@@ -476,6 +512,8 @@ export function ReviewDecision({
   useEffect(() => {
     if (!reviewId) return;
     let alive = true;
+    requirementContextRequestRef.current += 1;
+    prdContextRequestRef.current += 1;
     const isAlive = () => alive;
     setLoading(true);
     setError('');
@@ -493,8 +531,12 @@ export function ReviewDecision({
     setAcceptance([]);
     setAcceptancePrdRevisionId(null);
     setContexts({ ...EMPTY_CONTEXTS });
+    setAcceptanceSummary(null);
+    setDiscussionSummary(null);
     setEvidenceAcknowledged(false);
     setActiveSlot(null);
+    setPending(null);
+    setComment('');
     setReceipt(null);
 
     async function load() {
@@ -551,8 +593,10 @@ export function ReviewDecision({
 
     return () => {
       alive = false;
+      requirementContextRequestRef.current += 1;
+      prdContextRequestRef.current += 1;
     };
-  }, [reviewId]);
+  }, [reviewId, user?.id]);
 
   const diffStats = useMemo(() => {
     if (!content || publishedText === null) return null;
@@ -603,6 +647,15 @@ export function ReviewDecision({
   async function submitDecision(confirmation: { ticketId: string; ticketSecret: string }) {
     if (!review || !pending) throw new Error('缺少评审目标');
     if (
+      pending.reviewId !== review.id ||
+      pending.viewIdentity !== viewIdentity ||
+      pending.version !== review.version ||
+      pending.subjectDigest !== review.subjectDigest ||
+      viewIdentity !== viewIdentityRef.current
+    )
+      throw new Error('评审对象或版本已变化，请重新核对摘要后作出决定');
+    const identity = viewIdentity;
+    if (
       (pending.decision === 'CHANGES_REQUESTED' || pending.decision === 'REJECT') &&
       !pending.comment.trim()
     )
@@ -614,6 +667,7 @@ export function ReviewDecision({
       comment: pending.comment.trim() || undefined,
       confirmation,
     });
+    if (identity !== viewIdentityRef.current) return;
     setReview(result.review);
     setReceipt({
       decision: pending.decision,
@@ -684,7 +738,16 @@ export function ReviewDecision({
     );
   }
 
-  if (!review) return null;
+  if (!review || review.id !== reviewId) return null;
+
+  const currentPending =
+    pending &&
+    pending.viewIdentity === viewIdentity &&
+    pending.reviewId === review.id &&
+    pending.version === review.version &&
+    pending.subjectDigest === review.subjectDigest
+      ? pending
+      : null;
 
   const open = review.status === 'OPEN';
   const actionableSlots = review.slots.filter((slot) => slot.viewerCanDecide && open);
@@ -732,6 +795,56 @@ export function ReviewDecision({
     reviewRequiresCompleteEvidence(review.kind) && unresolvedTruncatedArtifacts.length > 0;
   const requiresEvidenceAck =
     reviewRequiresCompleteEvidence(review.kind) && evidenceIncomplete && !evidenceLoadBlocked;
+
+  const evidenceScopeKey = JSON.stringify([
+    user?.id,
+    review.id,
+    review.version,
+    review.subjectDigest,
+    artifactSet?.id,
+    artifactSet?.manifestDigest,
+    artifactSet?.snapshotId,
+    acceptancePrdRevisionId,
+  ]);
+  const currentAcceptanceSummary = selectReviewEvidenceSummary(acceptanceSummary, evidenceScopeKey);
+  const acceptanceText = !isTaskEvidence
+    ? '文档评审：请核对本修订正文、差异及验收条款。'
+    : contexts.prd.status === 'error' || contexts.prd.status === 'forbidden'
+      ? '验收范围未知：PRD 上下文未能读取，请重试或请有权限的评审人核对。'
+      : contexts.prd.status === 'empty'
+        ? '没有已发布 PRD 可供对照，验收范围待人工确认。'
+        : contexts.prd.status !== 'loaded'
+          ? '正在读取 PRD 上下文，验收报告待确认。'
+          : acceptance.length === 0
+            ? '已发布 PRD 没有结构化验收标准，验收范围待人工确认。'
+            : currentAcceptanceSummary
+              ? formatReviewEvidenceSummary(currentAcceptanceSummary)
+              : '正在读取完整质量包，验收报告待确认。';
+  const basisText = !isTaskEvidence
+    ? '本页展示指定文档修订；人工决定只适用于当前评审对象及版本。'
+    : currentAcceptanceSummary
+      ? formatReviewEvidenceBasisSummary(currentAcceptanceSummary)
+      : '证据版本依据待核对，尚不能确认与当前验收范围匹配。';
+  const codeReviewText = codeReviewMissing
+    ? '必需的人类代码评审证据未满足；原有批准门禁仍生效。'
+    : contexts.artifactSet.status === 'error' || contexts.artifactSet.status === 'forbidden'
+      ? '交付物上下文未读取，代码评审要求与证据待确认。'
+      : artifactSet?.codeReview?.required
+        ? '服务端确认当前代码评审要求已满足；这不代表验收报告通过。'
+        : '当前已读对象未要求额外代码评审门禁。';
+  const currentDiscussionSummary =
+    discussionSummary?.scopeKey === evidenceScopeKey ? discussionSummary : null;
+  const discussionText =
+    !currentDiscussionSummary || currentDiscussionSummary.status === 'LOADING'
+      ? '正在读取评审问题，未解决数量待确认。'
+      : currentDiscussionSummary.status === 'ERROR'
+        ? '问题读取失败，未解决数量未知；请在问题区重试。'
+        : currentDiscussionSummary.status === 'STALE'
+          ? `问题刷新失败；上次读取有 ${currentDiscussionSummary.unresolvedCount ?? '未知数量的'} 个未解决问题，当前数量待确认。`
+          : `服务端当前可见范围内有 ${currentDiscussionSummary.unresolvedCount} 个未解决问题；问题解决与正式批准分别记录。`;
+  const formalDecisionText = open
+    ? `当前评审 v${review.version} 等待 HUMAN 在分配的槽位作出正式决定；报告或问题状态不会代替签字。`
+    : `当前评审 v${review.version} 已${labelFor(REVIEW_STATUS_LABELS, review.status)}；原决定保留其对象与版本范围。`;
 
   // ---- 确认摘要数据（全部来自真实已加载数据）----
   const allChecks = (artifactSet?.artifacts ?? []).flatMap((artifact) => artifact.checks);
@@ -802,6 +915,7 @@ export function ReviewDecision({
               : '请在确认前自行判断证据是否足以支持该决定。'
           }`
         : undefined,
+      evidenceOverview: { acceptanceText, basisText, discussionText, codeReviewText },
     };
   }
 
@@ -937,7 +1051,17 @@ export function ReviewDecision({
                 ? 'review-next-step-blocked'
                 : undefined
             }
-            onClick={() => setPending({ slot: activeSlot!, decision, comment })}
+            onClick={() =>
+              setPending({
+                viewIdentity,
+                reviewId: review!.id,
+                version: review!.version,
+                subjectDigest: review!.subjectDigest,
+                slot: activeSlot!,
+                decision,
+                comment,
+              })
+            }
           >
             下一步：预览并验证
             <ArrowRight size={14} />
@@ -995,13 +1119,13 @@ export function ReviewDecision({
 
       <div className={`req-layout${embedded ? ' is-embedded' : ''}`}>
         <div className="req-main">
-          <ReviewDiscussions key={review.id} reviewId={review.id} />
           <div
             className={`detail-card review-evidence-status${evidenceIncomplete || codeReviewMissing ? ' is-warning' : ''}`}
             role="status"
+            aria-label="评审依据概览"
           >
             <div className="detail-card-head">
-              <h3>证据完整性</h3>
+              <h3>评审依据概览</h3>
               <span
                 className={
                   criticalLoading || evidenceAbsent
@@ -1019,9 +1143,43 @@ export function ReviewDecision({
                       ? '不完整'
                       : evidenceAbsent
                         ? '无证据'
-                        : '完整'}
+                        : '关键资料已读全'}
               </span>
             </div>
+            <dl className="detail-list">
+              <div>
+                <dt>资料读取</dt>
+                <dd>
+                  {criticalLoading
+                    ? '关键上下文正在读取。'
+                    : evidenceIncomplete
+                      ? `仍有读取缺口：${evidenceIssues.join('；')}。`
+                      : evidenceAbsent
+                        ? '没有附带正文或工件。'
+                        : '关键资料已读全；报告结论和版本关系分别核对。'}
+                </dd>
+              </div>
+              <div>
+                <dt>验收报告</dt>
+                <dd>{acceptanceText}</dd>
+              </div>
+              <div>
+                <dt>版本关系</dt>
+                <dd>{basisText}</dd>
+              </div>
+              <div>
+                <dt>代码评审</dt>
+                <dd>{codeReviewText}</dd>
+              </div>
+              <div>
+                <dt>正式决定</dt>
+                <dd>{formalDecisionText}</dd>
+              </div>
+              <div>
+                <dt>评审问题</dt>
+                <dd>{discussionText}</dd>
+              </div>
+            </dl>
             {criticalLoading ? (
               <p className="task-row-meta">
                 正在读取交付物与需求上下文，读取完成后才能判断证据是否完整。
@@ -1072,13 +1230,20 @@ export function ReviewDecision({
                 ) : (
                   !codeReviewMissing && (
                     <p className="task-row-meta">
-                      证据完整：关键上下文均已成功读取；被截断的预览已按需加载完整正文。
+                      资料读取完成：关键上下文均已成功读取；被截断的预览已按需加载完整正文。验收结论请对照验收报告。
                     </p>
                   )
                 )}
               </>
             )}
           </div>
+
+          <ReviewDiscussions
+            key={`${user?.id}:${review.id}`}
+            reviewId={review.id}
+            scopeKey={evidenceScopeKey}
+            onSummaryChange={setDiscussionSummary}
+          />
 
           {revision && content && (
             <div className="detail-card">
@@ -1376,6 +1541,20 @@ export function ReviewDecision({
             </>
           )}
 
+          {artifactSet && review.artifactSetId && (
+            <VerificationEvidencePanel
+              projectId={review.projectId}
+              artifactSetId={review.artifactSetId}
+              taskHref={
+                (requirement?.code ?? review.requirement?.code) && review.taskId
+                  ? '/requirements/' +
+                    encodeURIComponent((requirement?.code ?? review.requirement?.code)!) +
+                    '?tab=tasks&taskId=' + encodeURIComponent(review.taskId)
+                  : undefined
+              }
+            />
+          )}
+
           {artifactSet?.codeReview?.required && (
             <div
               id="review-code-evidence"
@@ -1387,7 +1566,16 @@ export function ReviewDecision({
                   {artifactSet.codeReview.acceptable ? '已满足' : '缺少有效证据'}
                 </span>
               </div>
-              <CodeEvidenceStatus diagnostics={artifactSet.codeReview.diagnostics} />
+              <CodeEvidenceStatus
+                diagnostics={artifactSet.codeReview.diagnostics}
+                taskHref={
+                  (requirement?.code ?? review.requirement?.code) && review.taskId
+                    ? '/requirements/' +
+                      encodeURIComponent((requirement?.code ?? review.requirement?.code)!) +
+                      '?tab=tasks&taskId=' + encodeURIComponent(review.taskId)
+                    : undefined
+                }
+              />
               {artifactSet.codeReview.acceptable ? (
                 <div className="evidence-list">
                   {artifactSet.codeReview.evidence.map((item) => (
@@ -1523,6 +1711,8 @@ export function ReviewDecision({
                     requirementId={requirement?.id ?? review.requirement?.id ?? null}
                     prdRevisionId={acceptancePrdRevisionId}
                     artifactSet={artifactSet}
+                    scopeKey={evidenceScopeKey}
+                    onSummaryChange={setAcceptanceSummary}
                   />
                 </div>
               )}
@@ -1759,29 +1949,31 @@ export function ReviewDecision({
       )}
 
       <ConfirmationPrompt
-        open={Boolean(pending)}
+        open={Boolean(currentPending)}
         title="确认评审决定"
-        description={pending ? `槽位 ${pending.slot.slotKey} · 评审 v${review.version}` : ''}
-        summary={pending ? decisionSummaryFor(pending) : undefined}
+        description={
+          currentPending ? `槽位 ${currentPending.slot.slotKey} · 评审 v${review.version}` : ''
+        }
+        summary={currentPending ? decisionSummaryFor(currentPending) : undefined}
         binding={
-          pending
+          currentPending
             ? {
                 action: 'REVIEW_DECIDE',
                 projectId: review.projectId,
                 targetType: 'REVIEW_REQUEST',
                 targetId: review.id,
                 expectedVersion: review.version,
-                roleSlot: pending.slot.requiredRoleId
+                roleSlot: currentPending.slot.requiredRoleId
                   ? {
-                      roleId: pending.slot.requiredRoleId,
-                      approvalSlotId: pending.slot.id,
+                      roleId: currentPending.slot.requiredRoleId,
+                      approvalSlotId: currentPending.slot.id,
                     }
                   : null,
                 payload: {
-                  slotId: pending.slot.id,
-                  decision: pending.decision,
+                  slotId: currentPending.slot.id,
+                  decision: currentPending.decision,
                   subjectDigest: review.subjectDigest,
-                  comment: pending.comment.trim() || null,
+                  comment: currentPending.comment.trim() || null,
                 },
               }
             : null

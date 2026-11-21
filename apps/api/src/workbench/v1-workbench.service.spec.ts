@@ -403,6 +403,214 @@ describe('V1WorkbenchService', () => {
 
     expect(result.counts.total).toBe(0);
     expect(result.warnings.join(' ')).toContain('评审数据加载失败');
+    expect(result.coverage.streams.find((item) => item.stream === 'REVIEWS')).toMatchObject({
+      status: 'ERROR',
+      loadedCount: 0,
+      reason: 'LOAD_FAILED',
+      projectIds: ['p1'],
+    });
+    expect(result.coverage.streams.find((item) => item.stream === 'CHANGES')).toMatchObject({
+      status: 'COMPLETE',
+      loadedCount: 0,
+    });
+  });
+
+  it('preserves per-domain page coverage without downloading later pages or full reports', async () => {
+    const { service, prisma, authorization, reviews, changes, ready } = createHarness();
+    prisma.project.findMany.mockResolvedValue([{ id: 'p1', key: 'DEMO', name: 'Demo' }]);
+    authorization.resolveProjectContext.mockResolvedValue({ activeRoleIds: [] });
+    reviews.listReviews.mockResolvedValue({ items: [], nextCursor: 'review-next', hasMore: true });
+    changes.listRecipients.mockResolvedValue({ items: [], nextCursor: 'change-next' });
+    ready.ready.mockResolvedValue({ items: [], nextCursor: null, hasMore: false });
+    prisma.approvalSlot.findMany.mockResolvedValue([]);
+    const result = await service.get(principal, 'p1');
+    expect(result.coverage.countBasis).toBe('LOADED_ROWS');
+    expect(result.coverage.streams).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stream: 'REVIEWS',
+          status: 'PARTIAL',
+          nextCursor: 'review-next',
+          loadedCount: 0,
+        }),
+        expect.objectContaining({
+          stream: 'CHANGES',
+          status: 'PARTIAL',
+          nextCursor: 'change-next',
+        }),
+        expect.objectContaining({ stream: 'READY_TASKS', status: 'COMPLETE', nextCursor: null }),
+      ]),
+    );
+    expect(reviews.listReviews).toHaveBeenCalledTimes(1);
+    expect(changes.listRecipients).toHaveBeenCalledTimes(1);
+    expect(ready.ready).toHaveBeenCalledTimes(1);
+    expect(prisma.artifactSet.findMany).not.toHaveBeenCalled();
+    expect(Number.isFinite(Date.parse(result.coverage.checkedAt))).toBe(true);
+  });
+
+  it('projects only submitted failed checks and does not change a visible reviewer slot eligibility', async () => {
+    const { service, prisma, authorization, reviews, changes, ready } = createHarness();
+    prisma.project.findMany.mockResolvedValue([{ id: 'p1', key: 'DEMO', name: 'Demo' }]);
+    authorization.resolveProjectContext.mockResolvedValue({ activeRoleIds: ['role-qa'] });
+    reviews.listReviews.mockResolvedValue({
+      items: [
+        {
+          id: 'review-1',
+          kind: 'TASK_ACCEPTANCE',
+          status: 'OPEN',
+          version: 4,
+          taskId: null,
+          documentRevisionId: null,
+          artifactSetId: 'set-1',
+          decisions: [],
+          slots: [
+            { id: 'slot-1', slotKey: 'qa', requiredUserId: 'u-2', requiredRoleId: 'role-qa' },
+          ],
+        },
+      ],
+      nextCursor: null,
+    });
+    changes.listRecipients.mockResolvedValue({ items: [], nextCursor: null });
+    ready.ready.mockResolvedValue({ items: [], nextCursor: null });
+    prisma.reviewRequest.findMany.mockResolvedValue([{ id: 'review-1', createdAt: new Date() }]);
+    prisma.projectRole.findMany.mockResolvedValue([{ id: 'role-qa', key: 'qa', title: 'QA' }]);
+    prisma.artifactSet.findMany.mockResolvedValue([
+      {
+        id: 'set-1',
+        artifacts: [
+          {
+            id: 'artifact-1',
+            kind: 'IMPL',
+            commitSha: null,
+            projectRepositoryId: null,
+            checks: [
+              { code: 'unit', passed: false },
+              { code: 'lint', passed: true },
+              { code: 'unknown', passed: 'false' },
+            ],
+          },
+        ],
+      },
+    ]);
+    prisma.approvalSlot.findMany.mockResolvedValue([]);
+    const result = await service.get(principal, 'p1');
+    expect(result.reviews[0].slots[0].viewerCanDecide).toBe(true);
+    expect(result.reviews[0].attention).toMatchObject({
+      reviewId: 'review-1',
+      reviewVersion: 4,
+      status: 'PARTIAL',
+      reportedChecks: { source: 'ARTIFACT_CHECKS', total: 3, failed: 1 },
+      qualityReport: 'NOT_QUERIED',
+      codeReview: 'NOT_QUERIED',
+      discussion: 'NOT_QUERIED',
+      basis: 'UNKNOWN',
+      reasons: [
+        {
+          code: 'REPORTED_CHECK_FAILED',
+          responsibleRole: { id: 'role-qa' },
+          nextAction: { reviewId: 'review-1' },
+        },
+        { code: 'DETAILS_NOT_QUERIED' },
+      ],
+    });
+    expect(prisma.artifactSet.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.artifactSet.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: { in: ['set-1'] } },
+      }),
+    );
+    expect(JSON.stringify(prisma.artifactSet.findMany.mock.calls)).not.toContain('content');
+  });
+
+  it('isolates enrichment failures while retaining independently read task data and page status', async () => {
+    const { service, prisma, authorization, reviews, changes, ready } = createHarness();
+    prisma.project.findMany.mockResolvedValue([{ id: 'p1', key: 'DEMO', name: 'Demo' }]);
+    authorization.resolveProjectContext.mockResolvedValue({ activeRoleIds: [] });
+    reviews.listReviews.mockResolvedValue({
+      items: [
+        {
+          id: 'review-1',
+          taskId: null,
+          documentRevisionId: null,
+          artifactSetId: null,
+          slots: [],
+          decisions: [],
+        },
+      ],
+      nextCursor: null,
+    });
+    changes.listRecipients.mockResolvedValue({ items: [], nextCursor: null });
+    ready.ready.mockResolvedValue({
+      items: [{ id: 'task-1', stepKey: 'qa', executionStatus: 'OPEN', workStatus: 'ACTIVE' }],
+      nextCursor: null,
+    });
+    prisma.reviewRequest.findMany.mockRejectedValue({ code: 'READ_TIMEOUT' });
+    prisma.projectRole.findMany.mockResolvedValue([]);
+    prisma.task.findMany.mockResolvedValue([]);
+    prisma.approvalSlot.findMany.mockResolvedValue([]);
+    const result = await service.get(principal, 'p1');
+    expect(result.readyTasks).toHaveLength(1);
+    expect(result.reviews).toEqual([]);
+    expect(result.coverage.streams.find((item) => item.stream === 'REVIEWS')).toMatchObject({
+      status: 'ERROR',
+      loadedCount: 0,
+      errorCode: 'READ_TIMEOUT',
+    });
+    expect(result.coverage.streams.find((item) => item.stream === 'READY_TASKS')?.status).toBe(
+      'COMPLETE',
+    );
+    expect(result.warnings.join(' ')).toContain('评审摘要加载失败');
+  });
+
+  it('keeps the global overdue cap distinct from per-project completeness and isolates a read error', async () => {
+    const { service, prisma, authorization, reviews, changes, ready } = createHarness();
+    prisma.project.findMany.mockResolvedValue([
+      { id: 'p1', key: 'DEMO', name: 'Demo' },
+      { id: 'p2', key: 'OTHER', name: 'Other' },
+    ]);
+    authorization.resolveProjectContext.mockResolvedValue({ activeRoleIds: [] });
+    reviews.listReviews.mockResolvedValue({ items: [], nextCursor: null });
+    changes.listRecipients.mockResolvedValue({ items: [], nextCursor: null });
+    ready.ready.mockResolvedValue({ items: [], nextCursor: null });
+    prisma.approvalSlot.findMany.mockResolvedValue(
+      Array.from({ length: 51 }, (_, index) => ({
+        id: `slot-${index}`,
+        slotKey: 'qa',
+        kind: 'TASK_ACCEPTANCE',
+        reviewRequestId: `review-${index}`,
+        projectId: 'p1',
+        dueAt: new Date(Date.now() - 1000),
+        escalatedAt: null,
+      })),
+    );
+    const result = await service.get(principal, null);
+    expect(result.overdueApprovals).toHaveLength(50);
+    expect(
+      result.coverage.streams.find((item) => item.stream === 'OVERDUE_APPROVALS'),
+    ).toMatchObject({
+      projectIds: ['p1', 'p2'],
+      projectKey: null,
+      status: 'PARTIAL',
+      loadedCount: 50,
+      hasMore: true,
+    });
+    expect(prisma.approvalSlot.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 51 }),
+    );
+    prisma.approvalSlot.findMany.mockRejectedValue({ code: 'DATABASE_UNAVAILABLE' });
+    const failed = await service.get(principal, null);
+    expect(
+      failed.coverage.streams.find((item) => item.stream === 'OVERDUE_APPROVALS'),
+    ).toMatchObject({
+      status: 'ERROR',
+      loadedCount: 0,
+      errorCode: 'DATABASE_UNAVAILABLE',
+    });
+    expect(
+      failed.coverage.streams
+        .filter((item) => item.stream !== 'OVERDUE_APPROVALS')
+        .every((item) => item.status === 'COMPLETE'),
+    ).toBe(true);
   });
 
   it('聚合逾期审批：跨项目按 dueAt 升序返回，并标记是否已升级', async () => {

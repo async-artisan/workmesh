@@ -33,6 +33,7 @@ export const SCRIPT_TESTS = [
   'scripts/lib/isolated-prisma-paths.test.mjs',
   'scripts/test-integration.test.mjs',
   'scripts/first-run-demo-key.test.mjs',
+  'scripts/lib/document-summary-reader.test.mjs',
   'scripts/box/dependency-links.test.mjs',
   'scripts/box/web-server.test.mjs',
   'scripts/api-agent-poc/runtime.test.mjs',

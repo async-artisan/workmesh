@@ -1,13 +1,12 @@
 import { buildStandardWorkflowTemplate } from '@workmesh/shared';
 import { ApiError, formatApiError } from '../api/client';
+import { documentSummaryApi, type DocumentSummary } from '../api/documentSummaries';
 import {
   boardApi,
-  documentApi,
   knowledgeBindingApi,
   projectApi,
   workflowApi,
   workspaceApi,
-  type DocumentDetail,
   type KnowledgeBindingsView,
   type MemberView,
   type RoleView,
@@ -196,10 +195,10 @@ export async function checkPublishedKnowledge(
       detail: '选定流程没有必需的“已发布知识”输入；外部输入和需求资料仍需在任务上下文中提供。',
     };
   if (!bindings.ok) return { state: 'UNKNOWN', detail: bindings.reason };
-  const documents = new Map<string, ReadResult<DocumentDetail>>();
+  const documents = new Map<string, ReadResult<DocumentSummary>>();
   await Promise.all(
     [...new Set(sources.map((source) => source.reference))].map(async (id) =>
-      documents.set(id, await readReadiness(documentApi.get(id))),
+      documents.set(id, await readReadiness(documentSummaryApi.summary(id))),
     ),
   );
   const missing: string[] = [];

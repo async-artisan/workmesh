@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "1.1",
+  "stage": "DELIVERY",
+  "requirementId": "PROJECT-001",
+  "basis": {
+    "prdRevisionId": "replace-with-published-prd-revision",
+    "snapshotId": "replace-with-task-snapshot",
+    "projectRepositoryId": "replace-with-registered-workmesh-repository-id",
+    "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "acceptance": [{ "key": "ac-01", "text": "有效输入产生预期结果", "verification": "TEST" }],
+  "tasks": [
+    { "id": "impl-01", "acceptanceKeys": ["ac-01"], "dependsOn": [], "files": ["src/feature.ts"] }
+  ],
+  "cases": [
+    {
+      "id": "TC-01",
+      "covers": ["ac-01"],
+      "kind": "TEST",
+      "revision": {
+        "artifactId": "replace-with-existing-cases-artifact-id",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "id": "execution-01",
+      "acceptanceKeys": ["ac-01"],
+      "caseRefs": [
+        {
+          "caseId": "TC-01",
+          "revision": {
+            "artifactId": "replace-with-existing-cases-artifact-id",
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        }
+      ],
+      "result": "NOT_RUN",
+      "source": "AGENT_REPORTED",
+      "ref": "replace-with-actual-execution-record",
+      "basis": {
+        "prdRevisionId": "replace-with-published-prd-revision",
+        "snapshotId": "replace-with-task-snapshot",
+        "projectRepositoryId": "replace-with-registered-workmesh-repository-id",
+        "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
+  ]
+}

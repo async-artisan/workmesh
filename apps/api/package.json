@@ -41,7 +41,8 @@
     "pdf-parse": "^2.4.5",
     "prisma": "^5.21.1",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "yauzl": "3.4.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.24",
@@ -50,6 +51,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/express": "^5.0.0",
     "@types/supertest": "^6.0.2",
+    "@types/yauzl": "3.4.0",
     "@vitest/coverage-v8": "4.1.12",
     "supertest": "^7.0.0",
     "tsx": "^4.19.1",

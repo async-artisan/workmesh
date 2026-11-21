@@ -6,19 +6,35 @@ export type QualityIssue = {
   location: string;
   message: string;
 };
-export type QualityEvidence = {
+export type QualityBasisV10 = { prdRevisionId: string; snapshotId: string; commitSha?: string };
+export type QualityBasisV11 = QualityBasisV10 & { projectRepositoryId: string };
+export type QualityCaseRevision = { artifactId: string; sha256: string };
+export type QualityCaseRef = { caseId: string; revision: QualityCaseRevision };
+export type QualityResult = 'PASSED' | 'FAILED' | 'BLOCKED' | 'NOT_RUN';
+export type QualityCoverageStatus =
+  'PLANNED' | 'REPORTED_PASS' | 'FAILED' | 'BLOCKED' | 'NOT_RUN' | 'MISSING';
+export type QualityEvidenceV10 = {
   id: string;
   acceptanceKeys: string[];
-  result: 'PASSED' | 'FAILED' | 'BLOCKED' | 'NOT_RUN';
+  result: QualityResult;
   source: 'AGENT_REPORTED' | 'EXTERNAL_REFERENCE';
   ref: string;
-  basis: { prdRevisionId: string; snapshotId: string; commitSha: string };
+  basis: QualityBasisV10 & { commitSha: string };
 };
-export type QualityBundle = {
-  schemaVersion: '1.0';
+export type QualityEvidenceV11 = Omit<QualityEvidenceV10, 'basis'> & {
+  basis: QualityBasisV11 & { commitSha: string };
+  caseRefs: QualityCaseRef[];
+};
+export type QualityEvidence = QualityEvidenceV10 | QualityEvidenceV11;
+export type QualityCaseV10 = {
+  id: string;
+  covers: string[];
+  kind: 'TEST' | 'INSPECTION' | 'DEMO';
+};
+export type QualityCaseV11 = QualityCaseV10 & { revision: QualityCaseRevision };
+type QualityBundleCommon = {
   stage: QualityStage;
   requirementId: string;
-  basis: { prdRevisionId: string; snapshotId: string; commitSha?: string };
   acceptance: Array<{ key: string; text: string; verification: 'TEST' | 'INSPECTION' | 'DEMO' }>;
   tasks: Array<{
     id: string;
@@ -27,15 +43,25 @@ export type QualityBundle = {
     files: string[];
     parallel?: boolean;
   }>;
-  cases: Array<{
-    id: string;
-    covers: string[];
-    kind: 'TEST' | 'INSPECTION' | 'DEMO';
-  }>;
-  evidence: QualityEvidence[];
 };
-export type QualityReport = {
+export type QualityBundleV10 = QualityBundleCommon & {
   schemaVersion: '1.0';
+  basis: QualityBasisV10;
+  cases: QualityCaseV10[];
+  evidence: QualityEvidenceV10[];
+};
+export type QualityBundleV11 = QualityBundleCommon & {
+  schemaVersion: '1.1';
+  basis: QualityBasisV11;
+  cases: QualityCaseV11[];
+  evidence: QualityEvidenceV11[];
+};
+export type QualityBundle = QualityBundleV10 | QualityBundleV11;
+export type QualityReport = {
+  /** 分析报告自身的结构版本，与被分析质量包的版本分开。 */
+  schemaVersion: '1.0';
+  bundleSchemaVersion: QualityBundle['schemaVersion'] | null;
+  executionLinkage: 'LEGACY_UNLINKED' | 'EXPLICIT_CASE_REVISION' | null;
   stage: QualityStage | null;
   requirementId: string | null;
   basis: QualityBundle['basis'] | null;
@@ -47,22 +73,95 @@ export type QualityReport = {
     taskIds: string[];
     caseIds: string[];
     evidenceIds: string[];
-    status: 'PLANNED' | 'REPORTED_PASS' | 'FAILED' | 'BLOCKED' | 'NOT_RUN' | 'MISSING';
+    status: QualityCoverageStatus;
+  }>;
+  caseCoverage: Array<{
+    caseId: string;
+    revision: QualityCaseRevision | null;
+    evidenceIds: string[];
+    status: QualityCoverageStatus;
   }>;
 };
 
 export const ACCEPTANCE_KEY_PATTERN = /^[a-z][a-z0-9-]{1,63}$/;
 const SHA = /^[a-f0-9]{40}$/;
+const DIGEST = /^[a-f0-9]{64}$/;
 const VERIFICATIONS = new Set(['TEST', 'INSPECTION', 'DEMO']);
 const record = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 const text = (value: unknown): value is string => typeof value === 'string' && !!value.trim();
 const strings = (value: unknown, nonempty = false): value is string[] =>
   Array.isArray(value) && (!nonempty || value.length > 0) && value.every(text);
-const sameBasis = (left: QualityEvidence['basis'], right: QualityBundle['basis']) =>
+export const sameQualityBasis = (left: QualityBundle['basis'], right: QualityBundle['basis']) =>
   left.prdRevisionId === right.prdRevisionId &&
   left.snapshotId === right.snapshotId &&
-  left.commitSha === right.commitSha;
+  left.commitSha === right.commitSha &&
+  ('projectRepositoryId' in left ? left.projectRepositoryId : undefined) ===
+    ('projectRepositoryId' in right ? right.projectRepositoryId : undefined);
+const sameRevision = (left: QualityCaseRevision, right: QualityCaseRevision) =>
+  left.artifactId === right.artifactId && left.sha256 === right.sha256;
+const exactKeys = (value: Record<string, unknown>, allowed: string[]) =>
+  Object.keys(value).every((key) => allowed.includes(key));
+const revision = (value: unknown): value is QualityCaseRevision =>
+  record(value) &&
+  text(value.artifactId) &&
+  typeof value.sha256 === 'string' &&
+  DIGEST.test(value.sha256) &&
+  exactKeys(value, ['artifactId', 'sha256']);
+const uniqueStrings = (value: string[]) => new Set(value).size === value.length;
+
+/** 保留所有报告异常；任何一条通过都不能掩盖失败、阻塞或未执行。 */
+export function aggregateQualityResults(
+  results: QualityResult[],
+  missing = false,
+): QualityCoverageStatus {
+  if (results.includes('FAILED')) return 'FAILED';
+  if (results.includes('BLOCKED')) return 'BLOCKED';
+  if (results.includes('NOT_RUN')) return 'NOT_RUN';
+  return !missing && results.length ? 'REPORTED_PASS' : 'MISSING';
+}
+
+/** 仅核对输入内的精确用例关系；不查询 CASES 工件或认可报告来源。 */
+export function getQualityEvidenceLinkIssues(
+  bundle: QualityBundle,
+  evidence: QualityEvidence,
+  location = 'evidence',
+): QualityIssue[] {
+  if (bundle.schemaVersion === '1.0') return [];
+  const issues: QualityIssue[] = [];
+  const add = (code: string, message: string) =>
+    issues.push({
+      code,
+      severity: 'ERROR' as const,
+      location: `${location}.caseRefs`,
+      message,
+    });
+  if (!('caseRefs' in evidence) || !evidence.caseRefs.length) {
+    add('CASE_EXECUTION_MISSING', '1.1 证据必须直接关联非空的用例修订');
+    return issues;
+  }
+  const cases = new Map(bundle.cases.map((item) => [item.id, item]));
+  const seen = new Set<string>();
+  const keys = new Set<string>();
+  for (const ref of evidence.caseRefs) {
+    if (seen.has(ref.caseId)) add('DUPLICATE_CASE_REF', `重复用例引用：${ref.caseId}`);
+    seen.add(ref.caseId);
+    const item = cases.get(ref.caseId);
+    if (!item) {
+      add('UNKNOWN_CASE', `未知用例：${ref.caseId}`);
+      continue;
+    }
+    if (!sameRevision(ref.revision, item.revision))
+      add('CASE_REVISION_MISMATCH', `${ref.caseId} 的工件修订或摘要与本次用例不一致`);
+    for (const key of item.covers) keys.add(key);
+  }
+  if (
+    keys.size !== evidence.acceptanceKeys.length ||
+    evidence.acceptanceKeys.some((key) => !keys.has(key))
+  )
+    add('CASE_ACCEPTANCE_MISMATCH', '证据的验收 key 必须等于所引用用例 covers 的并集');
+  return issues;
+}
 const overlaps = (left: string, right: string) =>
   left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
 const safeFile = (value: string) =>
@@ -82,6 +181,8 @@ export function analyzeQualityBundle(input: unknown): QualityReport {
   ) => issues.push({ code, severity, location, message });
   const report: QualityReport = {
     schemaVersion: '1.0',
+    bundleSchemaVersion: null,
+    executionLinkage: null,
     stage: null,
     requirementId: null,
     basis: null,
@@ -89,12 +190,34 @@ export function analyzeQualityBundle(input: unknown): QualityReport {
     authority: 'LOCAL_REPORTED',
     issues,
     coverage: [],
+    caseCoverage: [],
   };
   if (!record(input)) {
     add('SCHEMA_INVALID', '$', '质量包必须是对象');
     return report;
   }
-  if (input.schemaVersion !== '1.0') add('SCHEMA_INVALID', 'schemaVersion', '仅支持 1.0');
+  if (input.schemaVersion !== '1.0' && input.schemaVersion !== '1.1')
+    add('SCHEMA_INVALID', 'schemaVersion', '仅支持 1.0 或 1.1');
+  else {
+    report.bundleSchemaVersion = input.schemaVersion;
+    report.executionLinkage =
+      input.schemaVersion === '1.1' ? 'EXPLICIT_CASE_REVISION' : 'LEGACY_UNLINKED';
+  }
+  const linkedVersion = input.schemaVersion === '1.1';
+  if (
+    linkedVersion &&
+    !exactKeys(input, [
+      'schemaVersion',
+      'stage',
+      'requirementId',
+      'basis',
+      'acceptance',
+      'tasks',
+      'cases',
+      'evidence',
+    ])
+  )
+    add('SCHEMA_INVALID', '$', '1.1 质量包含未知字段；不能自行声明 verified 或平台权威');
   if (input.stage !== 'PLAN' && input.stage !== 'DELIVERY')
     add('SCHEMA_INVALID', 'stage', '必须是 PLAN 或 DELIVERY');
   else report.stage = input.stage;
@@ -104,11 +227,23 @@ export function analyzeQualityBundle(input: unknown): QualityReport {
     !record(input.basis) ||
     !text(input.basis.prdRevisionId) ||
     !text(input.basis.snapshotId) ||
+    (linkedVersion &&
+      (!text(input.basis.projectRepositoryId) ||
+        !exactKeys(input.basis, [
+          'prdRevisionId',
+          'snapshotId',
+          'projectRepositoryId',
+          'commitSha',
+        ]))) ||
     (input.basis.commitSha !== undefined &&
       (typeof input.basis.commitSha !== 'string' || !SHA.test(input.basis.commitSha))) ||
     (input.stage === 'DELIVERY' && !text(input.basis.commitSha))
   )
-    add('SCHEMA_INVALID', 'basis', '必须指定 PRD 修订、快照；DELIVERY 还需完整小写 commit SHA');
+    add(
+      'SCHEMA_INVALID',
+      'basis',
+      '必须指定 PRD 修订、快照；1.1 还需登记仓库 ID；DELIVERY 还需完整小写 commit SHA',
+    );
   const arrays = ['acceptance', 'tasks', 'cases', 'evidence'] as const;
   for (const key of arrays) {
     if (!Array.isArray(input[key])) add('SCHEMA_INVALID', key, '必须显式提供数组');
@@ -122,6 +257,7 @@ export function analyzeQualityBundle(input: unknown): QualityReport {
       !ACCEPTANCE_KEY_PATTERN.test(item.key) ||
       !text(item.text) ||
       item.text.length > 2000 ||
+      (linkedVersion && !exactKeys(item, ['key', 'text', 'verification'])) ||
       !VERIFICATIONS.has(item.verification as string)
     )
       add('SCHEMA_INVALID', `acceptance[${i}]`, '验收必须有合法小写 key、正文和 verification');
@@ -135,6 +271,11 @@ export function analyzeQualityBundle(input: unknown): QualityReport {
       !strings(item.dependsOn) ||
       !strings(item.files, true) ||
       !item.files.every(safeFile) ||
+      (linkedVersion &&
+        (!exactKeys(item, ['id', 'acceptanceKeys', 'dependsOn', 'files', 'parallel']) ||
+          !uniqueStrings(item.acceptanceKeys) ||
+          !uniqueStrings(item.dependsOn) ||
+          !uniqueStrings(item.files))) ||
       (item.parallel !== undefined && typeof item.parallel !== 'boolean')
     )
       add('SCHEMA_INVALID', `tasks[${i}]`, '任务需 id、验收 key、依赖和安全的仓库相对文件路径');
@@ -143,9 +284,17 @@ export function analyzeQualityBundle(input: unknown): QualityReport {
       !record(item) ||
       !text(item.id) ||
       !strings(item.covers, true) ||
+      (linkedVersion &&
+        (!revision(item.revision) ||
+          !uniqueStrings(item.covers) ||
+          !exactKeys(item, ['id', 'covers', 'kind', 'revision']))) ||
       !VERIFICATIONS.has(item.kind as string)
     )
-      add('SCHEMA_INVALID', `cases[${i}]`, '用例需 id、covers 和 kind');
+      add(
+        'SCHEMA_INVALID',
+        `cases[${i}]`,
+        '用例需 id、covers 和 kind；1.1 还需精确 CASES 工件标识和 SHA-256 修订',
+      );
   for (const [i, item] of (input.evidence as unknown[]).entries())
     if (
       !record(item) ||
@@ -157,13 +306,52 @@ export function analyzeQualityBundle(input: unknown): QualityReport {
       !record(item.basis) ||
       !text(item.basis.prdRevisionId) ||
       !text(item.basis.snapshotId) ||
+      (linkedVersion &&
+        (!text(item.basis.projectRepositoryId) ||
+          !exactKeys(item.basis, [
+            'prdRevisionId',
+            'snapshotId',
+            'projectRepositoryId',
+            'commitSha',
+          ]) ||
+          !exactKeys(item, [
+            'id',
+            'acceptanceKeys',
+            'caseRefs',
+            'result',
+            'source',
+            'ref',
+            'basis',
+          ]) ||
+          !uniqueStrings(item.acceptanceKeys) ||
+          !Array.isArray(item.caseRefs) ||
+          !item.caseRefs.length ||
+          item.caseRefs.length > 2000 ||
+          !item.caseRefs.every(
+            (ref) =>
+              record(ref) &&
+              text(ref.caseId) &&
+              revision(ref.revision) &&
+              exactKeys(ref, ['caseId', 'revision']),
+          ))) ||
       typeof item.basis.commitSha !== 'string' ||
       !SHA.test(item.basis.commitSha)
     )
-      add('SCHEMA_INVALID', `evidence[${i}]`, '证据需结果、来源、引用和完整版本绑定');
+      add(
+        'SCHEMA_INVALID',
+        `evidence[${i}]`,
+        '证据需结果、来源、引用和完整版本绑定；1.1 还需非空精确用例引用',
+      );
   if (issues.length) return report;
   const bundle = input as unknown as QualityBundle;
   report.basis = bundle.basis;
+  if (bundle.schemaVersion === '1.0')
+    add(
+      'LEGACY_CASE_LINKAGE_MISSING',
+      'schemaVersion',
+      '1.0 未建立执行到用例修订的精确关联；不会补造修订或核验来源',
+      'WARNING',
+    );
   for (const [key, entries] of [
     ['acceptance', bundle.acceptance.map((item) => item.key)],
     ['tasks', bundle.tasks.map((item) => item.id)],
@@ -248,9 +436,77 @@ export function analyzeQualityBundle(input: unknown): QualityReport {
         add('VERIFICATION_MISMATCH', `cases[${i}].kind`, `${key} 的验证方式与用例不一致`);
   });
   bundle.evidence.forEach((item, i) => {
-    if (!sameBasis(item.basis, bundle.basis))
-      add('EVIDENCE_STALE', `evidence[${i}].basis`, '证据与本次 PRD、快照或代码提交不一致');
+    if (!sameQualityBasis(item.basis, bundle.basis))
+      add('EVIDENCE_STALE', `evidence[${i}].basis`, '证据与本次 PRD、快照、仓库或代码提交不一致');
   });
+  const invalidEvidence = new Set<QualityEvidence>();
+  if (bundle.schemaVersion === '1.1') {
+    const artifactDigests = new Map<string, string>();
+    const conflictedArtifacts = new Set<string>();
+    const invalidCaseIds = new Set<string>();
+    const seenCases = new Set<string>();
+    for (const [i, item] of bundle.cases.entries()) {
+      if (
+        seenCases.has(item.id) ||
+        item.covers.some(
+          (key) => !acceptance.has(key) || acceptance.get(key)!.verification !== item.kind,
+        )
+      )
+        invalidCaseIds.add(item.id);
+      seenCases.add(item.id);
+      const previous = artifactDigests.get(item.revision.artifactId);
+      if (previous && previous !== item.revision.sha256) {
+        add(
+          'CASE_ARTIFACT_CONFLICT',
+          `cases[${i}].revision`,
+          '相同 CASES 工件标识不能对应不同摘要',
+        );
+        conflictedArtifacts.add(item.revision.artifactId);
+      }
+      artifactDigests.set(item.revision.artifactId, item.revision.sha256);
+    }
+    for (const item of bundle.cases)
+      if (conflictedArtifacts.has(item.revision.artifactId)) invalidCaseIds.add(item.id);
+    for (const [i, item] of bundle.evidence.entries()) {
+      const linkIssues = getQualityEvidenceLinkIssues(bundle, item, `evidence[${i}]`);
+      issues.push(...linkIssues);
+      if (linkIssues.length) invalidEvidence.add(item);
+      if (item.caseRefs.some((ref) => invalidCaseIds.has(ref.caseId))) {
+        invalidEvidence.add(item);
+        add(
+          'CASE_REFERENCE_INVALID',
+          `evidence[${i}].caseRefs`,
+          '所引用用例存在标识、摘要或验收方式冲突，不能作为执行覆盖',
+        );
+      }
+    }
+    for (const item of bundle.cases) {
+      const evidence = bundle.evidence.filter(
+        (entry) =>
+          sameQualityBasis(entry.basis, bundle.basis) &&
+          !invalidEvidence.has(entry) &&
+          entry.caseRefs.some(
+            (ref) => ref.caseId === item.id && sameRevision(ref.revision, item.revision),
+          ),
+      );
+      const status =
+        bundle.stage === 'PLAN'
+          ? 'PLANNED'
+          : aggregateQualityResults(evidence.map((entry) => entry.result));
+      report.caseCoverage.push({
+        caseId: item.id,
+        revision: item.revision,
+        evidenceIds: evidence.map((entry) => entry.id),
+        status,
+      });
+      if (bundle.stage === 'DELIVERY' && status !== 'REPORTED_PASS')
+        add(
+          'CASE_EXECUTION_INCOMPLETE',
+          `cases[${bundle.cases.indexOf(item)}]`,
+          `${item.id} 的执行状态：${status}`,
+        );
+    }
+  }
   for (const item of bundle.acceptance) {
     const taskIds = bundle.tasks
       .filter((task) => task.acceptanceKeys.includes(item.key))
@@ -259,22 +515,25 @@ export function analyzeQualityBundle(input: unknown): QualityReport {
       .filter((c) => c.covers.includes(item.key) && c.kind === item.verification)
       .map((c) => c.id);
     const evidence = bundle.evidence.filter(
-      (e) => e.acceptanceKeys.includes(item.key) && sameBasis(e.basis, bundle.basis),
+      (e) => e.acceptanceKeys.includes(item.key) && sameQualityBasis(e.basis, bundle.basis),
     );
     if (!taskIds.length) add('TASK_COVERAGE_MISSING', `acceptance.${item.key}`, '验收没有对应任务');
     if (!caseIds.length)
       add('CASE_COVERAGE_MISSING', `acceptance.${item.key}`, '验收没有匹配验证方式的用例');
-    let status: QualityReport['coverage'][number]['status'] = 'PLANNED';
+    let status: QualityCoverageStatus = 'PLANNED';
     if (bundle.stage === 'DELIVERY') {
-      status = evidence.some((e) => e.result === 'FAILED')
-        ? 'FAILED'
-        : evidence.some((e) => e.result === 'BLOCKED')
-          ? 'BLOCKED'
-          : evidence.some((e) => e.result === 'NOT_RUN')
-            ? 'NOT_RUN'
-            : evidence.length
-              ? 'REPORTED_PASS'
-              : 'MISSING';
+      const missingCase =
+        bundle.schemaVersion === '1.1' &&
+        (!caseIds.length ||
+          caseIds.some(
+            (id) =>
+              report.caseCoverage.find((entry) => entry.caseId === id)?.status !== 'REPORTED_PASS',
+          ));
+      // 异常声明继续可见；只有有效的精确引用才能补齐执行覆盖。
+      status = aggregateQualityResults(
+        evidence.map((e) => e.result),
+        missingCase || evidence.some((entry) => invalidEvidence.has(entry)),
+      );
       if (status !== 'REPORTED_PASS')
         add('DELIVERY_EVIDENCE_INCOMPLETE', `acceptance.${item.key}`, `交付证据状态：${status}`);
       else

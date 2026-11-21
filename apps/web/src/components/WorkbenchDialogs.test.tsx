@@ -3,7 +3,11 @@ import { useState } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { WorkbenchChangeItem } from '../api/resources';
 import { Modal } from './Modal';
-import { DeferredBatchReviewApprove, DeferredChangeDrawer } from './WorkbenchDialogs';
+import {
+  DeferredBatchChangeAcknowledge,
+  DeferredBatchReviewApprove,
+  DeferredChangeDrawer,
+} from './WorkbenchDialogs';
 
 const imports = vi.hoisted(() => {
   function deferred() {
@@ -16,8 +20,10 @@ const imports = vi.hoisted(() => {
   return {
     changeLoad: vi.fn(),
     batchLoad: vi.fn(),
+    batchChangeLoad: vi.fn(),
     changeReady: deferred(),
     batchReady: deferred(),
+    batchChangeReady: deferred(),
   };
 });
 
@@ -62,6 +68,26 @@ vi.mock('./BatchReviewApprove', async () => {
             登录密码
             <input value={password} onChange={(event) => setPassword(event.target.value)} />
           </label>
+        </Modal>
+      );
+    },
+  };
+});
+
+vi.mock('./BatchChangeAcknowledge', async () => {
+  imports.batchChangeLoad();
+  if (imports.batchChangeLoad.mock.calls.length === 1) throw new Error('batch chunk unavailable');
+  await imports.batchChangeReady.promise;
+  return {
+    BatchChangeAcknowledge: ({ open, onClose }: { open: boolean; onClose: () => void }) => {
+      const [busy, setBusy] = useState(false);
+      return (
+        <Modal open={open} title="批量确认变更" busy={busy} onClose={onClose}>
+          <label>
+            批量范围
+            <input />
+          </label>
+          <button onClick={() => setBusy(true)}>模拟批量确认</button>
         </Modal>
       );
     },
@@ -176,4 +202,62 @@ it('批量模块关闭时不请求；加载中可关闭且晚到结果不重开�
   fireEvent.click(opener);
   expect(await screen.findByLabelText('登录密码')).toHaveValue('');
   expect(imports.batchLoad).toHaveBeenCalledTimes(1);
+});
+
+function BatchChangeHarness() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <p>待确认变更仍保留</p>
+      <button onClick={() => setOpen(true)}>打开批量确认</button>
+      <DeferredBatchChangeAcknowledge
+        open={open}
+        targets={[]}
+        getCurrentTargets={() => []}
+        onAcknowledged={() => {}}
+        refresh={async () => true}
+        onCompleted={() => {}}
+        onBusyChange={() => {}}
+        onClose={() => setOpen(false)}
+      />
+    </>
+  );
+}
+
+it('批量变更模块按需请求；失败能重试，慢加载关闭后不重开且缓存交接单一窗口焦点', async () => {
+  render(<BatchChangeHarness />);
+  const opener = screen.getByRole('button', { name: '打开批量确认' });
+  opener.focus();
+  expect(imports.batchChangeLoad).not.toHaveBeenCalled();
+  fireEvent.click(opener);
+  expect(screen.getByRole('status')).toHaveTextContent('正在加载批量确认变更');
+  expect(await screen.findByRole('alert')).toHaveTextContent('无法加载此窗口');
+  expect(screen.getByRole('button', { name: '刷新页面' })).toBeInTheDocument();
+  expect(screen.getByText('待确认变更仍保留')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '重试加载' }));
+  await waitFor(() => expect(imports.batchChangeLoad).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole('status')).toHaveTextContent('正在加载批量确认变更');
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(opener).toHaveFocus();
+  await act(async () => {
+    imports.batchChangeReady.resolve();
+    await imports.batchChangeReady.promise;
+  });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(opener).toHaveFocus();
+
+  fireEvent.click(opener);
+  expect(await screen.findByLabelText('批量范围')).toHaveFocus();
+  expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: '关闭弹窗' }));
+  expect(opener).toHaveFocus();
+  fireEvent.click(opener);
+  expect(await screen.findByLabelText('批量范围')).toHaveFocus();
+  expect(imports.batchChangeLoad).toHaveBeenCalledTimes(2);
+  fireEvent.click(screen.getByRole('button', { name: '模拟批量确认' }));
+  expect(screen.getByRole('button', { name: '关闭弹窗' })).toBeDisabled();
+  fireEvent.keyDown(document, { key: 'Escape' });
+  fireEvent.mouseDown(screen.getByRole('presentation'));
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
 });

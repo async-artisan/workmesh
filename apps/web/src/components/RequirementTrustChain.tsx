@@ -6,6 +6,7 @@ import {
   type RequirementTrustEvent,
 } from '@workmesh/shared';
 import { formatDateTime } from '../lib/datetime';
+import { requirementGapRecovery } from '../lib/evidenceRecovery';
 
 const KIND: Record<RequirementTrustEvent['kind'], string> = {
   PUBLICATION: '发布',
@@ -101,6 +102,12 @@ export function RequirementTrustChain({
         </p>
       )}
       {chain.gaps.length > 0 && (
+        <p className="modal-note">
+          恢复建议复用已登记事实；确认知悉变更只记录收件，不表示已调整或已复验。 资料不足时，由 QA
+          判断复验范围，不自动选择用例或改变批准状态。
+        </p>
+      )}
+      {chain.gaps.length > 0 && (
         <details open={mode === 'timeline'}>
           <summary>查看 {chain.gaps.length} 项缺口与定位</summary>
           <ul className="detail-list" aria-label="信任链缺口">
@@ -109,6 +116,10 @@ export function RequirementTrustChain({
                 key={`${gap.code}-${gap.taskId ?? gap.acceptanceKey ?? gap.baselineKind}-${index}`}
               >
                 <span>{REQUIREMENT_TRUST_GAP_LABELS[gap.code]}</span>
+                <p className="task-row-meta">
+                  建议处理角色：{requirementGapRecovery(gap.code).responsible}。{' '}
+                  {requirementGapRecovery(gap.code).nextStep}
+                </p>
                 {gap.baselineKind && (
                   <span> · {gap.baselineKind === 'PRD' ? '产品需求' : '需求理解'}</span>
                 )}
@@ -121,6 +132,18 @@ export function RequirementTrustChain({
                       {chain.tasks.find((task) => task.taskId === gap.taskId)?.stepLabel ?? '任务'}
                     </button>
                   </>
+                )}
+                {gap.taskId && chain.tasks.find((task) => task.taskId === gap.taskId) && (
+                  <p className="task-row-meta" style={{ overflowWrap: 'anywhere' }}>
+                    当前登记任务第{' '}
+                    {chain.tasks.find((task) => task.taskId === gap.taskId)!.taskGeneration} 代 ·
+                    已关联快照{' '}
+                    <code>
+                      {chain.tasks.find((task) => task.taskId === gap.taskId)!.snapshotId ??
+                        '未提供'}
+                    </code>
+                    。这些标识不代表快照已与当前基线匹配。
+                  </p>
                 )}
               </li>
             ))}
@@ -143,6 +166,7 @@ export function RequirementTrustChain({
       {chain.tasks.some((task) => task.baselineRelation === 'PRESERVED_ACCEPTANCE') && (
         <p className="modal-note">
           部分已完成任务保留了正式批准，快照来自历史需求代次；它们显示为“保留的已验收事实”，不会伪装成当前基线快照。
+          原批准的适用范围继续保留；是否需要补充验证由当前变更与人工评审决定。
         </p>
       )}
       {mode === 'summary' && onTimeline && (

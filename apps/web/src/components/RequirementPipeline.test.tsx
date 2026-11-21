@@ -350,11 +350,160 @@ describe('RequirementPipeline 首屏折叠 / 本地头像 / 任务去重', () =>
     );
 
     expect(screen.getByText('暂未分配责任人')).toBeInTheDocument();
-    expect(screen.getByText('服务端未提供阻塞原因')).toBeInTheDocument();
+    expect(screen.getByText('阶段状态标记为阻塞，但没有任务状态可供核对。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '展开团队视图' }));
     const rail = screen.getByRole('region', { name: '阶段进度，可横向滚动' });
     expect(rail).toHaveAttribute('tabindex', '0');
     expect(rail.querySelector('[aria-current="step"]')).not.toBeNull();
+  });
+
+  it('等待直接前置任务时展示缺少的前置步骤', () => {
+    render(
+      <RequirementPipeline
+        collapsible
+        phases={[
+          {
+            id: 'build',
+            label: '开发实现',
+            tasks: [
+              {
+                id: 'implement',
+                stepKey: 'implement',
+                executionStatus: 'OPEN',
+                workStatus: 'ACTIVE',
+                dependsOnStepKeys: ['prd'],
+                doneStepKeys: [],
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText('前置步骤 prd 尚未完成；完成后才会进入可领取状态。'),
+    ).toBeInTheDocument();
+  });
+
+  it('等待人工审批时展示审批等待原因', () => {
+    render(
+      <RequirementPipeline
+        collapsible
+        phases={[
+          {
+            id: 'verify',
+            label: '测试验证',
+            tasks: [{ id: 'verify', stepKey: 'verify', executionStatus: 'REVIEW_PENDING' }],
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText('已提交交付，正在等待人工审批；审批完成前不需要也不能重复领取。'),
+    ).toBeInTheDocument();
+  });
+
+  it('依赖信息不可用时保持状态待确认，不推断为可领取', () => {
+    render(
+      <RequirementPipeline
+        collapsible
+        phases={[
+          {
+            id: 'build',
+            label: '开发实现',
+            tasks: [{ id: 'implement', stepKey: 'implement', executionStatus: 'OPEN', workStatus: 'ACTIVE' }],
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText(/服务端没有提供可用的依赖信息，无法确认这个任务现在能否领取/),
+    ).toBeInTheDocument();
+  });
+
+  it('前置任务完成时展示等待责任人认领', () => {
+    render(
+      <RequirementPipeline
+        collapsible
+        phases={[
+          {
+            id: 'build',
+            label: '开发实现',
+            tasks: [
+              {
+                id: 'implement',
+                stepKey: 'implement',
+                executionStatus: 'OPEN',
+                workStatus: 'ACTIVE',
+                dependsOnStepKeys: [],
+                doneStepKeys: [],
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('前置任务已完成，等待责任人认领。')).toBeInTheDocument();
+  });
+
+  it('任务执行中时展示已认领的进行中原因', () => {
+    render(
+      <RequirementPipeline
+        collapsible
+        phases={[
+          {
+            id: 'build',
+            label: '开发实现',
+            tasks: [{ id: 'implement', stepKey: 'implement', currentClaimId: 'claim-1' }],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('任务已被认领，当前正在执行中。')).toBeInTheDocument();
+  });
+
+  it('任务阻塞但没有具体原因时明确说明原因未提供', () => {
+    render(
+      <RequirementPipeline
+        collapsible
+        phases={[
+          {
+            id: 'build',
+            label: '开发实现',
+            tasks: [{ id: 'implement', stepKey: 'implement', workStatus: 'BLOCKED' }],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('阻塞 / 冻结，具体阻塞原因未提供。')).toBeInTheDocument();
+  });
+
+  it('阶段标记阻塞但任务已终态时提示状态冲突', () => {
+    render(
+      <RequirementPipeline
+        collapsible
+        phases={[
+          {
+            id: 'build',
+            label: '开发实现',
+            status: 'blocked',
+            tasks: [
+              { id: 'done', stepKey: 'done', executionStatus: 'DONE' },
+              { id: 'cancelled', stepKey: 'cancelled', workStatus: 'CANCELLED' },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText('阶段状态标记为阻塞，但任务均已完成或取消，请核对阶段状态。'),
+    ).toBeInTheDocument();
   });
 
   it('没有真实操作入口时明确说明原因，并允许调用方透传更准确的说明', () => {

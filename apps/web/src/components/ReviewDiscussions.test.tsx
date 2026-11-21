@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ReviewDiscussions } from './ReviewDiscussions';
+import { ReviewDiscussions, type ReviewDiscussionSummary } from './ReviewDiscussions';
 import { setCsrfToken } from '../api/client';
 import type { DiscussionEntry, DiscussionPage, ReviewDiscussion } from '../api/reviewDiscussions';
+import { reviewDiscussionApi } from '../api/reviewDiscussions';
 import { bodyOf, envelope, headersOf, methodOf, mockFetch, pathOf } from '../test-utils';
 import { useAuthStore } from '../store/auth';
 
@@ -64,6 +65,136 @@ function mount() {
 }
 
 describe('ReviewDiscussions（逐条评审问题）', () => {
+  it('首次读取失败不报告零个问题，刷新失败保留旧计数并标为STALE', async () => {
+    vi.spyOn(reviewDiscussionApi, 'list')
+      .mockRejectedValueOnce(new TypeError('first read failed'))
+      .mockResolvedValueOnce(page([issue()], { unresolvedCount: 7 }))
+      .mockRejectedValueOnce(new TypeError('refresh failed'));
+    const summary = vi.fn<(value: ReviewDiscussionSummary) => void>();
+    render(
+      <MemoryRouter>
+        <ReviewDiscussions
+          reviewId="current-review"
+          scopeKey="review:v1"
+          onSummaryChange={summary}
+        />
+      </MemoryRouter>,
+    );
+    expect(summary).toHaveBeenLastCalledWith({
+      scopeKey: 'review:v1',
+      reviewId: 'current-review',
+      status: 'LOADING',
+      unresolvedCount: null,
+    });
+    await waitFor(() =>
+      expect(summary).toHaveBeenLastCalledWith({
+        scopeKey: 'review:v1',
+        reviewId: 'current-review',
+        status: 'ERROR',
+        unresolvedCount: null,
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: '刷新问题' }));
+    await waitFor(() =>
+      expect(summary).toHaveBeenLastCalledWith({
+        scopeKey: 'review:v1',
+        reviewId: 'current-review',
+        status: 'READY',
+        unresolvedCount: 7,
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: '刷新问题' }));
+    await waitFor(() =>
+      expect(summary).toHaveBeenLastCalledWith({
+        scopeKey: 'review:v1',
+        reviewId: 'current-review',
+        status: 'STALE',
+        unresolvedCount: 7,
+      }),
+    );
+    expect(screen.getByRole('article', { name: '评审问题：补充失败场景' })).toBeInTheDocument();
+    expect(screen.getByText(/人工批准仍需在审批槽位单独提交/)).toBeInTheDocument();
+  });
+
+  it('摘要采用服务端总数而非已加载条数，加载更多后保持总数', async () => {
+    vi.spyOn(reviewDiscussionApi, 'list')
+      .mockResolvedValueOnce(page([issue()], { unresolvedCount: 7, nextCursor: 'next' }))
+      .mockResolvedValueOnce(
+        page([issue({ id: 'issue-2', title: '第二个问题' })], { unresolvedCount: 7 }),
+      );
+    const summary = vi.fn<(value: ReviewDiscussionSummary) => void>();
+    render(
+      <MemoryRouter>
+        <ReviewDiscussions
+          reviewId="current-review"
+          scopeKey="review:v1"
+          onSummaryChange={summary}
+        />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: '加载更多问题' }));
+    await screen.findByRole('article', { name: '评审问题：第二个问题' });
+    expect(screen.getAllByRole('article')).toHaveLength(2);
+    expect(summary).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: 'READY', unresolvedCount: 7 }),
+    );
+  });
+
+  it.each(['review', 'account', 'scope'])(
+    '切换%s后旧列表迟到不覆盖当前问题摘要',
+    async (target) => {
+      useAuthStore.getState().setSession({ id: 'old-user', email: 'old@example.test' });
+      let finishOld!: (value: DiscussionPage) => void;
+      const old = new Promise<DiscussionPage>((resolve) => {
+        finishOld = resolve;
+      });
+      vi.spyOn(reviewDiscussionApi, 'list')
+        .mockReturnValueOnce(old)
+        .mockResolvedValue(page([], { unresolvedCount: 3 }));
+      const summary = vi.fn<(value: ReviewDiscussionSummary) => void>();
+      const view = render(
+        <MemoryRouter>
+          <ReviewDiscussions
+            reviewId="current-review"
+            scopeKey="scope-1"
+            onSummaryChange={summary}
+          />
+        </MemoryRouter>,
+      );
+      if (target === 'account') {
+        act(() =>
+          useAuthStore.getState().setSession({ id: 'new-user', email: 'new@example.test' }),
+        );
+      } else {
+        view.rerender(
+          <MemoryRouter>
+            <ReviewDiscussions
+              reviewId={target === 'review' ? 'new-review' : 'current-review'}
+              scopeKey={target === 'scope' ? 'scope-2' : 'scope-1'}
+              onSummaryChange={summary}
+            />
+          </MemoryRouter>,
+        );
+      }
+      await waitFor(() =>
+        expect(summary).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            status: 'READY',
+            unresolvedCount: 3,
+          }),
+        ),
+      );
+      const current = summary.mock.calls.at(-1)?.[0];
+      const calls = summary.mock.calls.length;
+      await act(async () => finishOld(page([issue()], { unresolvedCount: 9 })));
+      expect(summary).toHaveBeenCalledTimes(calls);
+      expect(summary).toHaveBeenLastCalledWith(current);
+      expect(
+        screen.queryByRole('article', { name: '评审问题：补充失败场景' }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
   beforeEach(() => {
     setCsrfToken('csrf-discussion');
   });

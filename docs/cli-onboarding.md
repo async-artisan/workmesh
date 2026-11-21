@@ -79,7 +79,7 @@ workmesh setup --dir "<业务项目绝对路径>" --role frontend --host codex
 
 `setup` 会做预检并使用浏览器设备授权。已接入目录可读取平台和项目配置，内置角色随发行包自动定位，通常无需 `--package`。六个内置角色是 `product`、`ui`、`frontend`、`backend`、`qa`、`ops`；选择本次实际承担的角色。自定义角色包才需要显式 `--package "<自定义角色包绝对目录>"`，目录必须含 `manifest.json`。路径无效时 CLI 会报错并提示可用候选，不会偷偷换成另一个包。
 
-绑定和资源检查后，按 [README 的任务命令](../README.md#cli) 使用 `context --inspect` → `claim` → `context` → `deliver` → `review show` → `changes`。任务与版本参数来自当前平台响应；`deliver` 自动创建评审，再用返回的真实 `reviewRequestId` 查询。批准、返修、撤销和发布仍在 Web 完成。
+绑定和资源检查后，按 [README 的任务命令](../README.md#cli) 使用 `context --inspect` → `claim` → `context --execution` → `deliver --execution` → `review --execution` → `changes`。认领返回执行编号，CLI 从原收据自动携带准确任务状态；`deliver` 自动创建本轮评审，`review --execution` 读取它。批准、返修、撤销和发布仍在 Web 完成。
 
 ## 已有配置、兼容入口与中断恢复
 
@@ -126,6 +126,20 @@ workmesh context --task <真实任务UUID> --inspect --dir "<业务项目绝对�
 
 `context --inspect` 不需要 claim 或任务版本，不创建快照；逐项列出缺失或不可用的输入、责任角色和恢复动作。查询退出码 0 只代表成功读取诊断，能否创建快照仍需检查 `availability`；旧平台缺少逐项诊断时会保留不完整提示。不要与 `--claim`、`--expected-version`、`--materialize` 或写操作编号组合。
 
+输入准备好后认领，并在同一业务目录、平台、角色和凭据范围内继续：
+
+```text
+workmesh claim --task <真实任务UUID> --dir "<业务项目绝对路径>" --json
+workmesh context --execution <认领返回的executionId> --materialize --dir "<业务项目绝对路径>" --json
+workmesh deliver --execution <executionId> --manifest deliver.json --dir "<业务项目绝对路径>" --json
+workmesh review --execution <executionId> --dir "<业务项目绝对路径>" --json
+workmesh execution status --execution <executionId> --dir "<业务项目绝对路径>" --json
+```
+
+执行状态从私有操作收据重建，重启后继续使用相同执行编号；若任务只有一个本地执行，也可用 `--task <任务UUID>`。存在多个执行历史时显式指定 `--execution`，不自动选择最新历史。上下文变化先 inspect，确认后 `context --execution <id> --refresh`，仍使用原执行的准确版本。需要人工核对后的显式恢复时，原 `--task`、`--claim`、`--snapshot`、`--expected-version` 参数与 HTTP API 继续可用，见 [CLI 执行状态与恢复](cli-execution-state.md)。
+
+context 与 inspect 同时输出任务锁定角色包、本地资源核验和与上次快照的真实变化；`UPDATE_AVAILABLE` 不代表在途任务已升级，`ROLE_PACKAGE_UPDATED` 才提示重新阅读实际变化资源。缺少锁、旧平台无字段或本地资源不可读都不会视为匹配，见 [角色上下文诊断](role-context-diagnostics.md)。
+
 `deliver` 成功后返回自动创建的 `reviewRequestId`、Web 地址、任务版本和操作编号；该编号也保存到本地收据，无需再次创建同一轮评审。使用返回的真实编号继续：
 
 ```text
@@ -143,6 +157,7 @@ workmesh review reply --review <当前评审UUID> --discussion <问题UUID> --ex
 ```text
 workmesh receipt list --dir "<业务项目绝对路径>" --json
 workmesh receipt reconcile --operation <原操作UUID> --dir "<业务项目绝对路径>" --json
+workmesh execution status --execution <原executionId> --dir "<业务项目绝对路径>" --json
 ```
 
 `receipt list` 可离线查看。服务端返回统一 404 时，仍可能是未提交、不可读或尚未取得结果，原记录保持待核对；不要把它解释成可安全换新编号重发。需要重放时按错误提示保留原内容与 `--operation <原操作UUID>`。成功响应后仅本地落盘失败会明确报告服务端已经提交，不能把它当作普通提交失败重复创建。

@@ -72,7 +72,9 @@ pnpm --filter @workmesh/cli build
 pnpm workmesh --help
 ```
 
-接入仍使用项目「工作区」页生成的 `workspace init` 单行命令；先预览，再以 `--apply` 进入设备授权。`setup` 用于安装或更新角色资源，也保留兼容初始化路径；已有 v1 配置先迁移。绑定和状态检查完成后，再按 `claim` → `context` → `deliver` → `review` → `changes` 工作。`review` 只创建人工评审请求，批准、返修、撤销和发布仍在 Web 会话中完成。
+接入仍使用项目「工作区」页生成的 `workspace init` 单行命令；先预览，再以 `--apply` 进入设备授权。`setup` 用于安装或更新角色资源，也保留兼容初始化路径；已有 v1 配置先迁移。绑定和状态检查完成后，先 `context --task <id> --inspect` 核对输入，再 `claim --task <id>`。把认领返回的 `executionId` 交给 `context --execution <id> --materialize` 和 `deliver --execution <id> --manifest deliver.json`，CLI 自动携带原收据里的准确认领、快照、版本与代次。`deliver` 自动创建人工评审；`review --execution <id>` 读取该评审，后续用 `changes` 核对变更。批准、返修、撤销和发布仍在 Web 会话中完成。
+
+中断后用 `execution status` 查看本机已确认位置；未知写结果先 `receipt reconcile --operation <原编号>`，保留原内容与原键，不以最新任务版本覆盖原基线。显式精确 ID 命令和 HTTP API 继续可用，完整说明见 [CLI 执行状态与恢复](cli-execution-state.md)。角色包更新与安装差异见 [角色上下文诊断](role-context-diagnostics.md)。
 
 完整命令示例见根目录 [README 的 CLI 章节](../README.md#cli)，接口和权限约定见 [API 清单](api.md)。
 

@@ -2,6 +2,8 @@
 # id: TC-<需求编号>-<序号>
 # covers: 覆盖的验收 key，至少一个
 # kind: TEST | INSPECTION | DEMO（与验收的 verification 对齐）
+# 此文件先作为 CASES 正文交付；平台返回不可变 artifactId/sha256 后，
+# 将该引用填入 quality 1.1 的 cases[].revision。不要在本文件自填自身摘要。
 
 version: 1
 phase: DESIGN

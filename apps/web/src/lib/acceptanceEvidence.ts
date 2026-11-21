@@ -1,7 +1,12 @@
 import {
   analyzeQualityBundle,
+  aggregateQualityResults,
+  getQualityEvidenceLinkIssues,
   parseJsonStrict,
+  sameQualityBasis,
   type QualityBundle,
+  type QualityCaseRevision,
+  type QualityCoverageStatus,
   type QualityEvidence,
   type QualityReport,
 } from '@workmesh/shared';
@@ -26,6 +31,7 @@ export type MappedAcceptanceEvidence = QualityEvidence & {
   artifactId: string;
   artifactLabel: string;
   stage: QualityBundle['stage'];
+  bundleSchemaVersion: QualityBundle['schemaVersion'];
   basisState: EvidenceBasisState;
   issues: string[];
 };
@@ -34,6 +40,14 @@ export type AcceptanceEvidenceRow = {
   evidence: MappedAcceptanceEvidence[];
   taskIds: string[];
   caseIds: string[];
+  caseCoverage: Array<{
+    artifactId: string;
+    artifactLabel: string;
+    caseId: string;
+    revision: QualityCaseRevision | null;
+    evidenceIds: string[];
+    status: QualityCoverageStatus;
+  }>;
   status:
     'REPORTED_PASS' | 'FAILED' | 'BLOCKED' | 'NOT_RUN' | 'MISSING' | 'NEEDS_REVIEW' | 'UNKNOWN';
   gaps: string[];
@@ -127,6 +141,7 @@ export function buildAcceptanceEvidenceMapping(input: {
     const evidence: MappedAcceptanceEvidence[] = [];
     const taskIds: string[] = [];
     const caseIds: string[] = [];
+    const caseCoverage: AcceptanceEvidenceRow['caseCoverage'] = [];
     const gaps: string[] = [];
     for (const source of input.sources) {
       const { bundle, report } = source;
@@ -155,7 +170,25 @@ export function buildAcceptanceEvidenceMapping(input: {
       if (bundle.stage !== 'DELIVERY')
         unknownIssue('PLAN 质量包只描述计划，不能作为交付执行通过证据');
       if (!bundle.basis.commitSha) unknownIssue('质量包未声明完整代码提交');
-      else if (!commits.size) unknownIssue('本次工件未声明可对照的完整 commit，代码版本待核对');
+      else if (bundle.schemaVersion === '1.1') {
+        const declaredPairs =
+          input.artifactSet?.artifacts.filter(
+            (artifact) =>
+              artifact.projectRepositoryId &&
+              artifact.commitSha &&
+              /^[a-f0-9]{40}$/.test(artifact.commitSha),
+          ) ?? [];
+        if (!declaredPairs.length)
+          unknownIssue('本次工件未声明可成对对照的仓库 ID 与完整 commit，代码版本待核对');
+        else if (
+          !declaredPairs.some(
+            (artifact) =>
+              artifact.projectRepositoryId === bundle.basis.projectRepositoryId &&
+              artifact.commitSha === bundle.basis.commitSha,
+          )
+        )
+          mismatchIssue('质量包仓库 ID 与 commit 未成对对应本次已声明的交付');
+      } else if (!commits.size) unknownIssue('本次工件未声明可对照的完整 commit，代码版本待核对');
       else if (!commits.has(bundle.basis.commitSha))
         mismatchIssue('质量包 commit 未对应本次已声明的交付提交');
       if (declarations.length !== 1) mismatchIssue('质量包的验收 key 缺失或重复');
@@ -176,6 +209,8 @@ export function buildAcceptanceEvidenceMapping(input: {
               'DEPENDENCY_CYCLE',
               'PARALLEL_FILE_CONFLICT',
               'VERIFICATION_MISMATCH',
+              'CASE_ARTIFACT_CONFLICT',
+              'CASE_REFERENCE_INVALID',
             ].includes(issue.code)),
       );
       for (const issue of structuralErrors) unknownIssue(issue.message);
@@ -193,19 +228,45 @@ export function buildAcceptanceEvidenceMapping(input: {
           )
           .map((item) => item.id),
       );
+      const relevantCases = bundle.cases.filter(
+        (item) =>
+          item.covers.includes(criterion.key) &&
+          item.kind.toUpperCase() === criterion.verification.toUpperCase(),
+      );
+      caseCoverage.push(
+        ...report.caseCoverage
+          .filter((entry) => relevantCases.some((item) => item.id === entry.caseId))
+          .map((entry) => ({
+            ...entry,
+            artifactId: source.artifactId,
+            artifactLabel: source.label,
+          })),
+      );
+      if (
+        bundle.schemaVersion === '1.1' &&
+        bundle.stage === 'DELIVERY' &&
+        report.coverage.find((entry) => entry.acceptanceKey === criterion.key)?.status !==
+          'REPORTED_PASS'
+      )
+        unknownIssue('精确用例执行覆盖未全部报告通过；请逐条核对用例修订和执行缺口');
       for (const item of linked) {
         const issues = [...commonIssues];
-        const stale =
-          item.basis.prdRevisionId !== bundle.basis.prdRevisionId ||
-          item.basis.snapshotId !== bundle.basis.snapshotId ||
-          item.basis.commitSha !== bundle.basis.commitSha;
-        if (stale) issues.push('这条证据的 PRD、快照或 commit 与质量包依据不一致');
+        const stale = !sameQualityBasis(item.basis, bundle.basis);
+        const linkIssues = getQualityEvidenceLinkIssues(bundle, item);
+        if (stale) issues.push('这条证据的 PRD、快照或 commit（及 1.1 仓库）与质量包依据不一致');
+        issues.push(...linkIssues.map((issue) => issue.message));
         evidence.push({
           ...item,
           artifactId: source.artifactId,
           artifactLabel: source.label,
           stage: bundle.stage,
-          basisState: mismatch || stale ? 'MISMATCH' : unverified ? 'UNVERIFIED' : 'MATCHED',
+          bundleSchemaVersion: bundle.schemaVersion,
+          basisState:
+            mismatch || stale
+              ? 'MISMATCH'
+              : unverified || linkIssues.length
+                ? 'UNVERIFIED'
+                : 'MATCHED',
           issues: unique(issues),
         });
       }
@@ -219,21 +280,20 @@ export function buildAcceptanceEvidenceMapping(input: {
       );
     let status: AcceptanceEvidenceRow['status'] = !input.artifactSet ? 'UNKNOWN' : 'MISSING';
     if (evidence.length) {
-      status = evidence.some((item) => item.result === 'FAILED')
-        ? 'FAILED'
-        : evidence.some((item) => item.result === 'BLOCKED')
-          ? 'BLOCKED'
-          : evidence.some((item) => item.result === 'NOT_RUN')
-            ? 'NOT_RUN'
-            : evidence.every((item) => item.basisState === 'MATCHED') && !gaps.length
-              ? 'REPORTED_PASS'
-              : 'NEEDS_REVIEW';
+      const aggregate = aggregateQualityResults(evidence.map((item) => item.result));
+      status =
+        aggregate === 'FAILED' || aggregate === 'BLOCKED' || aggregate === 'NOT_RUN'
+          ? aggregate
+          : evidence.every((item) => item.basisState === 'MATCHED') && !gaps.length
+            ? 'REPORTED_PASS'
+            : 'NEEDS_REVIEW';
     }
     return {
       criterion,
       evidence,
       taskIds: unique(taskIds),
       caseIds: unique(caseIds),
+      caseCoverage,
       status,
       gaps: unique(gaps),
     };

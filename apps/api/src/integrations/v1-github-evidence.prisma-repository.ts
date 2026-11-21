@@ -290,6 +290,21 @@ export class V1GithubEvidencePrismaRepository implements V1GithubEvidenceReposit
   }
 
   async consumeVersionedTicket(ticketId: string, projectId: string, now: Date): Promise<boolean> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.consumeVersionedTicketOnce(ticketId, projectId, now);
+      } catch (error) {
+        if ((error as { code?: string })?.code !== 'P2034' || attempt >= 7) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
+      }
+    }
+  }
+
+  private async consumeVersionedTicketOnce(
+    ticketId: string,
+    projectId: string,
+    now: Date,
+  ): Promise<boolean> {
     return this.prisma.$transaction(
       async (tx) => {
         await tx.$queryRaw(

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   base64ToUtf8,
@@ -9,25 +9,26 @@ import {
   type KnowledgeBaseKind,
   type KnowledgeBaseSearchItem,
   type KnowledgeBaseView,
-  type DocumentDetail,
-  type RequirementView,
+  type DocumentKind,
   type RevisionView,
   type RoleView,
 } from '../api/resources';
-import { formatApiError } from '../api/client';
+import { ApiError, formatApiError } from '../api/client';
+import { documentCatalogApi, type DocumentCatalogOverview } from '../api/documentCatalog';
+import type { DocumentSummary, DocumentSummaryRevision } from '../api/documentSummaries';
 import { ConfirmationPrompt } from '../components/ConfirmationPrompt';
 import { DiffViewer } from '../components/DiffViewer';
 import { ProjectSelect } from '../components/ProjectSelect';
 import { InlineLoading, SkeletonLines } from '../components/Skeleton';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { REVISION_STATE_LABELS } from '../lib/labels';
-import { loadDocumentIndex } from '../lib/documentIndex';
-import { loadRequirementIndex } from '../lib/requirementIndex';
+import { useDocumentSummaries } from '../hooks/useDocumentSummaries';
+import { useDocumentHistory } from '../hooks/useDocumentHistory';
 import { KnowledgeSystemRelations } from '../components/KnowledgeSystemRelations';
 import { MarkdownReader } from '../components/MarkdownReader';
 import './knowledge-workspace.css';
 
-const KIND_LABELS: Record<DocumentDetail['document']['kind'], string> = {
+const KIND_LABELS: Record<DocumentKind, string> = {
   UNDERSTANDING: '理解',
   DECISION: '决策',
   PRD: 'PRD',
@@ -81,22 +82,23 @@ function searchStatusLabel(status: string): string {
   }
 }
 
-function knowledgeBaseForDocument(
-  document: DocumentDetail['document'],
-  knowledgeBases: KnowledgeBaseView[],
-): KnowledgeBaseView | undefined {
-  return knowledgeBases.find((item) => item.id === document.knowledgeBaseId);
-}
-
 type RevisionWithReview = RevisionView & { reviewRequestId?: string | null };
 
 type ContentView = {
+  documentId: string;
+  documentVersion: number;
+  revision: RevisionView;
+  baseRevision?: RevisionView;
   revisionId: string;
   text: string;
   sha256: string;
   baseRevisionId?: string;
   baseText?: string;
 };
+
+function accessFailure(error: unknown): boolean {
+  return error instanceof ApiError && [401, 403, 404].includes(error.status);
+}
 
 function revisionReviewId(revision: RevisionView): string | null {
   const value = (revision as RevisionWithReview).reviewRequestId;
@@ -110,7 +112,6 @@ function revisionReviewId(revision: RevisionView): string | null {
 export function Knowledge() {
   const navigate = useNavigate();
   const { projectId } = useProjectContext();
-  const [docs, setDocs] = useState<DocumentDetail[]>([]);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseView[]>([]);
   const [knowledgeBasesState, setKnowledgeBasesState] = useState<'loading' | 'ready' | 'error'>(
     'loading',
@@ -126,21 +127,40 @@ export function Knowledge() {
   const [searchCursors, setSearchCursors] = useState<Record<string, string>>({});
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchRetry, setSearchRetry] = useState(0);
-  const [requirementsById, setRequirementsById] = useState<Map<string, RequirementView>>(new Map());
-  const [selectedId, setSelectedId] = useState('');
-  const [governanceOpen, setGovernanceOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [kindFilter, setKindFilter] = useState('');
-  const [page, setPage] = useState(1);
-  const PAGE_SIZE = 20;
+  const [kindFilter, setKindFilter] = useState<DocumentKind | ''>('');
+  const catalog = useDocumentSummaries(projectId, {
+    kind: kindFilter || undefined,
+    knowledgeBaseKind: activeCollection ?? undefined,
+    q: query,
+    searchProfile: 'knowledge',
+  });
+  const [selection, setSelection] = useState<{
+    projectId: string;
+    summary: DocumentSummary;
+  } | null>(null);
+  const selected = selection?.projectId === projectId ? selection.summary : null;
+  const selectedId = selected?.document.id ?? '';
+  const history = useDocumentHistory(selectedId, { scopeKey: projectId });
+  const { invalidateResolutions } = history;
+  const [governanceOpen, setGovernanceOpen] = useState(false);
   const [content, setContent] = useState<ContentView | null>(null);
+  const [contentLoading, setContentLoading] = useState(false);
   const [compareOldId, setCompareOldId] = useState('');
   const [compareNewId, setCompareNewId] = useState('');
+  const [exactOldId, setExactOldId] = useState('');
+  const [exactNewId, setExactNewId] = useState('');
+  const [metadataLoading, setMetadataLoading] = useState(false);
+  const [summaryStale, setSummaryStale] = useState(false);
+  const [readingDenied, setReadingDenied] = useState(false);
+  const [pendingRead, setPendingRead] = useState<{
+    projectId: string;
+    documentId: string;
+    revisionId: string;
+    intent: number;
+  } | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [requirementIndexError, setRequirementIndexError] = useState('');
-  const [requirementIndexLoading, setRequirementIndexLoading] = useState(false);
-  const [documentIndexError, setDocumentIndexError] = useState('');
   const [roles, setRoles] = useState<RoleView[]>([]);
   const [rolesState, setRolesState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [readyTasks, setReadyTasks] = useState<
@@ -148,286 +168,245 @@ export function Knowledge() {
   >([]);
   const [readyState, setReadyState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [commandCopied, setCommandCopied] = useState(false);
-  const [documentIndexFailed, setDocumentIndexFailed] = useState(false);
-  /** 有项目时首帧即视为加载中，避免先闪一屏「还没有文档」。 */
-  const [docsLoading, setDocsLoading] = useState(Boolean(projectId));
-  /** 当前项目是否已经拿到过一次文档列表结果；用于区分首次加载与「加载成功但为空」。 */
-  const [docsLoaded, setDocsLoaded] = useState(false);
-  /** 正文/对比请求本身也是异步面板：没有 loading 时点「查看正文」后卡片会一直不出现。 */
-  const [contentLoading, setContentLoading] = useState(false);
-  /** 文档列表请求序号：项目切换/刷新失败时旧请求不得覆盖新页面。 */
-  const docsRequestRef = useRef(0);
-  /** 需求索引请求序号：首次加载和手动重读都受保护，旧项目结果不得回写。 */
-  const requirementIndexRequestRef = useRef(0);
-  /** 正文请求序号：慢的旧版本请求完成后不得覆盖当前版本。 */
-  const contentRequestRef = useRef(0);
-  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawTarget, setWithdrawTarget] = useState<{
+    projectId: string;
+    summary: DocumentSummary;
+  } | null>(null);
   const [withdrawReason, setWithdrawReason] = useState('');
+  const [overviewState, setOverviewState] = useState<{
+    projectId: string;
+    data: DocumentCatalogOverview | null;
+    loading: boolean;
+    error: string;
+    stale: boolean;
+  }>({ projectId, data: null, loading: Boolean(projectId), error: '', stale: false });
+  const overview = overviewState.projectId === projectId ? overviewState.data : null;
+  const overviewLoading =
+    Boolean(projectId) && (overviewState.projectId !== projectId || overviewState.loading);
+  const overviewError = overviewState.projectId === projectId ? overviewState.error : '';
+  const overviewStale = overviewState.projectId === projectId && overviewState.stale;
+  const activeProject = useRef(projectId);
+  activeProject.current = projectId;
+  const activeScope = useRef('');
+  activeScope.current = JSON.stringify([projectId, selectedId]);
+  const activeMutationScope = useRef('');
+  activeMutationScope.current = JSON.stringify([
+    projectId,
+    selectedId,
+    selected?.document.version,
+    selected?.publishedRevision?.id,
+  ]);
+  const overviewRequestRef = useRef(0);
+  const overviewController = useRef<AbortController | null>(null);
+  const summaryRequestRef = useRef(0);
+  const contentRequestRef = useRef(0);
+  const readIntentRef = useRef(0);
   const knowledgeBasesRequestRef = useRef(0);
   const searchRequestRef = useRef(0);
-  /** 搜索结果打开请求序号：项目切换、新结果或卸载后旧文档详情不得回写。 */
+  const searchConsumedCursors = useRef(new Map<string, Set<string>>());
   const searchResultOpenRequestRef = useRef(0);
   const readerRef = useRef<HTMLDivElement | null>(null);
-
-  const selected = docs.find((item) => item.document.id === selectedId) ?? null;
+  const docs = catalog.items;
+  const docsLoading = catalog.loading;
+  const docsInitialLoading =
+    Boolean(projectId) && catalog.total === null && !catalog.error && !catalog.queryError;
+  const documentIndexError = catalog.queryError ?? catalog.error;
+  const restricted = readingDenied || history.accessDenied || catalog.accessDenied;
+  const historyReadErrors = [...new Set([history.error, history.metadataError].filter(Boolean))];
+  const actionsUnavailable =
+    restricted || history.requiresReload || history.stale || history.loading;
+  const documentVersionChanged =
+    history.documentVersion !== null && history.documentVersion !== selected?.document.version;
   const isReadingDocument = Boolean(content);
-  /** 首次加载（还没有任何文档结果）：表格用骨架行，不渲染空态与 0/0 计数。 */
-  const docsInitialLoading = Boolean(projectId) && !docsLoaded && docs.length === 0;
-  const requirementLabel = (id: string | null | undefined): string => {
-    if (!id) return '—';
-    const requirement = requirementsById.get(id);
-    if (requirement) return `${requirement.code} · ${requirement.title}`;
-    // 需求索引和文档列表是两条独立请求：索引还在读时不能把未绑定需求当成事实。
-    if (requirementIndexLoading) return '读取中…';
-    return requirementIndexError ? '关联需求暂时无法读取' : '—';
-  };
-  const revisionLabel = (id: string | null | undefined): string => {
-    if (!id) return '—';
-    const revision = selected?.revisions.find((item) => item.id === id);
-    return revision ? `v${revision.seq}` : '—';
-  };
-  const revisionTitle = (id: string | null | undefined): string => {
-    if (!id) return '—';
-    const revision = selected?.revisions.find((item) => item.id === id);
-    return revision ? `v${revision.seq} · ${revision.title}` : '—';
-  };
-  const filteredDocs = useMemo(() => {
-    const text = query.trim().toLowerCase();
-    return docs.filter((item) => {
-      if (kindFilter && item.document.kind !== kindFilter) return false;
-      if (!text) return true;
-      const requirement = item.document.requirementId
-        ? requirementsById.get(item.document.requirementId)
-        : null;
-      const revisionText = item.revisions.flatMap((revision) => [
-        revision.title,
-        `v${revision.seq}`,
-        revision.state,
-        REVISION_STATE_LABELS[revision.state] ?? '',
-      ]);
-      const searchText = [
-        KIND_LABELS[item.document.kind],
-        item.document.kind,
-        requirement?.code ?? '',
-        requirement?.title ?? '',
-        requirement ? `${requirement.code} · ${requirement.title}` : '',
-        ...revisionText,
-      ]
-        .join(' ')
-        .toLowerCase();
-      return searchText.includes(text);
-    });
-  }, [docs, kindFilter, query, requirementsById]);
-
-  const activeCollectionBaseIds = useMemo(() => {
-    if (!activeCollection) return null;
-    return new Set(
-      knowledgeBases
-        .filter((knowledgeBase) => knowledgeBase.kind === activeCollection)
-        .map((item) => item.id),
-    );
-  }, [activeCollection, knowledgeBases]);
-
-  const activeCollectionInfo = useMemo(
-    () => COLLECTIONS.find((collection) => collection.kind === activeCollection) ?? null,
-    [activeCollection],
-  );
-  const activeCollectionBases = useMemo(
-    () =>
-      activeCollection
-        ? knowledgeBases.filter((knowledgeBase) => knowledgeBase.kind === activeCollection)
-        : [],
-    [activeCollection, knowledgeBases],
-  );
-
+  const revisions = useMemo(() => {
+    const result = new Map<string, RevisionView | DocumentSummaryRevision>();
+    if (selected?.publishedRevision)
+      result.set(selected.publishedRevision.id, selected.publishedRevision);
+    for (const revision of history.items) result.set(revision.id, revision);
+    for (const [id, revision] of history.metadataById) result.set(id, revision);
+    return result;
+  }, [selected?.publishedRevision, history.items, history.metadataById]);
+  const comparisonRevisions = [...revisions.values()].sort((a, b) => b.seq - a.seq);
+  const activeCollectionInfo = COLLECTIONS.find((item) => item.kind === activeCollection) ?? null;
+  const activeCollectionBases = knowledgeBases.filter((item) => item.kind === activeCollection);
   const projectSearchBases = useMemo(
     () =>
       projectSearchScope
-        ? knowledgeBases.filter((knowledgeBase) => knowledgeBase.kind === projectSearchScope)
+        ? knowledgeBases.filter((item) => item.kind === projectSearchScope)
         : knowledgeBases,
     [knowledgeBases, projectSearchScope],
   );
   const projectSearchScopeLabel = projectSearchScope
     ? collectionTitle(projectSearchScope)
     : '全部可访问知识库';
-
-  const collectionFilteredDocs = useMemo(
-    () =>
-      activeCollectionBaseIds
-        ? filteredDocs.filter((item) => activeCollectionBaseIds.has(item.document.knowledgeBaseId))
-        : filteredDocs,
-    [activeCollectionBaseIds, filteredDocs],
-  );
-
-  const pageCount = Math.max(1, Math.ceil(collectionFilteredDocs.length / PAGE_SIZE));
-  const visibleDocs = collectionFilteredDocs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  useEffect(() => {
-    setPage(1);
-  }, [projectId, kindFilter, query, activeCollection]);
-
-  useEffect(() => {
-    if (page > pageCount) setPage(pageCount);
-  }, [page, pageCount]);
-
-  useEffect(() => {
-    if (content) readerRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
-  }, [content]);
-
-  const candidateCount =
-    selected?.revisions.filter((revision) => revision.state === 'CANDIDATE').length ?? 0;
-  const contentRevision = selected?.revisions.find(
-    (revision) => revision.id === content?.revisionId,
-  );
+  const candidateCount = selected?.candidateRevisionCount ?? 0;
+  const contentRevision = content?.revision;
+  const selectedKnowledgeBase = selected?.knowledgeBase;
+  const selectedRequirement = selected?.requirement;
+  const sourceRevisionForPanel =
+    contentRevision ??
+    (selected?.publishedRevision
+      ? history.metadataById.get(selected.publishedRevision.id)
+      : undefined);
   const contentVersionLabel = contentRevision
     ? selected?.publishedRevision?.id === contentRevision.id
       ? `当前生效 · v${contentRevision.seq}`
       : contentRevision.state === 'CANDIDATE'
         ? `候选 · 尚未生效 · v${contentRevision.seq}`
         : `历史版本 · v${contentRevision.seq}`
-    : content
-      ? revisionLabel(content.revisionId)
-      : '';
-  const selectedKnowledgeBase = selected
-    ? knowledgeBaseForDocument(selected.document, knowledgeBases)
-    : undefined;
-  const selectedRequirement = selected?.document.requirementId
-    ? requirementsById.get(selected.document.requirementId)
-    : undefined;
-  const sourceRevisionForPanel =
-    contentRevision ?? selected?.publishedRevision ?? selected?.revisions[0];
-  const selectedSourceRevision = sourceRevisionForPanel?.basisUnderstandingRevisionId
-    ? selected?.revisions.find(
-        (revision) => revision.id === sourceRevisionForPanel.basisUnderstandingRevisionId,
-      )
-    : undefined;
+    : '';
 
-  async function refreshRequirementIndex() {
-    if (!projectId) return;
-    const requestId = requirementIndexRequestRef.current + 1;
-    requirementIndexRequestRef.current = requestId;
-    setRequirementIndexLoading(true);
-    try {
-      const index = await loadRequirementIndex(projectId);
-      if (requirementIndexRequestRef.current !== requestId) return;
-      setRequirementsById(index.byId);
-      setRequirementIndexError(index.error);
-    } finally {
-      if (requirementIndexRequestRef.current === requestId) setRequirementIndexLoading(false);
-    }
+  function requirementLabel(summary: DocumentSummary): string {
+    return summary.requirement
+      ? `${summary.requirement.code} · ${summary.requirement.title}`
+      : summary.document.requirementId
+        ? `关联需求暂不可读（${summary.document.requirementId}）`
+        : '未关联需求';
   }
-
-  async function load() {
-    if (!projectId) {
-      docsRequestRef.current += 1;
-      requirementIndexRequestRef.current += 1;
-      setDocs([]);
-      setSelectedId('');
-      setGovernanceOpen(false);
-      setContent(null);
-      setRequirementsById(new Map());
-      setRequirementIndexError('');
-      setRequirementIndexLoading(false);
-      setDocumentIndexError('');
-      setDocumentIndexFailed(false);
-      setDocsLoading(false);
-      setDocsLoaded(false);
-      setContentLoading(false);
-      setCompareOldId('');
-      setCompareNewId('');
-      return;
-    }
-
-    const requestId = docsRequestRef.current + 1;
-    docsRequestRef.current = requestId;
-    const requirementRequestId = requirementIndexRequestRef.current + 1;
-    requirementIndexRequestRef.current = requirementRequestId;
-    // 文档刷新会启动新的需求索引请求；它必须接管 loading 并在自身结束后清理。
-    setRequirementIndexLoading(true);
-    setDocsLoading(true);
-    try {
-      const [documents, requirementIndex] = await Promise.all([
-        loadDocumentIndex(projectId),
-        loadRequirementIndex(projectId),
-      ]);
-      const documentsCurrent = docsRequestRef.current === requestId;
-      const requirementCurrent = requirementIndexRequestRef.current === requirementRequestId;
-      if (!documentsCurrent && !requirementCurrent) return;
-      if (requirementCurrent) {
-        setRequirementsById(requirementIndex.byId);
-        setRequirementIndexError(requirementIndex.error);
-      }
-      // 需求索引请求过期时，不能连带丢弃仍然有效的当前项目文档列表结果。
-      if (!documentsCurrent) return;
-      const documentsFailed = !documents.complete && documents.reason === null;
-      // 首次分页请求失败时 helper 返回空 items：已有快照必须保留，不能把旧文档清空。
-      const nextDocs = documentsFailed && docs.length > 0 ? docs : documents.items;
-      setDocs(nextDocs);
-      setDocumentIndexError(
-        documentsFailed && docs.length > 0
-          ? `${documents.error} 数据可能已过期，当前仍显示上次成功读取的 ${docs.length} 个文档。`
-          : documents.error,
-      );
-      setDocumentIndexFailed(documentsFailed);
-      setError('');
-      setSelectedId((current) =>
-        nextDocs.some((item) => item.document.id === current)
-          ? current
-          : (nextDocs[0]?.document.id ?? ''),
-      );
-      // 文档列表重新读取后，旧正文/旧 diff 不再对应当前列表。
-      contentRequestRef.current += 1;
-      setContent(null);
-      setContentLoading(false);
-      setCompareOldId('');
-      setCompareNewId('');
-    } catch (caught) {
-      if (docsRequestRef.current !== requestId) return;
-      setDocumentIndexFailed(true);
-      setDocumentIndexError(`文档列表读取失败：${formatApiError(caught)}`);
-    } finally {
-      if (docsRequestRef.current === requestId) {
-        setDocsLoading(false);
-        setDocsLoaded(true);
-      }
-      // 只有当前有效的索引请求才能结束 loading；过期请求不能干扰新请求。
-      if (requirementIndexRequestRef.current === requirementRequestId)
-        setRequirementIndexLoading(false);
-    }
+  function revisionLabel(id: string | null | undefined): string {
+    if (!id) return '—';
+    const revision = revisions.get(id);
+    return revision ? `v${revision.seq}` : `未加载（${id}）`;
   }
-
-  useEffect(() => {
-    // 项目切换：立即清空旧项目文档与正文，并让在途的文档/正文/需求索引请求全部失效。
-    docsRequestRef.current += 1;
-    requirementIndexRequestRef.current += 1;
-    contentRequestRef.current += 1;
-    searchResultOpenRequestRef.current += 1;
-    setDocs([]);
-    setSelectedId('');
-    setGovernanceOpen(false);
+  function revisionTitle(id: string | null | undefined): string {
+    if (!id) return '—';
+    const revision = revisions.get(id);
+    return revision ? `v${revision.seq} · ${revision.title}` : `修订 ${id}（需读取元数据）`;
+  }
+  function clearReader() {
+    ++contentRequestRef.current;
+    ++readIntentRef.current;
+    setPendingRead(null);
+    invalidateResolutions();
     setContent(null);
-    setError('');
-    setDocumentIndexError('');
-    setDocumentIndexFailed(false);
-    setDocsLoading(false);
-    setDocsLoaded(false);
     setContentLoading(false);
+    setMetadataLoading(false);
     setCompareOldId('');
     setCompareNewId('');
-    setRequirementsById(new Map());
-    setRequirementIndexError('');
-    setRequirementIndexLoading(false);
-    if (!projectId)
-      return () => {
-        searchResultOpenRequestRef.current += 1;
-        contentRequestRef.current += 1;
-      };
-    void load();
+    setExactOldId('');
+    setExactNewId('');
+  }
+  const refreshOverview = useCallback(async () => {
+    overviewController.current?.abort();
+    const controller = new AbortController();
+    overviewController.current = controller;
+    const requestId = ++overviewRequestRef.current;
+    if (!projectId) {
+      setOverviewState({ projectId, data: null, loading: false, error: '', stale: false });
+      return;
+    }
+    setOverviewState((previous) => ({
+      projectId,
+      data: previous.projectId === projectId ? previous.data : null,
+      loading: true,
+      error: '',
+      stale: previous.projectId === projectId && previous.data !== null,
+    }));
+    try {
+      const data = await documentCatalogApi.overview(projectId, controller.signal);
+      if (
+        controller.signal.aborted ||
+        requestId !== overviewRequestRef.current ||
+        activeProject.current !== projectId
+      )
+        return;
+      setOverviewState({ projectId, data, loading: false, error: '', stale: false });
+    } catch (caught) {
+      if (
+        controller.signal.aborted ||
+        requestId !== overviewRequestRef.current ||
+        activeProject.current !== projectId
+      )
+        return;
+      setOverviewState((previous) => ({
+        projectId,
+        data: accessFailure(caught) ? null : previous.data,
+        loading: false,
+        error: `门户统计读取失败：${formatApiError(caught)}`,
+        stale: !accessFailure(caught) && previous.data !== null,
+      }));
+    }
+  }, [projectId]);
+  useEffect(() => {
+    void refreshOverview();
     return () => {
-      searchResultOpenRequestRef.current += 1;
-      contentRequestRef.current += 1;
+      ++overviewRequestRef.current;
+      overviewController.current?.abort();
+    };
+  }, [refreshOverview]);
+  useEffect(() => {
+    ++contentRequestRef.current;
+    ++summaryRequestRef.current;
+    ++searchResultOpenRequestRef.current;
+    ++readIntentRef.current;
+    setSelection(null);
+    setPendingRead(null);
+    setContent(null);
+    setContentLoading(false);
+    setMetadataLoading(false);
+    setGovernanceOpen(false);
+    setProjectSearch('');
+    setProjectSearchScope('');
+    setQuery('');
+    setKindFilter('');
+    setCompareOldId('');
+    setCompareNewId('');
+    setExactOldId('');
+    setExactNewId('');
+    setWithdrawTarget(null);
+    setError('');
+    setNotice('');
+    return () => {
+      ++contentRequestRef.current;
+      ++summaryRequestRef.current;
+      ++searchResultOpenRequestRef.current;
+      ++searchRequestRef.current;
+      ++knowledgeBasesRequestRef.current;
     };
   }, [projectId]);
+  useEffect(() => {
+    setSelection((previous) => {
+      if (!previous || previous.projectId !== projectId) return previous;
+      const summary = catalog.items.find(
+        (item) => item.document.id === previous.summary.document.id,
+      );
+      return summary ? { projectId, summary } : previous;
+    });
+  }, [catalog.items, projectId]);
+  useEffect(() => {
+    ++contentRequestRef.current;
+    invalidateResolutions();
+    setContent(null);
+    setContentLoading(false);
+    setMetadataLoading(false);
+    setReadingDenied(false);
+    setSummaryStale(false);
+    setCompareOldId('');
+    setCompareNewId('');
+    setExactOldId('');
+    setExactNewId('');
+    setWithdrawTarget(null);
+  }, [
+    invalidateResolutions,
+    selectedId,
+    selected?.document.version,
+    selected?.publishedRevision?.id,
+  ]);
+  useEffect(() => {
+    if (!restricted && !history.requiresReload && !history.stale) return;
+    ++contentRequestRef.current;
+    ++readIntentRef.current;
+    setPendingRead(null);
+    setContent(null);
+    setContentLoading(false);
+    setMetadataLoading(false);
+    setCompareOldId('');
+    setCompareNewId('');
+    setWithdrawTarget(null);
+  }, [restricted, history.requiresReload, history.stale]);
+  useEffect(() => {
+    if (content) readerRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [content]);
 
   useEffect(() => {
     const requestId = knowledgeBasesRequestRef.current + 1;
@@ -483,9 +462,15 @@ export function Knowledge() {
     setSearchHasMore(false);
     setSearchTruncated(false);
     setSearchError('');
+    searchConsumedCursors.current.clear();
 
     if (!q) {
       setSearchState('idle');
+      return;
+    }
+    if (q.length > 500) {
+      setSearchState('error');
+      setSearchError('正文搜索最多支持 500 个字符，请缩短搜索词。');
       return;
     }
     if (!projectId || knowledgeBasesState === 'loading') {
@@ -592,92 +577,194 @@ export function Knowledge() {
     };
   }, [projectId]);
 
-  function selectDocument(documentId: string) {
-    contentRequestRef.current += 1;
-    setSelectedId(documentId);
+  function selectDocument(summary: DocumentSummary | null) {
+    ++summaryRequestRef.current;
+    ++searchResultOpenRequestRef.current;
+    clearReader();
+    setSelection(projectId && summary ? { projectId, summary } : null);
+    setReadingDenied(false);
+    setSummaryStale(false);
     setGovernanceOpen(false);
-    setContent(null);
-    setContentLoading(false);
-    setCompareOldId('');
-    setCompareNewId('');
+    setWithdrawTarget(null);
     setError('');
   }
-
-  function openDocumentGovernance(documentId: string) {
-    selectDocument(documentId);
+  function openDocumentGovernance(summary: DocumentSummary) {
+    selectDocument(summary);
     setGovernanceOpen(true);
   }
-
-  function openDocument(document: DocumentDetail) {
-    const revision = document.publishedRevision ?? document.revisions[0] ?? null;
-    selectDocument(document.document.id);
+  function queueRead(summary: DocumentSummary, revisionId: string) {
+    selectDocument(summary);
+    setPendingRead({
+      projectId,
+      documentId: summary.document.id,
+      revisionId,
+      intent: readIntentRef.current,
+    });
+  }
+  function openDocument(summary: DocumentSummary) {
+    const revision = summary.publishedRevision ?? summary.latestVisibleRevision;
     if (!revision) {
+      selectDocument(summary);
       setNotice('该文档还没有可读取的修订。');
       return;
     }
-    void openContent(revision, document);
+    queueRead(summary, revision.id);
   }
-
+  async function refreshSelected(summary: DocumentSummary) {
+    const scope = activeScope.current;
+    const requestId = ++summaryRequestRef.current;
+    setSummaryStale(true);
+    try {
+      const next = await documentCatalogApi.summary(summary.document.id);
+      if (scope !== activeScope.current || requestId !== summaryRequestRef.current) return;
+      setSelection({ projectId: next.document.projectId, summary: next });
+      setSummaryStale(false);
+    } catch (caught) {
+      if (scope !== activeScope.current || requestId !== summaryRequestRef.current) return;
+      setError(`当前文档概要读取失败：${formatApiError(caught)}`);
+      if (accessFailure(caught)) setReadingDenied(true);
+    }
+  }
+  async function load() {
+    clearReader();
+    setWithdrawTarget(null);
+    setError('');
+    setReadingDenied(false);
+    await Promise.all([
+      catalog.reload(),
+      refreshOverview(),
+      ...(selected ? [history.reload(), refreshSelected(selected)] : []),
+    ]);
+  }
+  async function refreshHistory() {
+    clearReader();
+    setWithdrawTarget(null);
+    setError('');
+    setReadingDenied(false);
+    await Promise.all([history.reload(), ...(selected ? [refreshSelected(selected)] : [])]);
+  }
   function updateComparisonSelection(kind: 'old' | 'new', value: string) {
-    // Selecting a new pair makes any old body or diff immediately stale.
-    contentRequestRef.current += 1;
+    ++contentRequestRef.current;
+    ++readIntentRef.current;
+    setPendingRead(null);
+    invalidateResolutions();
     setContent(null);
     setContentLoading(false);
+    setMetadataLoading(false);
     setError('');
     if (kind === 'old') setCompareOldId(value);
     else setCompareNewId(value);
   }
-
-  async function openContent(revision: RevisionView, documentOverride?: DocumentDetail) {
-    const requestId = contentRequestRef.current + 1;
-    contentRequestRef.current = requestId;
+  function updateExactSelection(kind: 'old' | 'new', value: string) {
+    updateComparisonSelection('old', '');
+    setCompareNewId('');
+    if (kind === 'old') setExactOldId(value);
+    else setExactNewId(value);
+  }
+  async function resolveComparison() {
+    if (actionsUnavailable) return;
+    const oldId = exactOldId.trim();
+    const newId = exactNewId.trim();
+    if (!oldId || !newId || oldId === newId) {
+      setError('请输入两个不同的准确修订 ID。');
+      return;
+    }
+    const requestId = ++contentRequestRef.current;
+    const scope = activeScope.current;
+    invalidateResolutions();
+    setContent(null);
+    setMetadataLoading(true);
+    setError('');
+    const [oldRevision, newRevision] = await Promise.all([
+      history.resolveRevision(oldId),
+      history.resolveRevision(newId),
+    ]);
+    if (scope !== activeScope.current || requestId !== contentRequestRef.current) return;
+    setMetadataLoading(false);
+    if (!oldRevision || !newRevision) return;
+    setCompareOldId(oldRevision.id);
+    setCompareNewId(newRevision.id);
+  }
+  function contentFailure(caught: unknown) {
+    setError(formatApiError(caught));
+    if (accessFailure(caught)) {
+      setReadingDenied(true);
+      invalidateResolutions();
+    }
+  }
+  async function openContent(revisionId: string) {
+    if (!selected || actionsUnavailable) return;
+    const publishedId = selected.publishedRevision?.id;
+    const requestId = ++contentRequestRef.current;
+    const scope = activeScope.current;
+    const current = () => scope === activeScope.current && requestId === contentRequestRef.current;
+    invalidateResolutions();
     setContent(null);
     setContentLoading(true);
+    setMetadataLoading(false);
     setError('');
     try {
-      const body = await documentApi.content(revision.id);
-      if (contentRequestRef.current !== requestId) return;
-      const next: ContentView = {
+      const revision = await history.resolveRevision(revisionId);
+      if (!current() || !revision) return;
+      const needsBase =
+        publishedId && publishedId !== revision.id && revision.state === 'CANDIDATE';
+      const published = needsBase ? await history.resolveRevision(publishedId) : null;
+      if (!current() || (needsBase && !published)) return;
+      const [body, baseBody] = await Promise.all([
+        documentApi.content(revision.id),
+        published ? documentApi.content(published.id) : Promise.resolve(null),
+      ]);
+      if (!current()) return;
+      setContent({
+        documentId: selected.document.id,
+        documentVersion: selected.document.version,
+        revision,
         revisionId: revision.id,
         text: base64ToUtf8(body.bodyBase64),
         sha256: body.sha256,
-      };
-      const published = (documentOverride ?? selected)?.publishedRevision;
-      if (published && published.id !== revision.id && revision.state === 'CANDIDATE') {
-        const publishedBody = await documentApi.content(published.id);
-        if (contentRequestRef.current !== requestId) return;
-        next.baseRevisionId = published.id;
-        next.baseText = base64ToUtf8(publishedBody.bodyBase64);
-      }
-      setContent(next);
-      setCompareOldId(next.baseRevisionId ?? '');
+        ...(published && baseBody
+          ? {
+              baseRevision: published,
+              baseRevisionId: published.id,
+              baseText: base64ToUtf8(baseBody.bodyBase64),
+            }
+          : {}),
+      });
+      setCompareOldId(published?.id ?? '');
       setCompareNewId(revision.id);
-      setError('');
     } catch (caught) {
-      if (contentRequestRef.current !== requestId) return;
-      setError(formatApiError(caught));
+      if (current()) contentFailure(caught);
     } finally {
-      if (contentRequestRef.current === requestId) setContentLoading(false);
+      if (current()) setContentLoading(false);
     }
   }
-
   async function compareRevisions(oldId: string, newId: string) {
-    if (!selected || !oldId || !newId || oldId === newId) {
+    if (!selected || actionsUnavailable || !oldId || !newId || oldId === newId) {
       setError('请选择两个不同且可读取的修订版本。');
       return;
     }
-    const requestId = contentRequestRef.current + 1;
-    contentRequestRef.current = requestId;
+    const requestId = ++contentRequestRef.current;
+    const scope = activeScope.current;
+    const current = () => scope === activeScope.current && requestId === contentRequestRef.current;
     setContent(null);
     setContentLoading(true);
     setError('');
     try {
+      const [oldRevision, newRevision] = await Promise.all([
+        history.resolveRevision(oldId),
+        history.resolveRevision(newId),
+      ]);
+      if (!current() || !oldRevision || !newRevision) return;
       const [oldBody, newBody] = await Promise.all([
         documentApi.content(oldId),
         documentApi.content(newId),
       ]);
-      if (contentRequestRef.current !== requestId) return;
+      if (!current()) return;
       setContent({
+        documentId: selected.document.id,
+        documentVersion: selected.document.version,
+        revision: newRevision,
+        baseRevision: oldRevision,
         revisionId: newId,
         text: base64ToUtf8(newBody.bodyBase64),
         sha256: newBody.sha256,
@@ -687,71 +774,113 @@ export function Knowledge() {
       setCompareOldId(oldId);
       setCompareNewId(newId);
     } catch (caught) {
-      if (contentRequestRef.current !== requestId) return;
-      setError(formatApiError(caught));
+      if (current()) contentFailure(caught);
     } finally {
-      if (contentRequestRef.current === requestId) setContentLoading(false);
+      if (current()) setContentLoading(false);
     }
   }
-
+  function openWithdraw() {
+    if (!selected || actionsUnavailable || summaryStale || documentVersionChanged) return;
+    setWithdrawReason('');
+    setWithdrawTarget({ projectId, summary: selected });
+  }
   async function withdraw(confirmation: { ticketId: string; ticketSecret: string }) {
-    if (!selected) throw new Error('缺少撤销目标');
+    const target = withdrawTarget;
+    if (
+      !target ||
+      !selected ||
+      actionsUnavailable ||
+      summaryStale ||
+      documentVersionChanged ||
+      target.projectId !== projectId ||
+      target.summary.document.id !== selectedId ||
+      target.summary.document.version !== selected.document.version ||
+      target.summary.publishedRevision?.id !== selected.publishedRevision?.id
+    )
+      throw new Error('文档已变化，请刷新文档并重新确认撤销发布');
     if (!withdrawReason.trim()) throw new Error('撤销原因不能为空');
-    await documentApi.withdraw(selected.document.id, {
-      expectedVersion: selected.document.version,
-      reason: withdrawReason.trim(),
-      confirmation,
-    });
-    setWithdrawOpen(false);
+    const scope = activeScope.current;
+    const mutationScope = activeMutationScope.current;
+    try {
+      await documentApi.withdraw(target.summary.document.id, {
+        expectedVersion: target.summary.document.version,
+        reason: withdrawReason.trim(),
+        confirmation,
+      });
+    } catch (caught) {
+      if (
+        mutationScope === activeMutationScope.current &&
+        caught instanceof ApiError &&
+        caught.status === 409
+      ) {
+        setWithdrawTarget(null);
+        await load();
+        if (scope === activeScope.current) setError('文档已变化，请重新核对当前发布并确认撤销。');
+      }
+      throw caught;
+    }
+    if (mutationScope !== activeMutationScope.current) return;
+    setWithdrawTarget(null);
     setWithdrawReason('');
     await load();
-    setNotice('发布已撤销；历史修订仍保留，原发布指针不会自动回退。');
+    if (scope === activeScope.current)
+      setNotice('发布已撤销；历史修订仍保留，原发布指针不会自动回退。');
   }
-
   function openReview(revision: RevisionView) {
     const reviewId = revisionReviewId(revision);
-    if (reviewId) navigate(`/reviews?id=${encodeURIComponent(reviewId)}`);
+    if (reviewId && !actionsUnavailable) navigate(`/reviews/${encodeURIComponent(reviewId)}`);
   }
-
   async function openKnowledgeSearchResult(result: KnowledgeBaseSearchItem) {
-    const requestId = searchResultOpenRequestRef.current + 1;
-    searchResultOpenRequestRef.current = requestId;
-    // A new search result supersedes any body request started by the previous result.
-    contentRequestRef.current += 1;
-    setContent(null);
-    setContentLoading(false);
+    const requestId = ++searchResultOpenRequestRef.current;
+    const sourceProject = projectId;
+    clearReader();
     setError('');
-    let target = docs.find((item) => item.document.id === result.documentId);
-    if (!target) {
-      try {
-        target = await documentApi.get(result.documentId);
-        if (searchResultOpenRequestRef.current !== requestId) return;
-        setDocs((current) =>
-          current.some((item) => item.document.id === target?.document.id)
-            ? current
-            : [...current, target!],
-        );
-      } catch (caught) {
-        if (searchResultOpenRequestRef.current !== requestId) return;
-        setError(`文档暂时无法打开：${formatApiError(caught)}`);
+    try {
+      const target = await documentCatalogApi.summary(result.documentId);
+      if (
+        requestId !== searchResultOpenRequestRef.current ||
+        activeProject.current !== sourceProject
+      )
         return;
-      }
+      if (target.document.projectId !== sourceProject) throw new Error('搜索结果不属于当前项目');
+      setActiveCollection(
+        COLLECTIONS.some((item) => item.kind === result.knowledgeBaseKind)
+          ? (result.knowledgeBaseKind as KnowledgeBaseKind)
+          : null,
+      );
+      queueRead(target, result.revisionId);
+    } catch (caught) {
+      if (
+        requestId !== searchResultOpenRequestRef.current ||
+        activeProject.current !== sourceProject
+      )
+        return;
+      setError(`文档暂时无法打开：${formatApiError(caught)}`);
     }
-    if (searchResultOpenRequestRef.current !== requestId) return;
-    setActiveCollection(
-      COLLECTIONS.some((collection) => collection.kind === result.knowledgeBaseKind)
-        ? (result.knowledgeBaseKind as KnowledgeBaseKind)
-        : null,
-    );
-    selectDocument(target.document.id);
-    const revision =
-      target.revisions.find((item) => item.id === result.revisionId) ?? target.publishedRevision;
-    if (revision) void openContent(revision, target);
   }
+  useEffect(() => {
+    if (
+      !pendingRead ||
+      pendingRead.projectId !== projectId ||
+      pendingRead.documentId !== selectedId ||
+      pendingRead.intent !== readIntentRef.current ||
+      history.loading
+    )
+      return;
+    setPendingRead(null);
+    if (!actionsUnavailable) void openContent(pendingRead.revisionId);
+    // The intent waits for the history hook to bind to the selected document before resolving metadata.
+  }, [pendingRead, projectId, selectedId, history.loading, actionsUnavailable]);
 
   async function loadMoreKnowledgeSearch() {
     const q = projectSearch.trim();
-    if (!q || Object.keys(searchCursors).length === 0) return;
+    if (
+      !q ||
+      q.length > 500 ||
+      searchState === 'loading' ||
+      Object.keys(searchCursors).length === 0
+    )
+      return;
     const requestId = searchRequestRef.current + 1;
     searchRequestRef.current = requestId;
     setSearchState('loading');
@@ -774,7 +903,13 @@ export function Knowledge() {
       const { knowledgeBaseId, page: nextPage } = result.value;
       added.push(...nextPage.items);
       truncated ||= nextPage.truncated;
-      if (nextPage.hasMore && nextPage.nextCursor)
+      const seen = searchConsumedCursors.current.get(knowledgeBaseId) ?? new Set<string>();
+      seen.add(searchCursors[knowledgeBaseId]);
+      searchConsumedCursors.current.set(knowledgeBaseId, seen);
+      if (nextPage.hasMore && nextPage.nextCursor && seen.has(nextPage.nextCursor)) {
+        failed.push('游标重复的知识库（已停止续页）');
+        delete nextCursors[knowledgeBaseId];
+      } else if (nextPage.hasMore && nextPage.nextCursor)
         nextCursors[knowledgeBaseId] = nextPage.nextCursor;
       else delete nextCursors[knowledgeBaseId];
     });
@@ -810,7 +945,7 @@ export function Knowledge() {
             onChange={() => {
               contentRequestRef.current += 1;
               searchResultOpenRequestRef.current += 1;
-              setSelectedId('');
+              selectDocument(null);
               setContent(null);
               setContentLoading(false);
               setProjectSearch('');
@@ -837,35 +972,64 @@ export function Knowledge() {
         </p>
       )}
       {notice && <p className="kb-notice">{notice}</p>}
+      {selected && (restricted || historyReadErrors.length > 0) && (
+        <div className="error" role="alert">
+          {restricted && <p>当前文档已不可读取，请刷新文档或选择其他文档。</p>}
+          {historyReadErrors.map((message) => (
+            <p key={message}>{message}</p>
+          ))}
+          {history.stale && ' 已加载历史可能已过期。'}
+          {!governanceOpen && (
+            <button
+              type="button"
+              className="ghost"
+              disabled={history.loading || history.loadingMore}
+              onClick={() => void refreshHistory()}
+            >
+              刷新历史
+            </button>
+          )}
+        </div>
+      )}
       {documentIndexError && (
-        <div
-          className={documentIndexFailed ? 'error' : 'kb-notice'}
-          role={documentIndexFailed ? 'alert' : 'status'}
-        >
+        <div className="error" role="alert">
           {documentIndexError}
-          <button
-            type="button"
-            className="ghost"
-            onClick={() => void load()}
-            disabled={docsLoading}
-          >
-            {docsLoading ? '读取中…' : '重新读取文档列表'}
-          </button>
+          {catalog.stale && ' 数据可能已过期，当前仍显示上次成功读取的目录页。'}
+          {!catalog.queryError && (
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => void catalog.reload()}
+              disabled={docsLoading}
+            >
+              重新读取文档列表
+            </button>
+          )}
         </div>
       )}
-      {requirementIndexError && (
-        <div className="kb-notice" role="status">
-          {requirementIndexError}
-          <button
-            type="button"
-            className="ghost"
-            onClick={() => void refreshRequirementIndex()}
-            disabled={requirementIndexLoading}
-          >
-            {requirementIndexLoading ? '读取中…' : '重新读取需求索引'}
-          </button>
+      {overviewError && (
+        <div className="error" role="alert">
+          {overviewError}
+          {overviewStale && ' 统计可能已过期，当前保留上次成功结果。'}
         </div>
       )}
+      <div className="card-head-actions" aria-busy={overviewLoading}>
+        <span>
+          {overviewLoading
+            ? '正在读取门户统计…'
+            : overview
+              ? `项目共 ${overview.total} 篇可浏览文档${overviewStale ? '（统计可能已过期）' : ''}`
+              : '门户统计尚未读取'}
+        </span>
+        <button
+          type="button"
+          className="ghost"
+          disabled={overviewLoading || !projectId}
+          onClick={() => void refreshOverview()}
+        >
+          重新读取门户
+        </button>
+      </div>
       <section className="knowledge-search-panel" aria-labelledby="knowledge-search-title">
         <div className="knowledge-search-copy sr-only">
           <h3 id="knowledge-search-title">在项目内搜索已发布知识</h3>
@@ -896,7 +1060,7 @@ export function Knowledge() {
             onChange={(event) =>
               setProjectSearchScope(event.target.value as KnowledgeBaseKind | '')
             }
-            disabled={!projectId || knowledgeBasesState !== 'ready'}
+            disabled={!projectId || knowledgeBasesState === 'loading'}
           >
             <option value="">全部可访问知识库</option>
             {COLLECTIONS.map((collection) => (
@@ -957,9 +1121,8 @@ export function Knowledge() {
                     >
                       <span className="knowledge-result-meta">
                         {collectionTitle(result.knowledgeBaseKind)} ·{' '}
-                        {KIND_LABELS[result.documentKind as DocumentDetail['document']['kind']] ??
-                          result.documentKind}{' '}
-                        · {searchStatusLabel(result.status)}
+                        {KIND_LABELS[result.documentKind as DocumentKind] ?? result.documentKind} ·{' '}
+                        {searchStatusLabel(result.status)}
                       </span>
                       <strong>{result.title}</strong>
                       <span className="knowledge-result-excerpt">{result.excerpt}</span>
@@ -984,24 +1147,20 @@ export function Knowledge() {
       </section>
 
       {!activeCollection && !isReadingDocument && (
-        <section className="knowledge-collections" aria-labelledby="knowledge-collections-title">
+        <section
+          className="knowledge-collections"
+          aria-labelledby="knowledge-collections-title"
+          data-testid="knowledge-overview"
+        >
           <h3 id="knowledge-collections-title" className="sr-only">
             浏览三类知识
           </h3>
           <div className="knowledge-collection-grid">
             {COLLECTIONS.map((collection) => {
-              const collectionBases = knowledgeBases.filter(
-                (item) => item.kind === collection.kind,
+              const group = overview?.collections.find(
+                (item) => item.knowledgeBaseKind === collection.kind,
               );
-              const baseIds = new Set(collectionBases.map((item) => item.id));
-              const collectionDocs = docs.filter((item) =>
-                baseIds.has(item.document.knowledgeBaseId),
-              );
-              // The document endpoint is ordered by its server-provided update order. Keep that
-              // order intact so the card's "最近更新" label remains truthful even when the newest
-              // item is still a candidate revision.
-              const recentDocs = collectionDocs.slice(0, 2);
-              const unavailable = knowledgeBasesState === 'error' && collectionBases.length === 0;
+              const recentDocs = group?.recentItems ?? [];
               return (
                 <article
                   key={collection.kind}
@@ -1024,20 +1183,19 @@ export function Knowledge() {
                     </span>
                     <strong className="knowledge-collection-question">{collection.question}</strong>
                     <span className="knowledge-collection-docs">
-                      {knowledgeBasesState === 'loading' || docsInitialLoading
+                      {overviewLoading && !overview
                         ? '正在读取…'
-                        : unavailable
-                          ? '类别信息暂时无法读取'
-                          : collectionBases.length === 0
-                            ? '当前没有可浏览的此类内容'
-                            : `${collectionDocs.length} 篇可浏览文档`}
+                        : !group
+                          ? '统计暂时无法读取'
+                          : `${group.documentCount} 篇可浏览文档`}
+                      {group && <small> · {group.knowledgeBaseCount} 个知识库</small>}
                     </span>
                   </button>
                   {recentDocs.length > 0 && (
                     <details className="knowledge-featured-docs">
                       <summary className="knowledge-featured-caption">最近更新</summary>
                       {recentDocs.map((item) => {
-                        const revision = item.publishedRevision ?? item.revisions[0];
+                        const revision = item.publishedRevision ?? item.latestVisibleRevision;
                         return (
                           <button
                             type="button"
@@ -1113,9 +1271,9 @@ export function Knowledge() {
                 <span>
                   {docsLoading
                     ? '正在读取文档…'
-                    : documentIndexFailed
-                      ? `${collectionFilteredDocs.length} 篇已读取，列表可能不完整`
-                      : `${collectionFilteredDocs.length} 篇符合当前筛选`}
+                    : catalog.total === null
+                      ? '目录数量暂时无法确认'
+                      : `${catalog.total} 篇符合当前筛选${catalog.stale ? '（数据可能已过期）' : ''}`}
                 </span>
               </p>
             </div>
@@ -1123,13 +1281,11 @@ export function Knowledge() {
         </section>
       )}
 
-      {selected &&
-        (query.trim() !== '' || kindFilter !== '' || activeCollection !== null) &&
-        !collectionFilteredDocs.some((item) => item.document.id === selected.document.id) && (
-          <p className="page-sub" role="status">
-            当前查看的文档不在筛选结果中；详情仍保留，清除搜索或类型筛选可回到完整列表。
-          </p>
-        )}
+      {selected && !docs.some((item) => item.document.id === selected.document.id) && (
+        <p className="page-sub" role="status">
+          当前查看的文档不在当前结果页；详情仍保留，可以翻页或调整筛选继续浏览。
+        </p>
+      )}
 
       {!isReadingDocument && (
         <div className="table-card">
@@ -1139,7 +1295,9 @@ export function Knowledge() {
               <small>
                 {docsInitialLoading
                   ? '加载中…'
-                  : `${collectionFilteredDocs.length} / ${docs.length}`}
+                  : catalog.total === null
+                    ? '数量尚未读取'
+                    : `当前页 ${docs.length} / 共 ${catalog.total} 篇`}
               </small>
             </h3>
             <div className="knowledge-table-scope" aria-live="polite">
@@ -1161,20 +1319,17 @@ export function Knowledge() {
               {docsLoading && (
                 <InlineLoading label={docsInitialLoading ? '正在加载文档…' : '正在刷新文档…'} />
               )}
-              {requirementIndexLoading && !docsLoading && (
-                <InlineLoading label="正在读取需求索引…" />
-              )}
               <input
                 aria-label="搜索文档"
-                placeholder="筛选当前列表（标题 / 需求 / 类型）"
-                title="仅筛选当前已加载文档的标题、类型、版本与需求关联，不搜索正文。"
+                placeholder="搜索文档目录（标题 / 需求 / 类型）"
+                title="在服务端搜索可访问文档目录；最多 100 个字符。正文使用上方独立搜索。"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
               <select
                 aria-label="文档类型筛选"
                 value={kindFilter}
-                onChange={(event) => setKindFilter(event.target.value)}
+                onChange={(event) => setKindFilter(event.target.value as DocumentKind | '')}
               >
                 <option value="">全部类型</option>
                 {Object.entries(KIND_LABELS).map(([key, label]) => (
@@ -1190,10 +1345,10 @@ export function Knowledge() {
               <div className="collection-document-loading">
                 <SkeletonLines lines={5} />
               </div>
-            ) : visibleDocs.length > 0 ? (
-              visibleDocs.map((item) => {
-                const latest = item.publishedRevision ?? item.revisions[0] ?? null;
-                const knowledgeBase = knowledgeBaseForDocument(item.document, knowledgeBases);
+            ) : docs.length > 0 ? (
+              docs.map((item) => {
+                const latest = item.publishedRevision ?? item.latestVisibleRevision;
+                const knowledgeBase = item.knowledgeBase;
                 return (
                   <article
                     key={item.document.id}
@@ -1241,7 +1396,7 @@ export function Knowledge() {
                       <button
                         type="button"
                         className="ghost"
-                        onClick={() => openDocumentGovernance(item.document.id)}
+                        onClick={() => openDocumentGovernance(item)}
                       >
                         {selectedId === item.document.id ? '版本与评审（当前）' : '查看版本'}
                       </button>
@@ -1253,37 +1408,38 @@ export function Knowledge() {
               <p className="collection-document-empty" role="status">
                 {!projectId
                   ? '先选择项目。'
-                  : docs.length === 0 && documentIndexError
+                  : documentIndexError
                     ? '文档列表读取失败或未完整加载，暂时无法判断是否有文档。'
-                    : docs.length === 0
+                    : overview?.total === 0 && !overviewStale
                       ? '该项目还没有文档，等待本地 Agent 提交候选。'
                       : '没有匹配的文档，清空搜索或类型筛选。'}
               </p>
             )}
           </div>
-          {collectionFilteredDocs.length > PAGE_SIZE && (
-            <div className="table-pagination">
-              <span>
-                第 {page} / {pageCount} 页 · 共 {collectionFilteredDocs.length} 条
-              </span>
-              <div>
-                <button
-                  className="ghost"
-                  disabled={page <= 1}
-                  onClick={() => setPage((value) => Math.max(1, value - 1))}
-                >
-                  上一页
-                </button>
-                <button
-                  className="ghost"
-                  disabled={page >= pageCount}
-                  onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
-                >
-                  下一页
-                </button>
-              </div>
+          <div className="table-pagination" aria-label="知识目录分页">
+            <span>
+              第 {catalog.pageIndex + 1} 页 · 每页最多 50 个文档
+              {catalog.total !== null && ` · 共 ${catalog.total} 条`}
+            </span>
+            <div>
+              <button
+                type="button"
+                className="ghost"
+                disabled={!catalog.hasPrevious || docsLoading}
+                onClick={() => void catalog.previousPage()}
+              >
+                上一页
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                disabled={!catalog.hasNext || docsLoading}
+                onClick={() => void catalog.nextPage()}
+              >
+                下一页
+              </button>
             </div>
-          )}
+          </div>
         </div>
       )}
 
@@ -1309,10 +1465,10 @@ export function Knowledge() {
       )}
 
       {!isReadingDocument &&
-        !docsLoading &&
-        !docsInitialLoading &&
-        docs.length === 0 &&
-        !documentIndexFailed && (
+        overview?.total === 0 &&
+        !overviewLoading &&
+        !overviewStale &&
+        !overviewError && (
           <details className="table-card knowledge-agent-guide" data-testid="knowledge-agent-guide">
             <summary className="card-head">如何让 Agent 产出第一份文档</summary>
             <div className="page-card muted">
@@ -1404,7 +1560,7 @@ export function Knowledge() {
           <div className="card-head">
             <div className="knowledge-reader-heading">
               <nav className="knowledge-reader-breadcrumb" aria-label="当前位置">
-                <button type="button" className="ghost" onClick={() => selectDocument('')}>
+                <button type="button" className="ghost" onClick={() => selectDocument(null)}>
                   ← 返回{activeCollection ? collectionTitle(activeCollection) : '知识库'}
                 </button>
                 <span aria-hidden="true">/</span>
@@ -1424,15 +1580,13 @@ export function Knowledge() {
               newText={content.text}
               baseLabel={
                 selected?.publishedRevision?.id === content.baseRevisionId &&
-                selected?.revisions.find((revision) => revision.id === content.revisionId)
-                  ?.state === 'CANDIDATE'
+                content.revision.state === 'CANDIDATE'
                   ? `已发布 ${revisionLabel(content.baseRevisionId)}`
                   : `旧版本 ${revisionTitle(content.baseRevisionId)}`
               }
               currentLabel={
                 selected?.publishedRevision?.id === content.baseRevisionId &&
-                selected?.revisions.find((revision) => revision.id === content.revisionId)
-                  ?.state === 'CANDIDATE'
+                content.revision.state === 'CANDIDATE'
                   ? `候选 ${revisionLabel(content.revisionId)}`
                   : `新版本 ${revisionTitle(content.revisionId)}`
               }
@@ -1443,206 +1597,298 @@ export function Knowledge() {
       )}
 
       {selected && (
-        <details
-          className="knowledge-governance-panel"
-          open={governanceOpen}
-          onToggle={(event) => setGovernanceOpen(event.currentTarget.open)}
-        >
-          <summary>
-            <span>版本与评审</span>
-            <small>
-              {candidateCount} 个候选待处理 · {requirementLabel(selected.document.requirementId)}
-            </small>
-          </summary>
-          <details className="knowledge-source-panel">
-            <summary>来源与适用信息</summary>
-            <dl className="knowledge-source-grid">
-              <div>
-                <dt>所属知识库</dt>
-                <dd>{selectedKnowledgeBase?.name ?? '知识库名称暂不可用'}</dd>
-              </div>
-              <div>
-                <dt>文档类型</dt>
-                <dd>{KIND_LABELS[selected.document.kind] ?? selected.document.kind}</dd>
-              </div>
-              <div>
-                <dt>关联需求</dt>
-                <dd>
-                  {selectedRequirement
-                    ? `${selectedRequirement.code} · ${selectedRequirement.title}`
-                    : selected.document.requirementId
-                      ? requirementLabel(selected.document.requirementId)
-                      : '未关联需求'}
-                </dd>
-              </div>
-              <div>
-                <dt>理解基线</dt>
-                <dd>
-                  {selectedSourceRevision
-                    ? revisionLabel(selectedSourceRevision.id)
-                    : sourceRevisionForPanel?.basisUnderstandingRevisionId
-                      ? revisionLabel(sourceRevisionForPanel.basisUnderstandingRevisionId)
-                      : '未记录理解基线'}
-                </dd>
-              </div>
-              {content && (
-                <div>
-                  <dt>正文 SHA-256</dt>
-                  <dd className="knowledge-integrity-hash">{content.sha256}</dd>
-                </div>
-              )}
-            </dl>
-          </details>
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>版本</th>
-                  <th>标题</th>
-                  <th>状态</th>
-                  <th>理解基线</th>
-                  <th>验收标准</th>
-                  <th className="col-actions">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selected.revisions.map((revision) => {
-                  const reviewId = revisionReviewId(revision);
-                  return (
-                    <tr key={revision.id}>
-                      <td className="cell-num">v{revision.seq}</td>
-                      <td>
-                        <strong>{revision.title}</strong>
-                        <div className="cell-mono cell-truncate">
-                          摘要 {revision.digest.slice(0, 12)}
-                        </div>
-                      </td>
-                      <td>
-                        <span className="status-tag">
-                          {REVISION_STATE_LABELS[revision.state] ?? revision.state}
-                        </span>
-                      </td>
-                      <td>
-                        <span>{revisionLabel(revision.basisUnderstandingRevisionId)}</span>
-                      </td>
-                      <td className="cell-num">{revision.acceptance?.length ?? 0}</td>
-                      <td className="col-actions">
-                        <div className="cell-actions row-actions">
-                          <button className="ghost" onClick={() => void openContent(revision)}>
-                            查看正文{content?.revisionId === revision.id ? '（当前）' : ''}
-                          </button>
-                          {revision.state === 'CANDIDATE' && reviewId ? (
-                            <button className="primary" onClick={() => openReview(revision)}>
-                              进入评审
-                            </button>
-                          ) : revision.state === 'CANDIDATE' ? (
-                            <span className="muted">等待评审入口</span>
-                          ) : null}
-                          {revision.state === 'PUBLISHED' && (
-                            <button
-                              className="danger"
-                              onClick={() => {
-                                setWithdrawReason('');
-                                setWithdrawOpen(true);
-                              }}
-                            >
-                              撤销发布
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {selected.revisions.length === 0 && (
-                  <tr className="table-empty">
-                    <td colSpan={6}>该文档还没有修订。</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          {selected.revisions.length >= 2 && (
-            <div
-              className="knowledge-comparison-controls"
-              data-testid="knowledge-comparison-controls"
-            >
+        <>
+          {selected.publishedRevision && !restricted && (
+            <div className="table-card" data-testid="knowledge-current-publication">
               <div className="card-head">
                 <h3>
-                  版本对比<small>选择任意两个修订版本</small>
+                  当前发布
+                  <small>
+                    v{selected.publishedRevision.seq} · {selected.publishedRevision.title}
+                  </small>
                 </h3>
               </div>
-              <div className="card-head-actions" aria-label="选择对比版本">
-                <label>
-                  旧版本
-                  <select
-                    aria-label="对比旧版本"
-                    value={compareOldId}
-                    onChange={(event) => updateComparisonSelection('old', event.target.value)}
-                  >
-                    <option value="">选择旧版本</option>
-                    {selected.revisions.map((revision) => (
-                      <option key={revision.id} value={revision.id}>
-                        v{revision.seq} · {revision.title} ·{' '}
-                        {REVISION_STATE_LABELS[revision.state] ?? revision.state}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  新版本
-                  <select
-                    aria-label="对比新版本"
-                    value={compareNewId}
-                    onChange={(event) => updateComparisonSelection('new', event.target.value)}
-                  >
-                    <option value="">选择新版本</option>
-                    {selected.revisions.map((revision) => (
-                      <option key={revision.id} value={revision.id}>
-                        v{revision.seq} · {revision.title} ·{' '}
-                        {REVISION_STATE_LABELS[revision.state] ?? revision.state}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              <p className="page-sub">发布修订独立于已加载的历史页。{requirementLabel(selected)}</p>
+              <div className="card-head-actions">
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={actionsUnavailable}
+                  onClick={() => void openContent(selected.publishedRevision!.id)}
+                >
+                  查看当前发布
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={actionsUnavailable || summaryStale || documentVersionChanged}
+                  onClick={openWithdraw}
+                >
+                  撤销发布
+                </button>
+              </div>
+              {(summaryStale || documentVersionChanged) && (
+                <p className="kb-notice" role="status">
+                  文档概要尚未更新，请刷新文档后再撤销发布。
+                </p>
+              )}
+            </div>
+          )}
+          <details
+            className="knowledge-governance-panel"
+            open={governanceOpen}
+            onToggle={(event) => setGovernanceOpen(event.currentTarget.open)}
+          >
+            <summary>
+              <span>版本与评审</span>
+              <small>
+                {candidateCount} 个候选待处理 · {requirementLabel(selected)}
+              </small>
+            </summary>
+            {history.requiresReload && (
+              <p className="kb-notice" role="status">
+                历史已变化，请刷新历史后继续读取。
+              </p>
+            )}
+            <div className="card-head-actions">
+              <span>
+                {history.total === null
+                  ? '历史数量尚未读取'
+                  : `已加载 ${history.items.length} / ${history.total} 条历史`}
+              </span>
+              <button
+                type="button"
+                className="ghost"
+                disabled={history.loading || history.loadingMore}
+                onClick={() => void refreshHistory()}
+              >
+                刷新历史
+              </button>
+              {history.hasMore && (
                 <button
                   type="button"
                   className="ghost"
                   disabled={
-                    contentLoading ||
-                    !compareOldId ||
-                    !compareNewId ||
-                    compareOldId === compareNewId
+                    history.loading || history.loadingMore || restricted || history.requiresReload
                   }
-                  onClick={() => void compareRevisions(compareOldId, compareNewId)}
+                  onClick={() => void history.loadMore()}
                 >
-                  对比所选版本
+                  {history.loadingMore ? '正在加载更多历史…' : '加载更多历史'}
                 </button>
-                {compareOldId && compareNewId && compareOldId === compareNewId && (
-                  <span className="page-sub" role="status">
-                    请选择两个不同的版本再对比。
-                  </span>
-                )}
-              </div>
+              )}
             </div>
-          )}
-        </details>
+            {history.loading && <InlineLoading label="正在读取版本历史…" />}
+            {!restricted && (
+              <>
+                <details className="knowledge-source-panel">
+                  <summary>来源与适用信息</summary>
+                  <dl className="knowledge-source-grid">
+                    <div>
+                      <dt>所属知识库</dt>
+                      <dd>{selectedKnowledgeBase?.name ?? '知识库名称暂不可用'}</dd>
+                    </div>
+                    <div>
+                      <dt>文档类型</dt>
+                      <dd>{KIND_LABELS[selected.document.kind]}</dd>
+                    </div>
+                    <div>
+                      <dt>关联需求</dt>
+                      <dd>
+                        {selectedRequirement
+                          ? `${selectedRequirement.code} · ${selectedRequirement.title}`
+                          : requirementLabel(selected)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>理解基线</dt>
+                      <dd>
+                        {sourceRevisionForPanel?.basisUnderstandingRevisionId
+                          ? `${revisionLabel(sourceRevisionForPanel.basisUnderstandingRevisionId)} · 引用可能属于其他文档，未加载不代表不存在。`
+                          : sourceRevisionForPanel
+                            ? '未记录理解基线'
+                            : '尚未读取准确修订元数据'}
+                      </dd>
+                    </div>
+                    {content && (
+                      <div>
+                        <dt>正文 SHA-256</dt>
+                        <dd className="knowledge-integrity-hash">{content.sha256}</dd>
+                      </div>
+                    )}
+                  </dl>
+                </details>
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>版本</th>
+                        <th>标题</th>
+                        <th>状态</th>
+                        <th>理解基线</th>
+                        <th>验收标准</th>
+                        <th className="col-actions">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {history.items.map((revision) => {
+                        const reviewId = revisionReviewId(revision);
+                        return (
+                          <tr key={revision.id}>
+                            <td className="cell-num">v{revision.seq}</td>
+                            <td>
+                              <strong>{revision.title}</strong>
+                              <div className="cell-mono cell-truncate">
+                                摘要 {revision.digest.slice(0, 12)}
+                              </div>
+                            </td>
+                            <td>
+                              <span className="status-tag">
+                                {REVISION_STATE_LABELS[revision.state] ?? revision.state}
+                              </span>
+                            </td>
+                            <td>
+                              <span title="准确理解基线引用可能属于其他文档；未加载不代表不存在。">
+                                {revisionLabel(revision.basisUnderstandingRevisionId)}
+                              </span>
+                            </td>
+                            <td className="cell-num">{revision.acceptance?.length ?? 0}</td>
+                            <td className="col-actions">
+                              <div className="cell-actions row-actions">
+                                <button
+                                  type="button"
+                                  className="ghost"
+                                  disabled={actionsUnavailable}
+                                  onClick={() => void openContent(revision.id)}
+                                >
+                                  查看正文{content?.revisionId === revision.id ? '（当前）' : ''}
+                                </button>
+                                {revision.state === 'CANDIDATE' && reviewId ? (
+                                  <button
+                                    type="button"
+                                    className="primary"
+                                    disabled={actionsUnavailable}
+                                    onClick={() => openReview(revision)}
+                                  >
+                                    进入评审
+                                  </button>
+                                ) : revision.state === 'CANDIDATE' ? (
+                                  <span className="muted">等待评审入口</span>
+                                ) : null}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {!history.loading && !history.error && history.total === 0 && (
+                        <tr className="table-empty">
+                          <td colSpan={6}>该文档还没有可见修订。</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div
+                  className="knowledge-comparison-controls"
+                  data-testid="knowledge-comparison-controls"
+                >
+                  <div className="card-head">
+                    <h3>
+                      版本对比<small>选择已加载版本，或按准确修订 ID 读取</small>
+                    </h3>
+                  </div>
+                  <div className="card-head-actions" aria-label="选择对比版本">
+                    {(['old', 'new'] as const).map((kind) => (
+                      <label key={kind}>
+                        {kind === 'old' ? '旧版本' : '新版本'}
+                        <select
+                          aria-label={kind === 'old' ? '对比旧版本' : '对比新版本'}
+                          value={kind === 'old' ? compareOldId : compareNewId}
+                          disabled={actionsUnavailable}
+                          onChange={(event) => updateComparisonSelection(kind, event.target.value)}
+                        >
+                          <option value="">{kind === 'old' ? '选择旧版本' : '选择新版本'}</option>
+                          {comparisonRevisions.map((revision) => (
+                            <option key={revision.id} value={revision.id}>
+                              v{revision.seq} · {revision.title} ·{' '}
+                              {REVISION_STATE_LABELS[revision.state] ?? revision.state}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={
+                        actionsUnavailable ||
+                        contentLoading ||
+                        metadataLoading ||
+                        !compareOldId ||
+                        !compareNewId ||
+                        compareOldId === compareNewId
+                      }
+                      onClick={() => void compareRevisions(compareOldId, compareNewId)}
+                    >
+                      对比所选版本
+                    </button>
+                    {compareOldId && compareOldId === compareNewId && (
+                      <span className="page-sub" role="status">
+                        请选择两个不同的版本再对比。
+                      </span>
+                    )}
+                  </div>
+                  <div className="card-head-actions">
+                    <label>
+                      比较旧修订 ID
+                      <input
+                        aria-label="比较旧修订 ID"
+                        value={exactOldId}
+                        disabled={actionsUnavailable}
+                        onChange={(event) => updateExactSelection('old', event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      比较新修订 ID
+                      <input
+                        aria-label="比较新修订 ID"
+                        value={exactNewId}
+                        disabled={actionsUnavailable}
+                        onChange={(event) => updateExactSelection('new', event.target.value)}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={
+                        actionsUnavailable ||
+                        metadataLoading ||
+                        !exactOldId.trim() ||
+                        !exactNewId.trim() ||
+                        exactOldId.trim() === exactNewId.trim()
+                      }
+                      onClick={() => void resolveComparison()}
+                    >
+                      读取比较版本
+                    </button>
+                    {metadataLoading && <InlineLoading label="正在读取准确修订元数据…" />}
+                  </div>
+                </div>
+              </>
+            )}
+          </details>
+        </>
       )}
-
       <ConfirmationPrompt
-        open={withdrawOpen}
+        open={Boolean(withdrawTarget)}
         title="撤销发布（需二次验证）"
-        description={selected ? `当前发布 v${selected.document.version}` : ''}
+        description={
+          withdrawTarget
+            ? `当前发布 v${withdrawTarget.summary.publishedRevision?.seq ?? '—'} · 文档版本 ${withdrawTarget.summary.document.version}`
+            : ''
+        }
         targetLabel={
-          selected
-            ? `${(selected.publishedRevision ?? selected.revisions[0])?.title ?? '未命名文档'}${
-                selected.document.requirementId
-                  ? ` · ${
-                      requirementsById.get(selected.document.requirementId)?.code ??
-                      requirementLabel(selected.document.requirementId)
-                    }`
-                  : ''
-              }`
+          withdrawTarget
+            ? `${withdrawTarget.summary.publishedRevision?.title ?? '未命名文档'} · ${requirementLabel(withdrawTarget.summary)}`
             : ''
         }
         impact={[
@@ -1651,20 +1897,20 @@ export function Knowledge() {
           '恢复发布需要重新发起并完成评审。',
         ]}
         binding={
-          selected
+          withdrawTarget
             ? {
                 action: 'KNOWLEDGE_WITHDRAW',
-                projectId: selected.document.projectId,
+                projectId: withdrawTarget.projectId,
                 targetType: 'KNOWLEDGE_DOCUMENT',
-                targetId: selected.document.id,
-                expectedVersion: selected.document.version,
+                targetId: withdrawTarget.summary.document.id,
+                expectedVersion: withdrawTarget.summary.document.version,
                 roleSlot: null,
                 payload: { reason: withdrawReason.trim() },
               }
             : null
         }
         submitLabel="撤销发布"
-        onClose={() => setWithdrawOpen(false)}
+        onClose={() => setWithdrawTarget(null)}
         onConfirmed={withdraw}
       >
         <div className="field">

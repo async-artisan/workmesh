@@ -94,18 +94,20 @@ workmesh workspace init --join "<一次性接入码>" --root "<业务项目绝�
 
 `setup --project "<项目UUID>" --api "<平台API基址>" ...` 仍是兼容初始化入口；新项目接入优先采用页面生成的 `workspace init` 命令。已有 v1 `.workmesh/config.json` 时先运行 `workspace migrate --dry-run`，确认后再 `--apply`。`workmesh doctor --dir "<业务项目绝对路径>" --role frontend --api "<平台API基址>" --online` 可在接入前集中检查环境。
 
-之后按角色执行标准作业序列。任务编号来自 `GET /api/v1/projects/:projectId/tasks/ready` 或 Web 工作台；上下文快照创建后，任务版本以服务端返回为准。
+之后按角色执行标准作业序列。任务编号来自 `workmesh tasks ready` 或 Web 工作台。认领返回 `executionId`，CLI 从本机原操作收据携带准确的认领、快照、任务版本和代次；在同一业务目录、平台、角色和凭据下继续执行：
 
 ```bash
 workmesh context --task "<taskId>" --inspect
-workmesh claim --task "<taskId>"
-workmesh context --task "<taskId>" --claim "<claimId>" --expected-version "<taskVersion>" --materialize
-workmesh deliver --task "<taskId>" --claim "<claimId>" --snapshot "<snapshotId>" --expected-version "<taskVersion>" --manifest deliver.json
-workmesh review show --review "<deliver返回的reviewRequestId>"
+workmesh claim --task "<taskId>" --json
+workmesh context --execution "<claim返回的executionId>" --materialize
+workmesh deliver --execution "<executionId>" --manifest deliver.json
+workmesh review --execution "<executionId>"
 workmesh changes
 ```
 
-`context --inspect` 只读报告逐项输入问题、责任角色和下一步；退出码 0 仅表示查询成功，是否可创建快照仍需看 `availability` 与诊断。`deliver` 已自动创建评审，使用其返回的真实 `reviewRequestId` 查询；输出丢失时，可用 `workmesh receipt show --operation "<原交付operationId>" --json` 读取 `data.resultRefs.reviewRequestId`。结果未知时先核对原操作收据，不重复创建评审。
+`context --inspect` 只读报告逐项输入问题、责任角色和下一步；退出码 0 仅表示查询成功，是否可创建快照仍需看 `availability` 与诊断。context 同时区分角色包新版可用、本地安装不匹配和任务实际资源变化，见[角色上下文诊断](docs/role-context-diagnostics.md)。`deliver` 自动创建本轮人工评审，`review --execution` 读取该评审；也可用返回的真实 `reviewRequestId` 执行 `review show --review "<id>"`。
+
+`workmesh execution status --execution "<executionId>"` 可在重启后从收据查看执行位置。未知结果先运行 `workmesh receipt reconcile --operation "<原operationId>"`，再查看状态；需要重试时保留原内容与原编号，CLI 不自动接受最新任务版本。任务只有一个本地执行时也可用 `--task "<taskId>"` 省略执行编号。精确参数和 HTTP API 继续可用，恢复步骤、范围隔离及显式版本备用入口见 [CLI 执行状态](docs/cli-execution-state.md)。
 
 交付 manifest 只接受精确工件：HOSTED 项由 CLI 读取本地文件并计算字节摘要，GIT_REF 项必须给出 `projectRepositoryId`、`commitSha` 与 `repoPath`。
 
@@ -126,7 +128,7 @@ workmesh changes
 }
 ```
 
-`workmesh review` 保留独立创建人工评审请求的用途；工件主体的 `--expected-version` 使用当前任务版本，文档修订主体使用所属文档版本。普通交付已自动创建评审，无需再调用创建命令。批准、返修、撤销与变更确认都只在 Web 会话中发生，Agent 没有批准路径。全部命令 `--json` 输出 `{data, meta:{requestId}}` 信封，失败输出统一错误 envelope。发行包的启动器应加入 PATH；源码开发者可从 WorkMesh 仓库构建 `@workmesh/shared` 与 `@workmesh/cli` 后调用 `apps/cli/dist/index.js`。不要在业务项目里用 `pnpm --filter` 执行 CLI，它会把工作目录切到 CLI 包目录。
+`workmesh review --execution` 读取交付已创建的评审；显式提供 `--artifact-set` 或 `--document-revision` 时，仍保留独立创建人工评审请求的用途。工件主体的 `--expected-version` 使用当前任务版本，文档修订主体使用所属文档版本。普通交付已自动创建评审，无需再调用创建命令。批准、返修、撤销与变更确认都只在 Web 会话中发生，Agent 没有批准路径。全部命令 `--json` 输出 `{data, meta:{requestId}}` 信封，失败输出统一错误 envelope。发行包的启动器应加入 PATH；源码开发者可从 WorkMesh 仓库构建 `@workmesh/shared` 与 `@workmesh/cli` 后调用 `apps/cli/dist/index.js`。不要在业务项目里用 `pnpm --filter` 执行 CLI，它会把工作目录切到 CLI 包目录。
 
 ## 验证
 

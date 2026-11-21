@@ -4,6 +4,9 @@ import {
   type Principal,
   type TaskClaimEligibility,
   type ChangeGuidance,
+  type WorkbenchCoverage,
+  type WorkbenchReviewAttention,
+  type WorkbenchStreamCoverage,
 } from '@workmesh/shared';
 import { V1AuthorizationService } from '../auth/v1-authorization';
 import { PrismaService } from '../prisma/prisma.service';
@@ -11,6 +14,7 @@ import { V1ReviewService } from '../reviews/v1-review.service';
 import { V1ChangeService } from '../tasks/v1-change.service';
 import { V1ReadyService } from '../tasks/v1-ready.service';
 import { attachDependencyImpact } from './v1-workbench-dependency-impact';
+import { workbenchPageCoverage, workbenchReviewAttention } from './v1-workbench-attention';
 
 type ProjectRow = { id: string; key: string; name: string };
 
@@ -18,6 +22,7 @@ type WorkbenchRequirement = { code: string; title: string };
 type WorkbenchRole = { id: string; key: string; title: string };
 
 export type WorkbenchReviewItem = {
+  attention: WorkbenchReviewAttention;
   blocking?: number | null;
   dependencyImpact?: import('@workmesh/shared').DependencyImpact;
   reviewId: string;
@@ -103,6 +108,7 @@ type ProjectResult = {
   reviews: WorkbenchReviewItem[];
   changes: WorkbenchChangeItem[];
   readyTasks: WorkbenchReadyTaskItem[];
+  coverage: WorkbenchStreamCoverage[];
 };
 
 function errorText(error: unknown): string {
@@ -163,7 +169,13 @@ export class V1WorkbenchService {
     const reviews = results.flatMap((result) => result.reviews);
     const changes = results.flatMap((result) => result.changes);
     const readyTasks = results.flatMap((result) => result.readyTasks);
-    const overdueApprovals = await this.loadOverdueApprovals(projects);
+    const overdue = await this.loadOverdueApprovals(projects, warnings);
+    const overdueApprovals = overdue.items;
+    const coverage: WorkbenchCoverage = {
+      countBasis: 'LOADED_ROWS',
+      checkedAt: new Date().toISOString(),
+      streams: [...results.flatMap((result) => result.coverage), overdue.coverage],
+    };
 
     return {
       counts: {
@@ -177,6 +189,7 @@ export class V1WorkbenchService {
       changes,
       readyTasks,
       overdueApprovals,
+      coverage,
       warnings,
     };
   }
@@ -184,29 +197,58 @@ export class V1WorkbenchService {
   /** 跨项目读取「到期且未决定」的审批槽；只读展示，升级动作仍在项目内手动触发。 */
   private async loadOverdueApprovals(
     projects: readonly ProjectRow[],
-  ): Promise<WorkbenchOverdueApprovalItem[]> {
-    if (projects.length === 0) return [];
+    warnings: string[],
+  ): Promise<{ items: WorkbenchOverdueApprovalItem[]; coverage: WorkbenchStreamCoverage }> {
     const now = new Date();
-    const rows = await this.prisma.approvalSlot.findMany({
-      where: {
-        projectId: { in: projects.map((project) => project.id) },
-        dueAt: { lte: now },
-        decisions: { none: {} },
-      },
-      orderBy: { dueAt: 'asc' },
-      take: 50,
-      select: {
-        id: true,
-        slotKey: true,
-        kind: true,
-        reviewRequestId: true,
-        projectId: true,
-        dueAt: true,
-        escalatedAt: true,
-      },
-    });
+    const scope = {
+      stream: 'OVERDUE_APPROVALS' as const,
+      projectIds: projects.map((project) => project.id),
+      projectKey: null,
+      checkedAt: now.toISOString(),
+    };
+    if (projects.length === 0) {
+      return {
+        items: [],
+        coverage: workbenchPageCoverage({
+          ...scope,
+          loadedCount: 0,
+          page: { status: 'fulfilled', value: { nextCursor: null } },
+        }),
+      };
+    }
+    let rows;
+    try {
+      rows = await this.prisma.approvalSlot.findMany({
+        where: {
+          projectId: { in: projects.map((project) => project.id) },
+          dueAt: { lte: now },
+          decisions: { none: {} },
+        },
+        orderBy: { dueAt: 'asc' },
+        take: 51,
+        select: {
+          id: true,
+          slotKey: true,
+          kind: true,
+          reviewRequestId: true,
+          projectId: true,
+          dueAt: true,
+          escalatedAt: true,
+        },
+      });
+    } catch (error) {
+      warnings.push(`逾期审批加载失败（${errorText(error)}）`);
+      return {
+        items: [],
+        coverage: workbenchPageCoverage({
+          ...scope,
+          loadedCount: 0,
+          page: { status: 'rejected', reason: error },
+        }),
+      };
+    }
     const projectById = new Map(projects.map((project) => [project.id, project]));
-    return rows.flatMap((row) => {
+    const items = rows.slice(0, 50).flatMap((row) => {
       const project = projectById.get(row.projectId);
       if (!project || !row.dueAt) return [];
       const dueTime =
@@ -226,6 +268,16 @@ export class V1WorkbenchService {
         },
       ];
     });
+    return {
+      items,
+      coverage: workbenchPageCoverage({
+        ...scope,
+        checkedAt: new Date().toISOString(),
+        loadedCount: items.length,
+        // This globally capped view has no continuation token. It is still partial at 51 rows.
+        page: { status: 'fulfilled', value: { hasMore: rows.length > 50, nextCursor: null } },
+      }),
+    };
   }
 
   private async loadProject(
@@ -266,13 +318,56 @@ export class V1WorkbenchService {
         : [];
     const readyItems = readyPage.status === 'fulfilled' ? readyPage.value.items : [];
 
-    const [reviews, changes, readyTasks] = await Promise.all([
+    const enriched = await Promise.allSettled([
       this.enrichReviews(principal, project, reviewItems, activeRoleIds),
       this.enrichChanges(project, recipients),
       this.enrichReadyTasks(project, readyItems),
     ]);
-
-    const result = { reviews, changes, readyTasks };
+    const [reviewResult, changeResult, readyResult] = enriched;
+    const reviews = reviewResult.status === 'fulfilled' ? reviewResult.value : [];
+    const changes = changeResult.status === 'fulfilled' ? changeResult.value : [];
+    const readyTasks = readyResult.status === 'fulfilled' ? readyResult.value : [];
+    const checkedAt = new Date().toISOString();
+    for (const [index, label] of ['评审', '变更', '前置任务'].entries()) {
+      const outcome = enriched[index];
+      if (outcome.status === 'rejected')
+        warnings.push(`${project.key}：${label}摘要加载失败（${errorText(outcome.reason)}）`);
+    }
+    const result: ProjectResult = {
+      reviews,
+      changes,
+      readyTasks,
+      coverage: [
+        workbenchPageCoverage({
+          stream: 'REVIEWS',
+          projectIds: [project.id],
+          projectKey: project.key,
+          loadedCount: reviews.length,
+          checkedAt,
+          page: reviewPage,
+          ...(reviewResult.status === 'rejected' ? { enrichmentError: reviewResult.reason } : {}),
+          permissionsUnavailable: context.status === 'rejected',
+        }),
+        workbenchPageCoverage({
+          stream: 'CHANGES',
+          projectIds: [project.id],
+          projectKey: project.key,
+          loadedCount: changes.length,
+          checkedAt,
+          page: changePage,
+          ...(changeResult.status === 'rejected' ? { enrichmentError: changeResult.reason } : {}),
+        }),
+        workbenchPageCoverage({
+          stream: 'READY_TASKS',
+          projectIds: [project.id],
+          projectKey: project.key,
+          loadedCount: readyTasks.length,
+          checkedAt,
+          page: readyPage,
+          ...(readyResult.status === 'rejected' ? { enrichmentError: readyResult.reason } : {}),
+        }),
+      ],
+    };
     await attachDependencyImpact(this.prisma, project.id, result, async () => {
       await this.authorization.requireScope(principal, project.id, 'task:read');
       await this.authorization.resolveProjectContext(principal, project.id, 'read');
@@ -440,6 +535,13 @@ export class V1WorkbenchService {
       });
 
       return {
+        attention: workbenchReviewAttention({
+          reviewId: item.id,
+          reviewVersion: item.version,
+          checkedAt: new Date().toISOString(),
+          checks: { total: checkEntries.length, failed: failedChecks },
+          role: role ? { id: role.id, key: role.key, title: role.title } : null,
+        }),
         reviewId: item.id,
         kind: item.kind,
         status: item.status,

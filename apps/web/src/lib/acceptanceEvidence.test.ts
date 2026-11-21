@@ -1,4 +1,9 @@
-import { analyzeQualityBundle, type QualityBundle } from '@workmesh/shared';
+import {
+  analyzeQualityBundle,
+  type QualityBundle,
+  type QualityBundleV10,
+  type QualityBundleV11,
+} from '@workmesh/shared';
 import { describe, expect, it } from 'vitest';
 import type { ArtifactSetView, ArtifactView } from '../api/resources';
 import {
@@ -42,7 +47,7 @@ const artifactSet: ArtifactSetView = {
   createdAt: '2026-11-09T00:00:00Z',
 };
 
-function bundle(): QualityBundle {
+function bundle(): QualityBundleV10 {
   return {
     schemaVersion: '1.0',
     stage: 'DELIVERY',
@@ -65,7 +70,7 @@ function bundle(): QualityBundle {
     ],
   };
 }
-function source(value = bundle()): QualityArtifactSource {
+function source(value: QualityBundle = bundle()): QualityArtifactSource {
   return {
     artifactId: artifact.id,
     label: 'QA 质量包',
@@ -74,7 +79,7 @@ function source(value = bundle()): QualityArtifactSource {
   };
 }
 function map(
-  value = bundle(),
+  value: QualityBundle = bundle(),
   changes: Partial<Parameters<typeof buildAcceptanceEvidenceMapping>[0]> = {},
 ) {
   return buildAcceptanceEvidenceMapping({
@@ -87,7 +92,104 @@ function map(
   });
 }
 
+function linkedBundle(): QualityBundleV11 {
+  const legacy = bundle();
+  const revision = { artifactId: 'cases-1', sha256: 'e'.repeat(64) };
+  const linkedBasis = { ...basis, projectRepositoryId: 'repo-1' };
+  return {
+    ...legacy,
+    schemaVersion: '1.1',
+    basis: linkedBasis,
+    cases: legacy.cases.map((item) => ({ ...item, revision })),
+    evidence: legacy.evidence.map((item) => ({
+      ...item,
+      basis: linkedBasis,
+      caseRefs: [{ caseId: 'case-login', revision }],
+    })),
+  };
+}
+
 describe('逐条验收证据映射', () => {
+  it('1.1 精确用例修订可映射，仍仅表示提交者报告通过', () => {
+    const row = map(linkedBundle()).rows[0];
+    expect(row.status).toBe('REPORTED_PASS');
+    expect(row.evidence[0]).toMatchObject({
+      bundleSchemaVersion: '1.1',
+      basisState: 'MATCHED',
+      caseRefs: [{ caseId: 'case-login' }],
+    });
+    expect(row.caseCoverage).toEqual([
+      expect.objectContaining({
+        caseId: 'case-login',
+        revision: { artifactId: 'cases-1', sha256: 'e'.repeat(64) },
+        evidenceIds: ['ev-login'],
+        status: 'REPORTED_PASS',
+      }),
+    ]);
+  });
+
+  it('仓库与SHA必须成对匹配，不能从两个工件分别拼出匹配版本', () => {
+    const value = linkedBundle();
+    value.basis.commitSha = 'f'.repeat(40);
+    value.evidence[0].basis = { ...value.basis, commitSha: value.basis.commitSha };
+    const row = map(value, {
+      artifactSet: {
+        ...artifactSet,
+        artifacts: [
+          artifact,
+          {
+            ...artifact,
+            id: 'repo-2-artifact',
+            projectRepositoryId: 'repo-2',
+            commitSha: 'f'.repeat(40),
+          },
+        ],
+      },
+    }).rows[0];
+    expect(row.status).toBe('NEEDS_REVIEW');
+    expect(row.evidence[0].basisState).toBe('MISMATCH');
+    expect(row.gaps).toContain('质量包仓库 ID 与 commit 未成对对应本次已声明的交付');
+  });
+
+  it('单个PASS不能掩盖另一个同验收用例没有执行关联', () => {
+    const value = linkedBundle();
+    value.cases.push({ ...value.cases[0], id: 'case-second' });
+    const row = map(value).rows[0];
+    expect(row.status).toBe('NEEDS_REVIEW');
+    expect(row.caseCoverage).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ caseId: 'case-second', status: 'MISSING', evidenceIds: [] }),
+      ]),
+    );
+    expect(row.gaps).toContain('精确用例执行覆盖未全部报告通过；请逐条核对用例修订和执行缺口');
+  });
+
+  it.each([
+    'unknown-case',
+    'old-revision',
+    'wrong-acceptance',
+    'duplicate-case',
+    'wrong-evidence-repository',
+  ] as const)('1.1 %s 不得形成验收通过，原始声明保持可见', (reason) => {
+    const value = linkedBundle();
+    if (reason === 'unknown-case') value.evidence[0].caseRefs[0].caseId = 'unknown';
+    if (reason === 'old-revision')
+      value.evidence[0].caseRefs[0].revision = { artifactId: 'old-case', sha256: 'f'.repeat(64) };
+    if (reason === 'wrong-acceptance') value.cases[0].covers = ['ac-lock'];
+    if (reason === 'duplicate-case')
+      value.evidence[0].caseRefs.push({ ...value.evidence[0].caseRefs[0] });
+    if (reason === 'wrong-evidence-repository')
+      value.evidence[0].basis = {
+        ...value.basis,
+        projectRepositoryId: 'other-repo',
+        commitSha: commit,
+      };
+    const row = map(value).rows[0];
+    expect(row.status).toBe('NEEDS_REVIEW');
+    expect(row.evidence[0].result).toBe('PASSED');
+    expect(row.evidence[0].basisState).not.toBe('MATCHED');
+  });
+
   it('只使用显式 acceptanceKeys 关联，普通通过检查不覆盖另一条验收', () => {
     const result = map();
     expect(result.rows[0]).toMatchObject({

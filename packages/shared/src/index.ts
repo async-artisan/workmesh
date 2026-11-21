@@ -4,6 +4,7 @@ export * from './canonical-json';
 export * from './errors';
 export * from './protocol';
 export * from './quality';
+export * from './ci-result-report';
 export * from './repository-locator';
 export * from './strict-json';
 export * from './schemas';
@@ -70,3 +71,5 @@ export * from './dependency-impact';
 export * from './requirement-trust-chain';
 
 export * from './code-evidence-diagnostics';
+export * from './workbench-attention';
+export * from './verification-evidence';

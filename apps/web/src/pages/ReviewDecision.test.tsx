@@ -1,11 +1,35 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReviewDecision } from './ReviewDecision';
 import { setCsrfToken } from '../api/client';
-import { utf8ToBase64 } from '../api/resources';
+import { documentApi, utf8ToBase64, type RevisionView } from '../api/resources';
 import { useAuthStore } from '../store/auth';
-import { envelope, methodOf, mockFetch, pathOf, type StubReply } from '../test-utils';
+import {
+  envelope,
+  methodOf,
+  mockFetch as rawMockFetch,
+  pathOf,
+  type StubHandler,
+  type StubReply,
+} from '../test-utils';
+
+/** Existing review scenarios have no provider bindings unless explicitly supplied by that test. */
+function mockFetch(handler: StubHandler) {
+  return rawMockFetch(async (url, init) => {
+    const reply = await handler(url, init);
+    if (reply !== undefined) return reply;
+    if (
+      methodOf(init) === 'GET' &&
+      /^\/api\/v1\/projects\/[^/]+\/artifact-sets\/[^/]+\/verification-evidence$/.test(pathOf(url))
+    )
+      return {
+        status: 200,
+        body: envelope({ items: [], checkedAt: '2026-11-12T00:00:00.000Z', nextCursor: null }),
+      };
+    return undefined;
+  });
+}
 
 const review = {
   id: 'review-1',
@@ -77,6 +101,43 @@ function contentOf(revisionId: string, text: string) {
     bodyBase64: utf8ToBase64(text),
     byteLength: text.length,
     sha256: revisionId === 'rev-1' ? 'a'.repeat(64) : 'b'.repeat(64),
+  };
+}
+
+function publishedPrdItem(documentId = 'prd-1', revisionId = 'prd-rev') {
+  return {
+    document: {
+      id: documentId,
+      projectId: 'p1',
+      knowledgeBaseId: 'kb',
+      requirementId: 'req-1',
+      kind: 'PRD',
+      version: 205,
+      currentPublishedRevisionId: revisionId,
+      archivedAt: null,
+    },
+    publishedRevision: {
+      id: revisionId,
+      documentId,
+      seq: 2,
+      title: 'PRD：客户询价单',
+      digest: 'e'.repeat(64),
+    },
+  };
+}
+
+function publishedPrdMetadata(
+  documentId = 'prd-1',
+  revisionId = 'prd-rev',
+  acceptance: RevisionView['acceptance'] = [
+    { key: 'a1', text: '询价主流程可走通', verification: 'TEST' },
+  ],
+): RevisionView {
+  return {
+    ...revisions[0]!,
+    ...publishedPrdItem(documentId, revisionId).publishedRevision,
+    state: 'PUBLISHED',
+    acceptance,
   };
 }
 
@@ -259,6 +320,11 @@ describe('ReviewDecision（证据 + 一次确认 + 回执）', () => {
     const fetch = mockFetch((url, init) => {
       const path = pathOf(url);
       if (methodOf(init) !== 'GET') return undefined;
+      if (path === '/api/v1/review-requests/review-1/discussions')
+        return {
+          status: 200,
+          body: envelope({ items: [], nextCursor: null, unresolvedCount: 0, canCreate: false }),
+        };
       if (path === '/api/v1/review-requests/review-1')
         return { status: 200, body: envelope(review) };
       if (path === '/api/v1/documents/doc-1/revisions/rev-2/metadata')
@@ -495,42 +561,16 @@ describe('ReviewDecision（证据 + 一次确认 + 回执）', () => {
             },
           ]),
         };
-      if (path === '/api/v1/projects/p1/documents')
+      if (path === '/api/v1/projects/p1/requirements/req-1/published-prds')
         return {
           status: 200,
           body: envelope({
-            items: [
-              {
-                document: {
-                  id: 'prd-1',
-                  projectId: 'p1',
-                  knowledgeBaseId: 'kb',
-                  requirementId: 'req-1',
-                  kind: 'PRD',
-                  version: 1,
-                  currentPublishedRevisionId: 'prd-rev',
-                  archivedAt: null,
-                },
-                revisions: [],
-                publishedRevision: {
-                  id: 'prd-rev',
-                  documentId: 'prd-1',
-                  seq: 1,
-                  title: 'PRD：客户询价单',
-                  mimeType: 'text/markdown',
-                  byteLength: 20,
-                  digest: 'e'.repeat(64),
-                  state: 'PUBLISHED',
-                  createdBy: 'pm',
-                  basisUnderstandingRevisionId: null,
-                  deliveryScope: null,
-                  acceptance: [{ key: 'a1', text: '询价主流程可走通', verification: 'TEST' }],
-                },
-              },
-            ],
-            nextCursor: null,
+            items: [publishedPrdItem()],
+            total: 1,
           }),
         };
+      if (path === '/api/v1/documents/prd-1/revisions/prd-rev/metadata')
+        return { status: 200, body: envelope(publishedPrdMetadata()) };
       return undefined;
     });
 
@@ -989,16 +1029,20 @@ function artifactSetPayload(artifacts: unknown[]) {
 interface TaskScenarioOptions {
   reviewId?: string;
   reviewOverride?: Record<string, unknown>;
+  additionalReviews?: Record<string, Record<string, unknown>>;
   artifactSetId?: string | null;
   taskId?: string | null;
   /** 覆盖交付物响应，用于构造 500/403 与“首次失败、重试成功”。 */
   artifactSet?: () => StubReply;
-  artifactContent?: (artifactId: string) => StubReply;
+  artifactContent?: (artifactId: string) => StubReply | Promise<StubReply>;
+  discussions?: () => StubReply | Promise<StubReply>;
   artifacts?: () => unknown[];
   repositories?: () => StubReply;
-  documents?: () => StubReply;
-  task?: () => StubReply;
-  requirement?: () => StubReply;
+  publishedPrds?: () => StubReply | Promise<StubReply>;
+  revisionMetadata?: (documentId: string, revisionId: string) => StubReply | Promise<StubReply>;
+  task?: () => StubReply | Promise<StubReply>;
+  workflowInstance?: () => StubReply | Promise<StubReply>;
+  requirement?: () => StubReply | Promise<StubReply>;
 }
 
 function mockTaskScenario(options: TaskScenarioOptions = {}) {
@@ -1016,9 +1060,18 @@ function mockTaskScenario(options: TaskScenarioOptions = {}) {
   return mockFetch((url, init) => {
     const path = pathOf(url);
     const method = methodOf(init);
+    if (method === 'GET' && path.endsWith('/discussions') && options.discussions)
+      return options.discussions();
     if (method === 'GET' && path === `/api/v1/review-requests/${reviewId}`) {
       return { status: 200, body: envelope(reviewValue) };
     }
+    const additionalReviewId = path.replace('/api/v1/review-requests/', '');
+    const additionalReview = options.additionalReviews?.[additionalReviewId];
+    if (method === 'GET' && additionalReview)
+      return {
+        status: 200,
+        body: envelope({ ...reviewValue, id: additionalReviewId, ...additionalReview }),
+      };
     if (
       artifactSetId &&
       method === 'GET' &&
@@ -1043,15 +1096,22 @@ function mockTaskScenario(options: TaskScenarioOptions = {}) {
       if (options.repositories) return options.repositories();
       return { status: 200, body: envelope(repositoryPayload) };
     }
-    if (method === 'GET' && path === '/api/v1/projects/p1/documents') {
-      if (options.documents) return options.documents();
-      return { status: 200, body: envelope({ items: [], nextCursor: null }) };
+    if (method === 'GET' && path === '/api/v1/projects/p1/requirements/req-1/published-prds') {
+      if (options.publishedPrds) return options.publishedPrds();
+      return { status: 200, body: envelope({ items: [], total: 0 }) };
+    }
+    const metadataPath = /^\/api\/v1\/documents\/([^/]+)\/revisions\/([^/]+)\/metadata$/.exec(path);
+    if (method === 'GET' && metadataPath) {
+      const [, documentId, revisionId] = metadataPath;
+      if (options.revisionMetadata) return options.revisionMetadata(documentId!, revisionId!);
+      return { status: 200, body: envelope(publishedPrdMetadata(documentId, revisionId)) };
     }
     if (taskId && method === 'GET' && path === `/api/v1/tasks/${taskId}`) {
       if (options.task) return options.task();
       return { status: 200, body: envelope(taskPayload) };
     }
     if (method === 'GET' && path === '/api/v1/workflow-instances/instance-task') {
+      if (options.workflowInstance) return options.workflowInstance();
       return { status: 200, body: envelope({ requirementId: 'req-1' }) };
     }
     if (method === 'GET' && path === '/api/v1/projects/p1/requirements/req-1') {
@@ -1106,125 +1166,196 @@ describe('ReviewDecision 证据完整性与上下文状态', () => {
     useAuthStore.getState().setSession({ id: 'u-1', email: 'alice@example.com' });
   });
 
+  it.each([false, true])(
+    '决定摘要保留服务端未解决总数或读取失败；不增设隐含门禁，失败=%s',
+    async (failed) => {
+      mockTaskScenario({
+        discussions: () =>
+          failed
+            ? { status: 503, body: { error: { code: 'UNAVAILABLE', message: '问题服务不可用' } } }
+            : {
+                status: 200,
+                body: envelope({
+                  items: [],
+                  nextCursor: 'page-2',
+                  unresolvedCount: 73,
+                  canCreate: false,
+                }),
+              },
+      });
+      renderDecisionPage();
+      const overview = await screen.findByRole('status', { name: '评审依据概览' });
+      await waitFor(() =>
+        expect(overview).toHaveTextContent(
+          failed ? '问题读取失败，未解决数量未知' : '73 个未解决问题',
+        ),
+      );
+      fireEvent.click(screen.getByRole('button', { name: '作出决定' }));
+      const next = screen.getByRole('button', { name: /下一步：预览并验证/ });
+      expect(next).toBeEnabled();
+      fireEvent.click(next);
+      const dialog = await screen.findByRole('dialog', { name: '确认评审决定' });
+      expect(dialog).toHaveTextContent(failed ? '问题读取失败，未解决数量未知' : '73 个未解决问题');
+      expect(dialog).toHaveTextContent('v3（与提交版本一致）');
+      expect(dialog).not.toHaveTextContent('0 个未解决问题');
+    },
+  );
+
+  it('打开确认后切换对象会清除旧决定、说明和票据预览，不沿用旧摘要', async () => {
+    const fetch = mockTaskScenario({
+      additionalReviews: { 'review-next': { version: 8, subjectDigest: 'f'.repeat(64) } },
+      discussions: () => ({
+        status: 200,
+        body: envelope({ items: [], nextCursor: null, unresolvedCount: 0, canCreate: false }),
+      }),
+    });
+    const { rerender } = render(
+      <MemoryRouter>
+        <ReviewDecision reviewId="review-task" />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: '作出决定' }));
+    fireEvent.change(screen.getByLabelText('评审说明'), {
+      target: { value: '仅适用旧对象的说明' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /下一步：预览并验证/ }));
+    expect(await screen.findByRole('dialog', { name: '确认评审决定' })).toHaveTextContent(
+      '仅适用旧对象的说明',
+    );
+    rerender(
+      <MemoryRouter>
+        <ReviewDecision reviewId="review-next" />
+      </MemoryRouter>,
+    );
+    const overview = await screen.findByRole('status', { name: '评审依据概览' });
+    expect(overview).toHaveTextContent('当前评审 v8');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '作出决定' }));
+    expect(screen.getByLabelText('评审说明')).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: /下一步：预览并验证/ }));
+    const dialog = await screen.findByRole('dialog', { name: '确认评审决定' });
+    expect(dialog).toHaveTextContent('v8（与提交版本一致）');
+    expect(dialog).not.toHaveTextContent('仅适用旧对象的说明');
+    expect(
+      fetch.mock.calls.filter(
+        ([url, init]) =>
+          methodOf(init ?? {}) === 'POST' && pathOf(String(url)).endsWith('/decisions'),
+      ),
+    ).toHaveLength(0);
+  });
+
   afterEach(() => {
     setCsrfToken(null);
     useAuthStore.getState().clearAuth();
     localStorage.clear();
   });
 
-  it('跨PRD分页读取正式条款并从完整质量包逐条映射，不把普通检查归给未覆盖条款', async () => {
-    const commit = 'a'.repeat(40);
-    const basis = { prdRevisionId: 'prd-current', snapshotId: 'snap-task', commitSha: commit };
-    const acceptance = [
-      { key: 'ac-main', text: '询价主流程可走通', verification: 'TEST' },
-      { key: 'ac-failure', text: '询价失败时给出明确提示', verification: 'TEST' },
-    ];
-    const text = JSON.stringify({
-      schemaVersion: '1.0',
-      stage: 'DELIVERY',
-      requirementId: 'req-1',
-      basis,
-      acceptance: [acceptance[0]],
-      tasks: [
-        { id: 'impl-01', acceptanceKeys: ['ac-main'], dependsOn: [], files: ['src/quote.ts'] },
-      ],
-      cases: [{ id: 'case-main', covers: ['ac-main'], kind: 'TEST' }],
-      evidence: [
-        {
-          id: 'ev-main',
-          acceptanceKeys: ['ac-main'],
-          result: 'PASSED',
-          source: 'AGENT_REPORTED',
-          ref: 'reports/main.json',
-          basis,
-        },
-      ],
-    });
-    const qualityArtifact = {
-      ...hostedArtifact,
-      id: 'quality-artifact',
-      mediaType: 'application/json',
-      repoPath: 'quality.json',
-      summary: '交付质量包',
-      commitSha: commit,
-      byteLength: new TextEncoder().encode(text).byteLength,
-    };
-    let pages = 0;
-    const mock = mockTaskScenario({
-      artifacts: () => [qualityArtifact],
-      artifactContent: () => ({
-        status: 200,
-        body: envelope({
-          artifactId: qualityArtifact.id,
-          mediaType: qualityArtifact.mediaType,
-          byteLength: qualityArtifact.byteLength,
-          sha256: qualityArtifact.sha256,
-          storage: 'HOSTED',
-          text,
-          bodyBase64: utf8ToBase64(text),
+  it.each(['PASSED', 'FAILED'] as const)(
+    '远页需求和205版历史保留准确基线，首屏和决定摘要展示 %s 报告及缺口',
+    async (result) => {
+      const commit = 'a'.repeat(40);
+      const basis = { prdRevisionId: 'prd-current', snapshotId: 'snap-task', commitSha: commit };
+      const acceptance = [
+        { key: 'ac-main', text: '询价主流程可走通', verification: 'TEST' },
+        { key: 'ac-failure', text: '询价失败时给出明确提示', verification: 'TEST' },
+      ];
+      const text = JSON.stringify({
+        schemaVersion: '1.0',
+        stage: 'DELIVERY',
+        requirementId: 'req-1',
+        basis,
+        acceptance: [acceptance[0]],
+        tasks: [
+          { id: 'impl-01', acceptanceKeys: ['ac-main'], dependsOn: [], files: ['src/quote.ts'] },
+        ],
+        cases: [{ id: 'case-main', covers: ['ac-main'], kind: 'TEST' }],
+        evidence: [
+          {
+            id: 'ev-main',
+            acceptanceKeys: ['ac-main'],
+            result,
+            source: 'AGENT_REPORTED',
+            ref: 'reports/main.json',
+            basis,
+          },
+        ],
+      });
+      const qualityArtifact = {
+        ...hostedArtifact,
+        id: 'quality-artifact',
+        mediaType: 'application/json',
+        repoPath: 'quality.json',
+        summary: '交付质量包',
+        commitSha: commit,
+        byteLength: new TextEncoder().encode(text).byteLength,
+      };
+      const mock = mockTaskScenario({
+        artifacts: () => [qualityArtifact],
+        artifactContent: () => ({
+          status: 200,
+          body: envelope({
+            artifactId: qualityArtifact.id,
+            mediaType: qualityArtifact.mediaType,
+            byteLength: qualityArtifact.byteLength,
+            sha256: qualityArtifact.sha256,
+            storage: 'HOSTED',
+            text,
+            bodyBase64: utf8ToBase64(text),
+          }),
         }),
-      }),
-      documents: () => ({
-        status: 200,
-        body: envelope(
-          ++pages === 1
-            ? { items: [], nextCursor: 'next-prd-page' }
-            : {
-                items: [
-                  {
-                    document: {
-                      id: 'prd-doc',
-                      projectId: 'p1',
-                      requirementId: 'req-1',
-                      kind: 'PRD',
-                      currentPublishedRevisionId: 'prd-current',
-                      archivedAt: null,
-                    },
-                    revisions: [],
-                    publishedRevision: { id: 'prd-current', acceptance },
-                  },
-                ],
-                nextCursor: null,
-              },
+        publishedPrds: () => ({
+          status: 200,
+          // 需求在全项目列表第 51 份之后，发布修订为该文档 205 版中的第 2 版。
+          body: envelope({ items: [publishedPrdItem('prd-doc-51', 'prd-current')], total: 1 }),
+        }),
+        revisionMetadata: (documentId, revisionId) => ({
+          status: 200,
+          body: envelope(publishedPrdMetadata(documentId, revisionId, acceptance)),
+        }),
+      });
+      renderDecisionPage();
+      const matrix = await screen.findByRole('region', { name: '验收条件与证据映射' });
+      const resultLabel = result === 'PASSED' ? '报告通过，待人工核验' : '有失败报告';
+      await within(matrix).findByText(resultLabel);
+      const uncovered = within(matrix).getByText(acceptance[1].text).closest('tr')!;
+      expect(within(uncovered).getByText('缺少关联证据')).toBeInTheDocument();
+      expect(within(uncovered).queryByText('ev-main · 提交者报告通过')).not.toBeInTheDocument();
+      expect(within(matrix).getByText(/对照 PRD 修订/)).toHaveTextContent('prd-current');
+      const overview = screen.getByRole('status', { name: '评审依据概览' });
+      await waitFor(() => expect(overview).toHaveTextContent(`1 项${resultLabel}`));
+      expect(overview).toHaveTextContent('1 项缺少关联证据');
+      expect(overview).toHaveTextContent('字段匹配不代表执行已验证');
+      expect(overview).toHaveTextContent('关键资料已读全');
+      fireEvent.click(screen.getByRole('button', { name: '作出决定' }));
+      const next = screen.getByRole('button', { name: /下一步：预览并验证/ });
+      expect(next).toBeEnabled();
+      fireEvent.click(next);
+      const dialog = await screen.findByRole('dialog', { name: '确认评审决定' });
+      expect(dialog).toHaveTextContent(`1 项${resultLabel}`);
+      expect(dialog).toHaveTextContent('1 项缺少关联证据');
+      const paths = mock.mock.calls.map(([url]) => pathOf(String(url)));
+      expect(paths).toContain('/api/v1/projects/p1/requirements/req-1/published-prds');
+      expect(paths).toContain('/api/v1/documents/prd-doc-51/revisions/prd-current/metadata');
+      expect(paths).not.toContain('/api/v1/projects/p1/documents');
+      expect(paths).not.toContain('/api/v1/documents/prd-doc-51');
+      expect(paths).not.toContain('/api/v1/documents/prd-doc-51/history');
+      expect(paths).not.toContain('/api/v1/documents/prd-doc-51/revisions');
+      expect(
+        mock.mock.calls.filter(
+          ([url, init]) =>
+            methodOf(init ?? {}) === 'POST' && pathOf(String(url)).includes('decisions'),
         ),
-      }),
-    });
-    renderDecisionPage();
-    const matrix = await screen.findByRole('region', { name: '验收条件与证据映射' });
-    await within(matrix).findByText('ev-main · 提交者报告通过');
-    expect(within(matrix).getByText('报告通过，待人工核验')).toBeInTheDocument();
-    const uncovered = within(matrix).getByText(acceptance[1].text).closest('tr')!;
-    expect(within(uncovered).getByText('缺少关联证据')).toBeInTheDocument();
-    expect(within(uncovered).queryByText('ev-main · 提交者报告通过')).not.toBeInTheDocument();
-    expect(within(matrix).getByText(/对照 PRD 修订/)).toHaveTextContent('prd-current');
-    expect(
-      mock.mock.calls.some(
-        ([url]) =>
-          new URL(String(url), 'http://local').searchParams.get('cursor') === 'next-prd-page',
-      ),
-    ).toBe(true);
-    expect(
-      mock.mock.calls.filter(
-        ([url, init]) =>
-          methodOf(init ?? {}) === 'POST' && pathOf(String(url)).includes('decisions'),
-      ),
-    ).toHaveLength(0);
-  });
+      ).toHaveLength(0);
+    },
+  );
 
   it('多份已发布PRD不任取第一份作为验收基线', async () => {
-    mockTaskScenario({
-      documents: () => ({
+    const fetch = mockTaskScenario({
+      publishedPrds: () => ({
         status: 200,
         body: envelope({
-          items: ['prd-a', 'prd-b'].map((id) => ({
-            document: { id, requirementId: 'req-1', archivedAt: null },
-            revisions: [],
-            publishedRevision: {
-              id: `${id}-revision`,
-              acceptance: [{ key: 'ac-main', text: '不应任取的验收', verification: 'TEST' }],
-            },
-          })),
-          nextCursor: null,
+          items: ['prd-a', 'prd-b'].map((id) => publishedPrdItem(id, `${id}-revision`)),
+          total: 3,
         }),
       }),
     });
@@ -1233,20 +1364,310 @@ describe('ReviewDecision 证据完整性与上下文状态', () => {
     expect(screen.getByText(/多份已发布 PRD/)).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: '验收条件与证据映射' })).not.toBeInTheDocument();
     expect(screen.queryByText('不应任取的验收')).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([url]) => pathOf(String(url)).endsWith('/metadata'))).toBe(false);
   });
 
-  it('PRD后续分页失败时显示读取失败，不把第一页空结果说成未绑定', async () => {
-    let pages = 0;
+  it('PRD概要失败时显示读取失败，不把结果说成未绑定', async () => {
     mockTaskScenario({
-      documents: () =>
-        ++pages === 1
-          ? { status: 200, body: envelope({ items: [], nextCursor: 'page2' }) }
-          : { status: 503, body: { error: { code: 'UNAVAILABLE', message: '分页不可用' } } },
+      publishedPrds: () => ({
+        status: 503,
+        body: { error: { code: 'UNAVAILABLE', message: '概要不可用' } },
+      }),
     });
     renderDecisionPage();
     await screen.findByText('无法读取 PRD 上下文');
     expect(screen.queryByText('该需求没有绑定 PRD 文档')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '重试读取 PRD' })).toBeInTheDocument();
+  });
+
+  it('准确总数为零时明确没有发布PRD，不读取元数据或保留验收基线', async () => {
+    const fetch = mockTaskScenario();
+    renderDecisionPage();
+    await screen.findByText('该需求没有绑定 PRD 文档');
+    expect(screen.queryByText('无法读取 PRD 上下文')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: '验收条件与证据映射' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/对照 PRD 修订/)).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([url]) => pathOf(String(url)).endsWith('/metadata'))).toBe(false);
+  });
+
+  it('published-prds路径分别编码项目与需求ID，并且不增加分页参数', async () => {
+    const fetch = mockFetch(() => ({ status: 200, body: envelope({ items: [], total: 0 }) }));
+    await documentApi.publishedPrds('project/space ?', 'requirement/# ?');
+    expect(fetch.mock.calls[0]?.[0]).toBe(
+      '/api/v1/projects/project%2Fspace%20%3F/requirements/requirement%2F%23%20%3F/published-prds',
+    );
+  });
+
+  it.each([
+    ['唯一总数但缺少概要', { items: [], total: 1 }],
+    ['唯一总数却返回两份概要', { items: [publishedPrdItem(), publishedPrdItem()], total: 1 }],
+    ['空总数却返回概要', { items: [publishedPrdItem()], total: 0 }],
+    ['非法总数', { items: [], total: -1 }],
+    ...[
+      ['跨项目', { projectId: 'other-project' }],
+      ['其他需求', { requirementId: 'other-requirement' }],
+      ['错误文档类型', { kind: 'KNOWLEDGE' }],
+      ['已归档', { archivedAt: '2026-11-10T00:00:00Z' }],
+      ['发布指针变化', { currentPublishedRevisionId: 'replacement-revision' }],
+    ].map(([name, override]) => [
+      name,
+      {
+        items: [
+          {
+            ...publishedPrdItem(),
+            document: { ...publishedPrdItem().document, ...(override as object) },
+          },
+        ],
+        total: 1,
+      },
+    ]),
+    [
+      '概要修订所属文档错误',
+      {
+        items: [
+          {
+            ...publishedPrdItem(),
+            publishedRevision: { ...publishedPrdItem().publishedRevision, documentId: 'other-doc' },
+          },
+        ],
+        total: 1,
+      },
+    ],
+  ])('%s时明确失败，不选择错误验收或读取元数据', async (_name, payload) => {
+    const fetch = mockTaskScenario({
+      publishedPrds: () => ({ status: 200, body: envelope(payload) }),
+    });
+    renderDecisionPage();
+    await screen.findByText('无法读取 PRD 上下文');
+    expect(screen.queryByText('该需求没有绑定 PRD 文档')).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([url]) => pathOf(String(url)).endsWith('/metadata'))).toBe(false);
+  });
+
+  it.each([
+    ['发布已被替换', { state: 'CANDIDATE' }],
+    ['修订ID不符', { id: 'other-revision' }],
+    ['文档ID不符', { documentId: 'other-document' }],
+  ])('%s时要求重新确认发布版本，不使用元数据中的验收', async (_name, override) => {
+    mockTaskScenario({
+      publishedPrds: () => ({
+        status: 200,
+        body: envelope({ items: [publishedPrdItem()], total: 1 }),
+      }),
+      revisionMetadata: () => ({
+        status: 200,
+        body: envelope({ ...publishedPrdMetadata(), ...override }),
+      }),
+    });
+    renderDecisionPage();
+    await screen.findByText('无法读取 PRD 上下文');
+    expect(screen.getByText(/PRD 发布版本已变化/)).toBeInTheDocument();
+    expect(screen.queryByText('询价主流程可走通')).not.toBeInTheDocument();
+    expect(screen.queryByText(/对照 PRD 修订/)).not.toBeInTheDocument();
+  });
+
+  it('唯一发布修订元数据读取失败时可重试，不退化为空验收', async () => {
+    mockTaskScenario({
+      publishedPrds: () => ({
+        status: 200,
+        body: envelope({ items: [publishedPrdItem()], total: 1 }),
+      }),
+      revisionMetadata: () => ({
+        status: 404,
+        body: { error: { code: 'RESOURCE_NOT_FOUND', message: '发布版本当前不可读' } },
+      }),
+    });
+    renderDecisionPage();
+    await screen.findByText('无法读取 PRD 上下文');
+    expect(screen.getByText(/发布版本当前不可读/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重试读取 PRD' })).toBeInTheDocument();
+    expect(screen.queryByText('该需求没有绑定 PRD 文档')).not.toBeInTheDocument();
+    expect(screen.queryByText(/对照 PRD 修订/)).not.toBeInTheDocument();
+  });
+
+  it.each([false, true])('切换评审后迟到的概要不继续读取旧metadata，重试请求=%s', async (retry) => {
+    let resolveSummary!: (reply: StubReply) => void;
+    const delayedSummary = new Promise<StubReply>((resolve) => {
+      resolveSummary = resolve;
+    });
+    let summaryReads = 0;
+    const fetch = mockTaskScenario({
+      additionalReviews: { 'review-new': { taskId: null, artifactSetId: null, requirement: null } },
+      publishedPrds: () => {
+        summaryReads += 1;
+        return retry && summaryReads === 1
+          ? { status: 503, body: { error: { code: 'TEMPORARY', message: '先重试' } } }
+          : delayedSummary;
+      },
+    });
+    const { rerender } = render(
+      <MemoryRouter>
+        <ReviewDecision reviewId="review-task" />
+      </MemoryRouter>,
+    );
+    if (retry) {
+      await screen.findByText('无法读取 PRD 上下文');
+      fireEvent.click(screen.getByRole('button', { name: '重试读取 PRD' }));
+    }
+    await waitFor(() => expect(summaryReads).toBe(retry ? 2 : 1));
+    rerender(
+      <MemoryRouter>
+        <ReviewDecision reviewId="review-new" />
+      </MemoryRouter>,
+    );
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.some(
+          ([url]) => pathOf(String(url)) === '/api/v1/review-requests/review-new',
+        ),
+      ).toBe(true),
+    );
+    await act(async () => {
+      resolveSummary({ status: 200, body: envelope({ items: [publishedPrdItem()], total: 1 }) });
+      await delayedSummary;
+    });
+    expect(fetch.mock.calls.some(([url]) => pathOf(String(url)).endsWith('/metadata'))).toBe(false);
+    expect(screen.queryByText('询价主流程可走通')).not.toBeInTheDocument();
+  });
+
+  it.each(
+    (['task', 'instance', 'requirement'] as const).flatMap((stage) =>
+      [false, true].map((failed) => ({ stage, failed })),
+    ),
+  )('切换评审后忽略需求重试的迟到$stage，失败=$failed', async ({ stage, failed }) => {
+    let resolveStep!: (reply: StubReply) => void;
+    const delayedStep = new Promise<StubReply>((resolve) => {
+      resolveStep = resolve;
+    });
+    let resolveSummary!: (reply: StubReply) => void;
+    const delayedSummary = new Promise<StubReply>((resolve) => {
+      resolveSummary = resolve;
+    });
+    let taskReads = 0;
+    let instanceReads = 0;
+    let requirementReads = 0;
+    let summaryReads = 0;
+    let retryWaiting = false;
+    const success = (body: unknown): StubReply => ({ status: 200, body: envelope(body) });
+    const temporaryFailure: StubReply = {
+      status: 503,
+      body: { error: { code: 'TEMPORARY', message: '旧需求读取失败' } },
+    };
+    const newRequirement = {
+      ...requirementPayload,
+      requirement: { ...requirementPayload.requirement, code: 'YFF-NEW', title: '新评审需求' },
+    };
+    mockTaskScenario({
+      additionalReviews: { 'review-new': {} },
+      task: () => {
+        taskReads += 1;
+        if (taskReads === 1) return temporaryFailure;
+        if (stage === 'task' && taskReads === 2) {
+          retryWaiting = true;
+          return delayedStep;
+        }
+        return success(taskPayload);
+      },
+      workflowInstance: () => {
+        instanceReads += 1;
+        if (stage === 'instance' && instanceReads === 1) {
+          retryWaiting = true;
+          return delayedStep;
+        }
+        return success({ requirementId: 'req-1' });
+      },
+      requirement: () => {
+        requirementReads += 1;
+        if (stage === 'requirement' && requirementReads === 1) {
+          retryWaiting = true;
+          return delayedStep;
+        }
+        return success(newRequirement);
+      },
+      publishedPrds: () => {
+        summaryReads += 1;
+        return delayedSummary;
+      },
+      revisionMetadata: () =>
+        success(
+          publishedPrdMetadata('prd-1', 'prd-rev', [
+            { key: 'a-new', text: '新评审验收', verification: 'TEST' },
+          ]),
+        ),
+    });
+    const { rerender } = render(
+      <MemoryRouter>
+        <ReviewDecision reviewId="review-task" />
+      </MemoryRouter>,
+    );
+    await screen.findByText('无法读取需求上下文');
+    fireEvent.click(screen.getByRole('button', { name: '重试读取需求' }));
+    await waitFor(() => expect(retryWaiting).toBe(true));
+    rerender(
+      <MemoryRouter>
+        <ReviewDecision reviewId="review-new" />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(summaryReads).toBe(1));
+    const newReviewReads = { taskReads, instanceReads, requirementReads, summaryReads };
+    await act(async () => {
+      resolveStep(
+        failed
+          ? temporaryFailure
+          : success(
+              stage === 'task'
+                ? taskPayload
+                : stage === 'instance'
+                  ? { requirementId: 'req-1' }
+                  : requirementPayload,
+            ),
+      );
+      await delayedStep;
+    });
+    expect({ taskReads, instanceReads, requirementReads, summaryReads }).toEqual(newReviewReads);
+    await act(async () => {
+      resolveSummary(success({ items: [publishedPrdItem()], total: 1 }));
+      await delayedSummary;
+    });
+    expect(await screen.findByText('新评审验收')).toBeInTheDocument();
+    expect(screen.getByText('YFF-NEW · 新评审需求')).toBeInTheDocument();
+    expect(screen.queryByText('YFF-001 · 客户询价单')).not.toBeInTheDocument();
+    expect(screen.queryByText('无法读取需求上下文')).not.toBeInTheDocument();
+  });
+
+  it('切换评审后迟到的发布metadata不回写验收或基线', async () => {
+    let resolveMetadata!: (reply: StubReply) => void;
+    const delayedMetadata = new Promise<StubReply>((resolve) => {
+      resolveMetadata = resolve;
+    });
+    const fetch = mockTaskScenario({
+      additionalReviews: { 'review-new': { taskId: null, artifactSetId: null, requirement: null } },
+      publishedPrds: () => ({
+        status: 200,
+        body: envelope({ items: [publishedPrdItem()], total: 1 }),
+      }),
+      revisionMetadata: () => delayedMetadata,
+    });
+    const { rerender } = render(
+      <MemoryRouter>
+        <ReviewDecision reviewId="review-task" />
+      </MemoryRouter>,
+    );
+    await waitFor(() =>
+      expect(fetch.mock.calls.some(([url]) => pathOf(String(url)).endsWith('/metadata'))).toBe(
+        true,
+      ),
+    );
+    rerender(
+      <MemoryRouter>
+        <ReviewDecision reviewId="review-new" />
+      </MemoryRouter>,
+    );
+    await act(async () => {
+      resolveMetadata({ status: 200, body: envelope(publishedPrdMetadata()) });
+      await delayedMetadata;
+    });
+    expect(screen.queryByText('询价主流程可走通')).not.toBeInTheDocument();
+    expect(screen.queryByText(/对照 PRD 修订/)).not.toBeInTheDocument();
   });
 
   it('截断工件允许加载完整正文、下载证据并保留打开原工件入口', async () => {
@@ -1274,7 +1695,7 @@ describe('ReviewDecision 证据完整性与上下文状态', () => {
       'href',
       `https://github.com/nz_erp/backend/commit/${'f'.repeat(40)}`,
     );
-    expect(screen.getByText('证据完整性')).toBeInTheDocument();
+    expect(screen.getByText('评审依据概览')).toBeInTheDocument();
     expect(screen.getByText('不完整')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '作出决定' }));
@@ -1288,7 +1709,7 @@ describe('ReviewDecision 证据完整性与上下文状态', () => {
     expect(screen.getByRole('button', { name: '下载证据' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '在新标签打开完整正文' })).toBeInTheDocument();
     expect(screen.queryByText('不完整')).not.toBeInTheDocument();
-    expect(screen.getByText('完整')).toBeInTheDocument();
+    expect(screen.getByText('关键资料已读全')).toBeInTheDocument();
     expect(nextStep).toBeEnabled();
   });
 
@@ -1333,7 +1754,7 @@ describe('ReviewDecision 证据完整性与上下文状态', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '重试加载完整正文' }));
     expect(await screen.findByText('重试后的完整正文')).toBeInTheDocument();
-    expect(screen.getByText('完整')).toBeInTheDocument();
+    expect(screen.getByText('关键资料已读全')).toBeInTheDocument();
   });
 
   it('没有 GitHub 仓库或提交时说明原工件链接不可用', async () => {
@@ -1497,7 +1918,7 @@ describe('ReviewDecision 证据完整性与上下文状态', () => {
     let prdReads = 0;
     mockTaskScenario({
       artifacts: () => [hostedArtifact],
-      documents: () => {
+      publishedPrds: () => {
         prdReads += 1;
         if (prdReads === 1) {
           return {
@@ -1514,36 +1935,8 @@ describe('ReviewDecision 证据完整性与上下文状态', () => {
         return {
           status: 200,
           body: envelope({
-            items: [
-              {
-                document: {
-                  id: 'prd-1',
-                  projectId: 'p1',
-                  knowledgeBaseId: 'kb',
-                  requirementId: 'req-1',
-                  kind: 'PRD',
-                  version: 1,
-                  currentPublishedRevisionId: 'prd-rev',
-                  archivedAt: null,
-                },
-                revisions: [],
-                publishedRevision: {
-                  id: 'prd-rev',
-                  documentId: 'prd-1',
-                  seq: 1,
-                  title: 'PRD：客户询价单',
-                  mimeType: 'text/markdown',
-                  byteLength: 20,
-                  digest: 'e'.repeat(64),
-                  state: 'PUBLISHED',
-                  createdBy: 'pm',
-                  basisUnderstandingRevisionId: null,
-                  deliveryScope: null,
-                  acceptance: [{ key: 'a1', text: '询价主流程可走通', verification: 'TEST' }],
-                },
-              },
-            ],
-            nextCursor: null,
+            items: [publishedPrdItem()],
+            total: 1,
           }),
         };
       },
@@ -1552,7 +1945,7 @@ describe('ReviewDecision 证据完整性与上下文状态', () => {
 
     expect(await screen.findByText('无法读取 PRD 上下文')).toBeInTheDocument();
     // PRD 是补充证据：失败不应把“关键证据完整性”误判为不完整。
-    expect(screen.getByText('完整')).toBeInTheDocument();
+    expect(screen.getByText('关键资料已读全')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '重试读取 PRD' }));
     expect(await screen.findByText('询价主流程可走通')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('无法读取 PRD 上下文')).not.toBeInTheDocument());
@@ -1681,7 +2074,7 @@ describe('ReviewDecision 证据完整性与上下文状态', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('证据完整性')).toBeInTheDocument();
+    expect(await screen.findByText('评审依据概览')).toBeInTheDocument();
     expect(container.querySelector('.decision-sticky-footer')).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /作出决定 · product/ }));

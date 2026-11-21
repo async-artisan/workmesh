@@ -1,11 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Link, MemoryRouter, Route, Routes, useSearchParams } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RequirementDetail } from './RequirementDetail';
 import { setCsrfToken } from '../api/client';
 import { useAuthStore } from '../store/auth';
-import { envelope, mockFetch, pathOf, useProject } from '../test-utils';
+import { envelope, mockFetch, pathOf, useProject, type StubReply } from '../test-utils';
 import type { RequirementTrustChain } from '@workmesh/shared';
 
 const project = { id: 'p1', key: 'DEMO', name: 'Demo', version: 1 };
@@ -78,8 +78,8 @@ function handler(input: {
       return { status: 200, body: envelope([project]) };
     if (path === '/api/v1/projects/p1/requirements/DEMO-001')
       return { status: 200, body: envelope(input.body) };
-    if (path === '/api/v1/projects/p1/documents')
-      return { status: 200, body: envelope({ items: [], nextCursor: null }) };
+    if (path === '/api/v1/projects/p1/document-summaries')
+      return { status: 200, body: envelope({ items: [], nextCursor: null, total: 0 }) };
     if (input.withDefinitions) {
       if (path === '/api/v1/workflow-instances/inst-1')
         return {
@@ -135,6 +135,46 @@ function renderDetail(path: string, navigation?: ReactNode) {
 }
 
 describe('RequirementDetail（需求详情读模型）', () => {
+  it('未打开 PRD 时只读当前需求概要，用服务端总数更新页签，失败不冒充零', async () => {
+    let resolve!: (reply: StubReply) => void;
+    const pending = new Promise<StubReply>((done) => {
+      resolve = done;
+    });
+    const base = handler({ body: detail() });
+    let summaries = 0;
+    const fetch = mockFetch((url, init) => {
+      if (pathOf(url) === '/api/v1/projects/p1/document-summaries') {
+        const query = new URL(url, 'http://localhost').searchParams;
+        expect(query.get('kind')).toBe('PRD');
+        expect(query.get('requirementId')).toBe('req-1');
+        expect(query.get('limit')).toBe('50');
+        summaries += 1;
+        if (summaries === 1) return pending;
+        return { status: 503, body: { error: { code: 'UNAVAILABLE', message: '目录暂不可用' } } };
+      }
+      return base(url, init);
+    });
+    renderDetail('/requirements/DEMO-001');
+    const prd = await screen.findByRole('tab', { name: 'PRD—' });
+    expect(screen.queryByRole('region', { name: '需求 PRD 文档' })).not.toBeInTheDocument();
+    await act(async () =>
+      resolve({
+        status: 200,
+        body: envelope({ items: [], nextCursor: null, total: 107 }),
+      }),
+    );
+    await waitFor(() => expect(prd).toHaveAccessibleName('PRD107'));
+    expect(summaries).toBe(1);
+    expect(
+      fetch.mock.calls.some(([url]) => /\/history|\/metadata|\/documents\?/.test(String(url))),
+    ).toBe(false);
+    fireEvent.click(prd);
+    fireEvent.click(screen.getByRole('button', { name: '刷新 PRD 列表' }));
+    await screen.findByText(/目录暂不可用/);
+    expect(prd).toHaveAccessibleName('PRD—');
+    expect(screen.queryByText('该需求还没有绑定 PRD 文档。')).not.toBeInTheDocument();
+  });
+
   it('按工件所属交付集显式展开代码证据状态，不预取也不把未关联投递写成验签失败', async () => {
     let reads = 0;
     const fallback = handler({

@@ -102,7 +102,8 @@ export async function releaseReadiness(options, dependencies = {}) {
   let source = { head: null, dirty: null };
   try {
     const observed = await (dependencies.readSource ?? readSource)(directory);
-    if (!observed || !SHA.test(observed.head ?? '') || typeof observed.dirty !== 'boolean') throw new Error();
+    if (!observed || !SHA.test(observed.head ?? '') || typeof observed.dirty !== 'boolean')
+      throw new Error();
     source = { head: observed.head, dirty: observed.dirty };
     record(
       'CANDIDATE_SOURCE',
@@ -178,13 +179,18 @@ export async function releaseReadiness(options, dependencies = {}) {
   const sourceCheck = checks.find((check) => check.id === 'CANDIDATE_SOURCE');
   try {
     const observed = await (dependencies.readSource ?? readSource)(directory);
-    if (!observed || !SHA.test(observed.head ?? '') || typeof observed.dirty !== 'boolean') throw new Error();
+    if (!observed || !SHA.test(observed.head ?? '') || typeof observed.dirty !== 'boolean')
+      throw new Error();
     finalSource = { head: observed.head, dirty: observed.dirty };
-    if (finalSource.head !== source.head || finalSource.dirty !== source.dirty) {
+    if (
+      sourceCheck.status !== 'ERROR' &&
+      (finalSource.head !== source.head || finalSource.dirty !== source.dirty)
+    ) {
       sourceCheck.status = 'FAIL';
       sourceCheck.reason = 'SOURCE_CHANGED_DURING_CHECKS';
     }
-    candidateBound = candidateBound && finalSource.head === options.sha && finalSource.dirty === false;
+    candidateBound =
+      candidateBound && finalSource.head === options.sha && finalSource.dirty === false;
   } catch {
     candidateBound = false;
     sourceCheck.status = 'ERROR';

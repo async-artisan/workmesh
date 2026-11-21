@@ -9,7 +9,12 @@ import {
 } from '@workmesh/shared';
 import { createHash } from 'node:crypto';
 import { boundEvidenceIds } from '../reviews/v1-review-code-evidence';
-import { needsCodeEvidence, isCodeEvidenceAcceptable } from '../reviews/v1-review-policy';
+import { needsCodeEvidence } from '../reviews/v1-review-policy';
+import { acceptanceReviewKindOf, documentReviewKindOf } from '../reviews/v1-review-derivation';
+import {
+  codeEvidenceReviewReasons,
+  type ProvenanceReview,
+} from '../tasks/v1-code-evidence-provenance';
 
 type Stamp = { kind: string; user: { id: string; email: string } | null } | null;
 type Publication = {
@@ -97,19 +102,12 @@ export type TrustSnapshot = {
   workflowDefinitionRevisionId: string;
   manifest: unknown;
 };
-export type TrustCodeEvidence = {
-  id: string;
+export type TrustCodeEvidence = ProvenanceReview & {
   artifactSetId: string | null;
   preparedSecretHash: string | null;
   preparedExpiresAt: Date | null;
   preparedEvidenceId: string | null;
   ticketGeneration: number | null;
-  state: string;
-  reviewerKind: string;
-  repositoryId: string;
-  headSha: string;
-  commitSha: string | null;
-  receipt: { signatureValid: boolean; status: string } | null;
 };
 export type TrustData = {
   requirement: {
@@ -125,7 +123,13 @@ export type TrustData = {
   sets: TrustSet[];
   snapshots: TrustSnapshot[];
   evidence: TrustCodeEvidence[];
-  repositories: Array<{ id: string; externalId: string | null; archivedAt: Date | null }>;
+  repositories: Array<{
+    id: string;
+    externalId: string | null;
+    archivedAt: Date | null;
+    identityMode: string;
+    adapter: string | null;
+  }>;
   definitions: Array<{ id: string; definition: unknown }>;
   changes: Array<{ id: string; sourceKind: string; changedFields: string[]; createdAt: Date }>;
 };
@@ -252,23 +256,35 @@ function codeStatus(set: TrustSet, data: TrustData): RequirementTrustGapCode | n
   const bound = data.evidence.filter(
     (item) => ids.includes(item.id) && item.preparedSecretHash === null,
   );
-  if (!ids.length || bound.length !== ids.length) return 'CODE_EVIDENCE_MISSING';
-  if (
-    !isCodeEvidenceAcceptable(bound) ||
-    bound.some((item) => !item.receipt?.signatureValid || item.receipt.status !== 'PROCESSED')
-  )
-    return 'CODE_EVIDENCE_INVALID';
+  if (!ids.length || !bound.length) return 'CODE_EVIDENCE_MISSING';
+  const reviews = data.evidence.filter((item) => item.preparedSecretHash === null);
   for (const artifact of set.artifacts) {
     if (artifact.storage !== 'GIT_REF' && !artifact.commitSha) continue;
     const repository = data.repositories.find(
-      (item) => item.id === artifact.projectRepositoryId && !item.archivedAt,
+      (item) =>
+        item.id === artifact.projectRepositoryId &&
+        !item.archivedAt &&
+        item.identityMode === 'PROVIDER' &&
+        item.adapter?.toUpperCase() === 'GITHUB',
     );
     if (
       !artifact.commitSha ||
+      !repository?.externalId ||
       !bound.some(
         (item) =>
-          (item.commitSha === artifact.commitSha || item.headSha === artifact.commitSha) &&
-          (!artifact.projectRepositoryId || repository?.externalId === item.repositoryId),
+          codeEvidenceReviewReasons(item, reviews, {
+            repositoryId: repository.externalId!,
+            headSha: artifact.commitSha!,
+          }).length === 0 &&
+          tickets.some(
+            (ticket) =>
+              ticket.preparedExpiresAt === null &&
+              ticket.preparedSecretHash !== null &&
+              ticket.preparedEvidenceId === item.id &&
+              ticket.repositoryId === item.repositoryId &&
+              ticket.changeRequestId === item.changeRequestId &&
+              ticket.headSha === item.headSha,
+          ),
       )
     )
       return 'CODE_EVIDENCE_INVALID';
@@ -331,7 +347,9 @@ export function buildRequirementTrustChain(
             review.documentRevisionId === revisionId &&
             review.subjectDigest === revision.sha256,
         );
-        if (!publicationReview || !approved(publicationReview) || !signed(publicationReview))
+        if (publicationReview && publicationReview.kind !== documentReviewKindOf(kind))
+          gaps.push({ code: 'APPROVAL_MISSING', baselineKind: kind });
+        else if (!publicationReview || !approved(publicationReview) || !signed(publicationReview))
           gaps.push({ code: 'SIGNATURE_UNRECORDED', baselineKind: kind });
       }
       return {
@@ -547,14 +565,56 @@ export function buildRequirementTrustChain(
   }
   for (const review of reviews) {
     const task = taskViews.find((item) => item.taskId === review.taskId);
-    const current = review.documentRevisionId
-      ? baselines.some(
-          (item) => item.revisionId === review.documentRevisionId && item.state === 'CURRENT',
+    let applicability: RequirementTrustEvent['applicability'] = 'UNKNOWN';
+    if (review.documentRevisionId && !review.artifactSetId) {
+      const document = documents.find((item) =>
+        item.revisions.some((revision) => revision.id === review.documentRevisionId),
+      );
+      const revision = document?.revisions.find((item) => item.id === review.documentRevisionId);
+      const expectedKind =
+        document && ['UNDERSTANDING', 'PRD', 'KNOWLEDGE', 'DECISION'].includes(document.kind)
+          ? documentReviewKindOf(
+              document.kind as 'UNDERSTANDING' | 'PRD' | 'KNOWLEDGE' | 'DECISION',
+            )
+          : null;
+      if (
+        revision &&
+        review.subjectDigest &&
+        review.subjectDigest === revision.sha256 &&
+        review.kind === expectedKind
+      )
+        applicability = baselines.some(
+          (item) => item.revisionId === revision.id && item.state === 'CURRENT',
         )
-      : task?.artifactSetId === review.artifactSetId &&
-        task?.taskGeneration === review.taskGeneration &&
-        task?.state !== 'RETIRED' &&
-        task?.state !== 'STALE';
+          ? 'CURRENT'
+          : 'HISTORICAL';
+    } else if (review.artifactSetId && !review.documentRevisionId) {
+      const set = data.sets.find((item) => item.id === review.artifactSetId);
+      const subjectTask = data.tasks.find((item) => item.id === review.taskId);
+      const definition =
+        set &&
+        data.definitions.find((item) => item.id === set.workflowDefinitionRevisionId)?.definition;
+      const expectedKind = subjectTask
+        ? acceptanceReviewKindOf(definition, subjectTask.stepKey)
+        : null;
+      if (
+        set &&
+        subjectTask &&
+        task &&
+        set.taskId === subjectTask.id &&
+        set.taskGeneration === review.taskGeneration &&
+        review.subjectDigest &&
+        review.subjectDigest === set.manifestDigest &&
+        review.kind === expectedKind
+      )
+        applicability =
+          task.artifactSetId === set.id &&
+          task.taskGeneration === review.taskGeneration &&
+          task.state !== 'RETIRED' &&
+          task.state !== 'STALE'
+            ? 'CURRENT'
+            : 'HISTORICAL';
+    }
     const label =
       task?.stepLabel ??
       documents.flatMap((doc) => doc.revisions).find((rev) => rev.id === review.documentRevisionId)
@@ -572,7 +632,7 @@ export function buildRequirementTrustChain(
       kind: 'REVIEW_REQUEST',
       at: review.createdAt.toISOString(),
       source: 'PLATFORM_FACT',
-      applicability: current ? 'CURRENT' : 'HISTORICAL',
+      applicability,
       label,
       actors: [],
       ...refs,
@@ -584,7 +644,13 @@ export function buildRequirementTrustChain(
         kind: 'DECISION',
         at: decision.createdAt.toISOString(),
         source: signer.kind === 'HUMAN' && signer.userId ? 'HUMAN_SIGNED' : 'UNRECORDED_ACTOR',
-        applicability: decision.revocation ? 'REVOKED' : current ? 'CURRENT' : 'HISTORICAL',
+        applicability: decision.revocation
+          ? 'REVOKED'
+          : decision.subjectDigest &&
+              review.subjectDigest &&
+              decision.subjectDigest === review.subjectDigest
+            ? applicability
+            : 'UNKNOWN',
         label,
         actors: [signer],
         decision: decision.decision,

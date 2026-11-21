@@ -151,7 +151,7 @@ for (const width of [1440, 1024, 640, 390]) {
           .getByRole('region', { name: '浏览三类知识', exact: true })
           .locator('.knowledge-collection-docs')
           .first();
-        await expect(hint).toHaveText('1 篇可浏览文档');
+        await expect(hint).toHaveText('1 篇可浏览文档 · 1 个知识库');
         await expect(hint).toBeVisible();
         expect(
           await hint.evaluate((element) => parseFloat(getComputedStyle(element).fontSize)),

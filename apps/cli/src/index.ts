@@ -441,7 +441,14 @@ function buildProgram(): Command {
         { details: { report } },
       );
     emitLocal(command, report, () => {
-      console.log(`本地质量检查：${report.status}；${report.coverage.length} 条验收`);
+      console.log(
+        `本地质量检查：${report.status}；质量包 ${report.bundleSchemaVersion ?? '未知版本'}；${report.coverage.length} 条验收`,
+      );
+      console.log(
+        report.executionLinkage === 'EXPLICIT_CASE_REVISION'
+          ? `精确用例修订关联：${report.caseCoverage.length} 条；仅核对本地输入，不证明实际执行或提供方来源。`
+          : '未建立执行到用例修订的精确关联；1.0 报告保持原有本地报告语义。',
+      );
       for (const issue of report.issues)
         console.log(`${issue.severity} ${issue.code}: ${issue.message}`);
       console.log('仅检查所提供数据的一致性；证据内容与正式验收仍需核验。');

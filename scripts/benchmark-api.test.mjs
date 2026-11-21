@@ -22,16 +22,25 @@ import {
   assertNoBuiltinRolePackageRows,
   checkAuthorization,
   cleanChildEnv,
+  closedChildStatus,
   cleanupAndCheckDatabase,
   cleanupFixture,
   createFixture,
+  createRssSampler,
+  createSummaryFixture,
   endpoints,
+  expectedSummaryRows,
   measureEndpoint,
   parseArguments,
   seedFixture,
+  runSummaryChild,
+  summaryScenarios,
+  summaryComparisons,
   summarize,
   verifyBoardPagination,
   verifyResponse,
+  verifySummaryCorrectness,
+  verifySummaryResponse,
 } from './benchmark-api.mjs';
 
 function loadBootstrapFromSource(env) {
@@ -194,6 +203,7 @@ function boardPageServer(f, mutate = () => {}) {
 
 test('bounded arguments keep the API workload small', () => {
   assert.deepEqual(parseArguments([]), {
+    suite: 'legacy',
     dataset: 'small',
     samples: 20,
     concurrency: 4,
@@ -201,6 +211,7 @@ test('bounded arguments keep the API workload small', () => {
   });
   assert.deepEqual(parseArguments(['--help']), { help: true });
   assert.deepEqual(parseArguments(['--samples', '4', '--concurrency', '2', '--warmup', '1']), {
+    suite: 'legacy',
     dataset: 'small',
     samples: 4,
     concurrency: 2,
@@ -208,7 +219,7 @@ test('bounded arguments keep the API workload small', () => {
   });
   assert.deepEqual(
     parseArguments(['--dataset', 'history', '--samples', '20', '--concurrency', '8']),
-    { dataset: 'history', samples: 20, concurrency: 8, warmup: 2 },
+    { suite: 'legacy', dataset: 'history', samples: 20, concurrency: 8, warmup: 2 },
   );
   for (const args of [
     ['--samples', '0'],
@@ -1112,4 +1123,579 @@ test('CLI guard works without any API build artifacts and never logs credential 
     assert.ok(basename(resolved).startsWith('workmesh-api-benchmark-guard-'));
     rmSync(resolved, { recursive: true, force: true });
   }
+});
+
+function summaryResponse(
+  f,
+  { q = '', agent = false, status = 'all', offset = 0, limit = 100 } = {},
+) {
+  const rows = expectedSummaryRows(f, { q, agent, status });
+  const revisionView = (revision, document) =>
+    revision
+      ? {
+          id: revision.id,
+          documentId: document.id,
+          seq: revision.seq,
+          title: revision.title,
+          digest: revision.sha256,
+          state: revision.id === document.currentPublishedRevisionId ? 'PUBLISHED' : 'CANDIDATE',
+        }
+      : null;
+  const item = ({ document, revisions, requirement }) => {
+    const base = f.bases.find(({ id }) => id === document.knowledgeBaseId);
+    return {
+      document: {
+        id: document.id,
+        projectId: f.projectId,
+        knowledgeBaseId: base.id,
+        requirementId: document.requirementId,
+        kind: document.kind,
+        version: 1,
+        currentPublishedRevisionId: document.currentPublishedRevisionId,
+        archivedAt: null,
+      },
+      updatedAt: document.updatedAt.toISOString(),
+      knowledgeBase: { id: base.id, name: base.name, kind: base.kind },
+      requirement: requirement
+        ? { id: requirement.id, code: requirement.code, title: requirement.title }
+        : null,
+      latestVisibleRevision: revisionView(revisions[0], document),
+      publishedRevision: revisionView(
+        revisions.find(({ id }) => id === document.currentPublishedRevisionId),
+        document,
+      ),
+      visibleRevisionCount: revisions.length,
+      candidateRevisionCount: revisions.filter(
+        ({ id }) => id !== document.currentPublishedRevisionId,
+      ).length,
+    };
+  };
+  return {
+    meta: { requestId: 'summary-fixture' },
+    data: {
+      total: rows.length,
+      items: rows.slice(offset, offset + limit).map(item),
+      nextCursor:
+        offset + limit < rows.length
+          ? Buffer.from(String(offset + limit)).toString('base64url')
+          : null,
+    },
+  };
+}
+
+function summaryServer(f, mutate = () => {}) {
+  const calls = [];
+  const send = async (port, path, credentials, signal) => {
+    const url = new URL(path, 'http://127.0.0.1');
+    calls.push({ path, credentials, signal });
+    if (!credentials) return { status: 401, body: { error: { code: 'AUTH_REQUIRED' } } };
+    if (typeof credentials === 'string' && credentials.includes(f.outsiderSessionId))
+      return { status: 404, body: { error: { code: 'RESOURCE_NOT_FOUND' } } };
+    const agent = typeof credentials === 'object';
+    const q = url.searchParams.get('q') ?? '';
+    const status = url.searchParams.get('status') ?? 'all';
+    const cursor = url.searchParams.get('cursor');
+    const offset = cursor ? Number(Buffer.from(cursor, 'base64url').toString()) : 0;
+    const limit = Number(url.searchParams.get('limit') ?? 100);
+    let body = summaryResponse(f, { q, agent, status, offset, limit });
+    if (url.pathname.endsWith('/documents')) {
+      const rows = expectedSummaryRows(f);
+      body = {
+        meta: { requestId: 'legacy-fixture' },
+        data: {
+          nextCursor: null,
+          items: rows.map(({ document, revisions }) => ({
+            document,
+            revisions: revisions.map(({ id }) => ({ id })),
+            publishedRevision: { id: document.currentPublishedRevisionId },
+          })),
+        },
+      };
+    } else if (url.pathname.endsWith('/summary')) body.data = body.data.items[0];
+    else if (url.pathname.endsWith('/document-summary-overview')) {
+      const items = body.data.items;
+      body.data = {
+        total: 100,
+        totalsByDocumentKind: { UNDERSTANDING: 0, DECISION: 0, PRD: 100, KNOWLEDGE: 0 },
+        collections: ['BUSINESS', 'SYSTEM', 'PRACTICE'].map((kind) => {
+          const rows = items.filter(({ knowledgeBase }) => knowledgeBase.kind === kind);
+          return {
+            knowledgeBaseKind: kind,
+            knowledgeBaseCount: rows.length ? 1 : 0,
+            documentCount: rows.length,
+            recentItems: rows.slice(0, 2),
+          };
+        }),
+      };
+    }
+    mutate({ url, body, agent, offset });
+    return { status: 200, body, byteLength: Buffer.byteLength(JSON.stringify(body)) };
+  };
+  return { calls, send };
+}
+
+test('summary suite is opt-in and keeps legacy dataset/endpoint contracts', () => {
+  assert.equal(parseArguments(['--suite', 'document-summary']).suite, 'document-summary');
+  for (const args of [
+    ['--suite'],
+    ['--suite', 'all'],
+    ['--suite', 'legacy', '--suite', 'document-summary'],
+  ])
+    assert.throws(() => parseArguments(args), /INVALID_ARGUMENTS/);
+  const legacy = createFixture('history');
+  assert.equal(legacy.revisions.length, 10_000);
+  assert.equal(legacy.documents.length, 100);
+  assert.deepEqual(Object.keys(endpoints(legacy)), [
+    'documents',
+    'board',
+    'requirement',
+    'workbench',
+  ]);
+  const f = createSummaryFixture('history');
+  assert.equal(f.revisions.length, 101 * 123);
+  assert.equal(f.documents.length, 101);
+  assert.equal(Object.keys(summaryScenarios(f)).length, 5);
+  assert.ok(Object.values(summaryScenarios(f)).every((path) => path.includes('kind=PRD')));
+  assert.equal(new Set(f.revisions.map(({ id }) => id)).size, 101 * 123);
+  assert.throws(() => createSummaryFixture('__proto__'), /INVALID_DATASET/);
+});
+
+test('summary oracle distinguishes scoped KB capabilities, hidden authors and early Unicode matches', () => {
+  for (const dataset of ['small', 'history']) {
+    const f = createSummaryFixture(dataset);
+    const n = dataset === 'history' ? 123 : 3;
+    const rows = expectedSummaryRows(f);
+    const agent = expectedSummaryRows(f, { agent: true });
+    assert.equal(rows.length, 100);
+    assert.equal(rows[0].revisions.length, n - 1);
+    assert.equal(rows[90].revisions.length, n);
+    assert.equal(agent[90].revisions.length, n - 1);
+    assert.equal(
+      rows[0].revisions.find(({ id }) => id === rows[0].document.currentPublishedRevisionId).seq,
+      2,
+    );
+    assert.equal(rows[0].revisions[0].seq, n - 1);
+    for (const q of Object.values(f.searches))
+      assert.equal(expectedSummaryRows(f, { q }).length, 100);
+    for (const q of [f.hiddenMarker, f.restrictedMarker, '%_absent'])
+      assert.equal(expectedSummaryRows(f, { q }).length, 0);
+    assert.equal(expectedSummaryRows(f, { q: 'a%_literal' }).length, 100);
+    assert.equal(expectedSummaryRows(f, { q: f.requirements[0].title, agent: true }).length, 0);
+    assert.ok(agent.every(({ requirement }) => requirement === null));
+    assert.ok(f.revisions.every((revision) => Buffer.byteLength(revision.title) === 160));
+    if (dataset === 'history') assert.ok(rows.every(({ revisions }) => revisions.length > 100));
+  }
+});
+
+test('summary seeding and cleanup own every row, hash all secrets and roll back count mismatches', async () => {
+  const f = createSummaryFixture('history');
+  const created = [];
+  const deleted = [];
+  const counts = {
+    agentCredential: 1,
+    projectRoleAssignment: 1,
+    knowledgeBaseGrant: 2,
+    documentRevision: 101 * 123,
+    knowledgeDocument: 101,
+    knowledgeBase: 3,
+    requirement: 1,
+    projectRole: 1,
+    projectMember: 2,
+    project: 1,
+    webSession: 2,
+    user: 3,
+  };
+  let missing = false;
+  const tx = new Proxy(
+    {},
+    {
+      get: (_, table) => ({
+        create: async (query) => created.push({ table, ...query }),
+        createMany: async (query) => created.push({ table, ...query }),
+        deleteMany: async (query) => {
+          deleted.push({ table, ...query });
+          return { count: counts[table] - (missing && table === 'documentRevision' ? 1 : 0) };
+        },
+      }),
+    },
+  );
+  let transactions = 0;
+  const prisma = {
+    $transaction: async (work, options) => {
+      transactions++;
+      assert.equal(options.timeout, 30_000);
+      return work(tx);
+    },
+  };
+  await seedFixture(prisma, f);
+  assert.equal(created.length, 12);
+  assert.ok(!JSON.stringify(created).includes(f.secret));
+  assert.ok(!JSON.stringify(created).includes(f.agentSecret));
+  assert.equal(created.find(({ table }) => table === 'agentCredential').data.tokenHash.length, 64);
+  const cleaned = await cleanupFixture(prisma, f);
+  assert.equal(cleaned.removed.revisions, 101 * 123);
+  assert.equal(deleted.length, 12);
+  for (const { table, where } of deleted) {
+    assert.ok(Object.keys(where).length > 0);
+    if (!['user', 'webSession'].includes(table))
+      assert.equal(table === 'project' ? where.id : where.projectId, f.projectId);
+    if (!['projectMember', 'user', 'webSession'].includes(table)) assert.ok(where.id);
+  }
+  assert.deepEqual(
+    deleted.find(({ table }) => table === 'documentRevision').where.id.in,
+    f.revisions.map(({ id }) => id),
+  );
+  missing = true;
+  await assert.rejects(cleanupFixture(prisma, f), { name: 'AssertionError' });
+  assert.equal(transactions, 3);
+});
+
+test('summary HTTP assertions retain complete legacy history and reject compact projection/count leaks', async () => {
+  const f = createSummaryFixture('history');
+  const server = summaryServer(f);
+  for (const [name, path] of Object.entries(summaryScenarios(f))) {
+    const response = await server.send(1, path, 'reader');
+    assert.doesNotThrow(() => verifySummaryResponse(name, response.body, f));
+  }
+  const legacy = await server.send(1, summaryScenarios(f).documents, 'reader');
+  legacy.body.data.items[0].revisions.pop();
+  assert.throws(() => verifySummaryResponse('documents', legacy.body, f));
+  for (const mutate of [
+    (body) => {
+      body.data.total--;
+    },
+    (body) => {
+      body.data.items[0].visibleRevisionCount--;
+    },
+    (body) => {
+      body.data.items[0].candidateRevisionCount++;
+    },
+    (body) => {
+      body.data.items[0].latestVisibleRevision.seq = 123;
+    },
+    (body) => {
+      body.data.items[0].publishedRevision.id = f.revisions[0].id;
+    },
+    (body) => {
+      body.data.items[0].revisions = [];
+    },
+    (body) => {
+      body.data.items[0].latestVisibleRevision.bodyBytes = 'leak';
+    },
+    (body) => {
+      body.data.bodyBytes = 'leak';
+    },
+  ]) {
+    const body = summaryResponse(f);
+    mutate(body);
+    assert.throws(() => verifySummaryResponse('summary', body, f));
+  }
+});
+
+test('summary correctness checks real auth request shapes, complete continuation and Agent scope redaction', async () => {
+  const f = createSummaryFixture();
+  const server = summaryServer(f);
+  const result = await verifySummaryCorrectness(1, f, server.send);
+  assert.equal(result.status, 'PASS');
+  assert.equal(result.visibleDocuments, 100);
+  assert.equal(result.includedInLatencySamples, false);
+  assert.equal(result.requests, server.calls.length);
+  assert.equal(result.probes.length, server.calls.length);
+  assert.deepEqual(
+    result.probes.map(({ path }) => path),
+    server.calls.map(({ path }) => path),
+  );
+  assert.equal(server.calls.filter(({ credentials }) => credentials === null).length, 7);
+  assert.ok(
+    server.calls.some(({ credentials }) => credentials?.authorization?.includes('Bearer wm_a1.')),
+  );
+  assert.ok(server.calls.every(({ signal }) => signal instanceof AbortSignal));
+  for (const mutation of [
+    'cycle',
+    'duplicate',
+    'missing',
+    'wrong-total',
+    'requirement-leak',
+    'search-leak',
+  ]) {
+    const broken = summaryServer(f, ({ url, body, offset, agent }) => {
+      if (
+        url.pathname.endsWith('/document-summaries') &&
+        url.searchParams.get('limit') === '7' &&
+        offset === 7
+      ) {
+        if (mutation === 'cycle') body.data.nextCursor = Buffer.from('7').toString('base64url');
+        if (mutation === 'duplicate') body.data.items[0] = summaryResponse(f).data.items[0];
+        if (mutation === 'missing') body.data.items.pop();
+        if (mutation === 'wrong-total') body.data.total--;
+      }
+      if (agent && !url.searchParams.has('q') && mutation === 'requirement-leak')
+        body.data.items[0].requirement = f.requirements[0];
+      if (url.searchParams.get('q') === f.hiddenMarker && mutation === 'search-leak')
+        body.data.total = 1;
+    });
+    await assert.rejects(verifySummaryCorrectness(1, f, broken.send), { name: 'AssertionError' });
+  }
+});
+
+test('summary correctness records a failing HTTP probe and redacted public error without response payloads', async () => {
+  const f = createSummaryFixture();
+  const server = summaryServer(f);
+  const marker = 'fixture-response-body-must-not-be-logged';
+  const send = async (...args) => {
+    const response = await server.send(...args);
+    if (response.status === 200 && args[1].includes(`q=${f.searches.ascii}`))
+      return {
+        status: 503,
+        headers: { authorization: f.agentSecret },
+        body: {
+          error: {
+            code: 'READ_UNAVAILABLE',
+            message: `Retry later;\n\u0001 cookie=wm_session=wm_s1.${f.sessionId}.${f.secret}; Bearer wm_a1.${f.credential.id}.${f.agentSecret}; postgresql://reader:connection-password@localhost/db`,
+            requestId: 'fixture-503-request',
+            details: { body: marker, token: f.outsiderSecret },
+          },
+          data: { bodyBase64: marker },
+        },
+      };
+    return response;
+  };
+  let stopped = 0;
+  const child = {
+    readyPromise: Promise.resolve(1),
+    samples: [],
+    sampleRss: async () => {},
+    stop: async () => {
+      stopped++;
+      return { stopped: true, graceful: true };
+    },
+  };
+  await assert.rejects(runSummaryChild(child, 'correctness', null, f, {}, { send }), (error) => {
+    const diagnostic = error.benchmarkDiagnostic;
+    assert.equal(diagnostic, error.summaryScenario.diagnostic);
+    assert.equal(diagnostic.stage, 'search');
+    assert.equal(diagnostic.error.name, 'AssertionError');
+    assert.match(diagnostic.error.message, /assertion failed; response values omitted/);
+    assert.equal(diagnostic.probes.length, server.calls.length);
+    assert.equal(diagnostic.recentProbe, diagnostic.probes.at(-1));
+    assert.equal(diagnostic.recentProbe.path, server.calls.at(-1).path);
+    assert.equal(diagnostic.recentProbe.expectedStatus, 200);
+    assert.equal(diagnostic.recentProbe.status, 503);
+    assert.equal(diagnostic.recentProbe.requestId, 'fixture-503-request');
+    assert.equal(diagnostic.recentProbe.apiError.code, 'READ_UNAVAILABLE');
+    assert.match(diagnostic.recentProbe.apiError.message, /Retry later/);
+    assert.match(diagnostic.recentProbe.apiError.message, /REDACTED/);
+    assert.ok(
+      ![...diagnostic.recentProbe.apiError.message].some(
+        (character) => character.charCodeAt(0) < 32,
+      ),
+    );
+    for (const probe of diagnostic.probes)
+      assert.deepEqual(
+        Object.keys(probe).sort(),
+        [
+          'request',
+          'stage',
+          'path',
+          'expectedStatus',
+          'status',
+          'apiError',
+          'requestId',
+          'elapsedMs',
+        ].sort(),
+      );
+    const serialized = JSON.stringify(diagnostic);
+    for (const hidden of [
+      marker,
+      f.secret,
+      f.agentSecret,
+      f.outsiderSecret,
+      'connection-password',
+      'bodyBase64',
+      'headers',
+      'credentials',
+    ])
+      assert.ok(!serialized.includes(hidden));
+    return true;
+  });
+  assert.equal(stopped, 1);
+});
+
+test('summary assertion diagnostics retain the latest successful probe but omit actual and expected bodies', async () => {
+  const f = createSummaryFixture();
+  const marker = 'private-response-value';
+  const server = summaryServer(f, ({ body, offset }) => {
+    if (offset === 7) body.data.items[0].latestVisibleRevision.title = `${marker} ${f.secret}`;
+  });
+  await assert.rejects(verifySummaryCorrectness(1, f, server.send), (error) => {
+    const diagnostic = error.benchmarkDiagnostic;
+    assert.equal(diagnostic.stage, 'pagination');
+    assert.equal(diagnostic.error.name, 'AssertionError');
+    assert.match(diagnostic.error.message, /deepStrictEqual assertion failed/);
+    assert.equal(diagnostic.recentProbe.status, 200);
+    assert.equal(diagnostic.recentProbe.requestId, 'summary-fixture');
+    assert.equal(diagnostic.recentProbe.apiError, null);
+    assert.equal(diagnostic.recentProbe.path, server.calls.at(-1).path);
+    const serialized = JSON.stringify(diagnostic);
+    assert.ok(!serialized.includes(marker));
+    assert.ok(!serialized.includes(f.secret));
+    assert.ok(!serialized.includes('Bounded visible revision'));
+    return true;
+  });
+});
+
+test('summary transport diagnostics retain the attempted path and sanitize the original error', async () => {
+  const f = createSummaryFixture();
+  const failure = new TypeError(`fetch failed; token=${f.secret}`);
+  await assert.rejects(
+    verifySummaryCorrectness(1, f, async () => {
+      throw failure;
+    }),
+    (error) => {
+      assert.equal(error, failure);
+      const diagnostic = error.benchmarkDiagnostic;
+      assert.equal(diagnostic.stage, 'authorization');
+      assert.equal(diagnostic.error.name, 'TypeError');
+      assert.match(diagnostic.error.message, /fetch failed/);
+      assert.ok(!diagnostic.error.message.includes(f.secret));
+      assert.equal(diagnostic.probes.length, 1);
+      assert.equal(diagnostic.recentProbe.path, summaryScenarios(f).documents);
+      assert.equal(diagnostic.recentProbe.status, null);
+      assert.equal(diagnostic.recentProbe.requestId, null);
+      assert.equal(diagnostic.recentProbe.apiError, null);
+      assert.ok(diagnostic.recentProbe.elapsedMs >= 0);
+      return true;
+    },
+  );
+});
+
+test('RSS requests correlate out-of-order replies and reject missing, invalid and closed samples', async () => {
+  const sent = [];
+  const sampler = createRssSampler((message) => sent.push(message), 15);
+  const a = sampler.sample('startup');
+  const b = sampler.sample('serial');
+  sampler.receive({ type: 'rss', requestId: sent[1].requestId, rssBytes: 200 });
+  sampler.receive({ type: 'rss', requestId: sent[0].requestId, rssBytes: 100 });
+  assert.equal((await a).label, 'startup');
+  assert.equal((await b).label, 'serial');
+  assert.deepEqual(
+    sampler.samples.map(({ label }) => label),
+    ['serial', 'startup'],
+  );
+  const missing = sampler.sample('missing');
+  await assert.rejects(missing, /RSS_SAMPLE_TIMEOUT/);
+  const invalid = sampler.sample('invalid');
+  sampler.receive({ type: 'rss', requestId: sent.at(-1).requestId, rssBytes: -1 });
+  await assert.rejects(invalid, /RSS_SAMPLE_INVALID/);
+  const closing = sampler.sample('closing');
+  sampler.close();
+  await assert.rejects(closing, /RSS_CHILD_CLOSED/);
+  await assert.rejects(sampler.sample('after-close'), /RSS_CHILD_CLOSED/);
+  const failed = createRssSampler((message, callback) => callback(new Error('send')));
+  await assert.rejects(failed.sample('failure'), /RSS_SAMPLE_SEND_FAILED/);
+});
+
+test('fresh summary scenarios preserve first failure evidence and always stop their own child', async () => {
+  const f = createSummaryFixture();
+  const server = summaryServer(f);
+  let stops = 0;
+  const measures = [];
+  const rssLabels = [];
+  const child = () => ({
+    readyPromise: Promise.resolve(1),
+    samples: [],
+    sampleRss: async (label) => rssLabels.push(label),
+    stop: async () => {
+      stops++;
+      return { stopped: true, graceful: true };
+    },
+  });
+  const phase = { errors: 0, notAttempted: 0, deadlineExceeded: false };
+  const result = await runSummaryChild(
+    child(),
+    'summary',
+    summaryScenarios(f).summary,
+    f,
+    { concurrency: 2 },
+    {
+      send: server.send,
+      measure: async (...args) => {
+        measures.push(args[5]);
+        await args[4].afterWarmup();
+        return phase;
+      },
+    },
+  );
+  assert.equal(result.cold.status, 200);
+  assert.equal(result.cold.includedInLatencySamples, false);
+  assert.deepEqual(measures, [1, 2]);
+  assert.deepEqual(rssLabels, [
+    'summary:startup',
+    'summary:cold',
+    'summary:serial-warmup',
+    'summary:serial',
+    'summary:concurrent-warmup',
+    'summary:concurrent',
+  ]);
+  assert.equal(stops, 1);
+  const original = new Error('first-failure');
+  const failedChild = child();
+  failedChild.readyPromise = Promise.reject(original);
+  failedChild.stop = async () => {
+    stops++;
+    throw new Error('stop-failure');
+  };
+  await assert.rejects(runSummaryChild(failedChild, 'summary', '/fixture', f, {}, {}), (error) => {
+    assert.equal(error, original);
+    assert.deepEqual(error.summaryScenario.shutdown, { stopped: false, graceful: false });
+    return true;
+  });
+  assert.equal(stops, 2);
+  const timedOut = await assert.rejects(
+    runSummaryChild(
+      child(),
+      'summary',
+      summaryScenarios(f).summary,
+      f,
+      { concurrency: 2 },
+      {
+        send: server.send,
+        measure: async () => ({ ...phase, deadlineExceeded: true }),
+      },
+    ),
+    /MEASURED_REQUEST_FAILURES/,
+  );
+  assert.equal(timedOut, undefined);
+});
+
+test('summary comparison reports measured response/latency ratios and labels RSS limits', () => {
+  const baseline = { responseBytes: 2000, latencySamples: 2, latency: { p50Ms: 10, p95Ms: 20 } };
+  const compact = { responseBytes: 200, latencySamples: 2, latency: { p50Ms: 5, p95Ms: 15 } };
+  const compared = summaryComparisons(
+    {
+      documents: { serial: baseline, concurrent: baseline },
+      summary: { serial: compact, concurrent: compact },
+    },
+    [
+      { scenario: 'documents', rss: { maxObservedBytes: 200 } },
+      { scenario: 'summary', rss: { maxObservedBytes: 100 } },
+    ],
+  );
+  assert.deepEqual(compared.summary.serial, {
+    responseBytesPerResponseRatio: 0.1,
+    p50Ratio: 0.5,
+    p95Ratio: 0.75,
+  });
+  assert.equal(compared.summary.observedApiRssRatio, 0.5);
+  assert.match(compared.summary.interpretation, /not peak memory/);
+});
+
+test('a shutdown acknowledgement cannot make a nonzero or signalled child exit graceful', () => {
+  assert.deepEqual(closedChildStatus(0, null, true), { stopped: true, graceful: true });
+  for (const [code, signal, closed] of [
+    [1, null, true],
+    [null, 'SIGKILL', true],
+    [0, null, false],
+  ])
+    assert.deepEqual(closedChildStatus(code, signal, closed), { stopped: true, graceful: false });
 });

@@ -2,27 +2,11 @@ import type { CodeEvidenceDiagnostics } from '@workmesh/shared';
 import { codeEvidenceReviewReasons } from './v1-code-evidence-provenance';
 
 export function isCodeEvidenceDiagnosticsAcceptable(value: CodeEvidenceDiagnostics): boolean {
-  const consumed = new Set(
-    value.references.flatMap((reference) =>
-      reference.tickets.filter((ticket) => ticket.state === 'CONSUMED').map((ticket) => ticket.id),
-    ),
-  );
   return (
     value.complete &&
     value.currentBinding === 'CURRENT' &&
     value.references.length > 0 &&
-    value.references.every((reference) => reference.status === 'BOUND') &&
-    [...consumed].every((id) =>
-      value.references.some((reference) =>
-        reference.tickets.some(
-          (ticket) =>
-            ticket.id === id &&
-            ticket.state === 'CONSUMED' &&
-            ticket.matchesReference &&
-            ticket.matchesGeneration,
-        ),
-      ),
-    )
+    value.references.every((reference) => reference.status === 'BOUND')
   );
 }
 

@@ -237,7 +237,7 @@ function build(
 }
 
 describe('V1ArtifactService.getArtifactSet evidence', () => {
-  it('derives required and acceptable from shared code-evidence policy', async () => {
+  it('requires provenance diagnostics rather than treating a bare approval list as sufficient', async () => {
     const repo = new InMemoryArtifactRepo();
     const set: V1ArtifactSetSnapshot = {
       id: 'set-1',
@@ -287,7 +287,7 @@ describe('V1ArtifactService.getArtifactSet evidence', () => {
     const { service } = build(repo, new InMemoryTaskRepo(), new InMemoryAuthz());
 
     await expect(service.getArtifactSet(humanPrincipal(), set.id)).resolves.toMatchObject({
-      codeReview: { required: true, acceptable: true, evidence: [{ changeRequestId: 'PR-1' }] },
+      codeReview: { required: true, acceptable: false, evidence: [{ changeRequestId: 'PR-1' }] },
     });
   });
 

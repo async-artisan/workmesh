@@ -1,13 +1,19 @@
 import { useState } from 'react';
 import {
-  CODE_EVIDENCE_NEXT_ACTIONS,
   CODE_EVIDENCE_REASON_LABELS,
   CODE_EVIDENCE_STATUS_LABELS,
   type CodeEvidenceDiagnostics,
 } from '@workmesh/shared';
 import { artifactApi } from '../api/resources';
+import { codeEvidenceRecovery } from '../lib/evidenceRecovery';
 
-export function CodeEvidenceStatus({ diagnostics }: { diagnostics?: CodeEvidenceDiagnostics }) {
+export function CodeEvidenceStatus({
+  diagnostics,
+  taskHref,
+}: {
+  diagnostics?: CodeEvidenceDiagnostics;
+  taskHref?: string;
+}) {
   if (!diagnostics)
     return <p className="text-muted">服务端未提供代码证据诊断，请核对代码证据和投递日志。</p>;
   return (
@@ -25,6 +31,15 @@ export function CodeEvidenceStatus({ diagnostics }: { diagnostics?: CodeEvidence
       {diagnostics.currentBinding !== 'CURRENT' && (
         <p role="status">该交付已不属于当前有效工件，请核对任务的当前交付。</p>
       )}
+      <p className="text-muted">
+        下方版本仅来自已登记的工件、评审与票据；关联评审 head 是记录值，不代表当前远端 PR head。
+        若交付内容或基线变化，由 QA 判断复验范围；这里不会推断需要重跑哪些用例。
+      </p>
+      {taskHref && (
+        <p>
+          <a href={taskHref}>定位当前任务与交付</a>
+        </p>
+      )}
       {diagnostics.references.length === 0 && <p>此工件集未声明需要代码来源诊断的提交。</p>}
       {diagnostics.references.map((reference) => (
         <section
@@ -40,7 +55,35 @@ export function CodeEvidenceStatus({ diagnostics }: { diagnostics?: CodeEvidence
               : '仓库身份未确定'}{' '}
             · SHA <code>{reference.commitSha ?? '未声明'}</code>
           </p>
-          <p>{CODE_EVIDENCE_NEXT_ACTIONS[reference.status]}</p>
+          <p>建议处理角色：{codeEvidenceRecovery(reference.status).responsible}</p>
+          <p>{codeEvidenceRecovery(reference.status).nextStep}</p>
+          <details>
+            <summary>查看提交与代次对照</summary>
+            <ul className="detail-list">
+              <li>
+                交付声明 SHA：<code>{reference.commitSha ?? '未提供'}</code>
+              </li>
+              <li>
+                交付代次：{diagnostics.taskGeneration}；当前任务代次：
+                {diagnostics.currentTaskGeneration}
+              </li>
+              {reference.reviews.map((review) => (
+                <li key={review.id}>
+                  关联评审 PR {review.changeRequestId} 的 head 记录值：<code>{review.headSha}</code>
+                  ； 评审提交：<code>{review.commitSha ?? '未提供'}</code>
+                </li>
+              ))}
+              {reference.reviews.length === 0 && (
+                <li>未提供可关联的评审 head 记录，无法比较提交。</li>
+              )}
+              {reference.tickets.map((ticket) => (
+                <li key={ticket.id}>
+                  票据 {ticket.id} 的任务代次：{ticket.generation ?? '未提供'}； 当前任务代次：
+                  {diagnostics.currentTaskGeneration}
+                </li>
+              ))}
+            </ul>
+          </details>
           {reference.deliveries.map((delivery) => (
             <p key={delivery.id}>
               可信投递 {delivery.id} · {delivery.signatureValid ? '签名有效' : '签名无效'} ·{' '}

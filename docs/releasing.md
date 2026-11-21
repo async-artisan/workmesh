@@ -86,7 +86,7 @@
 pnpm release:readiness -- --tag v1.0.0 --sha <完整的40位小写commit> --verify-ci --repository owner/repository
 ```
 
-可追加 `--artifact <归档路径>` 计算实际字节数和 SHA-256。报告时间、候选 tag/SHA、当前 HEAD 与 dirty 状态、工作区 manifest 版本、三个远端工作流结果和制品身份分别列出；每项使用 `PASS / FAIL / NOT_CHECKED / ERROR`。版本检查只针对本地工作树，只有 HEAD 匹配且干净时才标记 `candidateBound=true`。提交、tag 和制品摘要都不会凭参数自动成为已批准事实；制品来源、扫描、安装演练仍按既有发布证据核对。
+可追加 `--artifact <归档路径>` 计算实际字节数和 SHA-256。报告时间、候选 tag/SHA、当前 HEAD 与 dirty 状态、工作区 manifest 版本、三个远端工作流结果和制品身份分别列出；每项使用 `PASS / FAIL / NOT_CHECKED / ERROR`。版本检查只针对本地工作树，检查开始与结束均须确认 HEAD 匹配且干净才标记 `candidateBound=true`；期间检测到源码状态变化会撤销绑定并使机器检查失败。合法清单里的实际版本不符是 `FAIL`，清单缺失、不可读、JSON/结构/版本字段非法是 `ERROR`。提交、tag 和制品摘要都不会凭参数自动成为已批准事实；制品来源、扫描、安装演练仍按既有发布证据核对。
 
 远端复用 `verify-release.mjs` 的 exact SHA、main push、最新运行及 rerun 选择规则，同时要求 CI、platform-smoke 和 security。`--verify-ci` 使用环境中的 `GH_TOKEN`，可从 `GITHUB_REPOSITORY` 读取仓库名；缺配置或未请求远端查询均为 `NOT_CHECKED`，查询失败为 `ERROR`，没有匹配的成功最新运行是 `FAIL`。报告不输出凭据。`machineChecksPassed=false` 时命令退出 1；参数/报告失败退出 2。
 

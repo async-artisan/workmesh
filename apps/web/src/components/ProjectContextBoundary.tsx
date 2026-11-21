@@ -27,8 +27,12 @@ export function ProjectContextBoundary({ children }: { children: ReactNode }) {
   const loaded = useProjectStore((state) => state.loaded);
   const setStoredId = useProjectStore((state) => state.setProjectId);
   const explicitId = params.get('projectId');
+  // App replaces a legacy detail URL with its canonical path. A second navigation here
+  // can overwrite that redirect while leaving the same Navigate subtree mounted.
+  const legacyReviewRedirect = location.pathname === '/reviews' && Boolean(params.get('id'));
   const scoped =
-    PROJECT_PAGES.has(location.pathname) || location.pathname.startsWith('/requirements/');
+    (!legacyReviewRedirect && PROJECT_PAGES.has(location.pathname)) ||
+    location.pathname.startsWith('/requirements/');
   const requirementKey = location.pathname.startsWith('/requirements/')
     ? location.pathname.slice('/requirements/'.length)
     : '';

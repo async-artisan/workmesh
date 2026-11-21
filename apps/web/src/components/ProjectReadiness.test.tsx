@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
+import type { DocumentSummary } from '../api/documentSummaries';
 import { ProjectReadiness } from './ProjectReadiness';
 import { ProjectWorkspace } from '../pages/ProjectWorkspace';
 import { envelope, methodOf, mockFetch, pathOf, useProject, type StubReply } from '../test-utils';
@@ -65,13 +66,35 @@ const document = {
   document: {
     id: 'd1',
     projectId: 'p1',
+    knowledgeBaseId: 'kb1',
+    requirementId: null,
     kind: 'KNOWLEDGE',
+    version: 1,
     currentPublishedRevisionId: 'drev1',
     archivedAt: null,
   },
-  revisions: [],
-  publishedRevision: { id: 'drev1', title: '接口规范' },
-};
+  updatedAt: '2026-11-10T00:00:00Z',
+  knowledgeBase: { id: 'kb1', name: '项目知识', kind: 'BUSINESS' },
+  requirement: null,
+  latestVisibleRevision: {
+    id: 'drev1',
+    documentId: 'd1',
+    seq: 1,
+    title: '接口规范',
+    digest: 'a'.repeat(64),
+    state: 'PUBLISHED',
+  },
+  publishedRevision: {
+    id: 'drev1',
+    documentId: 'd1',
+    seq: 1,
+    title: '接口规范',
+    digest: 'a'.repeat(64),
+    state: 'PUBLISHED',
+  },
+  visibleRevisionCount: 1,
+  candidateRevisionCount: 0,
+} satisfies DocumentSummary;
 
 function base(url: string, _init: RequestInit) {
   const path = pathOf(url);
@@ -88,7 +111,7 @@ function base(url: string, _init: RequestInit) {
     '/api/v1/projects/p1/workspace-definition': workspace,
     '/api/v1/projects/p1/repositories': [{ id: 'repo1', archivedAt: null }],
     '/api/v1/projects/p1/board': { summary: { total: 1 }, columns: [] },
-    '/api/v1/documents/d1': document,
+    '/api/v1/documents/d1/summary': document,
   };
   return path in data ? { status: 200, body: envelope(data[path]) } : undefined;
 }
@@ -135,7 +158,7 @@ describe('项目准备清单', () => {
   });
 
   it('按选定流程核对人员、独立签字、知识绑定、共享工作区与任务，并保留项目链接', async () => {
-    mockFetch(base);
+    const mock = mockFetch(base);
     renderChecklist();
     await waitFor(() =>
       expect(row('准备已发布并绑定的知识').getByText('已具备')).toBeInTheDocument(),
@@ -155,6 +178,9 @@ describe('项目准备清单', () => {
       '/board?projectId=p1',
     );
     expect(row('配置仓库与工作区').getByText(/本机接入仍需自行完成/)).toBeInTheDocument();
+    expect(
+      mock.mock.calls.map(([url]) => String(url)).filter((url) => url.includes('/document')),
+    ).toEqual(['/api/v1/documents/d1/summary']);
   });
 
   it('单个多角色成员仍需要独立签字人，普通成员看不到绑定不能当作未配置', async () => {
@@ -202,7 +228,7 @@ describe('项目准备清单', () => {
   it('文档不可访问保留待确认；刷新后检测撤销发布与缺失角色绑定', async () => {
     let documentState = 'restricted';
     mockFetch((url, init) => {
-      if (pathOf(url) === '/api/v1/documents/d1')
+      if (pathOf(url) === '/api/v1/documents/d1/summary')
         return documentState === 'restricted'
           ? { status: 404, body: { error: { code: 'RESOURCE_NOT_FOUND', message: '不可见' } } }
           : {
@@ -210,6 +236,9 @@ describe('项目准备清单', () => {
               body: envelope({
                 ...document,
                 document: { ...document.document, currentPublishedRevisionId: null },
+                latestVisibleRevision: { ...document.latestVisibleRevision, state: 'CANDIDATE' },
+                publishedRevision: null,
+                candidateRevisionCount: 1,
               }),
             };
       return base(url, init);
@@ -328,6 +357,128 @@ describe('项目准备清单', () => {
     expect(screen.getByRole('link', { name: '创建需求与任务' })).toHaveAttribute(
       'href',
       '/requirements?projectId=p2',
+    );
+  });
+
+  it('切换流程后忽略旧流程尚未返回的概要准备结果', async () => {
+    let resolveOld!: (reply: StubReply) => void;
+    const old = new Promise<StubReply>((resolve) => {
+      resolveOld = resolve;
+    });
+    const mock = mockFetch((url, init) => {
+      const path = pathOf(url);
+      if (path === '/api/v1/documents/d1/summary') return old;
+      if (path.endsWith('/workflow-definitions'))
+        return {
+          status: 200,
+          body: envelope({
+            items: [
+              definition,
+              {
+                ...definition,
+                workflowKey: 'no-knowledge',
+                title: '无需知识流程',
+                currentPublishedRevisionId: 'rev2',
+              },
+            ],
+            nextCursor: null,
+          }),
+        };
+      if (path === '/api/v1/workflow-definition-revisions/rev2')
+        return {
+          status: 200,
+          body: envelope({
+            ...revision,
+            id: 'rev2',
+            workflowKey: 'no-knowledge',
+            compiledRules: { ...revision.compiledRules, inputSources: [] },
+          }),
+        };
+      return base(url, init);
+    });
+    renderChecklist();
+    await waitFor(() =>
+      expect(mock.mock.calls.some(([url]) => String(url).endsWith('/d1/summary'))).toBe(true),
+    );
+
+    fireEvent.change(screen.getByRole('combobox', { name: '准备清单使用的流程' }), {
+      target: { value: 'no-knowledge' },
+    });
+    await waitFor(() =>
+      expect(row('准备已发布并绑定的知识').getByText('无需此项')).toBeInTheDocument(),
+    );
+    await act(async () => resolveOld({ status: 200, body: envelope(document) }));
+
+    expect(row('准备已发布并绑定的知识').getByText('无需此项')).toBeInTheDocument();
+    expect(row('准备已发布并绑定的知识').queryByText('已具备')).not.toBeInTheDocument();
+  });
+
+  it('概要刷新冲突保留待确认，人工刷新后重新读取概要', async () => {
+    let reads = 0;
+    mockFetch((url, init) => {
+      if (pathOf(url) === '/api/v1/documents/d1/summary') {
+        reads += 1;
+        return reads === 1
+          ? {
+              status: 409,
+              body: {
+                error: {
+                  code: 'RESOURCE_CONFLICT',
+                  message: 'DOCUMENT_SUMMARY_REFRESH_REQUIRED',
+                },
+              },
+            }
+          : { status: 200, body: envelope(document) };
+      }
+      return base(url, init);
+    });
+    renderChecklist();
+    await waitFor(() =>
+      expect(
+        row('准备已发布并绑定的知识').getByText(/部分必需资料或绑定当前不可确认/),
+      ).toBeInTheDocument(),
+    );
+    expect(row('准备已发布并绑定的知识').getByText('待确认')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新准备状态' }));
+    await waitFor(() =>
+      expect(row('准备已发布并绑定的知识').getByText('已具备')).toBeInTheDocument(),
+    );
+    expect(reads).toBe(2);
+  });
+
+  it('同一组件切换项目后忽略旧项目迟到的概要', async () => {
+    let resolveOld!: (reply: StubReply) => void;
+    const old = new Promise<StubReply>((resolve) => {
+      resolveOld = resolve;
+    });
+    const mock = mockFetch((url, init) => {
+      const path = pathOf(url);
+      if (path === '/api/v1/documents/d1/summary') return old;
+      if (path.startsWith('/api/v1/projects/p2/'))
+        return { status: 403, body: { error: { code: 'FORBIDDEN', message: '新项目受限' } } };
+      return base(url, init);
+    });
+    const rendered = renderChecklist();
+    await waitFor(() =>
+      expect(mock.mock.calls.some(([url]) => String(url).endsWith('/d1/summary'))).toBe(true),
+    );
+
+    rendered.rerender(
+      <MemoryRouter>
+        <ProjectReadiness key="p1" projectId="p2" />
+      </MemoryRouter>,
+    );
+    await waitFor(() =>
+      expect(row('准备已发布并绑定的知识').getByText(/当前账号不可读取/)).toBeInTheDocument(),
+    );
+    await act(async () => resolveOld({ status: 200, body: envelope(document) }));
+
+    expect(row('准备已发布并绑定的知识').getByText('待确认')).toBeInTheDocument();
+    expect(row('准备已发布并绑定的知识').queryByText('已具备')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '选择资料与绑定' })).toHaveAttribute(
+      'href',
+      '/workflows?projectId=p2',
     );
   });
 });

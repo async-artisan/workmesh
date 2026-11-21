@@ -1,6 +1,11 @@
 import type { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
 import { boundEvidenceIds } from '../reviews/v1-review-code-evidence';
-import type { TrustCodeEvidence, TrustSet, TrustSnapshot } from './requirement-trust-chain';
+import type {
+  TrustCodeEvidence,
+  TrustData,
+  TrustSet,
+  TrustSnapshot,
+} from './requirement-trust-chain';
 
 type Client = Prisma.TransactionClient;
 export const trustStampSelect = {
@@ -13,7 +18,7 @@ export async function readRequirementDeliveryLinks(
   tx: Client,
   projectId: string,
   taskIds: string[],
-) {
+): Promise<Pick<TrustData, 'sets' | 'snapshots' | 'evidence' | 'repositories'>> {
   const sets: TrustSet[] = taskIds.length
     ? await tx.artifactSet.findMany({
         where: { projectId, taskId: { in: taskIds } },
@@ -45,7 +50,12 @@ export async function readRequirementDeliveryLinks(
     repositoryId: true,
     headSha: true,
     commitSha: true,
-    receipt: { select: { signatureValid: true, status: true } },
+    changeRequestId: true,
+    reviewerExternalId: true,
+    authorExternalId: true,
+    submittedAt: true,
+    createdAt: true,
+    receipt: { select: { projectId: true, source: true, signatureValid: true, status: true } },
   } as const;
   const [snapshots, tickets] = await Promise.all([
     snapshotIds.length
@@ -67,12 +77,27 @@ export async function readRequirementDeliveryLinks(
           where: { projectId, artifactSetId: { in: setIds }, preparedSecretHash: { not: null } },
           select: evidenceSelect,
         })
-      : Promise.resolve([] as TrustCodeEvidence[]),
+      : Promise.resolve([]),
   ]);
   const ids = boundEvidenceIds(tickets);
   const bound = ids.length
     ? await tx.codeReviewEvidence.findMany({
         where: { projectId, id: { in: ids }, preparedSecretHash: null },
+        select: evidenceSelect,
+      })
+    : [];
+  const prs = [
+    ...new Map(
+      bound.map((row) => [
+        `${row.repositoryId}:${row.changeRequestId}`,
+        { repositoryId: row.repositoryId, changeRequestId: row.changeRequestId },
+      ]),
+    ).values(),
+  ];
+  // A later opinion on the same PR can supersede an old approval even on a different head.
+  const opinions = prs.length
+    ? await tx.codeReviewEvidence.findMany({
+        where: { projectId, preparedSecretHash: null, OR: prs },
         select: evidenceSelect,
       })
     : [];
@@ -88,8 +113,17 @@ export async function readRequirementDeliveryLinks(
   const repositories = repositoryIds.length
     ? await tx.projectRepository.findMany({
         where: { projectId, id: { in: repositoryIds } },
-        select: { id: true, externalId: true, archivedAt: true },
+        select: { id: true, externalId: true, archivedAt: true, identityMode: true, adapter: true },
       })
     : [];
-  return { sets, snapshots, evidence: [...tickets, ...bound], repositories };
+  const evidence: TrustCodeEvidence[] = [
+    ...new Map([...tickets, ...bound, ...opinions].map((row) => [row.id, row])).values(),
+  ].map((row) => ({
+    ...row,
+    receipt:
+      row.receipt?.projectId === projectId && row.receipt.source === 'GITHUB'
+        ? { signatureValid: row.receipt.signatureValid, status: row.receipt.status }
+        : null,
+  }));
+  return { sets, snapshots, evidence, repositories };
 }

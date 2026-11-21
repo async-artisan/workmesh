@@ -148,7 +148,7 @@ async function setup(page: Page) {
 
 async function openWorkflows(page: Page) {
   await page.goto('/workflows');
-  await expect(page.getByRole('heading', { name: '流程配置' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '流程配置', exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: '选择项目' })).toHaveValue('p1');
 }
 

@@ -1,6 +1,6 @@
 {
   "id": "workmesh.role.backend",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "title": "后端角色包",
   "description": "把 PRD 转成可并行的接口契约，按契约实现并交付可验证证据。",
   "license": "MIT",

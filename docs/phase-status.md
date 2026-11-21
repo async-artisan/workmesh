@@ -1,7 +1,9 @@
 # WorkMesh 当前交付与验证状态
 
 > 更新时间：2026-11-10。本文汇总当前能力与验证边界；历史验收和本次工作树检查分别标注。工作树仍有未提交改动，本次本地结果不能代替最终待发布 commit 的远端 CI 或发布验收。
->
+
+当前整改收尾还包括 Knowledge 浏览器复验、RequirementDetail 的需求级分页和旧评审链接兼容的整合验收，以及完整 `pnpm verify` 与新制品。脚本概要读取 r1 已通过 47 条受控回归及静态检查，实际 seed/first-run 尚未验证。真实 GitHub/Webhook、代码项目 IMPL→RELEASE、新机升级卸载、跨平台与外部团队证据继续开放；P0/P1/P2 不能标为全部完成。细项见[Knowledge](testing/knowledge-summary-history-validation-2026-11-10.md)、[需求 PRD](testing/requirement-prd-summary-validation-2026-11-10.md)、[脚本](testing/script-document-summary-validation-2026-11-10.md)与[旧评审链接](testing/review-route-compatibility-validation-2026-11-10.md)。
+
 > 有日期的原始证据见 [工程整改验证](testing/remediation-verification-2026-11-03.md) 和 [本机部署与团队使用验收](testing/team-acceptance-2026-11-03.md)。工作计划见 [dev-plan.md](dev-plan.md)，仍未完成的外部条件见 [BLOCKED.md](../BLOCKED.md)。
 
 当前源码的本地证据以[统一本地入口验收](testing/local-verification-validation-2026-11-07.md)和[Board 分页验收](testing/board-pagination-validation-2026-11-09.md)为准：r13 于 2026-11-09 完整运行 `pnpm verify -- --apply-migrations`，exit 0 / LOCAL_QUALITY_PASSED，2026-11-10 核对终态及 915 个源码文件指纹。真实 PostgreSQL 194 passed / 1 skipped、Chromium 4/4、UI 55/55、API coverage lines 83.39%；r12 的浏览器和独立 UI 失败继续保留。两组同源 HTTP 基准随后通过，见[基准记录](testing/api-benchmark.md)。随后同源新 Box `09d0d2ba…` / CLI `7c06512d…` 完成实际 ZIP 核验、隔离本机完整生命周期、独立扫描、许可证字节核对及保守合并后的 CycloneDX 1.7 校验，见[生命周期记录](testing/box-lifecycle-validation-2026-11-07.md)。供应链覆盖仍为部分，Box 保留 23 条 UNKNOWN。全量依赖审计保留 1 项低危，生产审计为零。后续 live 工作区改动不自动进入 r13 或该制品，最终 clean SHA、远端 CI 与外部发布门禁尚未满足。
@@ -123,6 +125,32 @@ Board 已实现准确统计、全局筛选和服务端分页；文档修订、�
 后续 live 的 ChangeDrawer 静态 shared 依赖使隔离生产首页达到 468746 B raw。仅叠加工作台两个窗口的按需加载及相关测试四文件后，首页降至 **284700 B raw / 94926 B gzip**，减少 184046 B / 39.26%，原 `<200000 B raw` 目标仍未达。该比较用同一份 1025 文件基线加四文件覆盖得到 1027 文件，没有混入同时进行的 API/CLI/shared 修改；运行后指纹一致。Web 658/658、类型检查、定向 ESLint、生产构建及生产 Chromium 的三项受控脚本加载/关闭/失败检查均实际通过。首次旧同步单测失败和浏览器 harness 焦点预期失败各自保留，见[按需加载验收](testing/workbench-dialog-loading-validation-2026-11-10.md)。本切片未重跑 API/数据库/完整门禁、未重新打包；r13 的完整门禁和包不覆盖该四文件，当前 live 其他改动也未自动纳入此轮。
 
 Prisma 5 → 6 的精确候选、审计关联兼容、引擎矩阵和旧包升级/回退方案已形成[升级计划](operations/prisma-6-upgrade-plan.md)，补齐原 P2 的计划要求；依赖仍为 5.22.0，升级验收均未执行。
+
+## 2026-11-10 文档历史与评审精确读取首切片
+
+新增有界 `history` 与按 revisionId 的完整 metadata 读取，文档评审直接定位目标修订及正文，不再为一条旧评审读取整份文档历史。可见集合在数据库分页前应用，页与计数同只读一致事务；旧 GET 和完整数组保持兼容，项目文档列表的历史放大仍未解决。
+
+r4 的 1,057 文件受控冻结副本在 Node 20.19.0 / pnpm 10.28.2 下实际通过：API 936、Web 666、18 项契约、类型/定向 ESLint/两端生产构建；21 项正式迁移后的新隔离库中 41 项真实 PostgreSQL/HTTP；生产 Chromium fixture UI 87/87，无跳过或 flaky。独立 SQL 确认 55 张业务表全零，预览端口释放，冻结文件及 13 个切片 live 文件摘要一致。清单 SHA256 为 `129bf0304d5d289a64ae98e45a33f2a503823dc2641bea7076b1654e07e50114`，汇总为 `bbdf0428ad33e1185862115a9d06db76b054d6246a8ad102553cb2854cf751f6`。初始化 fixture、遗漏测试导入、标题定位及早期工具链/生成器来源失败均保留，见[首切片验证](testing/document-history-validation-2026-11-10.md)。
+
+本切片未运行新的完整 `pnpm verify`、重新打包或远端 CI，r13 的完整门禁与制品不覆盖它。概要、完整可见搜索、需求过滤和历史主页面的成套迁移仍按[方案](design/document-history-pagination.md)继续；其他并行 live 修改不自动纳入本轮，不能据此将全部 P0/P1/P2 标记完成。
+
+随后需求专用 `published-prds` 投影与任务评审迁移通过：最多两份紧凑概要及准确可见 total，唯一时按准确发布修订读取 metadata。r5 的 1,062 文件副本实际通过 API 957、Web 691、类型/ESLint/18 项契约/生产构建及真实 PostgreSQL/HTTP 52；21 项迁移后的新库 55 张业务表清理为空。r7 只修正浏览器 spec，重新构建 Web 后 Chromium fixture 89/89，未变化的包与 DB 检查明确复用 r5；两轮浏览器失败保留。r7 清单为 `502418450e1deeb05f848e59e9f5e34e545e7fae488f3579710c7d4ac1303077`，汇总 `d2e18f577d8391239c8c2f3c2c1ef45f74ad3059a412db65081878e56ddeec0c`。第 61 份目标及 205 条历史下概要 data JSON 字节不变、小于 2,000 B；这不解决旧通用列表或证明生产容量。详见同一[验证记录](testing/document-history-validation-2026-11-10.md)。
+
+通知按需加载的独立 r1 随后通过 Web 696/696、类型/定向 ESLint/生产构建和完整生产 Chromium fixture 95/95，零跳过、失败或 flaky。1,067 文件冻结源后置一致，六个实现与用例 live 文件一致；清单 `37bed7aab4908f2521b9c05c34110f3c8a95a31f002c6faabfde54bf82b5273e`，汇总 `29fea050b1929fe91b3603ec3391dc949dbb069bbf2aee3849e65c3deadfddea`。同源 r7 首页 284938 B raw 降到 284227 B，只减少 711 B，gzip 估算增加 220 B；原 `<200000 B raw` 预算仍未达。慢加载、焦点、关闭与重试、邮件防重及旧账号结果隔离有 fixture 证据，真实邮件投递未验证。本轮未重跑 API/数据库/完整门禁或重打包，见[通知验证](testing/notification-loading-validation-2026-11-10.md)。
+
+通用文档概要后端 r2 已通过 API 1015/1015、语义类型、定向 ESLint、18 项契约与生产构建，以及六组真实 PostgreSQL/Nest HTTP 65/65；新库应用 21 项迁移，独立核对 55 张业务表清理为空。1,079 冻结文件与 14 个 live API 切片文件一致，清单 `84f459a26079d85b10f269bf1013a82b6aafe3ae2e103af231305ab680cba9b5`，汇总 `97290b27b5db25ab254cfc8170421a0186670d0406e0a157d350ae931979fbe5`。验证包含 205 条历史、有界概要、107 份文档完整分页、Unicode 搜索、每 KB 权限和同请求快照；旧三个文档 GET 的完整数组继续兼容，消费者迁移、容量基准与最终完整门禁仍开放。首轮 lint 失败保留；详见[概要接口验证](testing/document-summary-validation-2026-11-10.md)。
+
+批量变更按需加载 r4 随后通过 Web 709/709、类型/定向 ESLint/生产构建和生产 Chromium fixture 101/101，零跳过、失败或 flaky；1,072 个冻结文件及九个 live 切片文件一致，隔离预览监听清理为零。清单 `ac6f2691e58b8b95c8e8a2ab6f5eb51d5cb5f940af595d54569da107fa0cc22e`，汇总 `bab0b3bc740921136ddecd4530f5ca663cf3e015a331c8180f7efa1bba6e7271`。忙态禁用控件的焦点与 Tab 限制已复验，三轮失败保留。同源首页 284227 B raw 降到 281475 B，gzip 95235 B 降到 94334 B；原 `<200000 B raw` 预算仍未达。确认写入由 fixture 拦截，本轮没有实际 API/数据库写入、完整门禁、制品或远端 CI，见[批量变更验证](testing/batch-change-loading-validation-2026-11-10.md)。
+
+项目准备清单概要迁移 r1 已通过 Web 725/725、类型/定向 ESLint/生产构建与生产 Chromium fixture 117/117，零跳过、失败或 flaky。1,088 个冻结文件及十四个整合/本切片 live 文件一致，API 与通过的概要 r2 相同，隔离预览监听清理为零。只按必需文档 ID 读取去重概要，失败保持待确认、切项目/流程隔离旧结果有实际 fixture 证据。清单 `f1146cb5b9972e6e16ce333ef93ba3bb483f1fd0ffc4bc47a63aefd6bd2f3d1b`，汇总 `0d4838ae820eee92135f9426010c32b98eec79d6dd3b184ab154bb4e03cd17cc`；API/数据库未重跑，主列表迁移、容量及最终完整门禁继续开放，见[准备清单验证](testing/readiness-summary-validation-2026-11-10.md)。
+
+流程资料概要迁移 r1 通过 Web 743/743、类型/定向 ESLint/生产构建及生产 Chromium fixture 137/137，零失败、跳过或 flaky；1,091 个冻结文件及五个 live 实现/测试文件一致。概要分页、部分失败、绑定未知禁写、写后刷新失败、跨项目/同项目基线竞态和旧查询停止续页有实际证据。API 与父候选相同，本轮未重跑数据库。清单 `d8c80f97f3e8454b2528b4036f3799be273a43d5a12a77e392e4e93ebb1d970d`，汇总 `5ee471607851feb3cfa3907393e99d329f3fbdf66b5bece32ee283b1f41dde13`；主页面迁移、容量与完整发布门禁仍开放，见[流程资料验证](testing/workflow-summary-validation-2026-11-10.md)。
+
+新增概要 HTTP 对比 r1/r2 的 small 通过，history 都在正确性阶段失败且尚未测量；r2 诊断明确为首次历史搜索耗时约 8.8 秒而超过默认 5 秒 Prisma 事务，原始失败保留，两组新库各 55 张业务表清理为空。限定字段大小写转换的 API r3 已重新通过 1017 用例、类型、18 项契约、lint、构建与真实 PostgreSQL/HTTP 65；1,080 冻结文件及四个 live API 文件一致，新库精确清理。r3 清单 `9ce1d6e13eae9773adfb241d1d56aaa80559c090b0ae5cf01608a88a9de9a6df`，汇总 `d5130f689539889394838e5747b7f1384c7cb8609a859fad30e8a05cd329c149`。原大历史基准仍需复验，不据回归通过关闭容量、主页面迁移或完整发布门禁，见[概要 API 结果](testing/document-summary-validation-2026-11-10.md)与[真实 HTTP 对比](testing/document-summary-benchmark-validation-2026-11-10.md)。
+
+随后同源 benchmark r3 已复验原问题：small/history 各 43 正确性与 200 测量请求零错误，六个独立子进程/组优雅关闭后精确清理，两个新库各 55 业务表全空。history 旧完整列表 8298118 B、概要 146850 B；概要无查询串行 p95 40.98 ms，三种完整历史搜索 712.56–781.71 ms，未放宽 5 秒事务。1,080 文件与两份 live 脚本一致，清单 `6d4d8971e215315098d2ec559d73cf28410efb8597d338c5d4b187c1356a6d23`，汇总 `10dfe25d4c6e16c10ed90b7144be30fcfde7405a62f514bcd9a7abfc7af8693b`。这关闭该 fixture 的原超时，尚未迁移调用方、生产容量、长期稳定及最终门禁仍开放；全部原失败保留。
+
+PRD 主页面概要与分页历史 r2 已通过 Web 789/789、类型、定向 lint、生产构建及完整生产 Chromium fixture 155/155，零失败/跳过/flaky，预览结束监听为零。首轮目录断言定位与旧 query 评审导航的四项失败保留，限定修复后原场景通过。1,102 冻结文件后置一致，API 精确复用通过的概要 r3；235 个 Web/UI-review 文件与 live 独立比较，仅尚在实施、未纳入本轮的 Knowledge 页面不同。清单 `6b2076e1ec920688336494a4d2e0e32f8144c786f329e1b16fddb84b226e6245`，汇总 `0eb50d7afec022142ee9c3e3ecbe21b393b381e5d7db23ec0ed7a5c528d5c3c8`。107 文档、123 历史、首屏外发布和精确比较/评审、错误重试与竞态已有 fixture 行为证据；Knowledge、其他旧消费者与全局 legacy 评审兼容、真实写入及最终完整门禁仍开放，见[PRD 验证](testing/prd-summary-history-validation-2026-11-10.md)。
 
 ## 解释
 

@@ -67,7 +67,13 @@ export function parseJsonStrict(input: Uint8Array | string, maxDepth = 32): unkn
         keys.add(key);
         skipWhitespace();
         if (source[index++] !== ':') fail('expected colon');
-        object[key] = parseValue(depth + 1);
+        // JSON keys are data, including __proto__; assignment would invoke its legacy setter.
+        Object.defineProperty(object, key, {
+          value: parseValue(depth + 1),
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
         skipWhitespace();
         if (source[index] === '}') {
           index += 1;

@@ -1,7 +1,7 @@
 {
   "packageSchemaVersion": "1.1",
   "id": "workmesh.role.qa",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "protocolVersion": "1.0",
   "title": "测试角色包",
   "description": "从验收派生用例与评测集，执行后把失败归因为可追踪的缺陷。",
@@ -99,8 +99,8 @@
       "id": "template-cases",
       "kind": "template",
       "path": "assets/templates/cases.yaml",
-      "sha256": "19add92fc4c0e2a57eef01d3232f36652633e43d6154a25109509d6830f4fdaf",
-      "byteLength": 922,
+      "sha256": "3b40328c0bc9314bc61e7a03b42b957fb2190b2eeaad51f54d39f9032cd5ef6f",
+      "byteLength": 1107,
       "mediaType": "application/yaml"
     },
     {
@@ -115,24 +115,24 @@
       "id": "template-delivery-audit",
       "kind": "template",
       "path": "assets/templates/delivery-audit.md",
-      "sha256": "0232504c8938201f537c65c023c7083f9f17af1e44674b4e1429bafecec9d35e",
-      "byteLength": 880,
+      "sha256": "4b2d2f47d5a3baf22aae400f1a44abecb968663243d7e21d84b1ca79be99d8f1",
+      "byteLength": 1549,
       "mediaType": "text/markdown"
     },
     {
       "id": "template-evals",
       "kind": "template",
       "path": "assets/templates/evals.yaml",
-      "sha256": "4401c6c942814b5144b6d8e222ce0c3c033ac5f6a56a75c71e2c1336748ac68b",
-      "byteLength": 888,
+      "sha256": "3c224aa4306c111cc9d885ba2e9ccb1a5fde8884bcf38a949e4fff2caa938b7d",
+      "byteLength": 1139,
       "mediaType": "application/yaml"
     },
     {
       "id": "checklist-cases-coverage",
       "kind": "checklist",
       "path": "checklists/cases-coverage.md",
-      "sha256": "042413ce126d97cbcdd658b730ce28c7c11e108e9265aab634bcb92b0e5391bb",
-      "byteLength": 1067,
+      "sha256": "3419077a6d9fa3080315528ce9d85242c7545353f8e955a9bf17e9de22a83176",
+      "byteLength": 1643,
       "mediaType": "text/markdown"
     },
     {
@@ -163,8 +163,8 @@
       "id": "skill-audit-delivery",
       "kind": "skill",
       "path": "skills/audit-delivery/SKILL.md",
-      "sha256": "65962f9a7a9397f870476094bbb086116d96f27632ec283122c00efdad54118c",
-      "byteLength": 1497,
+      "sha256": "e34549bc815ec1a3f0adf13affe31f9d8c47f555a6dc3f0014f709bdbcc9388c",
+      "byteLength": 1861,
       "mediaType": "text/markdown"
     },
     {

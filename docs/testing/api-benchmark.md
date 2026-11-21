@@ -150,3 +150,69 @@ node --test scripts/benchmark-api.test.mjs
 | 每组 `source-postcheck.json`     | `a775186d1c1afad5b2f790ee75cc2b119e3b4f2f8f909152b320874b7e803aa3` |
 
 该记录完成固定数据集的真实 HTTP、分页正确性和清理验证。文档完整历史、需求历史、flow metrics、ready 扫描预算、Workbench 全项目与全待办完整性仍按各自审查项处理；main.ts 全局限流、TLS/反代、公开写流程、GitHub、生产吞吐及长稳、完整交付和外部团队验收仍未由本基准证明。
+
+## 2026-11-10 文档概要独立基准实施约定
+
+用户结果：在相同可读文档数量下，能分别观察旧完整列表与新概要接口的响应字节、真实 HTTP 延迟和 API 进程 RSS，并确认历史超过 100 版后搜索仍覆盖早期可见修订，隐藏标题和不可读知识库不影响搜索、计数或续页。概要后端的冻结 r1/r2 不追溯包含未来基准脚本；脚本实施后另冻新 candidate，真实运行由根任务协调。
+
+范围为显式 `--suite document-summary`，数据集仍选 `small|history`，两个概要数据集固定 100 份可读文档，每文档分别 3/123 版，并有 READ-only、READ+PROPOSE 和不可读 RESTRICTED KB。原默认 `small/history`、四类测量入口及旧完整 revision ID 断言保持。五个独立测量场景为旧完整列表、无 q 概要、ASCII q、中文 q 和 Unicode q；每个场景使用新应用子进程，RSS 使用带 requestId 的 IPC 确认采样。真实 session、成员、grant、Agent scope 与修订作者/发布事实参与权限检查，不以概要自身作为预期答案。
+
+可判定验收：无数据库脚本回归通过；真实运行的匿名/非成员、隐藏标题、需求文本 redaction、精确总数与 limit=7 续页探针通过；旧列表保留全部可见修订；概要没有正文、revisions、验收或交付范围；五场景预热后各 20 次串行及 20 次并发请求全部完成、零错误且不重试；所有自有应用子进程已停止；按精确 fixture ID 和所属关系清理的删除数量完全匹配，角色包零行与全部业务表空库检查通过，并由外部 runner 独立复查。源码/构建和证据指纹须记录，首次失败不得覆盖。
+
+取舍：复用已有数据库身份守卫、最小子进程环境、限时和精确清理，新增 opt-in 分支以控制兼容影响。选择同文档数量的 3/123 版对照，避免把分页文档数量变化当作历史优化；五场景分别启动进程，避免先测旧完整列表的保留堆空间污染概要 RSS。RSS 只报告观察值，不称峰值；延迟/字节比值是本地固定 fixture 结果，不设未经基准支持的生产 SLA。KB 数固定，本轮不关闭 KB 授权查询随 KB 数增长的容量缺口。公开写流程、TLS/反代、main.ts 全局限流、数据库 RSS、长稳和外部集成仍不在范围内。
+
+执行状态：**NOT_RUN**。当前先实现脚本与无数据库回归；没有创建数据库、写入 fixture、启动服务或执行真实 HTTP 测量。真实运行需后端验证完成后的独立冻结 candidate。
+
+以上为实施约定形成时的状态。后续真实运行保留 r1/r2 的 history 失败，定位并修复字段大小写转换成本后，r3 已实际通过；最新结果见本页末节和[真实 HTTP 对比记录](document-summary-benchmark-validation-2026-11-10.md)。
+
+### 概要 suite 入口与报告
+
+`--suite` 缺省为 `legacy`；只有明确指定 `document-summary` 才使用新 fixture 和五场景。`--dataset small` 为 100 份可读 PRD × 3 版，`history` 为同样 100 份可读 PRD × 123 版；另有一份不可读 KNOWLEDGE 文档。90 份 READ-only PRD 的最后一版由其他用户创建、当前发布在 seq=2，故可见历史为 2/122；另 10 份 PRD 的用户 PROPOSE grant 允许全部 3/123 版。knowledge-only Agent 没有 propose scope，即使绑定同一用户也只看到其作者/发布并集。三类标题为固定 160 UTF-8 字节，避免长短数据集的概要字段长度变化。
+
+不可读文档采用 KNOWLEDGE kind，五个测量入口统一 `kind=PRD&limit=100`。这样旧列表的“先分页再过滤 KB”不会把不可读的第 101 份文档混进首批，旧/新测量都读取同样 100 份可见 PRD；独立概要分页、搜索和 overview 探针不加 kind，仍核对不可读 KB 完全排除。这一固定选择不修复也不验收旧接口的权限后置分页缺口。
+
+三个 q 分别为 `asciineedle`、`中文检索` 和 `ÉCLAIR ΟΣ İSTANBUL 𐐀` 的原生 JavaScript 小写结果。它们只出现在每文档 seq=1 的早期可见标题，三个查询都应命中同样 100 份文档。隐藏候选和不可读文档带不同唯一标记，反向查询必须零结果；literal `%/_`、需求文本 HUMAN 可读而 knowledge-only Agent 不可读、精确 total/status 和 limit=7 全量续页在测量前独立核对。预期由 fixture、grant、作者和发布指针计算，不读取概要结果作为答案。
+
+每组先用独立子进程执行正确性探针，再为五个测量场景各启动一个新 API 子进程。每场景先记录一次 cold 请求，之后独立预热并执行串行和并发样本；cold、预热和正确性请求不进入延迟百分位。带 requestId 的 RSS 请求必须在 5 秒内收到对应确认，按 startup/cold/serial-warmup/serial/concurrent-warmup/concurrent 标记，不能把迟到响应归入别的阶段。每场景结束确认子进程停止后才启动下一场景；失败仍保存该场景已有测量、RSS 与停止结果，未确认停止时保留 fixture。
+
+报告 `results` 包含各场景的 cold、serial、concurrent；`children` 保存停止与带标签 RSS；`comparisons` 对每个概要场景报告相对于旧完整列表的单响应字节、p50/p95 和最大观察 RSS 比值。跨 small/history 的历史增长比较须引用各自独立报告和同源冻结证据。映射构造冷耗时与搜索扫描包含在真实请求中；API/数据库执行计划、KB 数增长和生产容量仍需单独调查。RSS 没有后台高频采样，不能称峰值。
+
+先构建 shared，运行无数据库回归，再构建 API。真实运行使用本节上方相同环境守卫，每次更换一座新迁移空库：
+
+```text
+pnpm --filter @workmesh/shared build
+node --test scripts/benchmark-api.test.mjs
+pnpm --filter @workmesh/api build
+node scripts/benchmark-api.mjs --suite document-summary --dataset small --samples 20 --concurrency 4 --warmup 2
+node scripts/benchmark-api.mjs --suite document-summary --dataset history --samples 20 --concurrency 4 --warmup 2
+```
+
+无数据库检查不构造 API 子进程，HTTP/RSS/清理回归使用受控替身；它证明脚本拒绝缺项、泄漏、循环游标、错误清理计数、无响应 RSS 和停止失败，不证明真实 fixture 可写入或 HTTP/容量通过。实施交付时真实概要基准为 NOT_RUN；后续 r1 实跑 small 通过、history 正确性失败，整轮 FAILED，输入、失败与待诊断边界见[真实 HTTP 对比记录](document-summary-benchmark-validation-2026-11-10.md)。
+
+### 实施后的无数据库验证
+
+2026-11-10 使用固定官方 Node.js 20.19.0 运行。首次脚本语法检查曾因编辑中多余的右括号失败，修正后才执行单元回归；该初次输出在任务工具记录中，未另存为外部日志。首轮回归为 63/63；补齐预热 RSS、比值和异常退出断言后第二轮为 65/65，格式化后的第三轮仍为 **65/65**（33 个顶层测试、32 个嵌套测试，零失败、跳过或取消）。`closed` 确认只有与退出码 0、无退出信号同时成立才算优雅停止，已覆盖非零退出和信号终止。
+
+两个脚本的 ESLint、`node --check` 及三文件限定 `git diff --check` 均通过，Prettier 已处理本次三个负责文件。证据保留在 `G:/yesgoo/workmesh-validation/20261110-document-summary-benchmark-impl-r1`，三轮 `node-test-attempt*.log/.exit`、`eslint-attempt1.log/.exit` 与 `prettier-write-attempt1.log/.exit` 分开保存，未覆盖首轮记录。没有运行完整 `pnpm verify`，本地结果也不代表最终提交远端 CI。
+
+上述脚本实施检查没有数据库创建或写入、API 服务启动、外部网络请求或真实 HTTP 基准；SQL fixture 可写入、真实授权/分页、测量和精确清理在该阶段均为 NOT_RUN。随后冻结 r1 的实际执行独立记录在[真实 HTTP 对比记录](document-summary-benchmark-validation-2026-11-10.md)，不得用这份无数据库检查覆盖它的 history 失败。
+
+### 最新实际状态：r2 诊断与 r3 复验
+
+r2 没有放宽超时或正确性判据：small 通过，history 第 30 个正确性探针 `q=asciineedle` 实际返回 500，约 8.8 秒的查询超过 Prisma 默认 5 秒事务；原报告、requestId、stderr 和未执行的 history 测量均保留。限定修复按原空格边界分别转换字段，再聚合标题；仅 UTF8 且字节长度等于字符数时走 ASCII 转换，其余保持原 Unicode 与 JavaScript 小写语义。超时、权限、total、游标和隔离级别保持。
+
+同源 API r3 通过 1017 项用例、18 项契约及真实 PostgreSQL/Nest HTTP 65 项后，独立冻结的 benchmark r3 通过脚本回归 68/68、语法/格式与构建。small/history 两组各 43 个正确性探针及 200 个测量请求全部完成，零错误、超时或未尝试；每组六个自有 API 子进程优雅停止，精确 fixture 清理后，独立确认各新库 55 张业务表全为空。
+
+| 数据集 / 场景        | 单响应字节 | 串行 p95 ms | 并发 p95 ms |
+| -------------------- | ---------: | ----------: | ----------: |
+| small 旧完整列表     |     244498 |      845.90 |      693.24 |
+| small 无 q 概要      |     146250 |       27.29 |       72.48 |
+| history 旧完整列表   |    8298118 |     5480.24 |     2175.95 |
+| history 无 q 概要    |     146850 |       40.98 |      253.26 |
+| history ASCII 搜索   |     146850 |      712.56 |     1142.08 |
+| history 中文搜索     |     146850 |      720.24 |     1132.45 |
+| history Unicode 搜索 |     146850 |      781.71 |     1446.77 |
+
+每阶段 20 个样本，small 并发 4、history 并发 8；cold 和预热另记。history RSS 最大观察值旧列表为 298573824 B、概要为 134549504 B，属于有限采样，不是峰值，也不含 PostgreSQL 或父进程。实际命令参数以冻结报告为准，本页上方示例不是本轮 history 并发记录。
+
+证据在 `G:/yesgoo/workmesh-validation/20261110-document-summary-benchmark-r3`；1,080 文件后置一致，两个 live 脚本匹配。清单 SHA256 `6d4d8971e215315098d2ec559d73cf28410efb8597d338c5d4b187c1356a6d23`，最终汇总 `10dfe25d4c6e16c10ed90b7144be30fcfde7405a62f514bcd9a7abfc7af8693b`，状态 `LOCAL_DOCUMENT_SUMMARY_BENCHMARK_PASSED`。该结果复验了固定 fixture 的原超时；多 KB 授权增长、生产容量、长稳、未迁移旧消费者及最终完整发布门禁仍需独立证据。

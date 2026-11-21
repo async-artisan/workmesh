@@ -108,4 +108,5 @@ export const CODE_EVIDENCE_REASON_LABELS: Record<string, string> = {
   SHA_MISMATCH: '评审提交或 PR head 与工件 SHA 不同',
   CHANGES_REQUESTED_ACTIVE: 'PR 仍有最新的修改请求',
   SUPERSEDED_REVIEW: '该用户已有较新的评审意见',
+  REVIEW_ORDER_AMBIGUOUS: '相同时间记录了矛盾评审，无法确认最新意见',
 };

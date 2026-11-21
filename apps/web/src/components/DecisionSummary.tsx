@@ -8,7 +8,7 @@ export interface DecisionArtifactSummary {
   detail?: string;
 }
 
-/** 确认前必须让用户看懂的业务决定摘要；字段与最终提交 payload 一一对应。 */
+/** 决定、槽位和版本与提交绑定；证据概览只解释已读信息，不增加批准或验证权威。 */
 export interface DecisionSummaryData {
   decision: ReviewDecisionValue;
   /** 评审对象：优先“需求编号 · 需求标题”，缺失时用标题/步骤。 */
@@ -31,6 +31,13 @@ export interface DecisionSummaryData {
   impact: string;
   /** 证据完整性提示，例如“证据不完整，已确认在不完整证据下继续”。 */
   evidenceNote?: string;
+  /** 只读辅助信息，不写入决定 payload，也不改变正式门禁。 */
+  evidenceOverview?: {
+    acceptanceText: string;
+    basisText: string;
+    discussionText: string;
+    codeReviewText: string;
+  };
 }
 
 export interface DecisionSummaryProps {
@@ -166,6 +173,26 @@ export function DecisionSummary({ summary, className }: DecisionSummaryProps) {
             <dt>证据完整性</dt>
             <dd>{summary.evidenceNote}</dd>
           </div>
+        )}
+        {summary.evidenceOverview && (
+          <>
+            <div>
+              <dt>验收报告</dt>
+              <dd>{summary.evidenceOverview.acceptanceText}</dd>
+            </div>
+            <div>
+              <dt>版本依据</dt>
+              <dd>{summary.evidenceOverview.basisText}</dd>
+            </div>
+            <div>
+              <dt>评审问题</dt>
+              <dd>{summary.evidenceOverview.discussionText}</dd>
+            </div>
+            <div>
+              <dt>代码评审</dt>
+              <dd>{summary.evidenceOverview.codeReviewText}</dd>
+            </div>
+          </>
         )}
       </dl>
     </section>

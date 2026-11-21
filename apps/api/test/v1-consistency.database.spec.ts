@@ -71,6 +71,14 @@ suite('PostgreSQL decision and webhook consistency', () => {
         await db.codeReviewEvidence.deleteMany({ where: { projectId } });
         await db.webhookReceipt.deleteMany({ where: { projectId } });
         await db.idempotentOperation.deleteMany({ where: { projectId } });
+        await db.artifact.deleteMany({ where: { projectId } });
+        await db.artifactSet.deleteMany({ where: { projectId } });
+        await db.task.deleteMany({ where: { projectId } });
+        await db.workflowInstance.deleteMany({ where: { projectId } });
+        await db.workflowRevision.deleteMany({ where: { projectId } });
+        await db.workflowDefinition.deleteMany({ where: { projectId } });
+        await db.projectRepository.deleteMany({ where: { projectId } });
+        await db.projectRole.deleteMany({ where: { projectId } });
         await db.requirement.deleteMany({ where: { projectId } });
         // PrincipalStamp 也带 projectId 外键：requestId 注入用例会创建它，不清理会挡住项目删除。
         await db.principalStamp.deleteMany({ where: { projectId } });
@@ -200,6 +208,103 @@ suite('PostgreSQL decision and webhook consistency', () => {
 
   it('consumes a ticket exactly once and rejects wrong-project and expired consumption', async () => {
     const now = new Date();
+    const role = await db.projectRole.create({
+      data: { projectId, key: 'backend', title: 'Backend' },
+    });
+    const definition = await db.workflowDefinition.create({
+      data: { projectId, workflowKey: 'code-evidence' },
+    });
+    const revision = await db.workflowRevision.create({
+      data: {
+        projectId,
+        definitionId: definition.id,
+        revision: 1,
+        digest: 'a'.repeat(64),
+        definition: {},
+        compiledRules: {},
+      },
+    });
+    const instance = await db.workflowInstance.create({
+      data: {
+        projectId,
+        definitionId: definition.id,
+        definitionRevisionId: revision.id,
+        requirementId,
+      },
+    });
+    const task = await db.task.create({
+      data: {
+        projectId,
+        workflowInstanceId: instance.id,
+        stepKey: 'impl',
+        roleId: role.id,
+        responsibleUserId: userId,
+      },
+    });
+    const stamp = await db.principalStamp.create({
+      data: { projectId, userId, kind: 'HUMAN', scopeSnapshot: [], userAuthVersion: 1 },
+    });
+    const set = await db.artifactSet.create({
+      data: {
+        projectId,
+        taskId: task.id,
+        taskGeneration: 1,
+        snapshotId: randomUUID(),
+        workflowDefinitionRevisionId: revision.id,
+        manifestDigest: 'a'.repeat(64),
+        localRunId: randomUUID(),
+        createdByStampId: stamp.id,
+      },
+    });
+    await db.task.update({ where: { id: task.id }, data: { currentArtifactSetId: set.id } });
+    const registered = await db.projectRepository.create({
+      data: {
+        projectId,
+        adapter: 'GITHUB',
+        externalId: 'repo-test',
+        owner: 'team',
+        name: 'source',
+      },
+    });
+    await db.artifact.create({
+      data: {
+        projectId,
+        taskId: task.id,
+        artifactSetId: set.id,
+        kind: 'IMPL',
+        schemaVersion: '1.0',
+        storage: 'GIT_REF',
+        mediaType: 'text/plain',
+        byteLength: 0,
+        sha256: 'a'.repeat(64),
+        projectRepositoryId: registered.id,
+        commitSha: 'a'.repeat(40),
+        repoPath: 'src/index.ts',
+        checks: [],
+        submittedByStampId: stamp.id,
+      },
+    });
+    const recorded = await receipt();
+    await db.webhookReceipt.update({
+      where: { id: recorded.id },
+      data: { status: 'PROCESSED', processedAt: now },
+    });
+    const approved = await db.codeReviewEvidence.create({
+      data: {
+        projectId,
+        repositoryId: 'repo-test',
+        changeRequestId: 'change-test',
+        headSha: 'a'.repeat(40),
+        authorExternalId: 'author',
+        reviewerExternalId: 'reviewer',
+        reviewerKind: 'USER',
+        state: 'APPROVED',
+        commitSha: 'a'.repeat(40),
+        reviewExternalId: randomUUID(),
+        evidenceFingerprint: randomUUID(),
+        receiptId: recorded.id,
+      },
+    });
     const ticket = await db.codeReviewEvidence.create({
       data: {
         projectId,
@@ -213,6 +318,10 @@ suite('PostgreSQL decision and webhook consistency', () => {
         submittedAt: now,
         reviewExternalId: randomUUID(),
         evidenceFingerprint: randomUUID(),
+        artifactSetId: set.id,
+        ticketGeneration: 1,
+        preparedEvidenceId: approved.id,
+        preparedSecretHash: 'f'.repeat(64),
         preparedExpiresAt: new Date(now.getTime() + 60_000),
       },
     });

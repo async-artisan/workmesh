@@ -66,6 +66,46 @@ const chain: Chain = {
 };
 
 describe('requirement trust chain', () => {
+  it('版本失效指向现有任务并保留未知依据，复验范围交QA且知悉不当修复', () => {
+    const onTask = vi.fn();
+    render(
+      <RequirementTrustChain
+        chain={{
+          ...chain,
+          tasks: [
+            { ...chain.tasks[0], state: 'STALE', baselineRelation: 'STALE', snapshotId: null },
+          ],
+          gaps: [{ code: 'SNAPSHOT_STALE', taskId: 'task' }],
+        }}
+        onTask={onTask}
+      />,
+    );
+    expect(screen.getByText(/建议处理角色：任务责任角色/)).toHaveTextContent('由 QA 判断复验范围');
+    expect(screen.getByText(/当前登记任务第/)).toHaveTextContent('第 5 代');
+    expect(screen.getByText(/当前登记任务第/)).toHaveTextContent('已关联快照 未提供');
+    expect(screen.getByText(/这些标识不代表快照已与当前基线匹配/)).toBeInTheDocument();
+    expect(screen.getByText(/确认知悉变更只记录收件，不表示已调整或已复验/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '定位 后端实现' }));
+    expect(onTask).toHaveBeenCalledExactlyOnceWith('task');
+    expect(screen.queryByRole('button', { name: /批准|自动复验/ })).not.toBeInTheDocument();
+  });
+
+  it('历史验收继续显示其原适用范围，不从缺口建议自动撤销批准', () => {
+    render(
+      <RequirementTrustChain
+        chain={{
+          ...chain,
+          tasks: [
+            { ...chain.tasks[0], state: 'ACCEPTED', baselineRelation: 'PRESERVED_ACCEPTANCE' },
+          ],
+        }}
+        onTask={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/原批准的适用范围继续保留/)).toHaveTextContent('快照来自历史需求代次');
+    expect(screen.queryByRole('button', { name: /撤销/ })).not.toBeInTheDocument();
+  });
+
   it('shows explicit current gaps with task and timeline actions without describing Agent reports as approval', () => {
     const onTask = vi.fn();
     const onTimeline = vi.fn();

@@ -1,10 +1,12 @@
 import { useEffect, useState, type ComponentProps, type ComponentType } from 'react';
 import type { BatchReviewApprove } from './BatchReviewApprove';
+import type { BatchChangeAcknowledge } from './BatchChangeAcknowledge';
 import type { ChangeDrawer } from './ChangeDrawer';
 import { Modal } from './Modal';
 
 type ChangeProps = ComponentProps<typeof ChangeDrawer>;
 type BatchProps = ComponentProps<typeof BatchReviewApprove>;
+type BatchChangeProps = ComponentProps<typeof BatchChangeAcknowledge>;
 
 interface DialogModule<Props> {
   component: ComponentType<Props> | null;
@@ -41,6 +43,9 @@ const changeModule = deferredDialog<ChangeProps>(() =>
 );
 const batchModule = deferredDialog<BatchProps>(() =>
   import('./BatchReviewApprove').then((module) => module.BatchReviewApprove),
+);
+const batchChangeModule = deferredDialog<BatchChangeProps>(() =>
+  import('./BatchChangeAcknowledge').then((module) => module.BatchChangeAcknowledge),
 );
 
 function useDialogModule<Props>(module: DialogModule<Props>) {
@@ -141,4 +146,18 @@ function OpenBatchReviewApprove(props: BatchProps) {
 export function DeferredBatchReviewApprove(props: BatchProps) {
   // Unmount on close so passwords and transient submission state cannot survive it.
   return props.open ? <OpenBatchReviewApprove {...props} /> : null;
+}
+
+function OpenBatchChangeAcknowledge(props: BatchChangeProps) {
+  const { component: Loaded, failed, retry } = useDialogModule(batchChangeModule);
+  return Loaded ? (
+    <Loaded {...props} />
+  ) : (
+    <DialogLoading title="批量确认变更" failed={failed} retry={retry} onClose={props.onClose} />
+  );
+}
+
+export function DeferredBatchChangeAcknowledge(props: BatchChangeProps) {
+  // Reopening begins a new round, matching the workbench's existing reset behavior.
+  return props.open ? <OpenBatchChangeAcknowledge {...props} /> : null;
 }

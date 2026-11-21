@@ -1,8 +1,9 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Workflows } from './Workflows';
 import { setCsrfToken } from '../api/client';
+import type { DocumentSummary } from '../api/documentSummaries';
 import { useProjectStore } from '../store/project';
 import {
   bodyOf,
@@ -37,6 +38,48 @@ function packageFor(roleKey: string, version = '1.0.0') {
 const allPackages = roles.map((role) => packageFor(role.key));
 
 const DIGEST = 'd'.repeat(64);
+const KNOWLEDGE_ID = '11111111-1111-4111-8111-111111111111';
+const prerequisiteRoles = [
+  ...roles,
+  { id: 'r-backend', projectId: 'p1', key: 'backend', title: '后端', isActive: true },
+  { id: 'r-ui', projectId: 'p1', key: 'ui', title: '设计', isActive: true },
+];
+
+function knowledgeSummary(id = KNOWLEDGE_ID, title = '已发布接口契约'): DocumentSummary {
+  const published = {
+    id: `revision-${id}`,
+    documentId: id,
+    seq: 1,
+    title,
+    digest: 'a'.repeat(64),
+    state: 'PUBLISHED' as const,
+  };
+  return {
+    document: {
+      id,
+      projectId: 'p1',
+      knowledgeBaseId: 'kb1',
+      requirementId: null,
+      kind: 'KNOWLEDGE',
+      version: 201,
+      currentPublishedRevisionId: published.id,
+      archivedAt: null,
+    },
+    updatedAt: '2026-11-10T00:00:00Z',
+    knowledgeBase: { id: 'kb1', name: '项目知识', kind: 'BUSINESS' },
+    requirement: null,
+    latestVisibleRevision: {
+      ...published,
+      id: `candidate-${id}`,
+      seq: 201,
+      title: '最新候选标题',
+      state: 'CANDIDATE',
+    },
+    publishedRevision: published,
+    visibleRevisionCount: 201,
+    candidateRevisionCount: 200,
+  };
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -77,6 +120,35 @@ function baseHandler(
       );
     return undefined;
   };
+}
+
+function prerequisiteBase(url: string, init: RequestInit) {
+  const path = pathOf(url);
+  if (path === '/api/v1/projects/p1/roles')
+    return { status: 200, body: envelope(prerequisiteRoles) };
+  if (path === '/api/v1/projects/p1/document-summaries')
+    return {
+      status: 200,
+      body: envelope({ items: [knowledgeSummary()], total: 1, nextCursor: null }),
+    };
+  if (path === '/api/v1/projects/p1/knowledge-bindings' && methodOf(init) === 'GET')
+    return { status: 200, body: envelope({ version: 3, canManage: true, items: [] }) };
+  return baseHandler({ packages: prerequisiteRoles.map((role) => packageFor(role.key)) })(
+    url,
+    init,
+  );
+}
+
+async function openSoftwarePrerequisites() {
+  render(
+    <MemoryRouter>
+      <Workflows />
+    </MemoryRouter>,
+  );
+  const button = screen.getByRole('button', { name: '载入软件交付模板' });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
+  return within(screen.getByRole('region', { name: '流程前置资料' }));
 }
 
 const NAMED_STEP_FIELDS = {
@@ -179,23 +251,12 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
           bindingVersion += 1;
           return { status: 200, body: envelope({ version: bindingVersion, binding: bindings[0] }) };
         }
-        if (path === '/api/v1/projects/p1/documents' && method === 'GET')
+        if (path === '/api/v1/projects/p1/document-summaries' && method === 'GET')
           return {
             status: 200,
             body: envelope({
-              items: [
-                {
-                  document: {
-                    id: docId,
-                    projectId: 'p1',
-                    kind: 'KNOWLEDGE',
-                    archivedAt: null,
-                    currentPublishedRevisionId: 'revision-1',
-                  },
-                  revisions: [],
-                  publishedRevision: { id: 'revision-1', title: '已发布接口契约' },
-                },
-              ],
+              items: [knowledgeSummary(docId)],
+              total: 1,
               nextCursor: null,
             }),
           };
@@ -251,17 +312,392 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
         ).toBe(false);
       }
       await waitFor(() => expect(JSON.stringify(readSavedDraftDefinition())).toContain(docId));
+      expect(
+        mock.mock.calls.map(([url]) => String(url)).filter((url) => url.includes('/document')),
+      ).toEqual(['/api/v1/projects/p1/document-summaries?status=published&limit=50']);
+    },
+  );
+
+  it('资料后续页失败保留选项；绑定不擦列表警告，重试列表不重读绑定', async () => {
+    let retry = false;
+    let bound = false;
+    const secondId = '22222222-2222-4222-8222-222222222222';
+    const mock = mockFetch((url, init) => {
+      const path = pathOf(url);
+      if (path === '/api/v1/projects/p1/document-summaries') {
+        if (new URL(url, 'http://localhost').searchParams.has('cursor'))
+          return {
+            status: 503,
+            body: {
+              error: {
+                code: 'PAGE_UNAVAILABLE',
+                message: '第二页暂不可用',
+                requestId: 'page-evidence',
+              },
+            },
+          };
+        return {
+          status: 200,
+          body: envelope({
+            items: retry
+              ? [knowledgeSummary(), knowledgeSummary(secondId, '第二份资料')]
+              : [knowledgeSummary()],
+            total: 2,
+            nextCursor: retry ? null : 'page2',
+          }),
+        };
+      }
+      if (path.endsWith('/knowledge-bindings')) {
+        if (methodOf(init) === 'PUT') {
+          bound = true;
+          return { status: 200, body: envelope({ version: 4 }) };
+        }
+        return {
+          status: 200,
+          body: envelope({
+            version: bound ? 4 : 3,
+            canManage: true,
+            items: bound
+              ? [{ id: 'binding1', documentId: KNOWLEDGE_ID, roleId: 'r-frontend', required: true }]
+              : [],
+          }),
+        };
+      }
+      return prerequisiteBase(url, init);
+    });
+    const region = await openSoftwarePrerequisites();
+    await region.findByText(/\[PAGE_UNAVAILABLE\] 第二页暂不可用 · requestId page-evidence/);
+    expect(region.queryByText(/暂无可选的已发布资料/)).not.toBeInTheDocument();
+    expect(region.queryByRole('option', { name: '最新候选标题' })).not.toBeInTheDocument();
+    fireEvent.change(region.getByLabelText('选择已发布文档：接口契约（前端）'), {
+      target: { value: KNOWLEDGE_ID },
+    });
+    await waitFor(() => expect(region.getByRole('button', { name: '绑定给前端' })).toBeEnabled());
+    fireEvent.click(region.getByRole('button', { name: '绑定给前端' }));
+    await screen.findByText(/资料已绑定给接收角色/);
+    expect(region.getByText(/第二页暂不可用/)).toBeInTheDocument();
+    const bindingReads = () =>
+      mock.mock.calls.filter(
+        ([url, init]) =>
+          pathOf(String(url)).endsWith('/knowledge-bindings') && methodOf(init ?? {}) === 'GET',
+      ).length;
+    expect(bindingReads()).toBe(2);
+
+    retry = true;
+    fireEvent.click(region.getByRole('button', { name: '重试资料列表' }));
+    await waitFor(() =>
+      expect(region.getAllByRole('option', { name: '第二份资料' })).toHaveLength(2),
+    );
+    expect(region.queryByText(/第二页暂不可用/)).not.toBeInTheDocument();
+    expect(bindingReads()).toBe(2);
+    expect(region.getByLabelText('选择已发布文档：接口契约（前端）')).toHaveValue(KNOWLEDGE_ID);
+  });
+
+  it('绑定读取失败不丢资料选项，独立重试恢复权限状态并保留草稿选择', async () => {
+    let bindingReads = 0;
+    const mock = mockFetch((url, init) => {
+      if (pathOf(url).endsWith('/knowledge-bindings')) {
+        bindingReads += 1;
+        return bindingReads === 1
+          ? {
+              status: 503,
+              body: { error: { code: 'BINDINGS_UNAVAILABLE', message: '绑定状态暂不可用' } },
+            }
+          : { status: 200, body: envelope({ version: 4, canManage: false, items: [] }) };
+      }
+      return prerequisiteBase(url, init);
+    });
+    const region = await openSoftwarePrerequisites();
+    await region.findByText(/绑定状态暂不可用/);
+    const selector = region.getByLabelText('选择已发布文档：接口契约（前端）');
+    await waitFor(() => expect(selector).toBeEnabled());
+    fireEvent.change(selector, { target: { value: KNOWLEDGE_ID } });
+    expect(region.getAllByText('待确认')).toHaveLength(2);
+    expect(region.queryByRole('button', { name: /^绑定给/ })).not.toBeInTheDocument();
+
+    fireEvent.click(region.getByRole('button', { name: '重试绑定状态' }));
+    await waitFor(() => expect(region.getAllByText(/请项目 OWNER 或 ADMIN/)).toHaveLength(2));
+    expect(region.queryByText(/绑定状态暂不可用/)).not.toBeInTheDocument();
+    expect(selector).toHaveValue(KNOWLEDGE_ID);
+    expect(
+      mock.mock.calls.filter(([url]) => pathOf(String(url)).endsWith('/document-summaries')),
+    ).toHaveLength(1);
+    await waitFor(() => expect(JSON.stringify(readSavedDraftDefinition())).toContain(KNOWLEDGE_ID));
+  });
+
+  it.each([true, false])(
+    '绑定写入后刷新失败清除旧管理权限和版本，重试后使用新版本（写冲突=%s）',
+    async (conflict) => {
+      let bindingReads = 0;
+      const versions: number[] = [];
+      mockFetch((url, init) => {
+        if (pathOf(url).endsWith('/knowledge-bindings')) {
+          if (methodOf(init) === 'PUT') {
+            versions.push((bodyOf(init) as { expectedVersion: number }).expectedVersion);
+            return versions.length === 1 && conflict
+              ? {
+                  status: 409,
+                  body: { error: { code: 'VERSION_CONFLICT', message: '绑定版本已变化' } },
+                }
+              : { status: 200, body: envelope({ version: 10 }) };
+          }
+          bindingReads += 1;
+          return bindingReads === 2
+            ? {
+                status: 503,
+                body: { error: { code: 'REFRESH_UNAVAILABLE', message: '无法确认新版本' } },
+              }
+            : {
+                status: 200,
+                body: envelope({
+                  version: bindingReads === 1 ? 3 : 9,
+                  canManage: true,
+                  items:
+                    versions.length === 2
+                      ? [
+                          {
+                            id: 'binding1',
+                            documentId: KNOWLEDGE_ID,
+                            roleId: 'r-frontend',
+                            required: true,
+                          },
+                        ]
+                      : [],
+                }),
+              };
+        }
+        return prerequisiteBase(url, init);
+      });
+      const region = await openSoftwarePrerequisites();
+      const selector = region.getByLabelText('选择已发布文档：接口契约（前端）');
+      await waitFor(() => expect(selector).toBeEnabled());
+      fireEvent.change(selector, { target: { value: KNOWLEDGE_ID } });
+      await waitFor(() => expect(region.getByRole('button', { name: '绑定给前端' })).toBeEnabled());
+      fireEvent.click(region.getByRole('button', { name: '绑定给前端' }));
+      await region.findByText(
+        conflict
+          ? /VERSION_CONFLICT.*绑定状态刷新失败.*REFRESH_UNAVAILABLE/
+          : /资料绑定已提交，但绑定状态刷新失败.*REFRESH_UNAVAILABLE/,
+      );
+      expect(bindingReads).toBe(2);
+      expect(region.getAllByText('待确认')).toHaveLength(2);
+      expect(region.queryByRole('button', { name: /^绑定给/ })).not.toBeInTheDocument();
+      expect(versions).toEqual([3]);
+      expect(selector).toHaveValue(KNOWLEDGE_ID);
+
+      fireEvent.click(region.getByRole('button', { name: '重试绑定状态' }));
+      await waitFor(() => expect(region.getByRole('button', { name: '绑定给前端' })).toBeEnabled());
+      fireEvent.click(region.getByRole('button', { name: '绑定给前端' }));
+      await screen.findByText(/资料已绑定给接收角色/);
+      expect(versions).toEqual([3, 9]);
+    },
+  );
+
+  it('失败空列表不显示暂无；列表重试成功为空后才显示空态，手动 ID 保留', async () => {
+    let fail = true;
+    mockFetch((url, init) =>
+      pathOf(url).endsWith('/document-summaries')
+        ? fail
+          ? { status: 403, body: { error: { code: 'FORBIDDEN', message: '资料受限' } } }
+          : { status: 200, body: envelope({ items: [], total: 0, nextCursor: null }) }
+        : prerequisiteBase(url, init),
+    );
+    const region = await openSoftwarePrerequisites();
+    await region.findByText(/资料受限/);
+    expect(region.queryByText(/暂无可选的已发布资料/)).not.toBeInTheDocument();
+    fireEvent.change(region.getByLabelText('文档标识：接口契约（前端）'), {
+      target: { value: KNOWLEDGE_ID },
+    });
+    fail = false;
+    fireEvent.click(region.getByRole('button', { name: '重试资料列表' }));
+    await region.findByText(/暂无可选的已发布资料/);
+    expect(region.getByLabelText('文档标识：接口契约（前端）')).toHaveValue(KNOWLEDGE_ID);
+    await waitFor(() => expect(JSON.stringify(readSavedDraftDefinition())).toContain(KNOWLEDGE_ID));
+  });
+
+  it('移除前置项再载入模板后忽略旧列表和绑定读取结果', async () => {
+    const oldDocuments = deferred<StubReply>();
+    const oldBindings = deferred<StubReply>();
+    let documentReads = 0;
+    let bindingReads = 0;
+    mockFetch((url, init) => {
+      const path = pathOf(url);
+      if (path.endsWith('/document-summaries')) {
+        documentReads += 1;
+        return documentReads === 1
+          ? oldDocuments.promise
+          : {
+              status: 200,
+              body: envelope({
+                items: [knowledgeSummary(KNOWLEDGE_ID, '当前资料')],
+                total: 1,
+                nextCursor: null,
+              }),
+            };
+      }
+      if (path.endsWith('/knowledge-bindings')) {
+        bindingReads += 1;
+        return bindingReads === 1
+          ? oldBindings.promise
+          : { status: 200, body: envelope({ version: 8, canManage: false, items: [] }) };
+      }
+      return prerequisiteBase(url, init);
+    });
+    await openSoftwarePrerequisites();
+    await waitFor(() => expect([documentReads, bindingReads]).toEqual([1, 1]));
+    fireEvent.click(screen.getByRole('button', { name: '载入标准模板' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: '流程前置资料' })).not.toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: '载入软件交付模板' }));
+    const region = within(screen.getByRole('region', { name: '流程前置资料' }));
+    await waitFor(() =>
+      expect(region.getAllByRole('option', { name: '当前资料' })).toHaveLength(2),
+    );
+    await act(async () => {
+      oldDocuments.resolve({
+        status: 200,
+        body: envelope({
+          items: [knowledgeSummary(KNOWLEDGE_ID, '过期资料')],
+          total: 1,
+          nextCursor: null,
+        }),
+      });
+      oldBindings.resolve({
+        status: 200,
+        body: envelope({ version: 1, canManage: true, items: [] }),
+      });
+    });
+    expect(region.queryByRole('option', { name: '过期资料' })).not.toBeInTheDocument();
+    expect(region.getAllByRole('option', { name: '当前资料' })).toHaveLength(2);
+    expect(region.queryByRole('button', { name: /^绑定给/ })).not.toBeInTheDocument();
+  });
+
+  it('切换项目后迟到的绑定写成功不显示成功或继续读取旧项目绑定', async () => {
+    const oldWrite = deferred<StubReply>();
+    const second = { ...project, id: 'p2', key: 'NEXT', name: 'Next' };
+    const mock = mockFetch((url, init) => {
+      const path = pathOf(url);
+      if (path === '/api/v1/projects') return { status: 200, body: envelope([project, second]) };
+      if (path === '/api/v1/projects/p1/knowledge-bindings' && methodOf(init) === 'PUT')
+        return oldWrite.promise;
+      if (path.startsWith('/api/v1/projects/p2/'))
+        return {
+          status: 200,
+          body: envelope(
+            path.endsWith('/roles')
+              ? roles.map((role) => ({ ...role, projectId: 'p2' }))
+              : { items: [], nextCursor: null },
+          ),
+        };
+      return prerequisiteBase(url, init);
+    });
+    const region = await openSoftwarePrerequisites();
+    const selector = region.getByLabelText('选择已发布文档：接口契约（前端）');
+    await waitFor(() => expect(selector).toBeEnabled());
+    fireEvent.change(selector, { target: { value: KNOWLEDGE_ID } });
+    await waitFor(() => expect(region.getByRole('button', { name: '绑定给前端' })).toBeEnabled());
+    fireEvent.click(region.getByRole('button', { name: '绑定给前端' }));
+    await waitFor(() =>
+      expect(
+        mock.mock.calls.some(
+          ([url, init]) =>
+            pathOf(String(url)).endsWith('/knowledge-bindings') && methodOf(init ?? {}) === 'PUT',
+        ),
+      ).toBe(true),
+    );
+    fireEvent.change(screen.getByLabelText('选择项目'), { target: { value: 'p2' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: '载入标准模板' })).toBeEnabled());
+    await act(async () => oldWrite.resolve({ status: 200, body: envelope({ version: 4 }) }));
+
+    expect(screen.queryByText(/资料已绑定给接收角色/)).not.toBeInTheDocument();
+    expect(
+      mock.mock.calls.filter(
+        ([url, init]) =>
+          pathOf(String(url)) === '/api/v1/projects/p1/knowledge-bindings' &&
+          methodOf(init ?? {}) === 'GET',
+      ),
+    ).toHaveLength(1);
+    expect((screen.getByLabelText('流程定义 JSON') as HTMLTextAreaElement).value).toBe('');
+  });
+
+  it.each(['更换所选文档', '更换流程基线'] as const)(
+    '同项目%s后隔离迟到的旧绑定动作',
+    async (change) => {
+      const oldWrite = deferred<StubReply>();
+      const mock = mockFetch((url, init) =>
+        pathOf(url).endsWith('/knowledge-bindings') && methodOf(init) === 'PUT'
+          ? oldWrite.promise
+          : prerequisiteBase(url, init),
+      );
+      const region = await openSoftwarePrerequisites();
+      const selector = region.getByLabelText('选择已发布文档：接口契约（前端）');
+      await waitFor(() => expect(selector).toBeEnabled());
+      fireEvent.change(selector, { target: { value: KNOWLEDGE_ID } });
+      await waitFor(() => expect(region.getByRole('button', { name: '绑定给前端' })).toBeEnabled());
+      fireEvent.click(region.getByRole('button', { name: '绑定给前端' }));
+      await waitFor(() =>
+        expect(
+          mock.mock.calls.some(
+            ([url, init]) =>
+              pathOf(String(url)).endsWith('/knowledge-bindings') && methodOf(init ?? {}) === 'PUT',
+          ),
+        ).toBe(true),
+      );
+
+      if (change === '更换所选文档') {
+        fireEvent.change(region.getByLabelText('文档标识：接口契约（前端）'), {
+          target: { value: '22222222-2222-4222-8222-222222222222' },
+        });
+        await region.findByText(/流程草稿已变化，请重试绑定状态/);
+        expect(region.getAllByText('待确认')).toHaveLength(2);
+        expect(region.queryByRole('button', { name: /^绑定给/ })).not.toBeInTheDocument();
+      } else {
+        const editor = screen.getByLabelText('流程定义 JSON') as HTMLTextAreaElement;
+        const next = JSON.parse(editor.value) as { baseRevisionId: string | null };
+        next.baseRevisionId = 'new-workflow-revision';
+        fireEvent.change(editor, { target: { value: JSON.stringify(next, null, 2) } });
+        await waitFor(() =>
+          expect(
+            mock.mock.calls.filter(
+              ([url, init]) =>
+                pathOf(String(url)).endsWith('/knowledge-bindings') &&
+                methodOf(init ?? {}) === 'GET',
+            ),
+          ).toHaveLength(2),
+        );
+      }
+      const before = mock.mock.calls.length;
+      await act(async () => oldWrite.resolve({ status: 200, body: envelope({ version: 999 }) }));
+
+      expect(mock.mock.calls).toHaveLength(before);
+      expect(screen.queryByText(/资料已绑定给接收角色/)).not.toBeInTheDocument();
+      if (change === '更换所选文档') {
+        expect(
+          mock.mock.calls.filter(([url]) => pathOf(String(url)).endsWith('/document-summaries')),
+        ).toHaveLength(1);
+        expect(
+          mock.mock.calls.filter(
+            ([url, init]) =>
+              pathOf(String(url)).endsWith('/knowledge-bindings') && methodOf(init ?? {}) === 'GET',
+          ),
+        ).toHaveLength(1);
+        fireEvent.click(region.getByRole('button', { name: '重试绑定状态' }));
+        await waitFor(() => expect(region.getAllByText('待绑定')).toHaveLength(2));
+        expect(region.getByLabelText('文档标识：接口契约（前端）')).toHaveValue(
+          '22222222-2222-4222-8222-222222222222',
+        );
+      }
     },
   );
 
   it('载入标准模板后校验通过，并给出可供票据绑定的编译摘要', async () => {
-    mockFetch(baseHandler());
+    const mock = mockFetch(baseHandler());
     render(
       <MemoryRouter>
         <Workflows />
       </MemoryRouter>,
     );
-
     await loadTemplateAndValidate();
 
     expect(await screen.findByText('校验结果')).toBeInTheDocument();
@@ -269,6 +705,9 @@ describe('Workflows（流程定义发布必须经过校验与一次性票据）'
     expect(screen.getByText(DIGEST)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '发布（需要二次验证）' })).toBeEnabled();
     expect(screen.queryByText('缺少角色包')).not.toBeInTheDocument();
+    expect(
+      mock.mock.calls.some(([url]) => /document-summaries|knowledge-bindings/.test(String(url))),
+    ).toBe(false);
   });
 
   it('JSON 语法错误包含行列位置和原始解析原因', async () => {

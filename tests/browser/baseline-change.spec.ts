@@ -433,7 +433,7 @@ test('publishing a changed PRD invalidates current QA evidence and requires new 
     }
     const document = await human<{ publishedRevision: { id: string } }>(
       'GET',
-      '/documents/' + prd.documentId,
+      '/documents/' + prd.documentId + '/summary',
     );
     expect(document.publishedRevision.id).toBe(candidate.revision.id);
     const historicalReview = await human<Review>('GET', '/review-requests/' + oldReview.id);

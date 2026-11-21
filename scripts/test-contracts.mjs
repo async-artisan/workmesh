@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { createFirstRunIdentity, createFirstRunProjectKey } from './first-run-demo-key.mjs';
 
 const require = createRequire(import.meta.url);
@@ -70,6 +71,12 @@ const workflow = {
 };
 
 const checks = [
+  [
+    'workbench attention reasons preserve reported failure and unqueried detail meanings',
+    () =>
+      JSON.stringify(shared.WORKBENCH_ATTENTION_REASON_CODES) ===
+      JSON.stringify(['REPORTED_CHECK_FAILED', 'DETAILS_NOT_QUERIED']),
+  ],
   [
     'first-run project key matches API format',
     () => /^[A-Z]{2,6}$/.test(createFirstRunProjectKey(() => 25)),
@@ -209,6 +216,95 @@ const checks = [
         ...workflow,
         steps: [{ ...workflow.steps[0], deps: ['release'] }, workflow.steps[1]],
       }).valid === false,
+  ],
+  [
+    'quality 1.0 keeps legacy linkage explicit and local',
+    () => {
+      const input = JSON.parse(
+        readFileSync(
+          new URL(
+            '../project-templates/software/quality-bundle.legacy.example.json',
+            import.meta.url,
+          ),
+          'utf8',
+        ),
+      );
+      const report = shared.analyzeQualityBundle(input);
+      return (
+        report.status === 'CONSISTENT' &&
+        report.authority === 'LOCAL_REPORTED' &&
+        report.executionLinkage === 'LEGACY_UNLINKED' &&
+        report.issues.some((issue) => issue.code === 'LEGACY_CASE_LINKAGE_MISSING')
+      );
+    },
+  ],
+  [
+    'quality 1.1 keeps exact case revisions and all-case execution coverage',
+    () => {
+      const input = JSON.parse(
+        readFileSync(
+          new URL(
+            '../project-templates/software/quality-bundle.delivery.example.json',
+            import.meta.url,
+          ),
+          'utf8',
+        ),
+      );
+      if (shared.analyzeQualityBundle(input).coverage[0].status !== 'NOT_RUN') return false;
+      input.evidence[0].result = 'PASSED';
+      const complete = shared.analyzeQualityBundle(input);
+      input.cases.push({ ...input.cases[0], id: 'TC-02' });
+      const partial = shared.analyzeQualityBundle(input);
+      return (
+        complete.status === 'CONSISTENT' &&
+        complete.authority === 'LOCAL_REPORTED' &&
+        complete.executionLinkage === 'EXPLICIT_CASE_REVISION' &&
+        partial.status === 'INCOMPLETE' &&
+        partial.coverage[0].status === 'MISSING'
+      );
+    },
+  ],
+  [
+    'quality 1.1 rejects client authority and an old case revision',
+    () => {
+      const input = JSON.parse(
+        readFileSync(
+          new URL(
+            '../project-templates/software/quality-bundle.delivery.example.json',
+            import.meta.url,
+          ),
+          'utf8',
+        ),
+      );
+      if (shared.analyzeQualityBundle({ ...input, verified: true }).status !== 'INVALID')
+        return false;
+      input.evidence[0].result = 'PASSED';
+      input.evidence[0].caseRefs[0].revision.sha256 = 'c'.repeat(64);
+      const report = shared.analyzeQualityBundle(input);
+      return (
+        report.status === 'INCOMPLETE' &&
+        report.coverage[0].status === 'MISSING' &&
+        report.issues.some((issue) => issue.code === 'CASE_REVISION_MISMATCH')
+      );
+    },
+  ],
+  [
+    'CI report parsing remains a local declaration and rejects self-verified content',
+    () => {
+      const input = JSON.parse(
+        readFileSync(
+          new URL('../project-templates/software/ci-result-report.example.json', import.meta.url),
+          'utf8',
+        ),
+      );
+      const result = shared.parseCiResultReport(JSON.stringify(input));
+      return (
+        result.ok &&
+        result.authority === 'LOCAL_REPORTED' &&
+        result.report.results[0].result === 'NOT_RUN' &&
+        !shared.analyzeCiResultReport({ ...input, verified: true }).ok
+      );
+    },
   ],
 ];
 

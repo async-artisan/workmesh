@@ -50,11 +50,17 @@
 - `GET/POST /api/v1/projects/:projectId/documents`、`GET /api/v1/documents/:documentId`、`GET /api/v1/documents/:documentId/revisions`、`GET /api/v1/documents/:documentId/revisions/:revisionId`、`GET /api/v1/document-revisions/:revisionId/content` — 正式文档与修订（正文在发布前仅对有权限的成员可见）。文档列表、文档详情及修订历史列表中的修订只返回元数据，不读取或返回 `bodyBytes`；正文通过 content 入口按当前权限单独读取。历史数组仍完整返回，修订行数分页与超量提示尚待补齐。
 - `GET /api/v1/documents/:documentId/history?limit=50&cursor=...` — 明确分页的修订元数据入口，返回 `{ items, nextCursor, total, documentVersion }`。默认 50 条、最多 100 条，按 `seq` 倒序；数据库先限制为当前主体可见的修订，再分页，`total` 是同一请求快照下的完整可见数量。`limit` 必须为正整数，超过 100 封顶，未知参数和非法游标拒绝。每页重新校验项目成员、KB READ 与 Agent 角色/scope；作者或明确用户评审者身份不能绕过 READ。游标绑定文档、主体/凭据、有效权限、KB 授权版本和页大小，换查询应从首页重读；文档版本变化返回 `409 HISTORY_REFRESH_REQUIRED`。每个请求使用独立只读一致事务，跨请求不持有长期快照，游标也不是授权凭据。
 - `GET /api/v1/documents/:documentId/revisions/:revisionId/metadata` — 精确读取一条可见修订的元数据，包括验收和交付范围，不读取或返回正文；修订与路径文档不匹配、修订不可见或不存在均为 404。文档评审使用此入口定位旧修订，正文与对照版本仍按精确 ID 从 content 读取。旧文档列表、详情和 `/revisions` 的完整数组暂时保留兼容语义；新增入口不代表主列表读取放大已解决，完整概要与页面迁移见[历史分页方案](design/document-history-pagination.md)。
+- `GET /api/v1/projects/:projectId/requirements/:requirementId/published-prds` — 供任务评审判断需求当前可读的已发布 PRD 是否唯一，返回 `{ items: [{ document, publishedRevision: { id, documentId, seq, title, digest } }], total }`。固定最多两份概要，`total` 为该需求当前完整可见数量，预览不表示完整列表；无分页或查询参数。项目成员/Agent 活动角色、需求归属、PRD、未归档、当前发布和 KB READ 在 SQL 计数及取页前限定，并在同一只读一致事务内读取。概要不含历史数组、验收、交付范围或正文；唯一时再按精确发布 ID 读取 metadata，若不再为 PUBLISHED 则刷新重试。损坏或指向其他文档的发布引用返回 `409 PRD_PUBLICATION_REFRESH_REQUIRED`。旧文档 GET 不改变；完整列表与搜索迁移继续开放。
+- `GET /api/v1/projects/:projectId/document-summaries` — 新增紧凑概要列表，参数为 `kind? / knowledgeBaseKind? / requirementId? / status=all|candidate|published / q? / searchProfile=knowledge|prd / limit / cursor`，返回 `{ items, nextCursor, total }`。默认 50、最多 100，`updatedAt DESC, id DESC`；`total` 为过滤后、不带续页边界的全部可读文档数。概要 item 包含 `document`、`updatedAt`、KB 的 `id/name/kind`、可读需求的 `id/code/title`、`latestVisibleRevision`、独立的 `publishedRevision`、`visibleRevisionCount / candidateRevisionCount`；紧凑修订仅含 `id/documentId/seq/title/digest/state`，不含历史数组、验收、交付范围或正文。零可见修订的可读文档仍返回一行。列表排除归档文档，KB 归档沿现行读取权限语义。
+- 概要 `q` 最多 100 字符，按 `searchProfile` 保留 Knowledge/PRD 页面有序拼接串的字面子串匹配：类型、可读关联需求和全部可见历史的标题/版本/状态；允许跨字段匹配，`%/_` 是普通字符，不搜索正文。prd profile 缺省 kind 归一为 PRD，明确冲突拒绝。`status` 独立判断文档是否有候选/发布，不先裁去历史再搜索。Agent 缺 `requirement:read` 时保留绑定 requirementId，但需求文本为 null 且不参与匹配或 total；KB READ 始终前置。已知参数值非法或 UUID/游标不规范为 422，未知字段沿全局白名单为 400。游标绑定全部查询、主体/凭据/角色/scope、当前权限与授权版本；跨页无全局列表快照，数据变化需刷新确认完整列表。
+- `GET /api/v1/documents/:documentId/summary` — 与列表相同的单文档概要，供首列表页之外直达；无查询参数，沿旧详情保留已归档文档的授权读取。当前发布指针损坏或指向其他文档/项目时，选中的概要返回 `409 DOCUMENT_SUMMARY_REFRESH_REQUIRED`，不替换为最新修订。
+- `GET /api/v1/projects/:projectId/document-summary-overview` — 无查询参数，返回 `{ total, totalsByDocumentKind, collections }`；四种正式文档类型分别准确计数，BUSINESS/SYSTEM/PRACTICE 各项含 `knowledgeBaseKind / knowledgeBaseCount / documentCount / recentItems`，最近概要最多两份，计数包含零可见修订的可读文档。每个概要/overview 请求内部的当前授权、计数与投影同只读一致事务；overview 与列表是独立请求。旧三个完整历史 GET 保留兼容，页面迁移和退役仍按[概要方案](design/document-history-pagination.md)继续，新增入口本身不证明旧列表放大已解决。
 - `POST /api/v1/documents/:documentId/revisions`、`POST /api/v1/documents/:documentId/restore` — 提交新候选修订或从历史修订恢复；均生成评审请求，不改发布指针。二者与 `POST /projects/:projectId/documents` 一样**必须带 `Idempotency-Key`**（UUID）：同键同语义重放返回首次结果，同键异语义或异路由返回 `409 IDEMPOTENCY_CONFLICT`，缺失则 `400 IDEMPOTENCY_KEY_REQUIRED`。响应中的 `revision` 只携带引用（`id`/`sha256`/`seq`/`reviewRequestId` 等），正文仍只经由 `GET /document-revisions/:revisionId/content` 下发。
 - `POST /api/v1/documents/:documentId/withdraw` — 撤回当前发布（追加 `WITHDRAW` 发布记录，清空发布指针）。
 
 - `GET/PUT /api/v1/projects/:projectId/knowledge-bindings` — 列出或设置已发布知识的项目/角色绑定。写入仅允许当前项目 OWNER/ADMIN 的 HUMAN，提交 `{ expectedVersion, documentId, roleId?, required }` 与幂等键；文档及角色必须属于本项目，文档当前已发布且对操作者可读。版本为项目知识绑定版本；绑定不会授予知识库 READ，也不覆盖既有任务快照。
 - `GET /api/v1/projects/:projectId/requirements?q&phase&limit&cursor` — 在服务端对完整授权范围搜索标题、编号及描述并按阶段筛选，返回 `{ items, total, nextCursor, hasMore }`。游标绑定项目与筛选条件，变更条件应重新从首页查询；`total` 为筛选后的总数。
+- `GET /api/v1/projects/:projectId/requirements/:requirementId` — 只读需求详情，路径同时接受需求 UUID 与人类编号。除任务、交付、评审和变更外，返回 `trustChain: { scope, checkedAt, requirementGeneration, status, visibility, baselines, tasks, acceptance, gaps, timeline }`。`scope=FORMAL_FACT_CHAIN`，`status` 区分 `LINKED / GAPS / UNAVAILABLE`，`visibility` 区分完整与部分可见；`LINKED` 仅说明正式事实关联完整，不代表功能验证或新的批准。`baselines`、逐任务 `gapCodes` 和验收 key 映射解释当前代次缺口，`timeline` 按事实时间列出发布、撤回、交付、评审请求、决定、撤销与变更，分别保留来源、可确认的人类签字与 `CURRENT / HISTORICAL / WITHDRAWN / REVOKED / UNKNOWN` 适用状态。沿用 `requirement:read`，文档及修订另按当前读取权过滤并在聚合后复核；不可读资料不泄露定位，也不当作链路完整。旧平台没有此字段时客户端保留未提供诊断提示，不能视为空缺口。验收与限制见[信任链验证记录](testing/trust-chain-experience-validation-2026-11-10.md)。
 
 ### PRD 的 Agent-first 发布路径
 
@@ -171,12 +177,15 @@ workmesh product draft --request <requestId>
 
 - `POST /api/v1/tasks/:taskId/artifact-sets`、`GET /api/v1/artifact-sets/:id` — 交付并读取工件集（只接受真实字节或完整代码引用，交付时复核基线）。
 
+认领和交付响应额外返回 `committedState: { taskVersion, taskGeneration } | null`，表示该操作提交时的准确任务版本与代次。幂等重放只从原操作 `resultRefs` 恢复这两个值，旧收据未保存时返回 `null`；响应中的 `task` 可能已是当前读模型，不能用其版本替代原操作结果。交付还返回已自动创建的 `reviewRequestId`。CLI 的 `executionId` 是本机原认领操作编号，自动携带准确认领、快照、版本与代次；它不新增服务端会话或授权路径。未知结果核对、旧收据限制与显式参数入口见 [CLI 执行状态与恢复](cli-execution-state.md)。
+
 工件 `checks[]` 的旧格式仍兼容；未提供 `source` 的检查会按 `AGENT_REPORTED` 保存。若引用外部 CI 或测试报告，可提交 `source: "EXTERNAL_REFERENCE"` 与 `evidence: { kind: "CI_RUN" | "TEST_REPORT", provider, url, runId?, commitSha? }`。外部链接必须是 HTTPS，若声明 `commitSha` 则须与所交代码引用一致。该字段仅提供给评审人复核的链接，WorkMesh 当前不抓取或验证 CI 结果；Agent 不能提交 `verified` 标记。代码评审状态仍由独立代码托管证据决定。
 
 - `POST /api/v1/tasks/:taskId/context-snapshots`、`GET /api/v1/context-snapshots/:snapshotId`、`GET /api/v1/context-snapshots/:snapshotId/resources/:refId` — 确定性上下文快照与受限资源读取。
 - `GET /api/v1/tasks/:taskId/input-status` — 只读解析当前任务的实际输入，与本任务当前快照逐项比较引用、内容元数据和交付范围；不要求先领取，也不创建快照。响应分别给出 `availability`、每项 `contentStatus` 和 `comparison`。服务端可取得的正文核对摘要及长度；外部代码引用只能标记需本机核验。当前授权失效或旧快照不属于本任务时不返回旧输入信息，不能把读取失败解释为没有变化。客户端仍需检查本机仓库及运行环境。
   - `issues[]` 给出 `kind / reason / required / blocking / action / responsible`，并按输入附上 `inputKey`、可读取的 `documentId / revisionId`、`fromStepKey / artifactKind` 或已授权资源的 `refId`。未绑定、未发布、过期发布引用、缺少已验收上游、正文校验失败和外部引用分别解释；无法确认读取权时不返回文档/修订标识。权限和基础设施异常仍返回请求错误，不能解释为缺失。
   - `issuesComplete: true` 表示此次已遍历当前配置的输入及可解析资源；未知或不可读对象仍保留不可用问题，不代表查明了其内部原因。只读诊断可收集多个问题，不产生部分可交付快照；创建快照仍按原权限、版本、代次及完整输入门禁拒绝不满足条件的请求。旧平台缺少诊断字段时客户端必须保留诊断不完整提示。
+  - `rolePackage` 解释任务工作流修订的准确角色包锁，包含 `workflowDefinitionRevisionId / roleKey / status / locked / latestAvailable / comparison`。`status=LOCKED / NOT_CONFIGURED / UNAVAILABLE`；`locked` 给出 `packageId / version / packageDigest / source` 及资源 `refId / path / sha256 / byteLength`，`latestAvailable` 仅在同包、同角色、当前项目或内置可见范围内按严格 SemVer 选取，不改变在途任务锁。`comparison` 对照本任务上次可读快照，只比较 `role:*` 引用增删、摘要与长度，返回 `NO_SNAPSHOT / CURRENT / CHANGED / UNAVAILABLE` 及变化路径；资源数据库 ID 或单纯发布新版不代表任务资源变化。旧平台缺字段仍为未知。CLI 另核验本机准确安装及真实文件，区分新版可用、安装不匹配和实际资源变化，见[角色上下文诊断](role-context-diagnostics.md)。
   - Agent 可用 `workmesh context --task <taskId> --inspect [--json]` 查询，不能与认领、版本、候选、已有快照、materialize 或写操作编号组合。退出码 0 只代表查询成功，能否创建快照应读取 `availability` 和逐项诊断。
 
   必需上游工件只有已验收的 `GIT_REF` 时，只读预览将其标为 `EXTERNAL_REFERENCE`，并给出 `issue: SNAPSHOT_EXTERNAL_INPUT_UNSUPPORTED`；当前正式快照仍要求可展开的 `HOSTED` 正文，创建返回 `422 INPUT_UNAVAILABLE`。需要上游按流程补交并验收正文，本机 Git 检查不能解除这个限制。
@@ -197,18 +206,24 @@ workmesh product draft --request <requestId>
   - `scope=EVENT_TASKS` 来自事件记录的 taskIds；已接受变更请求没有 taskIds 时，`CURRENT_ACCEPTANCE_SCOPE` 按当前需求与验收 key 匹配，明确不代表历史时刻已使任务失效；无法判定时为 `UNKNOWN`。`eventBaseline=SUPERSEDED` 表示事件基线已有后续更新。当前状态会区分无快照、快照跨代、正在评审、已完成、阻塞、暂停、取消、退役、角色失效与项目归档，不由 ACK 推断已处理。
   - `workmesh changes` 在人类可读输出中显示同一任务诊断、输入检查命令及 Web 深链；`--json` 保留服务端结构与分页。旧平台缺少 guidance 时明确提示未提供诊断。知悉仍只确认收到通知，不批准需求、恢复认领或完成调整。
 
-## 代码证据
+## 工作台依赖影响
 
 工作台的评审、变更和可开工任务额外返回 `blocking` 与 `dependencyImpact`。`blocking` 是完整相关流程图中去重后的未完成下游数；变更/基线事项还包含直接关联任务，不能称为关键路径或承诺全部解锁。读取不受当前工作台 50 条显示页限制；图不完整、成环、读取失败或权限撤回时返回 `null` 与 `status=UNAVAILABLE`，不会用零隐藏未知。
 
 `dependencyImpact` 包含 `checkedAt / scenario / reason / readyAfterAction`。`readyAfterAction` 只计算本次动作成功后新满足前置依赖的任务数：当前代次、当前工件集、最后必需审批槽且工作状态可推进时才能模拟完成；多个审批槽、暂停/取消/退役及过期评审不会独立推进。可开工卡片按“完成本任务后”模拟，不表示领取即解锁。输入、认领权限及其他运行门禁仍需另外检查。变更 ACK 的就绪增量恒为 0；文档基线发布的增量为 `null`，发布后重查输入。Web 可选依赖影响排序，原时间与风险信息继续展示。这是只读说明，不参与批准或任务状态计算。
 
-- **`IMPL` 工件必须绑定代码证据才能被验收。** 交付 `kind: 'IMPL'` 的工件集时，服务端会按工作流为该步骤派生 `CODE_REVIEW_EVIDENCE` 系统闸门；若工件没有通过下面的 code-evidence 接口绑定到具体提交，评审决定会以 `422 CODE_EVIDENCE_MISSING`（`CODE_REVIEW_EVIDENCE_MISSING`）拒绝。也就是说：`IMPL` 不能只交托管字节，必须能被人类按 commit 复核。非代码类工件（`DESIGN` / `CASES` / `RELEASE` / `PRD`）不受此约束。
+## 代码证据
 
-  验收时的证据解析口径：`prepare` 在工件集下建的是一条 `PENDING` 占位票据行，而 webhook 写入的真实批准证据不带 `artifactSetId`。因此闸门**不按 `artifactSetId` 直接取证据**，而是沿「已消费（`preparedExpiresAt` 为空）的票据 → `preparedEvidenceId`」解析出真正被认领的那条证据，占位行本身不计入。`403`/`422` 之外，`details.reason` 为 `CODE_CLAIM_REQUIRES_APPROVED_PR_REVIEW`（未建立绑定）或 `BOUND_EVIDENCE_NOT_APPROVED`（已绑定但证据不是全员 APPROVED 的他人评审）。
+- **声明代码来源的交付需要精确代码证据。** `GIT_REF` 或带 `commitSha` 的工件声明真实代码提交；在代码验收步骤中，缺少对应绑定会以 `422 CODE_EVIDENCE_MISSING`（消息 `CODE_REVIEW_EVIDENCE_MISSING`）拒绝。纯 HOSTED 的实现说明没有提交可评审，不因 kind 为 `IMPL` 就要求 PR 证据。
+
+  `prepare` 在工件集下建 `PENDING` 占位票据，真实 Webhook 批准证据不带 `artifactSetId`。门禁沿「已消费票据 → preparedEvidenceId → 同项目 GITHUB 已验签且 PROCESSED 收据」解析；对照登记仓库提供方身份、工件完整 SHA、PR/head、任务当前指针与代次，要求作者之外的 USER 的最新批准，且该 PR 没有当前修改请求。同一评审人相同有效时间出现矛盾意见时返回 `REVIEW_ORDER_AMBIGUOUS`，不以本地写入时间或 UUID 推断提供方先后。多代码引用分别覆盖，部分读取不判通过。prepare/use 的目标失效返回 `409 CODE_EVIDENCE_TICKET_STALE`（消息 `CODE_EVIDENCE_TARGET_MISMATCH`），来源不合格返回 `422 CODE_EVIDENCE_MISSING`；最终门禁 `details.reason=CODE_EVIDENCE_CHAIN_INCOMPLETE` 并给出每个工件的诊断状态。旧的不匹配票据不能绕过最终验收。
+
+- `GET /api/v1/artifact-sets/:id` 的 `codeReview` 包含实际 `required / acceptable / evidence` 与只读 `diagnostics`。诊断返回 `checkedAt / complete / currentBinding / taskGeneration / currentTaskGeneration / signaturePolicy`，每个代码引用分别返回安全的登记仓库、投递处理状态、评审及不合格理由、票据 LIVE/EXPIRED/CONSUMED/INVALID 状态和提交/代次匹配标记。不返回签名密钥、票据 secret/hash、载荷摘要或内部错误正文。权限在读取前和聚合后复核；所有证据查询限制在工件项目。关联查询超过 1000 项时标为不完整并停止判定就绪。
+- 状态区分 `NO_ASSOCIATED_DELIVERY / REVIEW_NOT_QUALIFYING / SHA_MISMATCH / TICKET_MISSING / TICKET_LIVE / TICKET_EXPIRED / TICKET_STALE / BOUND / HISTORICAL / REPOSITORY_UNRESOLVED / INCOMPLETE`。签名失败在创建业务收据前拒绝，不能将未验签载荷归因到工件；因此“未找到关联投递”不能区分没有投递、验签失败或投递没有可关联评审。平台不会仅凭别的 PR 评审推断当前工件已收到 Webhook。
+- Web 评审页显示诊断，需求交付物按选中的准确工件集展开读取。CLI 使用 `workmesh artifact --artifact-set <id> [--json]`，只执行 GET，JSON 保留完整信封；诊断与查询成功均不代表 HUMAN 批准。
 
 - `POST /api/v1/integrations/github/webhooks` — GitHub Webhook（HMAC-SHA256 签名校验，免会话认证）。
-- `POST /api/v1/integrations/github/code-evidence/prepare`、`POST /api/v1/integrations/github/code-evidence/:ticketId/use` — 准备提交级代码证据并把证据绑定到工件集。仓库身份使用稳定的数值仓库 ID，owner/name 仅作展示；两次读取之间 head/状态变化返回 `UPSTREAM_CHANGED`。
+- `POST /api/v1/integrations/github/code-evidence/prepare`、`POST /api/v1/integrations/github/code-evidence/:ticketId/use` — 准备提交级代码证据并把证据绑定到工件集。仓库身份使用稳定的数值仓库 ID，owner/name 仅作展示；准备与消费均重新核对本地可信 Webhook 证据及当前工件绑定，目标或来源变化按上述失效或缺失错误拒绝，不隐含实时读取 GitHub。
 
 ## 操作收据
 

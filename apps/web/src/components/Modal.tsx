@@ -92,6 +92,14 @@ export function Modal({
     };
   }, [open]);
 
+  // 忙态会禁用当前聚焦的关闭按钮；浏览器失焦时由栈顶卡片接住，避免焦点落到背景。
+  useLayoutEffect(() => {
+    if (!open || layerStack[layerStack.length - 1] !== layerId) return;
+    const card = cardRef.current;
+    const active = document.activeElement;
+    if (card && (!card.contains(active) || active?.matches(':disabled'))) card.focus();
+  }, [open, busy, layerId]);
+
   // 只有栈顶图层接管键盘：Esc 关闭自己、Tab 在自身卡片内循环。
   useLayoutEffect(() => {
     if (!open) return;
@@ -114,10 +122,20 @@ export function Modal({
       const nodes = Array.from(cardRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
         (node) => node.offsetParent !== null,
       );
-      if (nodes.length === 0) return;
+      if (nodes.length === 0) {
+        event.preventDefault();
+        cardRef.current.focus();
+        return;
+      }
       const firstNode = nodes[0];
       const lastNode = nodes[nodes.length - 1];
-      if (!event.shiftKey && document.activeElement === lastNode) {
+      if (
+        document.activeElement === cardRef.current ||
+        !cardRef.current.contains(document.activeElement)
+      ) {
+        event.preventDefault();
+        (event.shiftKey ? lastNode : firstNode).focus();
+      } else if (!event.shiftKey && document.activeElement === lastNode) {
         event.preventDefault();
         firstNode.focus();
       } else if (event.shiftKey && document.activeElement === firstNode) {
@@ -138,8 +156,10 @@ export function Modal({
       className={`modal-layer${variant === 'drawer' ? ' is-drawer' : ''}`}
       role="presentation"
       onMouseDown={(e) => {
-        // 提交进行中点击遮罩不关闭：与 Esc 保持一致，避免半途丢失结果。
-        if (!busy && e.target === e.currentTarget) onClose();
+        if (e.target !== e.currentTarget) return;
+        // 遮罩不接管焦点，避免忙时落到背景或在关闭提交后覆盖入口焦点。
+        e.preventDefault();
+        if (!busy) onClose();
       }}
     >
       <div

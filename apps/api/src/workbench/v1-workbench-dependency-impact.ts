@@ -35,11 +35,15 @@ export async function attachDependencyImpact(
             taskId: true,
             taskGeneration: true,
             artifactSetId: true,
+            subjectDigest: true,
             documentRevision: { select: { document: { select: { requirementId: true } } } },
             approvalSlots: {
               select: {
                 id: true,
-                decisions: { where: { revocation: null }, select: { decision: true } },
+                decisions: {
+                  where: { revocation: null },
+                  select: { decision: true, subjectDigest: true },
+                },
               },
             },
           },
@@ -91,6 +95,7 @@ export async function attachDependencyImpact(
             workStatus: true,
             currentClaimId: true,
             currentArtifactSetId: true,
+            currentSnapshotId: true,
             instance: {
               select: {
                 projectId: true,
@@ -98,7 +103,7 @@ export async function attachDependencyImpact(
                 retiredAt: true,
                 workStatus: true,
                 definitionRevisionId: true,
-                requirement: { select: { workStatus: true } },
+                requirement: { select: { workStatus: true, generation: true } },
               },
             },
           },
@@ -120,6 +125,37 @@ export async function attachDependencyImpact(
     const byRevision = new Map(revisions.map((revision) => [revision.id, revision.definition]));
     const byTask = new Map(tasks.map((task) => [task.id, task]));
     const byReview = new Map(reviews.map((review) => [review.id, review]));
+    // The review digest alone does not establish that its immutable subject is still current.
+    const setIds = [
+      ...new Set(reviews.flatMap((review) => (review.artifactSetId ? [review.artifactSetId] : []))),
+    ];
+    const sets = setIds.length
+      ? await prisma.artifactSet.findMany({
+          where: { projectId, id: { in: setIds } },
+          select: {
+            id: true,
+            taskId: true,
+            taskGeneration: true,
+            snapshotId: true,
+            manifestDigest: true,
+          },
+        })
+      : [];
+    const snapshotIds = [...new Set(sets.map((set) => set.snapshotId))];
+    const snapshots = snapshotIds.length
+      ? await prisma.contextSnapshot.findMany({
+          where: { projectId, id: { in: snapshotIds } },
+          select: {
+            id: true,
+            taskId: true,
+            taskGeneration: true,
+            requirementId: true,
+            requirementGeneration: true,
+          },
+        })
+      : [];
+    const bySet = new Map(sets.map((set) => [set.id, set]));
+    const bySnapshot = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]));
     const count = (ids: string[], simulate: boolean, includeRoots = false) => {
       if (ids.some((id) => !byTask.has(id))) return null;
       const groups = new Map<string, string[]>();
@@ -188,18 +224,44 @@ export async function attachDependencyImpact(
         continue;
       }
       const task = byTask.get(review.taskId ?? '');
+      const subject = bySet.get(review.artifactSetId ?? '');
+      const snapshot = subject ? bySnapshot.get(subject.snapshotId) : undefined;
+      if (task && (!subject || !snapshot)) {
+        set(item, unavailableImpact(checkedAt));
+        continue;
+      }
       const current =
         task &&
+        subject &&
+        snapshot &&
         review.status === 'OPEN' &&
         task.generation === review.taskGeneration &&
         task.currentArtifactSetId === review.artifactSetId &&
+        subject.taskId === task.id &&
+        subject.taskGeneration === task.generation &&
+        subject.manifestDigest === review.subjectDigest &&
+        snapshot.id === task.currentSnapshotId &&
+        snapshot.taskId === task.id &&
+        snapshot.taskGeneration === task.generation &&
+        snapshot.requirementId === task.instance.requirementId &&
+        snapshot.requirementGeneration === task.instance.requirement.generation &&
         task.executionStatus === 'REVIEW_PENDING' &&
         !task.instance.retiredAt;
       const slots = review.approvalSlots ?? [];
       const undecided = slots.filter(
-        (slot) => !slot.decisions.some((decision) => decision.decision === 'APPROVE'),
+        (slot) =>
+          !slot.decisions.some(
+            (decision) =>
+              decision.decision === 'APPROVE' && decision.subjectDigest === review.subjectDigest,
+          ),
       );
-      const actionable = item.slots.some((slot) => slot.viewerCanDecide && !slot.decided);
+      const actionable = undecided.some(
+        (pending) =>
+          pending.decisions.length === 0 &&
+          item.slots.some(
+            (slot) => slot.id === pending.id && slot.viewerCanDecide && !slot.decided,
+          ),
+      );
       const active = Boolean(
         task &&
         task.workStatus === 'ACTIVE' &&

@@ -3,6 +3,9 @@ import type {
   CodeEvidenceDiagnostics,
   TaskClaimEligibility,
   WorkflowCompiledRules,
+  VerificationApplicability,
+  VerificationBindingView,
+  VerificationEvidenceView,
 } from '@workmesh/shared';
 
 export interface ProjectView {
@@ -68,6 +71,15 @@ export interface DocumentDetail {
   document: DocumentView;
   revisions: RevisionView[];
   publishedRevision: RevisionView | null;
+}
+
+/** 需求已发布 PRD 的唯一性投影；items 固定最多两份，total 为准确可见数量。 */
+export interface PublishedPrdContext {
+  items: Array<{
+    document: DocumentView;
+    publishedRevision: Pick<RevisionView, 'id' | 'documentId' | 'seq' | 'title' | 'digest'>;
+  }>;
+  total: number;
 }
 
 export interface ReviewSlot {
@@ -1099,6 +1111,10 @@ export const documentApi = {
     return apiRequest<ListPage<DocumentDetail>>(`${projectPath(projectId)}/documents?${query}`);
   },
   get: (documentId: string) => apiRequest<DocumentDetail>(`/documents/${enc(documentId)}`),
+  publishedPrds: (projectId: string, requirementId: string) =>
+    apiRequest<PublishedPrdContext>(
+      `${projectPath(projectId)}/requirements/${enc(requirementId)}/published-prds`,
+    ),
   /** 按评审绑定的精确修订读取元数据，不加载所属文档的全部历史或正文。 */
   revisionMetadata: (documentId: string, revisionId: string) =>
     apiRequest<RevisionView>(`/documents/${enc(documentId)}/revisions/${enc(revisionId)}/metadata`),
@@ -1350,6 +1366,24 @@ export const artifactApi = {
     ),
 };
 
+export type VerificationEvidencePage = {
+  items: Array<{
+    binding: VerificationBindingView;
+    evidence: VerificationEvidenceView;
+    /** Recomputed for this read; binding.diagnostics is only the original binding record. */
+    diagnostics: VerificationApplicability;
+  }>;
+  checkedAt: string;
+  nextCursor: string | null;
+};
+
+export const verificationEvidenceApi = {
+  list: (projectId: string, artifactSetId: string, cursor?: string) =>
+    apiRequest<VerificationEvidencePage>(
+      `/projects/${enc(projectId)}/artifact-sets/${enc(artifactSetId)}/verification-evidence${cursor ? `?cursor=${enc(cursor)}` : ''}`,
+    ),
+};
+
 export const changeApi = {
   listRecipients: (projectId: string, ackedOnly = false) =>
     apiRequest<ListPage<ChangeRecipient>>(
@@ -1375,6 +1409,8 @@ export interface WorkbenchRole {
 }
 
 export interface WorkbenchReviewItem {
+  /** Older servers omit this; omission means unknown, never a clean evidence result. */
+  attention?: import('@workmesh/shared').WorkbenchReviewAttention;
   blocking?: number | null;
   dependencyImpact?: import('@workmesh/shared').DependencyImpact;
   reviewId: string;
@@ -1457,6 +1493,8 @@ export interface WorkbenchOverdueApprovalItem {
 }
 
 export interface WorkbenchSnapshot {
+  /** Counts and filters cover loaded rows only. Missing metadata means unknown coverage. */
+  coverage?: import('@workmesh/shared').WorkbenchCoverage;
   counts: {
     reviews: number;
     changes: number;

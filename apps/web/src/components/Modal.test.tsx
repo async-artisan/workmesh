@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { StrictMode, useLayoutEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Modal } from './Modal';
@@ -237,6 +237,22 @@ describe('Modal（Esc / 图层栈 / IME / 焦点）', () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it('普通遮罩关闭阻止默认焦点转移，并归还入口焦点', () => {
+    render(<FocusReturnHarness />);
+    const opener = screen.getByRole('button', { name: '打开弹窗' });
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = screen.getByRole('dialog', { name: '焦点归还' });
+    const overlay = dialog.parentElement as HTMLElement;
+    const mouseDown = createEvent.mouseDown(overlay, { cancelable: true });
+
+    fireEvent(overlay, mouseDown);
+
+    expect(mouseDown.defaultPrevented).toBe(true);
+    expect(screen.queryByRole('dialog', { name: '焦点归还' })).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
+
   it('标题与描述分别通过 aria-labelledby / aria-describedby 关联', () => {
     render(
       <Modal open title="归档项目" description="归档后成员只能只读访问。" onClose={() => {}}>
@@ -284,6 +300,92 @@ describe('Modal（Esc / 图层栈 / IME / 焦点）', () => {
     expect(innerOnClose).not.toHaveBeenCalled();
   });
 
+  it('切换 busy 禁用已聚焦关闭按钮后接住焦点，并保留最初入口供关闭归还', () => {
+    const content = (open: boolean, busy: boolean) => (
+      <>
+        <button>忙态入口</button>
+        <Modal open={open} title="忙态切换" busy={busy} onClose={() => {}}>
+          <p>提交说明</p>
+        </Modal>
+      </>
+    );
+    const { rerender } = render(content(false, false));
+    const opener = screen.getByRole('button', { name: '忙态入口' });
+    opener.focus();
+    rerender(content(true, false));
+    const dialog = screen.getByRole('dialog', { name: '忙态切换' });
+    const closeButton = screen.getByRole('button', { name: '关闭弹窗' });
+    expect(closeButton).toHaveFocus();
+
+    rerender(content(true, true));
+
+    expect(closeButton).toBeDisabled();
+    expect(dialog).toHaveFocus();
+    for (const shiftKey of [false, true]) {
+      const tab = createEvent.keyDown(document, { key: 'Tab', shiftKey, cancelable: true });
+      fireEvent(document, tab);
+      expect(tab.defaultPrevented).toBe(true);
+      expect(dialog).toHaveFocus();
+    }
+    rerender(content(true, false));
+    expect(dialog).toHaveFocus();
+    rerender(content(false, false));
+    expect(opener).toHaveFocus();
+  });
+
+  it('下层切换 busy 时不会抢走栈顶弹窗中控件的焦点', () => {
+    const content = (outerBusy: boolean) => (
+      <>
+        <Modal open title="下层忙态" busy={outerBusy} onClose={() => {}}>
+          <p>下层说明</p>
+        </Modal>
+        <Modal open title="栈顶输入" onClose={() => {}}>
+          <input aria-label="栈顶字段" />
+        </Modal>
+      </>
+    );
+    const { rerender } = render(content(false));
+    const input = screen.getByRole('textbox', { name: '栈顶字段' });
+    expect(input).toHaveFocus();
+
+    rerender(content(true));
+
+    expect(input).toHaveFocus();
+  });
+
+  it('卡片接住焦点后，Tab 与 Shift+Tab 分别进入首尾可用控件', () => {
+    render(
+      <Modal open title="卡片键盘入口" onClose={() => {}}>
+        <input aria-label="可填写字段" />
+        <button>末尾操作</button>
+      </Modal>,
+    );
+    const card = screen.getByRole('dialog', { name: '卡片键盘入口' });
+    for (const element of card.querySelectorAll('button, input'))
+      Object.defineProperty(element, 'offsetParent', { get: () => document.body });
+    card.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(screen.getByRole('button', { name: '关闭弹窗' })).toHaveFocus();
+    card.focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(screen.getByRole('button', { name: '末尾操作' })).toHaveFocus();
+  });
+
+  it('切换 busy 时保留卡片内仍可用控件的焦点', () => {
+    const content = (busy: boolean) => (
+      <Modal open title="保留输入焦点" busy={busy} onClose={() => {}}>
+        <input aria-label="继续填写" />
+      </Modal>
+    );
+    const { rerender } = render(content(false));
+    const input = screen.getByRole('textbox', { name: '继续填写' });
+    expect(input).toHaveFocus();
+
+    rerender(content(true));
+
+    expect(input).toHaveFocus();
+  });
+
   it('busy 时锁定关闭入口：Esc / 遮罩 / 关闭按钮都不关闭，卡片标记 aria-busy', () => {
     const onClose = vi.fn();
     render(
@@ -297,10 +399,19 @@ describe('Modal（Esc / 图层栈 / IME / 焦点）', () => {
     const closeButton = screen.getByRole('button', { name: '关闭弹窗' });
     expect(closeButton).toBeDisabled();
 
+    const confirmation = screen.getByRole('button', { name: '确认' });
+    const controlMouseDown = createEvent.mouseDown(confirmation, { cancelable: true });
+    fireEvent(confirmation, controlMouseDown);
+    expect(controlMouseDown.defaultPrevented).toBe(false);
+
     fireEvent.keyDown(document, { key: 'Escape' });
-    fireEvent.mouseDown(dialog.parentElement as HTMLElement);
+    const overlay = dialog.parentElement as HTMLElement;
+    const overlayMouseDown = createEvent.mouseDown(overlay, { cancelable: true });
+    fireEvent(overlay, overlayMouseDown);
     fireEvent.click(closeButton);
 
+    expect(overlayMouseDown.defaultPrevented).toBe(true);
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
     expect(onClose).not.toHaveBeenCalled();
   });
 });

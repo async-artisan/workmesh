@@ -11,6 +11,10 @@ import { Prisma } from '../../../node_modules/.prisma/workmesh-v1-client';
 import { V1AuthorizationService, type V1KnowledgeAccess } from '../auth/v1-authorization';
 import { V1AuthorizationPrismaRepository } from '../auth/v1-authorization.prisma-repository';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  documentRevisionVisibilityPolicy,
+  visibleDocumentRevisionWhere,
+} from './v1-document-visibility';
 import { REVISION_SUMMARY_SELECT, toRevisionSnapshot } from './v1-publication.prisma-repository';
 import type { V1RevisionSnapshot } from './v1-publication.service';
 
@@ -31,6 +35,8 @@ type HistoryDocument = {
 };
 type HistoryQuery = { limit: number; cursor: string | null };
 type HistoryCursor = { v: 1; key: string; documentVersion: number; beforeSeq: number };
+// DocumentRevision.seq and KnowledgeDocument.version use Prisma Int / PostgreSQL integer.
+const MAX_DATABASE_INT = 2_147_483_647;
 
 function invalid(message = 'HISTORY_CURSOR_INVALID'): never {
   throw new WorkmeshError(V1_ERROR_CODES.INVALID_REQUEST, message, undefined, 422);
@@ -92,8 +98,10 @@ function decodeCursor(raw: string | null, key: string, documentVersion: number):
     cursor.key !== key ||
     !Number.isSafeInteger(cursor.documentVersion) ||
     (cursor.documentVersion as number) < 1 ||
+    (cursor.documentVersion as number) > MAX_DATABASE_INT ||
     !Number.isSafeInteger(cursor.beforeSeq) ||
-    (cursor.beforeSeq as number) < 1
+    (cursor.beforeSeq as number) < 1 ||
+    (cursor.beforeSeq as number) > MAX_DATABASE_INT
   )
     invalid();
   if (cursor.documentVersion !== documentVersion)
@@ -109,25 +117,6 @@ function decodeCursor(raw: string | null, key: string, documentVersion: number):
 function encodeCursor(key: string, documentVersion: number, beforeSeq: number): string {
   const cursor: HistoryCursor = { v: 1, key, documentVersion, beforeSeq };
   return Buffer.from(JSON.stringify(cursor)).toString('base64url');
-}
-
-function visibleWhere(
-  principal: Principal,
-  document: HistoryDocument,
-  access: V1KnowledgeAccess,
-): Prisma.DocumentRevisionWhereInput {
-  const scope = { documentId: document.id, projectId: document.projectId };
-  if (access.canPropose || access.canPublish) return scope;
-  return {
-    ...scope,
-    OR: [
-      ...(document.currentPublishedRevisionId ? [{ id: document.currentPublishedRevisionId }] : []),
-      { createdById: principal.userId },
-      {
-        reviewRequests: { some: { approvalSlots: { some: { requiredUserId: principal.userId } } } },
-      },
-    ],
-  };
 }
 
 /** Bounded metadata reads; legacy complete-history endpoints retain their existing contract. */
@@ -178,7 +167,14 @@ export class V1DocumentHistoryService {
         undefined,
         404,
       );
-    return { document, access, where: visibleWhere(principal, document, access) };
+    return {
+      document,
+      access,
+      where: visibleDocumentRevisionWhere(
+        document,
+        documentRevisionVisibilityPolicy(principal, access),
+      ),
+    };
   }
 
   async list(

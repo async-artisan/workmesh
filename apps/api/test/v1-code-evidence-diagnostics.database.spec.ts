@@ -190,11 +190,14 @@ suite('PostgreSQL artifact code evidence diagnostics', () => {
     head = sha,
     reviewerKind: 'USER' | 'BOT' = 'USER',
     state: 'APPROVED' | 'CHANGES_REQUESTED' = 'APPROVED',
+    submittedAt = now,
+    repositoryId = 'provider-1',
+    changeRequestId = '10',
   ) {
     const repositories = [
       {
-        repositoryId: 'provider-1',
-        changeRequestId: '10',
+        repositoryId,
+        changeRequestId,
         changeRequestHeadSha: head,
         authorExternalId: 'author',
         merged: true,
@@ -205,7 +208,7 @@ suite('PostgreSQL artifact code evidence diagnostics', () => {
             reviewerKind,
             state,
             commitSha: head,
-            submittedAt: now.toISOString(),
+            submittedAt: submittedAt.toISOString(),
             reviewId: randomUUID(),
           },
         ],
@@ -225,11 +228,11 @@ suite('PostgreSQL artifact code evidence diagnostics', () => {
       context({ repositories }),
     );
   }
-  async function prepare(head = sha) {
+  async function prepare(head = sha, changeRequestId = '10', repositoryId = 'provider-1') {
     const input = {
       artifactSetId: setId,
-      repositoryId: 'provider-1',
-      changeRequestId: '10',
+      repositoryId,
+      changeRequestId,
       headSha: head,
       generation: 1,
     };
@@ -393,7 +396,7 @@ suite('PostgreSQL artifact code evidence diagnostics', () => {
       github.useVersionedTicket(principal, projectId, input, { now }),
     ).rejects.toMatchObject({ status: 409 });
     await db.task.update({ where: { id: taskId }, data: { generation: 1 } });
-    await receive(sha, 'USER', 'CHANGES_REQUESTED');
+    await receive(sha, 'USER', 'CHANGES_REQUESTED', new Date(now.getTime() + 1000));
     await expect(
       github.useVersionedTicket(principal, projectId, input, { now }),
     ).rejects.toMatchObject({ status: 422 });
@@ -440,9 +443,84 @@ suite('PostgreSQL artifact code evidence diagnostics', () => {
           context(),
         ),
       ).rejects.toMatchObject({ status: 409 });
+      await receive('b'.repeat(40), 'USER', 'APPROVED', now, 'provider-1', '11');
+      const next = await prepare('b'.repeat(40), '11');
+      await github.useVersionedTicket(
+        principal,
+        projectId,
+        {
+          ticketId: next.ticketId,
+          secret: next.secret,
+          artifactSetId: setId,
+          headSha: 'b'.repeat(40),
+          generation: 1,
+        },
+        { now },
+      );
+      await expect(
+        assertCodeEvidenceAcceptable({ tx: db as any, projectId, artifactSetId: setId, taskId }),
+      ).resolves.toBeUndefined();
+      expect((await service.getArtifactSet(principal, setId)).codeReview?.acceptable).toBe(true);
     } finally {
       await db.artifact.delete({ where: { id: second.id } });
     }
+  });
+  it('recovers after a later review change using a new valid binding while retaining old tickets', async () => {
+    await receive();
+    const first = await prepare();
+    await github.useVersionedTicket(
+      principal,
+      projectId,
+      {
+        ticketId: first.ticketId,
+        secret: first.secret,
+        artifactSetId: setId,
+        headSha: sha,
+        generation: 1,
+      },
+      { now },
+    );
+    await receive(sha, 'USER', 'CHANGES_REQUESTED', new Date(now.getTime() + 1000));
+    expect((await service.getArtifactSet(principal, setId)).codeReview?.acceptable).toBe(false);
+    await expect(
+      assertCodeEvidenceAcceptable({ tx: db as any, projectId, artifactSetId: setId, taskId }),
+    ).rejects.toMatchObject({ status: 422 });
+    await receive(sha, 'USER', 'APPROVED', new Date(now.getTime() + 2000));
+    const input = {
+      artifactSetId: setId,
+      repositoryId: 'provider-1',
+      changeRequestId: '10',
+      headSha: sha,
+      generation: 1,
+    };
+    const requestContext = context(input);
+    const next = await github.prepareCodeEvidence(principal, projectId, input, requestContext);
+    const replay = await github.prepareCodeEvidence(principal, projectId, input, requestContext);
+    expect(replay).toEqual({ ...next, replayed: true });
+    expect(replay.ticketId).not.toBe(first.ticketId);
+    await github.useVersionedTicket(
+      principal,
+      projectId,
+      {
+        ticketId: next.ticketId,
+        secret: next.secret,
+        artifactSetId: setId,
+        headSha: sha,
+        generation: 1,
+      },
+      { now },
+    );
+    expect((await inspect()).references[0]).toMatchObject({
+      status: 'BOUND',
+      tickets: expect.arrayContaining([
+        expect.objectContaining({ id: first.ticketId, state: 'CONSUMED', matchesReference: false }),
+        expect.objectContaining({ id: next.ticketId, state: 'CONSUMED', matchesReference: true }),
+      ]),
+    });
+    await expect(
+      assertCodeEvidenceAcceptable({ tx: db as any, projectId, artifactSetId: setId, taskId }),
+    ).resolves.toBeUndefined();
+    expect((await service.getArtifactSet(principal, setId)).codeReview?.acceptable).toBe(true);
   });
   afterAll(async () => {
     if (!db) return;

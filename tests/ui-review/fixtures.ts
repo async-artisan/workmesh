@@ -34,7 +34,7 @@ export const task = {
   artifactCount: 0,
   review: null,
 };
-export const revisions = ['PUBLISHED', 'CANDIDATE', 'WITHDRAWN'].map((state, index) => ({
+export const revisions = ['PUBLISHED', 'CANDIDATE', 'CANDIDATE'].map((state, index) => ({
   id: `rev-${index + 1}`,
   documentId: 'doc-1',
   seq: index + 1,
@@ -53,6 +53,47 @@ export const texts = [
   '共同开头\n新版条款\n共同结尾',
   '共同开头\n第三版条款\n共同结尾',
 ];
+export const publishedPrdContext = {
+  items: [
+    {
+      document: {
+        id: 'doc-1',
+        projectId: 'p1',
+        knowledgeBaseId: 'kb-1',
+        requirementId: 'req-1',
+        kind: 'PRD',
+        version: 205,
+        currentPublishedRevisionId: 'rev-1',
+        archivedAt: null,
+      },
+      publishedRevision: {
+        id: 'rev-1',
+        documentId: 'doc-1',
+        seq: 1,
+        title: revisions[0]!.title,
+        digest: revisions[0]!.digest,
+      },
+    },
+  ],
+  total: 1,
+};
+const prdSummary = {
+  document: { ...publishedPrdContext.items[0]!.document, version: 3 },
+  updatedAt: requirement.updatedAt,
+  knowledgeBase: { id: 'kb-1', name: '验收知识库', kind: 'BUSINESS' },
+  requirement: { id: requirement.id, code: requirement.code, title: requirement.title },
+  latestVisibleRevision: {
+    id: revisions[2]!.id,
+    documentId: 'doc-1',
+    seq: 3,
+    title: revisions[2]!.title,
+    digest: revisions[2]!.digest,
+    state: 'CANDIDATE',
+  },
+  publishedRevision: { ...publishedPrdContext.items[0]!.publishedRevision, state: 'PUBLISHED' },
+  visibleRevisionCount: 3,
+  candidateRevisionCount: 2,
+};
 export const snapshot = {
   counts: { reviews: 1, changes: 0, readyTasks: 1, total: 2 },
   reviews: [
@@ -260,6 +301,8 @@ export async function installReviewFixtures(page: Page) {
       }
       if (path.endsWith('/requirements'))
         return reply({ items: path.includes('/p2/') ? [] : [requirement], nextCursor: null });
+      if (path === '/api/v1/projects/p1/requirements/req-1/published-prds')
+        return reply(publishedPrdContext);
       if (/\/requirements\/[^/]+$/.test(path))
         return reply({
           requirement,
@@ -316,6 +359,62 @@ export async function installReviewFixtures(page: Page) {
           nextCursor: null,
           hasMore: false,
         });
+      if (/^\/api\/v1\/projects\/[^/]+\/document-summary-overview$/.test(path)) {
+        const populated = path.includes('/p1/');
+        return reply({
+          total: populated ? 1 : 0,
+          totalsByDocumentKind: {
+            UNDERSTANDING: 0,
+            DECISION: 0,
+            PRD: populated ? 1 : 0,
+            KNOWLEDGE: 0,
+          },
+          collections: ['BUSINESS', 'SYSTEM', 'PRACTICE'].map((knowledgeBaseKind) => ({
+            knowledgeBaseKind,
+            knowledgeBaseCount: populated && knowledgeBaseKind === 'BUSINESS' ? 1 : 0,
+            documentCount: populated && knowledgeBaseKind === 'BUSINESS' ? 1 : 0,
+            recentItems: populated && knowledgeBaseKind === 'BUSINESS' ? [prdSummary] : [],
+          })),
+        });
+      }
+      if (/^\/api\/v1\/projects\/[^/]+\/document-summaries$/.test(path)) {
+        const kind = url.searchParams.get('kind');
+        const baseKind = url.searchParams.get('knowledgeBaseKind');
+        const requirementId = url.searchParams.get('requirementId');
+        const searchText = [
+          'PRD prd',
+          requirement.code,
+          requirement.title,
+          `${requirement.code} · ${requirement.title}`,
+          ...[...revisions]
+            .reverse()
+            .map(
+              (item) =>
+                `${item.title} v${item.seq} ${item.state === 'PUBLISHED' ? 'PUBLISHED 已发布' : 'CANDIDATE 候选'}`,
+            ),
+        ]
+          .join(' ')
+          .toLowerCase();
+        const matches =
+          path.includes('/p1/') &&
+          (!kind || kind === 'PRD') &&
+          (!baseKind || baseKind === 'BUSINESS') &&
+          (!requirementId || requirementId === requirement.id) &&
+          searchText.includes((url.searchParams.get('q') ?? '').trim().toLowerCase());
+        return reply({
+          items: matches ? [prdSummary] : [],
+          nextCursor: null,
+          total: matches ? 1 : 0,
+        });
+      }
+      if (path === '/api/v1/documents/doc-1/summary') return reply(prdSummary);
+      if (path === '/api/v1/documents/doc-1/history')
+        return reply({
+          items: [...revisions].reverse(),
+          nextCursor: null,
+          total: revisions.length,
+          documentVersion: 3,
+        });
       if (path.endsWith('/documents')) {
         const kind = url.searchParams.get('kind') ?? 'KNOWLEDGE';
         return reply({
@@ -339,6 +438,13 @@ export async function installReviewFixtures(page: Page) {
               ],
           nextCursor: null,
         });
+      }
+      const revisionMetadata = /^\/api\/v1\/documents\/doc-1\/revisions\/(rev-\d)\/metadata$/.exec(
+        path,
+      );
+      if (revisionMetadata) {
+        const metadata = revisions.find((item) => item.id === revisionMetadata[1]);
+        return metadata ? reply(metadata) : error('修订不存在', 404);
       }
       const revision = /\/document-revisions\/rev-(\d)\/content$/.exec(path);
       if (revision) {

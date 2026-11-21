@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { WorkbenchCoverage, WorkbenchReviewAttention } from '@workmesh/shared';
 import { Workbench } from './Workbench';
 import { setCsrfToken } from '../api/client';
 import {
@@ -109,6 +110,24 @@ const multiChangeSnapshot = {
 };
 
 const emptySnapshot = {
+  coverage: {
+    countBasis: 'LOADED_ROWS',
+    checkedAt: '2026-11-12T01:00:00Z',
+    streams: [
+      {
+        stream: 'REVIEWS',
+        projectIds: ['p1'],
+        projectKey: 'DEMO',
+        status: 'COMPLETE',
+        loadedCount: 0,
+        hasMore: false,
+        nextCursor: null,
+        checkedAt: '2026-11-12T01:00:00Z',
+        reason: null,
+        errorCode: null,
+      },
+    ],
+  } satisfies WorkbenchCoverage,
   counts: { reviews: 0, changes: 0, readyTasks: 0, total: 0 },
   reviews: [],
   changes: [],
@@ -202,6 +221,148 @@ function CurrentUrl() {
     </output>
   );
 }
+
+describe('工作台原因与查询覆盖', () => {
+  beforeEach(() => useProject('p1'));
+
+  it('shows partial and failed streams, retained collection time, and safe related-list navigation', async () => {
+    const coverage: WorkbenchCoverage = {
+      countBasis: 'LOADED_ROWS',
+      checkedAt: '2026-11-12T01:02:03Z',
+      streams: [
+        {
+          stream: 'REVIEWS',
+          projectIds: ['p1'],
+          projectKey: 'DEMO',
+          status: 'PARTIAL',
+          loadedCount: 1,
+          hasMore: true,
+          nextCursor: 'next-review',
+          checkedAt: '2026-11-12T01:02:00Z',
+          reason: 'MORE_AVAILABLE',
+          errorCode: null,
+        },
+        {
+          stream: 'CHANGES',
+          projectIds: ['p1'],
+          projectKey: 'DEMO',
+          status: 'ERROR',
+          loadedCount: 0,
+          hasMore: null,
+          nextCursor: null,
+          checkedAt: '2026-11-12T01:02:01Z',
+          reason: 'LOAD_FAILED',
+          errorCode: 'SCOPE_DENIED',
+        },
+      ],
+    };
+    setup({
+      workbench: (call) =>
+        call === 1 ? { status: 200, body: envelope({ ...snapshot, coverage }) } : SERVER_ERROR,
+    });
+    render(
+      <MemoryRouter>
+        <CurrentUrl />
+        <Workbench />
+      </MemoryRouter>,
+    );
+    const region = await screen.findByRole('region', { name: '工作台查询范围' });
+    expect(within(region).getByText('部分待办读取失败')).toBeInTheDocument();
+    expect(within(region).getByText(/数量与筛选仅涵盖已加载/)).toBeInTheDocument();
+    fireEvent.click(within(region).getByText('查看各类查询范围与采集时间'));
+    expect(within(region).getByText(/仍有后续记录/)).toBeInTheDocument();
+    expect(within(region).getByText(/读取失败，不能据此判断没有待办/)).toHaveTextContent(
+      'SCOPE_DENIED',
+    );
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    await screen.findByText(/本次刷新失败/);
+    expect(within(region).getByText(/聚合时间：2026-11-12T01:02:03Z/)).toHaveTextContent(
+      '保留的旧快照',
+    );
+    fireEvent.click(within(region).getAllByRole('button', { name: '打开相关列表' })[0]);
+    expect(screen.getByLabelText('地址')).toHaveTextContent('/reviews?projectId=p1');
+  });
+
+  it('keeps legacy zero-row coverage unknown instead of claiming no pending work', async () => {
+    setup({
+      workbench: () => ({ status: 200, body: envelope({ ...emptySnapshot, coverage: undefined }) }),
+    });
+    renderWorkbench();
+    expect(await screen.findByText('待办列表覆盖范围未知')).toBeInTheDocument();
+    expect(screen.getByText('已加载范围内没有待办')).toBeInTheDocument();
+    expect(screen.queryByText('现在没有待办')).not.toBeInTheDocument();
+    expect(screen.getByText(/零条记录不能证明/)).toBeInTheDocument();
+  });
+
+  it('filters reported failures on loaded reviews, clears batch selection, and retains formal action eligibility', async () => {
+    const attention: WorkbenchReviewAttention = {
+      reviewId: 'review-1',
+      reviewVersion: 3,
+      checkedAt: '2026-11-12T01:00:00Z',
+      status: 'PARTIAL',
+      reportedChecks: { source: 'ARTIFACT_CHECKS', total: 2, failed: 1 },
+      reasons: [
+        {
+          code: 'REPORTED_CHECK_FAILED',
+          responsibleRole: { id: 'role-product', key: 'product', title: '产品' },
+          nextAction: { kind: 'OPEN_REVIEW', reviewId: 'review-1' },
+        },
+        {
+          code: 'DETAILS_NOT_QUERIED',
+          responsibleRole: { id: 'role-product', key: 'product', title: '产品' },
+          nextAction: { kind: 'OPEN_REVIEW', reviewId: 'review-1' },
+        },
+      ],
+      qualityReport: 'NOT_QUERIED',
+      codeReview: 'NOT_QUERIED',
+      discussion: 'NOT_QUERIED',
+      basis: 'UNKNOWN',
+    };
+    const fetchMock = setup({
+      workbench: () => ({
+        status: 200,
+        body: envelope({
+          ...snapshot,
+          reviews: [
+            { ...snapshot.reviews[0], attention },
+            {
+              ...snapshot.reviews[0],
+              reviewId: 'review-legacy',
+              requirement: { code: 'LEGACY-1', title: '待核验交付' },
+            },
+          ],
+        }),
+      }),
+    }).fetchMock;
+    renderWorkbench();
+    await screen.findByText(/提交者报告 1 项失败，不代表独立执行核验/);
+    expect(screen.getByText(/质量包正文、代码评审、讨论未查询/)).toHaveTextContent(
+      '责任角色：产品',
+    );
+    const checkbox = screen.getByRole('checkbox', { name: '选择批量批准 DEMO-REQ-1 · 登录页改版' });
+    fireEvent.click(checkbox);
+    expect(screen.getByRole('button', { name: '批量批准 1 条' })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: '评审原因筛选' }), {
+      target: { value: 'REPORTED_CHECK_FAILED' },
+    });
+    expect(screen.queryByRole('button', { name: '批量批准 1 条' })).not.toBeInTheDocument();
+    expect(checkbox).not.toBeChecked();
+    expect(screen.getByRole('button', { name: '打开决定' })).toBeEnabled();
+    expect(screen.queryByText(/待核验交付/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/订单取消规则/)).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole('region', { name: '优先行动' })).getByText('待审批 · 1'),
+    ).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/workbench'))).toHaveLength(
+      1,
+    );
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        /artifact.*content|discussions|quality/.test(String(url)),
+      ),
+    ).toBe(false);
+  });
+});
 
 describe('工作台优先行动与范围隔离', () => {
   beforeEach(() => {
@@ -646,6 +807,42 @@ describe('Workbench（跨项目待办聚合）', () => {
     expect(recorder.ackCalls.get('c2')).toBe(1);
   });
 
+  it('批量重试读取刷新后的真实版本，并排除已经消失的选中变更', async () => {
+    const updatedSnapshot = {
+      ...multiChangeSnapshot,
+      counts: { ...multiChangeSnapshot.counts, changes: 2, total: 2 },
+      changes: [{ ...multiChangeSnapshot.changes[0], version: 3 }, multiChangeSnapshot.changes[2]],
+    };
+    const recorder = setup({
+      workbench: (call) => ({
+        status: 200,
+        body: envelope(call === 1 ? multiChangeSnapshot : updatedSnapshot),
+      }),
+      ack: (recipientId, call) => (recipientId === 'c1' && call === 1 ? VERSION_CONFLICT : ACK_OK),
+    });
+    renderWorkbench();
+    fireEvent.click(await screen.findByRole('tab', { name: /待确认变更/ }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /选择变更 DEMO-REQ-1/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /选择变更 DEMO-REQ-2/ }));
+    fireEvent.click(screen.getByRole('button', { name: '批量确认 2 条' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认开始' }));
+
+    const retry = await screen.findByRole('button', { name: '重试失败项（1）' });
+    expect(screen.getByText(/DEMO-REQ-2 · 订单取消规则/).closest('li')).toHaveTextContent(
+      '已不在当前列表中',
+    );
+    fireEvent.click(retry);
+    await screen.findByText('已确认 1 条 · 失败 0 条 · 未处理 0 条');
+    const writes = recorder.fetchMock.mock.calls.filter(
+      ([url, init]) => pathOf(String(url)).endsWith('/ack') && methodOf(init ?? {}) === 'POST',
+    );
+    expect(writes.map(([url, init]) => [pathOf(String(url)), bodyOf(init ?? {})])).toEqual([
+      ['/api/v1/change-recipients/c1/ack', { expectedVersion: 2 }],
+      ['/api/v1/change-recipients/c1/ack', { expectedVersion: 3 }],
+    ]);
+    expect(recorder.ackCalls.get('c2')).toBeUndefined();
+  });
+
   it('批量完成后刷新失败：保留批量结果并显示 stale 状态', async () => {
     setup({
       workbench: (call) =>
@@ -666,6 +863,30 @@ describe('Workbench（跨项目待办聚合）', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText(/已确认 1 条/)).toBeInTheDocument();
     expect(screen.getByText(/订单取消规则/)).toBeInTheDocument();
+  });
+
+  it('关闭后新一轮只预览剩余选择，不带回前一轮结果', async () => {
+    const recorder = setup({
+      workbench: () => ({ status: 200, body: envelope(multiChangeSnapshot) }),
+    });
+    renderWorkbench();
+    fireEvent.click(await screen.findByRole('tab', { name: /待确认变更/ }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /选择变更 DEMO-REQ-1/ }));
+    fireEvent.click(screen.getByRole('button', { name: '批量确认 1 条' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认开始' }));
+    await screen.findByRole('button', { name: '关闭' });
+    expect(screen.getByRole('checkbox', { name: /选择变更 DEMO-REQ-1/ })).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /选择变更 DEMO-REQ-2/ }));
+    fireEvent.click(screen.getByRole('button', { name: '批量确认 1 条' }));
+    const pending = await screen.findByRole('list', { name: '待提交变更列表' });
+    expect(pending).toHaveTextContent('DEMO-REQ-2 · 订单取消规则 · v2');
+    expect(pending).not.toHaveTextContent('DEMO-REQ-1');
+    expect(screen.queryByRole('list', { name: '批量确认结果' })).not.toBeInTheDocument();
+    expect(recorder.ackCalls.get('c1')).toBe(1);
+    expect(recorder.ackCalls.get('c2')).toBeUndefined();
   });
 
   it('勾选可决定的评审后出现批量批准入口，并打开批量弹窗', async () => {

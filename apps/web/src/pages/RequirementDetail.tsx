@@ -4,11 +4,9 @@ import { ArrowLeft, ArrowRight, Copy, Link2, MoreHorizontal, Terminal } from 'lu
 import { ApiError, formatApiError } from '../api/client';
 import { formatDateTime } from '../lib/datetime';
 import {
-  documentApi,
   projectApi,
   requirementApi,
   workflowApi,
-  type DocumentDetail,
   type MemberView,
   type RequirementArtifactDetail,
   type RequirementDetail as RequirementDetailView,
@@ -28,6 +26,7 @@ import { WorkflowInstanceDialog } from '../components/WorkflowInstanceDialog';
 import { TaskInputStatusPanel } from '../components/TaskInputStatusPanel';
 import { TaskRelations } from '../components/TaskRelations';
 import { RequirementTrustChain } from '../components/RequirementTrustChain';
+import { RequirementPrdPanel, type RequirementPrdCount } from '../components/RequirementPrdPanel';
 import { LazyCodeEvidenceStatus } from '../components/CodeEvidenceStatus';
 import { useProjectContext } from '../hooks/useProjectContext';
 import { useAuthStore } from '../store/auth';
@@ -37,7 +36,6 @@ import {
   PHASE_LABELS,
   REVIEW_KIND_LABELS,
   REVIEW_STATUS_LABELS,
-  REVISION_STATE_LABELS,
   STEP_LABELS,
   labelFor,
 } from '../lib/labels';
@@ -67,7 +65,7 @@ const DETAIL_STAGES: Array<{ key: DetailTab; label: string }> = [
 function stageCountOf(
   key: DetailTab,
   detail: { counts: { tasks: number; artifacts: number; changes: number; reviews: number } },
-  prdCount: number,
+  prdCount: number | null,
   traceCount: number,
 ): number | null {
   switch (key) {
@@ -342,7 +340,7 @@ export function RequirementDetail({
     : (routeProject?.id ?? selectedProjectId);
 
   const [detail, setDetail] = useState<RequirementDetailView | null>(null);
-  const [prdDocs, setPrdDocs] = useState<DocumentDetail[]>([]);
+  const [prdCount, setPrdCount] = useState<RequirementPrdCount | null>(null);
   const focusedTaskId = searchParams.get('taskId');
   // 页签只由 URL 派生。taskId 深链优先显示任务，切换页签会同时清除该定位参数。
   const tab: DetailTab = focusedTaskId
@@ -632,28 +630,6 @@ export function RequirementDetail({
       window.clearTimeout(timer);
     };
   }, [tab, focusedTaskId, detail, setSearchParams]);
-
-  useEffect(() => {
-    if (!detail) {
-      setPrdDocs([]);
-      return;
-    }
-    let alive = true;
-    documentApi
-      .list(detail.requirement.projectId, 'PRD')
-      .then((page) => {
-        if (!alive) return;
-        setPrdDocs(
-          page.items.filter((item) => item.document.requirementId === detail.requirement.id),
-        );
-      })
-      .catch(() => {
-        if (alive) setPrdDocs([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [detail?.requirement.id, detail?.requirement.projectId]);
 
   const taskGroups = useMemo(() => {
     const map = new Map<string, { key: string; title: string; tasks: RequirementTaskDetail[] }>();
@@ -1604,7 +1580,10 @@ export function RequirementDetail({
           const count = stageCountOf(
             item.key,
             detail,
-            prdDocs.length,
+            prdCount?.projectId === requirement.projectId &&
+              prdCount.requirementId === requirement.id
+              ? prdCount.total
+              : null,
             detail.trustChain?.timeline.length ?? trace.length,
           );
           const active = tab === item.key;
@@ -1624,7 +1603,9 @@ export function RequirementDetail({
                 onClick={() => changeTab(item.key)}
               >
                 {item.label}
-                {count !== null && <span className="req-tab-count">{count}</span>}
+                {(count !== null || item.key === 'prd') && (
+                  <span className="req-tab-count">{count ?? '—'}</span>
+                )}
               </button>
             </li>
           );
@@ -1876,7 +1857,7 @@ export function RequirementDetail({
                         const checks = artifactChecks(artifact.checks);
                         const failed = checks.filter((check) => !check.passed);
                         return (
-                          <div className="task-row" key={artifact.id}>
+                          <div className="task-row" key={artifact.id} style={{ flexWrap: 'wrap' }}>
                             <div className="task-row-main">
                               <div className="task-row-top">
                                 <strong className="cell-mono">
@@ -1905,10 +1886,6 @@ export function RequirementDetail({
                               {artifact.summary && (
                                 <div className="task-row-meta">{artifact.summary}</div>
                               )}
-                              {(artifact.storage === 'GIT_REF' || artifact.commitSha) &&
-                                artifact.artifactSetId && (
-                                  <LazyCodeEvidenceStatus artifactSetId={artifact.artifactSetId} />
-                                )}
                               {checks.length > 0 && (
                                 <div className="artifact-checks">
                                   <span>
@@ -1968,6 +1945,12 @@ export function RequirementDetail({
                                 </button>
                               </div>
                             )}
+                            {(artifact.storage === 'GIT_REF' || artifact.commitSha) &&
+                              artifact.artifactSetId && (
+                                <div style={{ flex: '0 0 100%', minWidth: 0 }}>
+                                  <LazyCodeEvidenceStatus artifactSetId={artifact.artifactSetId} />
+                                </div>
+                              )}
                           </div>
                         );
                       })}
@@ -2092,74 +2075,12 @@ export function RequirementDetail({
             </div>
           )}
 
-          {tab === 'prd' && (
-            <div className="detail-card">
-              <div className="detail-card-head">
-                <h3>
-                  PRD<small>{prdDocs.length}</small>
-                </h3>
-              </div>
-              {prdDocs.length === 0 ? (
-                <p className="detail-empty">该需求还没有绑定 PRD 文档。</p>
-              ) : (
-                <div className="task-groups">
-                  {prdDocs.map((item) => (
-                    <div className="task-row" key={item.document.id}>
-                      <div className="task-row-main">
-                        <div className="task-row-top">
-                          <strong>
-                            {item.publishedRevision?.title ??
-                              item.revisions[0]?.title ??
-                              '尚未发布'}
-                          </strong>
-                          <span className="status-tag">v{item.document.version}</span>
-                          <span className="task-row-meta">
-                            候选{' '}
-                            {
-                              item.revisions.filter((revision) => revision.state === 'CANDIDATE')
-                                .length
-                            }
-                          </span>
-                        </div>
-                        <div className="task-row-meta">
-                          修订 {item.revisions.length} 个 ·{' '}
-                          <FullValueDisclosure
-                            label="文档"
-                            value={item.document.id}
-                            preview={shortDigest(item.document.id)}
-                          />
-                        </div>
-                        <div className="revision-list">
-                          {item.revisions.slice(0, 5).map((revision) => (
-                            <div className="revision-row" key={revision.id}>
-                              <span className="cell-mono">v{revision.seq}</span>
-                              <span>{labelFor(REVISION_STATE_LABELS, revision.state)}</span>
-                              <span className="cell-truncate" title={revision.title}>
-                                {revision.title}
-                              </span>
-                              {revision.reviewRequestId && (
-                                <button
-                                  className="ghost"
-                                  onClick={() => navigate(`/reviews/${revision.reviewRequestId}`)}
-                                >
-                                  评审
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="task-row-actions">
-                        <button className="ghost" onClick={() => navigate('/prd')}>
-                          打开 PRD
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          <RequirementPrdPanel
+            projectId={requirement.projectId}
+            requirementId={requirement.id}
+            active={tab === 'prd'}
+            onCountChange={setPrdCount}
+          />
 
           {tab === 'trace' && detail.trustChain && (
             <RequirementTrustChain chain={detail.trustChain} mode="timeline" onTask={focusTask} />

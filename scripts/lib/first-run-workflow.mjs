@@ -78,7 +78,7 @@ export async function prepareFirstRunWorkflow({
       ...extra,
     });
     await approve(candidate.reviewRequestId);
-    const document = await call('GET', '/documents/' + candidate.document.id);
+    const document = await call('GET', '/documents/' + candidate.document.id + '/summary');
     if (!document.publishedRevision?.id)
       throw new Error('Baseline document was not published: ' + kind);
     return { documentId: document.document.id, revisionId: document.publishedRevision.id };

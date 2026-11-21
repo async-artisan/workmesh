@@ -177,6 +177,54 @@ function taskHint(task: RequirementPipelineTask, state: TaskDisplayState): strin
   return task.currentClaimId ? '已被认领' : '执行中';
 }
 
+/**
+ * 把阶段级状态投影成首屏可读的等待 / 阻塞原因。
+ * 这里复用 displayStateOf，避免组件重新发明一套「可领取」或「阻塞」推断。
+ */
+function waitReasonForPhase(
+  phase: RequirementPipelinePhase | undefined,
+  status: PipelineStatus | undefined,
+  tasks: RequirementPipelineTask[],
+  allTasksDone: boolean,
+): string {
+  const explicitReason = phase?.blockedReason?.trim();
+  if (explicitReason) return explicitReason;
+
+  if (!phase) return '状态待确认：没有可用的当前阶段数据。';
+
+  const states = tasks.map((task) => displayStateOf(task));
+  if (status === 'blocked' && states.length > 0 && states.every((state) =>
+    state.kind === 'DONE' || state.kind === 'CANCELLED',
+  )) {
+    return '阶段状态标记为阻塞，但任务均已完成或取消，请核对阶段状态。';
+  }
+  if (status === 'blocked' && states.length === 0) {
+    return '阶段状态标记为阻塞，但没有任务状态可供核对。';
+  }
+
+  const blocked = states.find((state) => state.kind === 'BLOCKED_OR_FROZEN');
+  if (blocked) return '阻塞 / 冻结，具体阻塞原因未提供。';
+
+  const waitingPredecessor = states.find((state) => state.kind === 'WAITING_PREDECESSOR');
+  if (waitingPredecessor) return waitingPredecessor.description;
+
+  const waitingApproval = states.find((state) => state.kind === 'WAITING_APPROVAL');
+  if (waitingApproval) return waitingApproval.description;
+
+  const unknown = states.find((state) => state.kind === 'UNKNOWN');
+  if (unknown) return unknown.description;
+
+  if (states.some((state) => state.kind === 'CLAIMABLE')) {
+    return '前置任务已完成，等待责任人认领。';
+  }
+  if (states.some((state) => state.kind === 'IN_PROGRESS')) {
+    return '任务已被认领，当前正在执行中。';
+  }
+  if (allTasksDone) return '全部任务已完成，无待处理阻塞。';
+  if (states.length === 0) return '当前阶段没有任务状态，无法确认等待或阻塞原因。';
+  return '状态待确认：没有足够的阶段状态数据。';
+}
+
 export function RequirementPipeline({
   phases = DEFAULT_PHASES,
   tasks = NO_TASKS,
@@ -289,15 +337,12 @@ export function RequirementPipeline({
     currentPhase?.tasks.find((task) => task.ownerLabel?.trim())?.ownerLabel?.trim() ||
     '暂未分配责任人';
   const currentRole = currentPhase?.phase.roleLabel?.trim() || roleLabel(currentPhase?.phase.role);
-  const currentBlocker =
-    currentPhase?.phase.blockedReason?.trim() ||
-    (currentPhase?.status === 'blocked'
-      ? '服务端未提供阻塞原因'
-      : allTasksDone
-        ? '全部任务已完成，无待处理阻塞'
-        : currentPhase?.status === 'active'
-          ? '当前阶段未标记阻塞'
-          : '状态待确认');
+  const currentBlocker = waitReasonForPhase(
+    currentPhase?.phase,
+    currentPhase?.status,
+    currentPhase?.tasks ?? NO_TASKS,
+    allTasksDone,
+  );
   // undefined 表示调用方未覆盖阶段动作；显式 null 表示当前没有可执行入口。
   const summaryActionLabel =
     actionLabel !== undefined ? actionLabel : currentPhase?.phase.actionLabel;
@@ -457,7 +502,7 @@ export function RequirementPipeline({
                 <strong>{currentRole}</strong>
               </span>
               <span>
-                <b>阻塞原因</b>
+                <b>等待 / 阻塞原因</b>
                 <strong>{currentBlocker}</strong>
               </span>
               {summaryActionLabel && summaryOnAction ? (

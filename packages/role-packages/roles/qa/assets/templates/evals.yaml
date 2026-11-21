@@ -4,7 +4,10 @@
 suite: <suite 名称>
 phase: EXECUTION
 requirement: <PROJECT_KEY>-<序号>
-casesRevision: <用例工件或修订标识>
+casesRevision:
+  artifactId: <已存在的不可变 CASES 工件 ID>
+  sha256: <该工件真实的 64 位小写 SHA-256>
+projectRepositoryId: <WorkMesh 登记仓库 ID，不是提供方数字 ID>
 commit: <40 位 sha>
 environment:
   build: <版本或镜像>
@@ -21,6 +24,7 @@ summary:
 
 results:
   - case: TC-<序号>-01
+    # 每条执行在 quality 1.1 的 evidence.caseRefs 中复制精确 caseId 与 casesRevision。
     status: PASSED
     durationMs: 0
   - case: TC-<序号>-04

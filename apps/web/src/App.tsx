@@ -12,7 +12,7 @@ import { Bell, ChevronDown, Menu, User, X } from 'lucide-react';
 import { Navigate, matchPath, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError, SESSION_EXPIRED_EVENT, formatApiError } from './api/client';
 import { authApi, bootstrapSession } from './api/auth';
-import { activityApi, notificationApi, type ActivityItem } from './api/resources';
+import { activityApi, type ActivityItem } from './api/resources';
 import { getWorkbenchSnapshot, invalidateWorkbenchSnapshot } from './lib/workbenchSnapshot';
 import {
   activitySeenStorageKey,
@@ -20,9 +20,7 @@ import {
   markActivitySeen,
   readActivitySeenIds,
 } from './lib/activitySeen';
-import { actionableNotificationCounts, activityDestination } from './lib/notificationDisplay';
-import { ACTION_LABELS, labelFor } from './lib/labels';
-import { formatDateTime } from './lib/datetime';
+import { actionableNotificationCounts } from './lib/notificationDisplay';
 import { useAuthStore } from './store/auth';
 import { NAV_GROUP_LABELS, findNav, navItems } from './nav';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -30,6 +28,7 @@ import { ErrorState } from './components/ErrorState';
 import { PageState } from './components/PageState';
 import { ToastHost } from './components/ToastHost';
 import { ProjectContextBoundary } from './components/ProjectContextBoundary';
+import { DeferredNotificationPanel } from './components/DeferredNotificationPanel';
 import { toast } from './store/toast';
 
 const Login = lazy(() => import('./pages/Login').then((m) => ({ default: m.Login })));
@@ -149,6 +148,8 @@ export function App() {
   const [cooldownNow, setCooldownNow] = useState(() => Date.now());
   const [mailBusy, setMailBusy] = useState(false);
   const [mailNotice, setMailNotice] = useState('');
+  // A synchronous lock covers repeated clicks before render; sequence isolates account lifetimes.
+  const mailRequestRef = useRef({ sequence: 0, busy: false });
   const menuRef = useRef<HTMLDivElement>(null);
   const notificationsRef = useRef<HTMLDivElement>(null);
   const bellRef = useRef<HTMLButtonElement>(null);
@@ -213,6 +214,9 @@ export function App() {
     setRecentActivity([]);
     setTodoError('');
     setActivityError('');
+    mailRequestRef.current.sequence += 1;
+    mailRequestRef.current.busy = false;
+    setMailBusy(false);
     setMailNotice('');
     setActivitySeenIds(readActivitySeenIds(user?.id));
     const userId = user?.id;
@@ -225,6 +229,14 @@ export function App() {
     window.addEventListener('storage', syncReadState);
     return () => window.removeEventListener('storage', syncReadState);
   }, [user?.id]);
+
+  useEffect(
+    () => () => {
+      mailRequestRef.current.sequence += 1;
+      mailRequestRef.current.busy = false;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!user?.id) return;
@@ -365,7 +377,7 @@ export function App() {
     };
     document.addEventListener('mousedown', onPointerDown);
     return () => document.removeEventListener('mousedown', onPointerDown);
-  }, [notificationsOpen]);
+  }, [notificationsOpen, user?.id]);
 
   useEffect(() => {
     const onExpired = () => {
@@ -430,16 +442,26 @@ export function App() {
     };
   }, [drawerOpen]);
 
-  async function sendEmailDigest() {
+  async function sendEmailDigest(send: () => Promise<{ to: string }>) {
+    const ownerId = user?.id;
+    if (!ownerId || useAuthStore.getState().user?.id !== ownerId || mailRequestRef.current.busy)
+      return;
+    const request = ++mailRequestRef.current.sequence;
+    mailRequestRef.current.busy = true;
+    const current = () =>
+      mailRequestRef.current.sequence === request && useAuthStore.getState().user?.id === ownerId;
     setMailBusy(true);
     setMailNotice('');
     try {
-      const result = await notificationApi.sendEmailDigest();
-      setMailNotice(`邮件摘要已发送到 ${result.to}`);
+      const result = await send();
+      if (current()) setMailNotice(`邮件摘要已发送到 ${result.to}`);
     } catch (caught) {
-      setMailNotice(formatApiError(caught));
+      if (current()) setMailNotice(formatApiError(caught));
     } finally {
-      setMailBusy(false);
+      if (current()) {
+        mailRequestRef.current.busy = false;
+        setMailBusy(false);
+      }
     }
   }
 
@@ -665,131 +687,29 @@ export function App() {
                     </button>
                   </div>
                 </div>
-                <h4>我的待办</h4>
-                <p className="page-sub">
-                  仅统计服务端确认我可签字、待我确认的变更和我可领取的任务。
-                </p>
-                {todoLoading && (
-                  <p className="page-sub" role="status">
-                    正在更新我的待办…
-                  </p>
-                )}
-                {todoError && (
-                  <div role="alert">
-                    <p className="field-error">{todoError}</p>
-                    <button
-                      className="ghost"
-                      disabled={todoLoading}
-                      onClick={() => setTodoRefresh((value) => value + 1)}
-                    >
-                      重试待办
-                    </button>
-                  </div>
-                )}
-                <div className="notification-stats">
-                  <button
-                    onClick={() => {
-                      setNotificationsOpen(false);
-                      navigate('/?type=signOffs');
-                    }}
-                  >
-                    <span>待签字</span>
-                    <strong>{todoCounts.signOffs}</strong>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setNotificationsOpen(false);
-                      navigate('/?type=approvals');
-                    }}
-                  >
-                    <span>待审批</span>
-                    <strong>{todoCounts.approvals}</strong>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setNotificationsOpen(false);
-                      navigate('/?type=changes');
-                    }}
-                  >
-                    <span>待确认变更</span>
-                    <strong>{todoCounts.changes}</strong>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setNotificationsOpen(false);
-                      navigate('/?type=ready');
-                    }}
-                  >
-                    <span>我可领取</span>
-                    <strong>{todoCounts.readyTasks}</strong>
-                  </button>
-                </div>
-                <button
-                  className="ghost notification-mail"
-                  disabled={mailBusy}
-                  onClick={() => void sendEmailDigest()}
-                >
-                  {mailBusy ? '发送中…' : '发送邮件摘要'}
-                </button>
-                {mailNotice && <p className="page-sub">{mailNotice}</p>}
-                <div className="notification-list">
-                  <h4>审计活动</h4>
-                  <p className="page-sub">
-                    最近 8 条审计记录用于追溯，可能无需你处理。已读仅保存在此浏览器的当前账号下。
-                  </p>
-                  {activityLoading && (
-                    <p className="page-sub" role="status">
-                      正在更新审计活动…
-                    </p>
-                  )}
-                  {activityError && (
-                    <div role="alert">
-                      <p className="field-error">{activityError}</p>
-                      <button
-                        className="ghost"
-                        disabled={activityLoading}
-                        onClick={() => setActivityRefresh((value) => value + 1)}
-                      >
-                        重试活动
-                      </button>
-                    </div>
-                  )}
-                  {recentActivity.length === 0 && !activityLoading && !activityError ? (
-                    <p className="detail-empty">暂无审计事件。</p>
-                  ) : (
-                    recentActivity.map((item) => {
-                      const destination = activityDestination(item);
-                      const content = (
-                        <>
-                          <span className="status-tag">{labelFor(ACTION_LABELS, item.action)}</span>
-                          <span>{item.projectName ?? '—'}</span>
-                          <small>
-                            {item.actor?.email ?? '系统'} · {formatDateTime(item.createdAt)}
-                          </small>
-                        </>
-                      );
-                      return destination ? (
-                        <button
-                          type="button"
-                          className="notification-item is-link"
-                          key={item.id}
-                          onClick={() => {
-                            setActivitySeenIds((seen) => markActivitySeen([item], user.id, seen));
-                            setNotificationsOpen(false);
-                            navigate(destination.path);
-                          }}
-                        >
-                          {content}
-                          <small>{destination.label}</small>
-                        </button>
-                      ) : (
-                        <div className="notification-item" key={item.id}>
-                          {content}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
+                <DeferredNotificationPanel
+                  key={user.id}
+                  todoCounts={todoCounts}
+                  todoLoading={todoLoading}
+                  todoError={todoError}
+                  recentActivity={recentActivity}
+                  activityLoading={activityLoading}
+                  activityError={activityError}
+                  mailBusy={mailBusy}
+                  mailNotice={mailNotice}
+                  onRetryTodo={() => setTodoRefresh((value) => value + 1)}
+                  onRetryActivity={() => setActivityRefresh((value) => value + 1)}
+                  onNavigate={(path) => {
+                    setNotificationsOpen(false);
+                    navigate(path);
+                  }}
+                  onOpenActivity={(item, path) => {
+                    setActivitySeenIds((seen) => markActivitySeen([item], user.id, seen));
+                    setNotificationsOpen(false);
+                    navigate(path);
+                  }}
+                  onSendEmail={(send) => void sendEmailDigest(send)}
+                />
               </div>
             )}
           </div>

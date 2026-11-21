@@ -110,4 +110,59 @@ describe('local quality command', () => {
       stderr.mockRestore();
     }
   });
+  it('reads exact case revisions in 1.1 without fetching either an artifact or a report URL', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'wm-quality-'));
+    const revision = { artifactId: 'cases-1', sha256: 'a'.repeat(64) };
+    const basis = { ...plan.basis, projectRepositoryId: 'repo-1', commitSha: 'a'.repeat(40) };
+    const input = {
+      ...plan,
+      schemaVersion: '1.1',
+      stage: 'DELIVERY',
+      basis,
+      cases: [{ ...plan.cases[0], revision }],
+      evidence: [
+        {
+          id: 'exec-1',
+          acceptanceKeys: ['import-works'],
+          caseRefs: [{ caseId: 'c1', revision }],
+          result: 'PASSED',
+          source: 'EXTERNAL_REFERENCE',
+          ref: 'https://github.com/example/repo/actions/runs/1',
+          basis,
+        },
+      ],
+    };
+    await writeFile(join(root, 'delivery.json'), JSON.stringify(input));
+    const network = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network forbidden'));
+    try {
+      expect(await checkQualityFile('delivery.json', root)).toMatchObject({
+        status: 'CONSISTENT',
+        authority: 'LOCAL_REPORTED',
+        executionLinkage: 'EXPLICIT_CASE_REVISION',
+        bundleSchemaVersion: '1.1',
+        caseCoverage: [{ status: 'REPORTED_PASS' }],
+      });
+      expect(network).not.toHaveBeenCalled();
+      input.cases.push({ ...input.cases[0], id: 'c2' });
+      await writeFile(join(root, 'partial.json'), JSON.stringify(input));
+      expect(await checkQualityFile('partial.json', root)).toMatchObject({
+        status: 'INCOMPLETE',
+        coverage: [{ status: 'MISSING' }],
+      });
+      expect(network).not.toHaveBeenCalled();
+    } finally {
+      network.mockRestore();
+    }
+  });
+  it('identifies the legacy execution-link limitation in human-readable output', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'wm-quality-'));
+    await writeFile(join(root, 'plan.json'), JSON.stringify(plan));
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      expect(await main(['quality', '--file', 'plan.json', '--dir', root])).toBe(0);
+      expect(log.mock.calls.flat().join('\n')).toContain('未建立执行到用例修订的精确关联');
+    } finally {
+      log.mockRestore();
+    }
+  });
 });

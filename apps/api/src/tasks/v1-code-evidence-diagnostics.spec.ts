@@ -140,6 +140,32 @@ describe('code evidence provenance diagnostics', () => {
       ]),
     });
   });
+  it('rejects contradictory equal-time opinions independently of delivery and UUID order', () => {
+    const input = fixture();
+    ticket(input);
+    const original = { ...input.evidence[0] };
+    const conflict = {
+      ...original,
+      id: 'z-conflict',
+      state: 'CHANGES_REQUESTED',
+      createdAt: new Date(now.getTime() - 1000),
+    };
+    input.evidence.push(conflict);
+    expect(status(input)).toMatchObject({
+      status: 'REVIEW_NOT_QUALIFYING',
+      reviews: expect.arrayContaining([
+        expect.objectContaining({
+          id: original.id,
+          reasons: expect.arrayContaining(['REVIEW_ORDER_AMBIGUOUS', 'CHANGES_REQUESTED_ACTIVE']),
+        }),
+      ]),
+    });
+    input.evidence = [
+      { ...conflict, id: 'a-conflict', createdAt: new Date(now.getTime() + 1000) },
+      original,
+    ];
+    expect(status(input).status).toBe('REVIEW_NOT_QUALIFYING');
+  });
   it('keeps other repository and SHA tickets visible as stale, not bound', () => {
     const input = fixture();
     ticket(input);

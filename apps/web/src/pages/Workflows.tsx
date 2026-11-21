@@ -7,6 +7,7 @@ import {
   usedWorkflowRoleKeys,
 } from '@workmesh/shared';
 import { formatApiError } from '../api/client';
+import type { DocumentSummary } from '../api/documentSummaries';
 import { formatDateTime } from '../lib/datetime';
 import type { ActionBindingInput } from '../api/auth';
 import {
@@ -14,7 +15,6 @@ import {
   knowledgeBindingApi,
   rolePackageApi,
   workflowApi,
-  type DocumentDetail,
   type KnowledgeBindingsView,
   type RolePackageListItem,
   type RoleView,
@@ -28,7 +28,7 @@ import { InlineLoading, TableSkeletonRows } from '../components/Skeleton';
 import { WorkflowDefinitionEditor } from '../components/WorkflowDefinitionEditor';
 import { loadProjects } from '../store/project';
 import { useProjectContext } from '../hooks/useProjectContext';
-import { loadDocumentIndex } from '../lib/documentIndex';
+import { loadPublishedDocumentSummaryIndex } from '../lib/documentSummaryIndex';
 import './workflow-prerequisites.css';
 
 export const WORKFLOW_PUBLISH_ACTION = 'WORKFLOW_CONFIG_PUBLISH';
@@ -190,6 +190,29 @@ function knowledgePrerequisites(text: string): KnowledgePrerequisite[] {
   }
 }
 
+/** 文档引用变化只改草稿；流程/发布基线/接收槽位变化才重新读取可选资料与绑定。 */
+function knowledgePrerequisiteScope(text: string): string {
+  try {
+    const definition = parseDefinition(text);
+    const prerequisites = knowledgePrerequisites(text);
+    if (!prerequisites.length) return '';
+    const steps = definition.steps as Array<Record<string, unknown>>;
+    return JSON.stringify([
+      definition.workflowKey,
+      definition.baseRevisionId ?? null,
+      prerequisites.map((item) => [
+        item.stepIndex,
+        steps[item.stepIndex]?.key,
+        item.bindingIndex,
+        item.roleKey,
+        item.inputKey,
+      ]),
+    ]);
+  } catch {
+    return '';
+  }
+}
+
 function prerequisiteTitle(inputKey: string): string {
   if (inputKey === 'contract') return '接口契约';
   if (inputKey === 'unit-card') return '系统单元说明';
@@ -215,11 +238,19 @@ function ProjectWorkflows() {
   const [definitions, setDefinitions] = useState<WorkflowDefinitionView[]>([]);
   const [packages, setPackages] = useState<RolePackageListItem[]>([]);
   const [roles, setRoles] = useState<RoleView[]>([]);
-  const [knowledgeDocuments, setKnowledgeDocuments] = useState<DocumentDetail[]>([]);
+  const [knowledgeDocuments, setKnowledgeDocuments] = useState<DocumentSummary[]>([]);
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
-  const [knowledgeError, setKnowledgeError] = useState('');
+  const [knowledgeIndexComplete, setKnowledgeIndexComplete] = useState(false);
+  const [knowledgeIndexError, setKnowledgeIndexError] = useState('');
+  const [knowledgeIndexRefresh, setKnowledgeIndexRefresh] = useState(0);
   const [knowledgeBindings, setKnowledgeBindings] = useState<KnowledgeBindingsView | null>(null);
+  const [knowledgeBindingLoading, setKnowledgeBindingLoading] = useState(false);
+  const [knowledgeBindingError, setKnowledgeBindingError] = useState('');
+  const [knowledgeBindingRefresh, setKnowledgeBindingRefresh] = useState(0);
   const [bindingBusy, setBindingBusy] = useState(false);
+  const knowledgeIndexRequestRef = useRef(0);
+  const knowledgeBindingRequestRef = useRef(0);
+  const bindingBusyRef = useRef(false);
   const [projectVersion, setProjectVersion] = useState<number | null>(null);
   const [editorText, setEditorText] = useState('');
   /** 服务端基线内容：用于判断"是否有未发布改动"，以及 beforeunload 提示。 */
@@ -243,20 +274,37 @@ function ProjectWorkflows() {
   const roleTitles = useMemo(() => new Map(roles.map((role) => [role.key, role.title])), [roles]);
   const prerequisites = useMemo(() => knowledgePrerequisites(editorText), [editorText]);
   const hasKnowledgePrerequisites = prerequisites.length > 0;
+  const knowledgeScope = useMemo(() => knowledgePrerequisiteScope(editorText), [editorText]);
+
+  function updateEditorText(next: string) {
+    if (next !== editorText && bindingBusyRef.current) {
+      // 在用户换草稿或换所选文档的同一事件内失效旧动作，迟到写结果不能继续 GET 或覆盖提示。
+      knowledgeBindingRequestRef.current += 1;
+      bindingBusyRef.current = false;
+      setBindingBusy(false);
+      setKnowledgeBindingLoading(false);
+      setKnowledgeBindings(null);
+      setKnowledgeBindingError('流程草稿已变化，请重试绑定状态后再继续绑定。');
+    }
+    setEditorText(next);
+  }
 
   useEffect(() => {
-    let cancelled = false;
-    setKnowledgeDocuments([]);
-    setKnowledgeBindings(null);
-    setKnowledgeError('');
+    const request = ++knowledgeIndexRequestRef.current;
+    setKnowledgeIndexError('');
+    setKnowledgeIndexComplete(false);
     if (!projectId || !hasKnowledgePrerequisites) {
+      setKnowledgeDocuments([]);
       setKnowledgeLoading(false);
       return;
     }
     setKnowledgeLoading(true);
-    void Promise.all([loadDocumentIndex(projectId), knowledgeBindingApi.list(projectId)])
-      .then(([result, bindings]) => {
-        if (cancelled) return;
+    void loadPublishedDocumentSummaryIndex(
+      projectId,
+      () => knowledgeIndexRequestRef.current === request,
+    )
+      .then((result) => {
+        if (knowledgeIndexRequestRef.current !== request) return;
         setKnowledgeDocuments(
           result.items.filter(
             (item) =>
@@ -265,19 +313,47 @@ function ProjectWorkflows() {
               Boolean(item.document.currentPublishedRevisionId),
           ),
         );
-        setKnowledgeError(result.complete ? '' : result.error);
-        setKnowledgeBindings(bindings);
+        setKnowledgeIndexComplete(result.complete);
+        setKnowledgeIndexError(result.complete ? '' : result.error);
         setKnowledgeLoading(false);
       })
       .catch((caught) => {
-        if (cancelled) return;
-        setKnowledgeError(formatApiError(caught));
+        if (knowledgeIndexRequestRef.current !== request) return;
+        setKnowledgeIndexError(formatApiError(caught));
         setKnowledgeLoading(false);
       });
     return () => {
-      cancelled = true;
+      knowledgeIndexRequestRef.current += 1;
     };
-  }, [projectId, hasKnowledgePrerequisites]);
+  }, [projectId, knowledgeScope, knowledgeIndexRefresh]);
+
+  useEffect(() => {
+    const request = ++knowledgeBindingRequestRef.current;
+    setKnowledgeBindings(null);
+    setKnowledgeBindingError('');
+    bindingBusyRef.current = false;
+    setBindingBusy(false);
+    if (!projectId || !hasKnowledgePrerequisites) {
+      setKnowledgeBindingLoading(false);
+      return;
+    }
+    setKnowledgeBindingLoading(true);
+    void knowledgeBindingApi
+      .list(projectId)
+      .then((bindings) => {
+        if (knowledgeBindingRequestRef.current !== request) return;
+        setKnowledgeBindings(bindings);
+        setKnowledgeBindingLoading(false);
+      })
+      .catch((caught) => {
+        if (knowledgeBindingRequestRef.current !== request) return;
+        setKnowledgeBindingError(formatApiError(caught));
+        setKnowledgeBindingLoading(false);
+      });
+    return () => {
+      knowledgeBindingRequestRef.current += 1;
+    };
+  }, [projectId, knowledgeScope, knowledgeBindingRefresh]);
 
   useEffect(() => {
     const found = projects.find((project) => project.id === projectId);
@@ -314,7 +390,7 @@ function ProjectWorkflows() {
           const revision = await workflowApi.revision(published.currentPublishedRevisionId);
           if (loadRequestRef.current !== requestId) return;
           serverBaseline = JSON.stringify(revision.definition, null, 2);
-          setEditorText(serverBaseline);
+          updateEditorText(serverBaseline);
           setExpectedCurrentRevision(published.currentRevision);
           setNotice(
             `已载入 ${published.workflowKey} 已发布修订 v${revision.revision}；可在此基础上编辑下一版。`,
@@ -326,7 +402,7 @@ function ProjectWorkflows() {
       // 有本地草稿时优先恢复，避免切页面/刷新后静默丢失编辑内容。
       const draft = readDraft(projectId);
       if (draft) {
-        setEditorText(draft.text);
+        updateEditorText(draft.text);
         setExpectedCurrentRevision(draft.expectedCurrentRevision);
         setDraftRestored(true);
         setNotice(
@@ -352,7 +428,7 @@ function ProjectWorkflows() {
   }, [projectId]);
 
   function resetDraft(text: string, currentRevision = 0) {
-    setEditorText(text);
+    updateEditorText(text);
     setBaselineText(text);
     setDraftRestored(false);
     setEditorError('');
@@ -461,7 +537,7 @@ function ProjectWorkflows() {
       ...bindings[prerequisite.bindingIndex],
       knowledgeKey: reference,
     };
-    setEditorText(JSON.stringify(definition, null, 2));
+    updateEditorText(JSON.stringify(definition, null, 2));
     setValidation(null);
     setPending(null);
     setEditorError('');
@@ -469,30 +545,48 @@ function ProjectWorkflows() {
 
   async function bindKnowledge(prerequisite: KnowledgePrerequisite) {
     const roleId = roles.find((role) => role.key === prerequisite.roleKey)?.id;
-    if (!projectId || !knowledgeBindings?.canManage || !roleId) return;
+    if (!projectId || !knowledgeBindings?.canManage || !roleId || bindingBusyRef.current) return;
+    const request = ++knowledgeBindingRequestRef.current;
+    const expectedVersion = knowledgeBindings.version;
+    bindingBusyRef.current = true;
     setBindingBusy(true);
-    setKnowledgeError('');
+    setKnowledgeBindingError('');
     setValidation(null);
     setPending(null);
+    let originalError = '';
     try {
       await knowledgeBindingApi.bind(projectId, {
-        expectedVersion: knowledgeBindings.version,
+        expectedVersion,
         documentId: prerequisite.reference,
         roleId,
         required: true,
       });
-      setKnowledgeBindings(await knowledgeBindingApi.list(projectId));
-      setNotice('资料已绑定给接收角色，可以继续校验流程。绑定不会授予知识库阅读权限。');
     } catch (caught) {
-      setKnowledgeError(formatApiError(caught));
-      // 冲突后刷新版本，让下一次操作基于当前状态，保留用户的文档选择。
-      try {
-        setKnowledgeBindings(await knowledgeBindingApi.list(projectId));
-      } catch {
-        /* 保留原错误。 */
-      }
+      if (knowledgeBindingRequestRef.current !== request) return;
+      originalError = formatApiError(caught);
+      setKnowledgeBindingError(originalError);
+    }
+    if (knowledgeBindingRequestRef.current !== request) return;
+    // 成功和冲突均重新确认版本；刷新期间或失败后不沿用旧授权与版本。
+    setKnowledgeBindings(null);
+    setKnowledgeBindingLoading(true);
+    try {
+      const bindings = await knowledgeBindingApi.list(projectId);
+      if (knowledgeBindingRequestRef.current !== request) return;
+      setKnowledgeBindings(bindings);
+      if (!originalError)
+        setNotice('资料已绑定给接收角色，可以继续校验流程。绑定不会授予知识库阅读权限。');
+    } catch (refreshError) {
+      if (knowledgeBindingRequestRef.current !== request) return;
+      setKnowledgeBindingError(
+        `${originalError ? `${originalError}；` : '资料绑定已提交，但'}绑定状态刷新失败：${formatApiError(refreshError)}`,
+      );
     } finally {
-      setBindingBusy(false);
+      if (knowledgeBindingRequestRef.current === request) {
+        bindingBusyRef.current = false;
+        setBindingBusy(false);
+        setKnowledgeBindingLoading(false);
+      }
     }
   }
 
@@ -712,12 +806,38 @@ function ProjectWorkflows() {
               </div>
             </div>
             {knowledgeLoading && <InlineLoading label="正在读取可选的已发布资料…" />}
-            {knowledgeError && (
-              <p className="error" role="alert">
-                {knowledgeError}
-              </p>
+            {knowledgeIndexError && (
+              <div>
+                <p className="error" role="alert">
+                  {knowledgeIndexError}
+                </p>
+                <button
+                  className="ghost"
+                  type="button"
+                  disabled={busy || knowledgeLoading}
+                  onClick={() => setKnowledgeIndexRefresh((value) => value + 1)}
+                >
+                  重试资料列表
+                </button>
+              </div>
             )}
-            {!knowledgeLoading && !knowledgeError && knowledgeDocuments.length === 0 && (
+            {knowledgeBindingLoading && <InlineLoading label="正在读取角色绑定状态…" />}
+            {knowledgeBindingError && (
+              <div>
+                <p className="error" role="alert">
+                  角色绑定状态：{knowledgeBindingError}
+                </p>
+                <button
+                  className="ghost"
+                  type="button"
+                  disabled={busy || bindingBusy || knowledgeBindingLoading}
+                  onClick={() => setKnowledgeBindingRefresh((value) => value + 1)}
+                >
+                  重试绑定状态
+                </button>
+              </div>
+            )}
+            {!knowledgeLoading && knowledgeIndexComplete && knowledgeDocuments.length === 0 && (
               <p className="workflow-prerequisites-empty" role="status">
                 暂无可选的已发布资料，请先准备与发布知识资料，也可展开下方入口手动填写文档标识。
               </p>
@@ -753,7 +873,7 @@ function ProjectWorkflows() {
                         </span>
                       </div>
                       <span className={`workflow-prerequisite-status${bound ? ' is-bound' : ''}`}>
-                        {bound ? '已绑定' : '待绑定'}
+                        {!knowledgeBindings ? '待确认' : bound ? '已绑定' : '待绑定'}
                       </span>
                     </div>
                     <div className="workflow-prerequisite-selection">
@@ -777,7 +897,14 @@ function ProjectWorkflows() {
                         <button
                           className="ghost workflow-prerequisite-bind"
                           type="button"
-                          disabled={busy || bindingBusy || !selected || !roleId}
+                          disabled={
+                            busy ||
+                            bindingBusy ||
+                            knowledgeBindingLoading ||
+                            knowledgeLoading ||
+                            !selected ||
+                            !roleId
+                          }
                           onClick={() => void bindKnowledge(item)}
                         >
                           <Link2 size={16} aria-hidden="true" />
@@ -837,7 +964,7 @@ function ProjectWorkflows() {
             editorErrorRef.current = node;
           }}
           onChange={(next) => {
-            setEditorText(next);
+            updateEditorText(next);
             setEditorError('');
             setValidation(null);
             setPending(null);

@@ -22,12 +22,12 @@ export type BuiltinRolePackage = {
 export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
   {
     "packageId": "workmesh.role.backend",
-    "version": "1.2.2",
+    "version": "1.2.3",
     "roleKey": "backend",
     "manifest": {
       "packageSchemaVersion": "1.1",
       "id": "workmesh.role.backend",
-      "version": "1.2.2",
+      "version": "1.2.3",
       "protocolVersion": "1.0",
       "title": "后端角色包",
       "description": "把 PRD 转成可并行的接口契约，按契约实现并交付可验证证据。",
@@ -217,8 +217,8 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
           "id": "skill-plan-change",
           "kind": "skill",
           "path": "skills/plan-change/SKILL.md",
-          "sha256": "806d12def1507648159f14b1ab5f4c16e7af4df16e785775f9d1191a8485f853",
-          "byteLength": 1942,
+          "sha256": "b6018666b1042baebc042929c63b15e1c8c2e3b1b31bcf1ddc5122e9e1d5065c",
+          "byteLength": 2253,
           "mediaType": "text/markdown"
         }
       ],
@@ -337,10 +337,10 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
       {
         "resourceId": "skill-plan-change",
         "path": "roles/backend/skills/plan-change/SKILL.md",
-        "sha256": "806d12def1507648159f14b1ab5f4c16e7af4df16e785775f9d1191a8485f853",
-        "byteLength": 1942,
+        "sha256": "b6018666b1042baebc042929c63b15e1c8c2e3b1b31bcf1ddc5122e9e1d5065c",
+        "byteLength": 2253,
         "mediaType": "text/markdown",
-        "bodyBase64": "LS0tCm5hbWU6IHBsYW4tY2hhbmdlCmRlc2NyaXB0aW9uOiDosIPmn6Xml6LmnInku6PnoIHlubbmiorlt7Lnoa7orqTpqozmlLbovazmiJDluKbkvp3mja7jgIHku7vliqHkvp3otZblkozmlofku7blvZLlsZ7nmoTlrp7njrDorqHliJLvvJvlvZPot6jmqKHlnZfmlLnliqjjgIHogIHpobnnm67mjqXlhaXmiJblpI3mnYLlpZHnuqblj5jmm7TpnIDopoHlvIDlt6Xop4TliJLml7bkvb/nlKjjgIIKbGljZW5zZTogTUlUCm1ldGFkYXRhOgogIHJvbGVLZXk6IGJhY2tlbmQKLS0tCgojIOiwg+afpeS4juWunueOsOiuoeWIkgoKMS4g5Zu65a6a5Lu75Yqh5b+r54Wn44CBUFJEIOS/ruiuouOAgeS7k+W6k+S4juS7o+eggeeJiOacrOOAguivu+WPlumhueebruinhOiMg+OAgeebuOmCu+aooeWdl+WSjOW3suaciea1i+ivle+8jOWFiOaPj+i/sOeOsOeKtuWPiuS4jeWFgeiuuOegtOWdj+eahOihjOS4uuOAggoyLiDku4XosIPmn6XkvJrlvbHlk43mnKzmrKHmlrnmoYjnmoTmnKrnn6XpobnjgILmr4/pobnorrDlvZXvvJrpl67popjjgIHku6PnoIHmiJblrpjmlrnmlofmoaPkvp3mja7jgIHpgInlrprmlrnmoYjjgIHmlL7lvIPnmoTmlrnmoYjlj4rnkIbnlLHvvJvmnKrog73noa7orqTnmoTlhpkgVU5LTk9XTuOAggozLiDlhpnmuIXmlbDmja7mqKHlnovjgIHmjqXlj6PlpZHnuqbjgIHplJnor6/ooYzkuLrjgIHov4Hnp7vkuI7mgaLlpI3jgIHpqozor4Hlkb3ku6Tlj4rmjqXmlLbmlrnjgILnroDljZXmlLnliqjlj6/nm7TmjqXlhpnlhaUgYGltcGwubWRgIOWJjeWNiumDqOWIhu+8jOWkjeadguaUueWKqOS9v+eUqCBgY2hhbmdlLXBsYW4ubWRg44CCCjQuIOaMieeUqOaIt+S7t+WAvOS4uuWkmuWcuuaZr+aghyBQMS9QMi9QM++8jOWFiOivhuWIq+acgOWwj+WPr+eUqOOAgeerr+WIsOerr+S4lOWPr+eLrOeri+mqjOivgeeahCBNVlAg5YiH54mH77yM5bm25YaZ5piO5Lqk5LuY5qOA5p+l54K577yb6K6w5b2V5L2O5LyY5YWI57qn5bu25pyf55CG55Sx5ZKM5oGi5aSN5p2h5Lu244CC566A5Y2V5pS55Yqo5LiN5by65Yi25YiG5pyf44CCCjUuIOaMieWPr+eLrOeri+mqjOaUtueahOS4muWKoeWcuuaZr+aLhuS7u+WKoe+8jOavj+mhueaYjuehriBgYWNjZXB0YW5jZUtleXMgLyBkZXBlbmRzT24gLyBmaWxlcyAvIOmqjOivgeaWueazlWDjgILln7rnoYDkvp3otZblj6/lhYjlgZrvvIzkvYborqHliJLopoHorqnpppbkuKrliIfniYflsL3ml6nkuqfnlJ/nlKjmiLfku7flgLzjgIIKNi4g5Y+q5pyJ5peg5pyq5ruh6Laz5L6d6LWW44CB5paH5Lu25b2S5bGe5LiN6YeN5Y+g55qE5Lu75Yqh5omN5qCH5Y+v5bm26KGM77yb5qCH6K6w5LiN5o6I5LqI5bmz5Y+w5aSW6aKG5Y+W44CB5omn6KGM5oiW5om55YeG5p2D6ZmQ44CCCjcuIOWvueW3suaciee8uumZt+WFiOiusOW9leWPr+WkjeeOsOeahOWksei0peaIlumUgeWumuW9k+WJjeihjOS4uu+8m+aMiemjjumZqeWuieaOkuWlkee6puWSjOmbhuaIkOmqjOivge+8jOe6r+aWh+ahiOS/ruaUueS4jemineWkluWItumAoOa1i+ivleOAggo4LiDmoLjlr7kgUFJE44CB6K6h5YiS44CB5Lu75Yqh44CB55So5L6L5piv5ZCm6KaG55uW5LiA6Ie044CC5Y+v5bCG5a+55bqU5pWw5o2u5YaZ5Li66LSo6YeP5YyF5bm26L+Q6KGMIGB3b3JrbWVzaCBxdWFsaXR5IC0tZmlsZSBxdWFsaXR5LWJ1bmRsZS5qc29uIC0tanNvbmDvvJvpgJrov4flj6rooajnpLrmnKzlnLDmlbDmja7kuIDoh7TjgIIKCiMjIOS6pOaOpQoK6K6h5YiS5L+d55WZ5Zyo5pys5qyh5Lu75Yqh5YWB6K6455qEIElNUEwg5q2j5paH5oiW6K+E5a6h5p2Q5paZ77yM5aWR57qm5LuN6LWw5pei5pyJ55+l6K+G5YCZ6YCJ5Y+R5biD44CC5Lu75Yqh5ouG5YiG5Li65o+Q5qGI77yM55Sx546w5pyJ5rWB56iL56Gu6K6k77yb5LiN5b6X6Ieq5Yqo5aKe5Yqg5bel5L2c5rWB5q2l6aqk5oiW5L+u5pS55bey5om55YeG55qE6IyD5Zu044CCCg=="
+        "bodyBase64": "LS0tCm5hbWU6IHBsYW4tY2hhbmdlCmRlc2NyaXB0aW9uOiDosIPmn6Xml6LmnInku6PnoIHlubbmiorlt7Lnoa7orqTpqozmlLbovazmiJDluKbkvp3mja7jgIHku7vliqHkvp3otZblkozmlofku7blvZLlsZ7nmoTlrp7njrDorqHliJLvvJvlvZPot6jmqKHlnZfmlLnliqjjgIHogIHpobnnm67mjqXlhaXmiJblpI3mnYLlpZHnuqblj5jmm7TpnIDopoHlvIDlt6Xop4TliJLml7bkvb/nlKjjgIIKbGljZW5zZTogTUlUCm1ldGFkYXRhOgogIHJvbGVLZXk6IGJhY2tlbmQKLS0tCgojIOiwg+afpeS4juWunueOsOiuoeWIkgoKMS4g5Zu65a6a5Lu75Yqh5b+r54Wn44CBUFJEIOS/ruiuouOAgeS7k+W6k+S4juS7o+eggeeJiOacrOOAguivu+WPlumhueebruinhOiMg+OAgeebuOmCu+aooeWdl+WSjOW3suaciea1i+ivle+8jOWFiOaPj+i/sOeOsOeKtuWPiuS4jeWFgeiuuOegtOWdj+eahOihjOS4uuOAggoyLiDku4XosIPmn6XkvJrlvbHlk43mnKzmrKHmlrnmoYjnmoTmnKrnn6XpobnjgILmr4/pobnorrDlvZXvvJrpl67popjjgIHku6PnoIHmiJblrpjmlrnmlofmoaPkvp3mja7jgIHpgInlrprmlrnmoYjjgIHmlL7lvIPnmoTmlrnmoYjlj4rnkIbnlLHvvJvmnKrog73noa7orqTnmoTlhpkgVU5LTk9XTuOAggozLiDlhpnmuIXmlbDmja7mqKHlnovjgIHmjqXlj6PlpZHnuqbjgIHplJnor6/ooYzkuLrjgIHov4Hnp7vkuI7mgaLlpI3jgIHpqozor4Hlkb3ku6Tlj4rmjqXmlLbmlrnjgILnroDljZXmlLnliqjlj6/nm7TmjqXlhpnlhaUgYGltcGwubWRgIOWJjeWNiumDqOWIhu+8jOWkjeadguaUueWKqOS9v+eUqCBgY2hhbmdlLXBsYW4ubWRg44CCCjQuIOaMieeUqOaIt+S7t+WAvOS4uuWkmuWcuuaZr+aghyBQMS9QMi9QM++8jOWFiOivhuWIq+acgOWwj+WPr+eUqOOAgeerr+WIsOerr+S4lOWPr+eLrOeri+mqjOivgeeahCBNVlAg5YiH54mH77yM5bm25YaZ5piO5Lqk5LuY5qOA5p+l54K577yb6K6w5b2V5L2O5LyY5YWI57qn5bu25pyf55CG55Sx5ZKM5oGi5aSN5p2h5Lu244CC566A5Y2V5pS55Yqo5LiN5by65Yi25YiG5pyf44CCCjUuIOaMieWPr+eLrOeri+mqjOaUtueahOS4muWKoeWcuuaZr+aLhuS7u+WKoe+8jOavj+mhueaYjuehriBgYWNjZXB0YW5jZUtleXMgLyBkZXBlbmRzT24gLyBmaWxlcyAvIOmqjOivgeaWueazlWDjgILln7rnoYDkvp3otZblj6/lhYjlgZrvvIzkvYborqHliJLopoHorqnpppbkuKrliIfniYflsL3ml6nkuqfnlJ/nlKjmiLfku7flgLzjgIIKNi4g5Y+q5pyJ5peg5pyq5ruh6Laz5L6d6LWW44CB5paH5Lu25b2S5bGe5LiN6YeN5Y+g55qE5Lu75Yqh5omN5qCH5Y+v5bm26KGM77yb5qCH6K6w5LiN5o6I5LqI5bmz5Y+w5aSW6aKG5Y+W44CB5omn6KGM5oiW5om55YeG5p2D6ZmQ44CCCjcuIOWvueW3suaciee8uumZt+WFiOiusOW9leWPr+WkjeeOsOeahOWksei0peaIlumUgeWumuW9k+WJjeihjOS4uu+8m+aMiemjjumZqeWuieaOkuWlkee6puWSjOmbhuaIkOmqjOivge+8jOe6r+aWh+ahiOS/ruaUueS4jemineWkluWItumAoOa1i+ivleOAggo4LiDmoLjlr7kgUFJE44CB6K6h5YiS44CB5Lu75Yqh44CB55So5L6L5piv5ZCm6KaG55uW5LiA6Ie044CCMS4xIOi0qOmHj+WMheaMieeZu+iusOS7k+W6k+S4juWNleS4gOaPkOS6pOe7hOe7h++8jGNhc2VzLnJldmlzaW9uIOW8leeUqOW3suW9ouaIkOeahOecn+WuniBDQVNFUyDlt6Xku7YgSUQg5LiOIFNIQS0yNTbvvJvkuqTku5ggZXZpZGVuY2UuY2FzZVJlZnMg55u05o6l5YWz6IGU5a6e6ZmF55So5L6L5Y+K55u45ZCM5L+u6K6i44CC5pyq5b2i5oiQ55So5L6L5bel5Lu25pe25YWI5L+d5a2Y6K6h5YiS77yM5LiN5aGr5YaZ5YGHIElE77ybMS4wIOS7jeWPr+WIhuaekOS9hue8uuWwkeeyvuehruaJp+ihjOWFs+iBlO+8jOS4jeiDveS7heS/ruaUueeJiOacrOWPt+OAgui/kOihjCBgd29ya21lc2ggcXVhbGl0eSAtLWZpbGUgcXVhbGl0eS1idW5kbGUuanNvbiAtLWpzb25gIOWPquihqOekuuacrOWcsOi+k+WFpeS4gOiHtO+8jOS4jeaguOmqjOW3peS7tuaIluaJp+ihjOadpea6kOOAggoKIyMg5Lqk5o6lCgrorqHliJLkv53nlZnlnKjmnKzmrKHku7vliqHlhYHorrjnmoQgSU1QTCDmraPmlofmiJbor4TlrqHmnZDmlpnvvIzlpZHnuqbku43otbDml6LmnInnn6Xor4blgJnpgInlj5HluIPjgILku7vliqHmi4bliIbkuLrmj5DmoYjvvIznlLHnjrDmnInmtYHnqIvnoa7orqTvvJvkuI3lvpfoh6rliqjlop7liqDlt6XkvZzmtYHmraXpqqTmiJbkv67mlLnlt7Lmibnlh4bnmoTojIPlm7TjgIIK"
       }
     ]
   },
@@ -1220,12 +1220,12 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
   },
   {
     "packageId": "workmesh.role.qa",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "roleKey": "qa",
     "manifest": {
       "packageSchemaVersion": "1.1",
       "id": "workmesh.role.qa",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "protocolVersion": "1.0",
       "title": "测试角色包",
       "description": "从验收派生用例与评测集，执行后把失败归因为可追踪的缺陷。",
@@ -1323,8 +1323,8 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
           "id": "template-cases",
           "kind": "template",
           "path": "assets/templates/cases.yaml",
-          "sha256": "19add92fc4c0e2a57eef01d3232f36652633e43d6154a25109509d6830f4fdaf",
-          "byteLength": 922,
+          "sha256": "3b40328c0bc9314bc61e7a03b42b957fb2190b2eeaad51f54d39f9032cd5ef6f",
+          "byteLength": 1107,
           "mediaType": "application/yaml"
         },
         {
@@ -1339,24 +1339,24 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
           "id": "template-delivery-audit",
           "kind": "template",
           "path": "assets/templates/delivery-audit.md",
-          "sha256": "0232504c8938201f537c65c023c7083f9f17af1e44674b4e1429bafecec9d35e",
-          "byteLength": 880,
+          "sha256": "4b2d2f47d5a3baf22aae400f1a44abecb968663243d7e21d84b1ca79be99d8f1",
+          "byteLength": 1549,
           "mediaType": "text/markdown"
         },
         {
           "id": "template-evals",
           "kind": "template",
           "path": "assets/templates/evals.yaml",
-          "sha256": "4401c6c942814b5144b6d8e222ce0c3c033ac5f6a56a75c71e2c1336748ac68b",
-          "byteLength": 888,
+          "sha256": "3c224aa4306c111cc9d885ba2e9ccb1a5fde8884bcf38a949e4fff2caa938b7d",
+          "byteLength": 1139,
           "mediaType": "application/yaml"
         },
         {
           "id": "checklist-cases-coverage",
           "kind": "checklist",
           "path": "checklists/cases-coverage.md",
-          "sha256": "042413ce126d97cbcdd658b730ce28c7c11e108e9265aab634bcb92b0e5391bb",
-          "byteLength": 1067,
+          "sha256": "3419077a6d9fa3080315528ce9d85242c7545353f8e955a9bf17e9de22a83176",
+          "byteLength": 1643,
           "mediaType": "text/markdown"
         },
         {
@@ -1387,8 +1387,8 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
           "id": "skill-audit-delivery",
           "kind": "skill",
           "path": "skills/audit-delivery/SKILL.md",
-          "sha256": "65962f9a7a9397f870476094bbb086116d96f27632ec283122c00efdad54118c",
-          "byteLength": 1497,
+          "sha256": "e34549bc815ec1a3f0adf13affe31f9d8c47f555a6dc3f0014f709bdbcc9388c",
+          "byteLength": 1861,
           "mediaType": "text/markdown"
         },
         {
@@ -1443,10 +1443,10 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
       {
         "resourceId": "template-cases",
         "path": "roles/qa/assets/templates/cases.yaml",
-        "sha256": "19add92fc4c0e2a57eef01d3232f36652633e43d6154a25109509d6830f4fdaf",
-        "byteLength": 922,
+        "sha256": "3b40328c0bc9314bc61e7a03b42b957fb2190b2eeaad51f54d39f9032cd5ef6f",
+        "byteLength": 1107,
         "mediaType": "application/yaml",
-        "bodyBase64": "IyDnlKjkvovmqKHmnb8KIyBpZDogVEMtPOmcgOaxgue8luWPtz4tPOW6j+WPtz4KIyBjb3ZlcnM6IOimhueblueahOmqjOaUtiBrZXnvvIzoh7PlsJHkuIDkuKoKIyBraW5kOiBURVNUIHwgSU5TUEVDVElPTiB8IERFTU/vvIjkuI7pqozmlLbnmoQgdmVyaWZpY2F0aW9uIOWvuem9kO+8iQoKdmVyc2lvbjogMQpwaGFzZTogREVTSUdOCmV4ZWN1dGlvblN0YXR1czogTk9UX1JVTgpyZXF1aXJlbWVudDogPFBST0pFQ1RfS0VZPi085bqP5Y+3PgoKY2FzZXM6CiAgLSBpZDogVEMtPOW6j+WPtz4tMDEKICAgIGNvdmVyczogW2FjLTAxXQogICAga2luZDogVEVTVAogICAgZ2l2ZW46IDzliY3nva7nirbmgIHkuI7mlbDmja4+CiAgICB3aGVuOiA85pON5L2cPgogICAgdGhlbjogPOWPr+ingua1i+e7k+aenO+8jOS4gOadoeaWreiogD4KICAgIGRhdGE6CiAgICAgIC0gPOa1i+ivleaVsOaNruaIliBmaXh0dXJlIOi3r+W+hD4KCiAgLSBpZDogVEMtPOW6j+WPtz4tMDIKICAgIGNvdmVyczogW2FjLTAyXQogICAga2luZDogSU5TUEVDVElPTgogICAgZ2l2ZW46IDznmbvlvZXop5LoibLkuI7pobXpnaI+CiAgICB3aGVuOiA85pON5L2cPgogICAgdGhlbjogPOeVjOmdouW6lOWRiOeOsOeahOWGheWuuT4KICAgIGV2aWRlbmNlOiDmiKrlm74KCiAgLSBpZDogVEMtPOW6j+WPtz4tMDMKICAgIGNvdmVyczogW2FjLTAzXQogICAga2luZDogREVNTwogICAgZ2l2ZW46IDzlt7Lnoa7orqTnmoTmvJTnpLrnjq/looPkuI7mlbDmja4+CiAgICB3aGVuOiA85oyJ5q2l6aqk5ryU56S6PgogICAgdGhlbjogPOWPr+ingua1i+e7k+aenD4KCmNvdmVyYWdlOgogIHVuY292ZXJlZDogW10KIyB1bmNvdmVyZWQg56S65L6L77yaLSBhYy0wM1xuIyAgIOWOn+WboDog6ZyA6KaB55yf5a6e56ys5LiJ5pa5546v5aKD77yM5pqC55SxIERFTU8g6KaG55uWCg=="
+        "bodyBase64": "IyDnlKjkvovmqKHmnb8KIyBpZDogVEMtPOmcgOaxgue8luWPtz4tPOW6j+WPtz4KIyBjb3ZlcnM6IOimhueblueahOmqjOaUtiBrZXnvvIzoh7PlsJHkuIDkuKoKIyBraW5kOiBURVNUIHwgSU5TUEVDVElPTiB8IERFTU/vvIjkuI7pqozmlLbnmoQgdmVyaWZpY2F0aW9uIOWvuem9kO+8iQojIOatpOaWh+S7tuWFiOS9nOS4uiBDQVNFUyDmraPmlofkuqTku5jvvJvlubPlj7Dov5Tlm57kuI3lj6/lj5ggYXJ0aWZhY3RJZC9zaGEyNTYg5ZCO77yMCiMg5bCG6K+l5byV55So5aGr5YWlIHF1YWxpdHkgMS4xIOeahCBjYXNlc1tdLnJldmlzaW9u44CC5LiN6KaB5Zyo5pys5paH5Lu26Ieq5aGr6Ieq6Lqr5pGY6KaB44CCCgp2ZXJzaW9uOiAxCnBoYXNlOiBERVNJR04KZXhlY3V0aW9uU3RhdHVzOiBOT1RfUlVOCnJlcXVpcmVtZW50OiA8UFJPSkVDVF9LRVk+LTzluo/lj7c+CgpjYXNlczoKICAtIGlkOiBUQy085bqP5Y+3Pi0wMQogICAgY292ZXJzOiBbYWMtMDFdCiAgICBraW5kOiBURVNUCiAgICBnaXZlbjogPOWJjee9rueKtuaAgeS4juaVsOaNrj4KICAgIHdoZW46IDzmk43kvZw+CiAgICB0aGVuOiA85Y+v6KeC5rWL57uT5p6c77yM5LiA5p2h5pat6KiAPgogICAgZGF0YToKICAgICAgLSA85rWL6K+V5pWw5o2u5oiWIGZpeHR1cmUg6Lev5b6EPgoKICAtIGlkOiBUQy085bqP5Y+3Pi0wMgogICAgY292ZXJzOiBbYWMtMDJdCiAgICBraW5kOiBJTlNQRUNUSU9OCiAgICBnaXZlbjogPOeZu+W9leinkuiJsuS4jumhtemdoj4KICAgIHdoZW46IDzmk43kvZw+CiAgICB0aGVuOiA855WM6Z2i5bqU5ZGI546w55qE5YaF5a65PgogICAgZXZpZGVuY2U6IOaIquWbvgoKICAtIGlkOiBUQy085bqP5Y+3Pi0wMwogICAgY292ZXJzOiBbYWMtMDNdCiAgICBraW5kOiBERU1PCiAgICBnaXZlbjogPOW3suehruiupOeahOa8lOekuueOr+Wig+S4juaVsOaNrj4KICAgIHdoZW46IDzmjInmraXpqqTmvJTnpLo+CiAgICB0aGVuOiA85Y+v6KeC5rWL57uT5p6cPgoKY292ZXJhZ2U6CiAgdW5jb3ZlcmVkOiBbXQojIHVuY292ZXJlZCDnpLrkvovvvJotIGFjLTAzXG4jICAg5Y6f5ZugOiDpnIDopoHnnJ/lrp7nrKzkuInmlrnnjq/looPvvIzmmoLnlLEgREVNTyDopobnm5YK"
       },
       {
         "resourceId": "template-defect",
@@ -1459,26 +1459,26 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
       {
         "resourceId": "template-delivery-audit",
         "path": "roles/qa/assets/templates/delivery-audit.md",
-        "sha256": "0232504c8938201f537c65c023c7083f9f17af1e44674b4e1429bafecec9d35e",
-        "byteLength": 880,
+        "sha256": "4b2d2f47d5a3baf22aae400f1a44abecb968663243d7e21d84b1ca79be99d8f1",
+        "byteLength": 1549,
         "mediaType": "text/markdown",
-        "bodyBase64": "IyDkuqTku5jmoLjpqozvvJo86ZyA5rGC57yW5Y+3PgoKPiBQUkQg5L+u6K6i77yaPGlkPiDCtyDlv6vnhafvvJo8aWQ+IMK3IOaPkOS6pO+8mjzlrozmlbQgU0hBPiDCtyDnlKjkvovkv67orqIv546v5aKD77yaPOeJiOacrD4KPiDmnaXmupDvvJpBZ2VudCDmo4Dmn6XmiqXlkYrvvJvmraPlvI/pqozmlLblvoUgSFVNQU4g5Yaz5a6a44CCCgojIyDpqozmlLbmmKDlsIQKCnwg6aqM5pS2IGtleSB8IOS7u+WKoSB8IOS7o+eggeS9jee9riB8IOeUqOS+iyB8IOWunumZhee7k+aenOS4juivgeaNriB8IOe7k+iuui/pmZDliLYgfAp8IC0tLS0tLS0tIHwgLS0tLSB8IC0tLS0tLS0tIHwgLS0tLSB8IC0tLS0tLS0tLS0tLS0tIHwgLS0tLS0tLS0tIHwKfCBhYy0wMSAgICB8ICAgICAgfCAgICAgICAgICB8ICAgICAgfCDmnKrmiafooYwgICAgICAgICB8IOaXoOazlemqjOivgSAgfAoKIyMg57y65Y+j5LiO5ZCO57ut5bel5L2c5o+Q5qGICgp8IOeos+WumiBJRCB8IOmqjOaUtiBrZXkgfCDnvLrlpLEv5YGP5beu5Y+K5L2N572uIHwg5YiG57G7IHwg5bu66K6u6LSf6LSj5Lq6IHwg5aSN6aqM5p2h5Lu2IHwg5Y6f6K6w5b2VIHwKfCAtLS0tLS0tIHwgLS0tLS0tLS0gfCAtLS0tLS0tLS0tLS0tLS0gfCAtLS0tIHwgLS0tLS0tLS0tLSB8IC0tLS0tLS0tIHwgLS0tLS0tIHwKfCBnYXAtMDEgIHwgYWMtMDEgICAgfCAgICAgICAgICAgICAgICAgfCAgICAgIHwgICAgICAgICAgICB8ICAgICAgICAgIHwgICAgICAgIHwKCiMjIOS/ruiuouWOhuWPsgoK6L+95Yqg5q+P6L2u5o+Q5Lqk44CB5Y+R546w5LiO6Kej5Yaz5L6d5o2u77yb5L+d55WZ5pen57uT6K6644CC6Zi75aGe44CB5aSx6LSl44CB5pyq5omn6KGM5ZKM5pyq5qOA5p+l5Z2H5piO56Gu5YiX5Ye644CCCg=="
+        "bodyBase64": "IyDkuqTku5jmoLjpqozvvJo86ZyA5rGC57yW5Y+3PgoKPiBQUkQg5L+u6K6i77yaPGlkPiDCtyDlv6vnhafvvJo8aWQ+IMK3IOaPkOS6pO+8mjzlrozmlbQgU0hBPiDCtyDnlKjkvovkv67orqIv546v5aKD77yaPOeJiOacrD4KPiDmnaXmupDvvJpBZ2VudCDmo4Dmn6XmiqXlkYrvvJvmraPlvI/pqozmlLblvoUgSFVNQU4g5Yaz5a6a44CCCgojIyDpqozmlLbmmKDlsIQKCnwg6aqM5pS2IGtleSB8IOS7u+WKoSB8IOS7o+eggeS9jee9riB8IOeUqOS+iyB8IOWunumZhee7k+aenOS4juivgeaNriB8IOe7k+iuui/pmZDliLYgfAp8IC0tLS0tLS0tIHwgLS0tLSB8IC0tLS0tLS0tIHwgLS0tLSB8IC0tLS0tLS0tLS0tLS0tIHwgLS0tLS0tLS0tIHwKfCBhYy0wMSAgICB8ICAgICAgfCAgICAgICAgICB8ICAgICAgfCDmnKrmiafooYwgICAgICAgICB8IOaXoOazlemqjOivgSAgfAoKIyMg57y65Y+j5LiO5ZCO57ut5bel5L2c5o+Q5qGICgp8IOeos+WumiBJRCB8IOmqjOaUtiBrZXkgfCDnvLrlpLEv5YGP5beu5Y+K5L2N572uIHwg5YiG57G7IHwg5bu66K6u6LSf6LSj5Lq6IHwg5aSN6aqM5p2h5Lu2IHwg5Y6f6K6w5b2VIHwKfCAtLS0tLS0tIHwgLS0tLS0tLS0gfCAtLS0tLS0tLS0tLS0tLS0gfCAtLS0tIHwgLS0tLS0tLS0tLSB8IC0tLS0tLS0tIHwgLS0tLS0tIHwKfCBnYXAtMDEgIHwgYWMtMDEgICAgfCAgICAgICAgICAgICAgICAgfCAgICAgIHwgICAgICAgICAgICB8ICAgICAgICAgIHwgICAgICAgIHwKCiMjIOS/ruiuouWOhuWPsgoK6L+95Yqg5q+P6L2u5o+Q5Lqk44CB5Y+R546w5LiO6Kej5Yaz5L6d5o2u77yb5L+d55WZ5pen57uT6K6644CC6Zi75aGe44CB5aSx6LSl44CB5pyq5omn6KGM5ZKM5pyq5qOA5p+l5Z2H5piO56Gu5YiX5Ye644CCCgojIyDnsr7noa7miafooYzlhbPogZTorrDlvZUKCui0qOmHj+WMheeJiOacrO+8mjwxLjAgLyAxLjE+77yb55m76K6w5LuT5bqT77yaPOecn+WuniBJRD7vvJvlrozmlbTmj5DkuqTvvJo8NDAg5L2N5bCP5YaZIFNIQT7jgIIKCnwgY2FzZUlkICAgICB8IENBU0VTIGFydGlmYWN0SWQgfCBTSEEtMjU2ICAgIHwgZXZpZGVuY2VJZCB8IOWunumZhee7k+aenCB8IOe8uuWPo+S4jui0o+S7u+S6uiB8CnwgLS0tLS0tLS0tLSB8IC0tLS0tLS0tLS0tLS0tLS0gfCAtLS0tLS0tLS0tIHwgLS0tLS0tLS0tLSB8IC0tLS0tLS0tIHwgLS0tLS0tLS0tLS0tIHwKfCA855yf5a6e55So5L6LPiB8IDzkuI3lj6/lj5jlt6Xku7Y+ICAgICB8IDznnJ/lrp7mkZjopoE+IHwgPOaJp+ihjOiusOW9lT4gfCBOT1RfUlVOICB8IDzlvoXokL3lrp4+ICAgICB8CgoxLjEg6YCQ6aG55qC45a+5IGV2aWRlbmNlLmNhc2VSZWZzIOS4jiBjYXNlcy5yZXZpc2lvbu+8jOWFqOmDqOWjsOaYjueUqOS+i+mcgOe7k+aenOOAgjEuMCDmmI7noa7igJzmnKrlu7rnq4vmiafooYzliLDnlKjkvovkv67orqLnmoTnsr7noa7lhbPogZTigJ3vvIzkuI3ooaXpgKDkv67orqLjgILmiqXlkYrmnaXmupDnoa7orqTjgIHlhoXlrrnnu5PorrrjgIHniYjmnKzpgILnlKjmgKfkuI4gSFVNQU4g5om55YeG5YiG5Yir6K6w5b2V44CCCg=="
       },
       {
         "resourceId": "template-evals",
         "path": "roles/qa/assets/templates/evals.yaml",
-        "sha256": "4401c6c942814b5144b6d8e222ce0c3c033ac5f6a56a75c71e2c1336748ac68b",
-        "byteLength": 888,
+        "sha256": "3c224aa4306c111cc9d885ba2e9ccb1a5fde8884bcf38a949e4fff2caa938b7d",
+        "byteLength": 1139,
         "mediaType": "application/yaml",
-        "bodyBase64": "IyDor4TmtYvnu5PmnpzmqKHmnb8KIyDlm7rlrprnjq/looPkuI7niYjmnKzvvIznu5PmnpzmiY3lj6/mr5TovoPvvJvlpLHotKXlv4XpobvliIbnsbvvvIzkuI3ph43ot5HliLDnu7/jgIIKCnN1aXRlOiA8c3VpdGUg5ZCN56ewPgpwaGFzZTogRVhFQ1VUSU9OCnJlcXVpcmVtZW50OiA8UFJPSkVDVF9LRVk+LTzluo/lj7c+CmNhc2VzUmV2aXNpb246IDznlKjkvovlt6Xku7bmiJbkv67orqLmoIfor4Y+CmNvbW1pdDogPDQwIOS9jSBzaGE+CmVudmlyb25tZW50OgogIGJ1aWxkOiA854mI5pys5oiW6ZWc5YOPPgogIGRhdGFiYXNlOiA854mI5pysPgogIHNlcnZpY2VzOiBbXQogIHN0YXJ0ZWRBdDogPElTTyDml7bpl7Q+CgpzdW1tYXJ5OgogIHRvdGFsOiAwCiAgcGFzc2VkOiAwCiAgZmFpbGVkOiAwCiAgZmxha3k6IDAKICBkdXJhdGlvbk1zOiAwCgpyZXN1bHRzOgogIC0gY2FzZTogVEMtPOW6j+WPtz4tMDEKICAgIHN0YXR1czogUEFTU0VECiAgICBkdXJhdGlvbk1zOiAwCiAgLSBjYXNlOiBUQy085bqP5Y+3Pi0wNAogICAgc3RhdHVzOiBGQUlMRUQKICAgIGR1cmF0aW9uTXM6IDAKICAgIGtpbmQ6IFBST0RVQ1RfREVGRUNUCiAgICBldmlkZW5jZTogPOaXpeW/lyAvIOaIquWbviAvIOivt+axgiBJRD4KCmZhaWx1cmVzOgogIC0gY2FzZTogVEMtPOW6j+WPtz4tMDQKICAgIGtpbmQ6IFBST0RVQ1RfREVGRUNUCiAgICByZWFzb246IDzkuIDlj6Xor53moLnlm6A+CiAgLSBjYXNlOiBUQy085bqP5Y+3Pi0wNwogICAga2luZDogQ0FTRV9JTlZBTElECiAgICByZWFzb246IDzmlq3oqIDku43mjInml6fniYjlpZHnuqbnvJblhpk+CiAgLSBjYXNlOiBUQy085bqP5Y+3Pi0wOQogICAga2luZDogRU5WSVJPTk1FTlQKICAgIHJlYXNvbjogPOS+nei1luacquWQr+WKqD4K"
+        "bodyBase64": "IyDor4TmtYvnu5PmnpzmqKHmnb8KIyDlm7rlrprnjq/looPkuI7niYjmnKzvvIznu5PmnpzmiY3lj6/mr5TovoPvvJvlpLHotKXlv4XpobvliIbnsbvvvIzkuI3ph43ot5HliLDnu7/jgIIKCnN1aXRlOiA8c3VpdGUg5ZCN56ewPgpwaGFzZTogRVhFQ1VUSU9OCnJlcXVpcmVtZW50OiA8UFJPSkVDVF9LRVk+LTzluo/lj7c+CmNhc2VzUmV2aXNpb246CiAgYXJ0aWZhY3RJZDogPOW3suWtmOWcqOeahOS4jeWPr+WPmCBDQVNFUyDlt6Xku7YgSUQ+CiAgc2hhMjU2OiA86K+l5bel5Lu255yf5a6e55qEIDY0IOS9jeWwj+WGmSBTSEEtMjU2Pgpwcm9qZWN0UmVwb3NpdG9yeUlkOiA8V29ya01lc2gg55m76K6w5LuT5bqTIElE77yM5LiN5piv5o+Q5L6b5pa55pWw5a2XIElEPgpjb21taXQ6IDw0MCDkvY0gc2hhPgplbnZpcm9ubWVudDoKICBidWlsZDogPOeJiOacrOaIlumVnOWDjz4KICBkYXRhYmFzZTogPOeJiOacrD4KICBzZXJ2aWNlczogW10KICBzdGFydGVkQXQ6IDxJU08g5pe26Ze0PgoKc3VtbWFyeToKICB0b3RhbDogMAogIHBhc3NlZDogMAogIGZhaWxlZDogMAogIGZsYWt5OiAwCiAgZHVyYXRpb25NczogMAoKcmVzdWx0czoKICAtIGNhc2U6IFRDLTzluo/lj7c+LTAxCiAgICAjIOavj+adoeaJp+ihjOWcqCBxdWFsaXR5IDEuMSDnmoQgZXZpZGVuY2UuY2FzZVJlZnMg5Lit5aSN5Yi257K+56GuIGNhc2VJZCDkuI4gY2FzZXNSZXZpc2lvbuOAggogICAgc3RhdHVzOiBQQVNTRUQKICAgIGR1cmF0aW9uTXM6IDAKICAtIGNhc2U6IFRDLTzluo/lj7c+LTA0CiAgICBzdGF0dXM6IEZBSUxFRAogICAgZHVyYXRpb25NczogMAogICAga2luZDogUFJPRFVDVF9ERUZFQ1QKICAgIGV2aWRlbmNlOiA85pel5b+XIC8g5oiq5Zu+IC8g6K+35rGCIElEPgoKZmFpbHVyZXM6CiAgLSBjYXNlOiBUQy085bqP5Y+3Pi0wNAogICAga2luZDogUFJPRFVDVF9ERUZFQ1QKICAgIHJlYXNvbjogPOS4gOWPpeivneagueWboD4KICAtIGNhc2U6IFRDLTzluo/lj7c+LTA3CiAgICBraW5kOiBDQVNFX0lOVkFMSUQKICAgIHJlYXNvbjogPOaWreiogOS7jeaMieaXp+eJiOWlkee6pue8luWGmT4KICAtIGNhc2U6IFRDLTzluo/lj7c+LTA5CiAgICBraW5kOiBFTlZJUk9OTUVOVAogICAgcmVhc29uOiA85L6d6LWW5pyq5ZCv5YqoPgo="
       },
       {
         "resourceId": "checklist-cases-coverage",
         "path": "roles/qa/checklists/cases-coverage.md",
-        "sha256": "042413ce126d97cbcdd658b730ce28c7c11e108e9265aab634bcb92b0e5391bb",
-        "byteLength": 1067,
+        "sha256": "3419077a6d9fa3080315528ce9d85242c7545353f8e955a9bf17e9de22a83176",
+        "byteLength": 1643,
         "mediaType": "text/markdown",
-        "bodyBase64": "IyDnlKjkvovopobnm5bmuIXljZUKCi0gWyBdIOavj+adoemqjOaUtuiHs+WwkeS4gOS4queUqOS+i+OAggotIFsgXSDnlKjkvosgYGNvdmVyc2Ag5byV55So55qEIGtleSDlnKjpqozmlLbph4zlrZjlnKjjgIIKLSBbIF0gYGtpbmRgIOS4jumqjOaUtueahCBgdmVyaWZpY2F0aW9uYCDkuIDoh7TjgIIKLSBbIF0g6L6555WM6KaG55uW77ya56m65YC844CB6LaF6ZW/44CB5bm25Y+R44CB5p2D6ZmQ5LiN6Laz44CCCi0gWyBdIOW8guW4uOimhueblu+8muS4i+a4uOWksei0peOAgei2heaXtuOAgemZkOa1geOAggotIFsgXSDnlKjkvosgSUQg5ZSv5LiA77yM5qC85byP5Li6IGBUQy086ZyA5rGC57yW5Y+3Pi085bqP5Y+3PmDjgIIKLSBbIF0g5LiA5p2h55So5L6L5Y+q6aqM5LiA5Liq5pat6KiA44CCCi0gWyBdIOimhueblue8uuWPo+W3suaYvuW8j+WIl+WHuu+8jOW5tuivtOaYjueUseiwgeOAgeS9leaXtuihpeOAggotIFsgXSDkuI3mtYvlrp7njrDnu4boioLvvIzlj6rmtYvooYzkuLrkuI7lpZHnuqbjgIIKLSBbIF0g55So5L6L6K6+6K6h5qCH6K6w5pyq5omn6KGM77yM5LiN5oqK6KaG55uW5qOA5p+l5b2T5oiQ5Yqf6IO96YCa6L+H44CCCi0gWyBdIOa1i+ivleaJp+ihjOmYtuauteWbuuWumuWunueOsOOAgeeUqOS+i+S4jueOr+Wig+eJiOacrO+8jOe7k+aenOWPr+i3qOeJiOacrOavlOi+g+OAggotIFsgXSDmiafooYznu5PmnpzlpoLlrp7orrDlvZXlpLHotKXkuI7pmLvloZ7vvIzmnKrmiafooYzml7bkuI3lo7DmmI4gYGNhc2VzLWV4ZWN1dGVkOiB0cnVlYOOAggoKIyMg5Lqk5LuY5YmN5pyA5ZCO5LiJ6ZeuCgoxLiDlpoLmnpzov5nmnaHpnIDmsYLkuIrnur/lkI7lh7rpl67popjvvIznjrDmnInnlKjkvovog73kuI3og73lrprkvY3liLDlk6rkuKrpqozmlLbmsqHov4fvvJ8KMi4g5pyJ5rKh5pyJ5LiA5p2h55So5L6L77yM5Yig5o6J5LmL5ZCO5L2g5L6d54S25pyJ5L+h5b+D5LiK57q/77yf5aaC5p6c5pyJ77yM5a6D5Y+v6IO95rKh55So44CCCjMuIOWksei0peWIhuexu+WGmea4healmuS6huWQl++8jOi/mOaYr+WFqOagh+aIkOOAjOS6p+WTgee8uumZt+OAje+8nwo="
+        "bodyBase64": "IyDnlKjkvovopobnm5bmuIXljZUKCi0gWyBdIOavj+adoemqjOaUtuiHs+WwkeS4gOS4queUqOS+i+OAggotIFsgXSDnlKjkvosgYGNvdmVyc2Ag5byV55So55qEIGtleSDlnKjpqozmlLbph4zlrZjlnKjjgIIKLSBbIF0gYGtpbmRgIOS4jumqjOaUtueahCBgdmVyaWZpY2F0aW9uYCDkuIDoh7TjgIIKLSBbIF0g6L6555WM6KaG55uW77ya56m65YC844CB6LaF6ZW/44CB5bm25Y+R44CB5p2D6ZmQ5LiN6Laz44CCCi0gWyBdIOW8guW4uOimhueblu+8muS4i+a4uOWksei0peOAgei2heaXtuOAgemZkOa1geOAggotIFsgXSDnlKjkvosgSUQg5ZSv5LiA77yM5qC85byP5Li6IGBUQy086ZyA5rGC57yW5Y+3Pi085bqP5Y+3PmDjgIIKLSBbIF0g5LiA5p2h55So5L6L5Y+q6aqM5LiA5Liq5pat6KiA44CCCi0gWyBdIOimhueblue8uuWPo+W3suaYvuW8j+WIl+WHuu+8jOW5tuivtOaYjueUseiwgeOAgeS9leaXtuihpeOAggotIFsgXSDkuI3mtYvlrp7njrDnu4boioLvvIzlj6rmtYvooYzkuLrkuI7lpZHnuqbjgIIKLSBbIF0g55So5L6L6K6+6K6h5qCH6K6w5pyq5omn6KGM77yM5LiN5oqK6KaG55uW5qOA5p+l5b2T5oiQ5Yqf6IO96YCa6L+H44CCCi0gWyBdIOa1i+ivleaJp+ihjOmYtuauteWbuuWumuWunueOsOOAgeeUqOS+i+S4jueOr+Wig+eJiOacrO+8jOe7k+aenOWPr+i3qOeJiOacrOavlOi+g+OAggotIFsgXSDmiafooYznu5PmnpzlpoLlrp7orrDlvZXlpLHotKXkuI7pmLvloZ7vvIzmnKrmiafooYzml7bkuI3lo7DmmI4gYGNhc2VzLWV4ZWN1dGVkOiB0cnVlYOOAggoKIyMg5Lqk5LuY5YmN5pyA5ZCO5LiJ6ZeuCgoxLiDlpoLmnpzov5nmnaHpnIDmsYLkuIrnur/lkI7lh7rpl67popjvvIznjrDmnInnlKjkvovog73kuI3og73lrprkvY3liLDlk6rkuKrpqozmlLbmsqHov4fvvJ8KMi4g5pyJ5rKh5pyJ5LiA5p2h55So5L6L77yM5Yig5o6J5LmL5ZCO5L2g5L6d54S25pyJ5L+h5b+D5LiK57q/77yf5aaC5p6c5pyJ77yM5a6D5Y+v6IO95rKh55So44CCCjMuIOWksei0peWIhuexu+WGmea4healmuS6huWQl++8jOi/mOaYr+WFqOagh+aIkOOAjOS6p+WTgee8uumZt+OAje+8nwoKIyMg57K+56Gu5omn6KGM5YWz6IGUCgotIHF1YWxpdHkgMS4xIOeahCBjYXNlcy5yZXZpc2lvbiDlv4XpobvlvJXnlKjnnJ/lrp4gQ0FTRVMg5bel5Lu2IElEIOS4jiBTSEEtMjU277yb5ZCM5LiA5bel5Lu2IElEIOS4jeiDveWjsOaYjuS4jeWQjOaRmOimgeOAggotIOavj+adoSBldmlkZW5jZS5jYXNlUmVmcyDnm7TmjqXlvJXnlKggY2FzZUlkIOWSjOebuOWQjOS/ruiuou+8jGFjY2VwdGFuY2VLZXlzIOetieS6juaJgOW8leeUqOeUqOS+iyBjb3ZlcnMg55qE5bm26ZuG77yb5YWo6YOo5aOw5piO55So5L6L6YO96K6w5b2V57uT5p6c44CCCi0g6K+B5o2u57uR5a6a5ZCM5LiAIFBSROOAgeW/q+eFp+OAgeeZu+iusOS7k+W6k+S4juWujOaVtCBjb21taXTvvJvkuI3lkIzku5PlupPmiJbmj5DkuqTliIbljIXjgIIxLjAg5piO56Gu57y65bCR57K+56Gu5YWz6IGU77yM5LiN6KGl6YCg5Y6G5Y+y5L+u6K6i44CCCi0g5oql5ZGK44CBQ0kg5o+Q5L6b5pa56L+Q6KGM5LqL5a6e5LiOIEhVTUFOIOato+W8j+WGs+WumuWIhuWIq+iusOW9le+8m+acrOWcsCBDT05TSVNURU5UIOS4jeivgeaYjuWunumZheaJp+ihjOOAggo="
       },
       {
         "resourceId": "checklist-spec-driven",
@@ -1507,10 +1507,10 @@ export const BUILTIN_ROLE_PACKAGES: BuiltinRolePackage[] = [
       {
         "resourceId": "skill-audit-delivery",
         "path": "roles/qa/skills/audit-delivery/SKILL.md",
-        "sha256": "65962f9a7a9397f870476094bbb086116d96f27632ec283122c00efdad54118c",
-        "byteLength": 1497,
+        "sha256": "e34549bc815ec1a3f0adf13affe31f9d8c47f555a6dc3f0014f709bdbcc9388c",
+        "byteLength": 1861,
         "mediaType": "text/markdown",
-        "bodyBase64": "LS0tCm5hbWU6IGF1ZGl0LWRlbGl2ZXJ5CmRlc2NyaXB0aW9uOiDlnKjkuqTku5jliY3pgJDmnaHlr7nnhafpqozmlLbjgIHlrp7pmYXku6PnoIHkuI7miafooYzor4Hmja7vvIzliJflh7rnvLrlpLHjgIHlgY/lt67lkozlkI7nu63lt6XkvZzvvJvlvZPlrp7njrDlrozmiJDjgIHov5Tkv67lkI7lpI3moLjmiJblh4blpIfpqozmlLbml7bkvb/nlKjjgIIKbGljZW5zZTogTUlUCm1ldGFkYXRhOgogIHJvbGVLZXk6IHFhCi0tLQoKIyDmoLjpqozkuqTku5jlrozmlbTmgKcKCjEuIOS7juS7u+WKoeW/q+eFp+WPliBQUkQg5LiO6aqM5pS277yM6K+75Y+W5pys5qyh5a6e546w5o+Q5Lqk44CB55So5L6L5L+u6K6i5ZKM5omn6KGM546v5aKD77yb5peg5rOV5Y+W5b6X5a6e6ZmF5Luj56CB5oiW57uT5p6c5bCx6K6w5b2V6Zi75aGe44CCCjIuIOmAkOadoei/vei4qiBg6aqM5pS2IGtleSDihpIg5Lu75YqhIOKGkiDku6PnoIHkvY3nva4g4oaSIOeUqOS+iyDihpIg5omn6KGM57uT5p6cL+ivgeaNrmDjgILku7vliqHli77pgInjgIHnlKjkvovorr7orqHopobnm5blkozmnoTlu7rmiJDlip/pg73kuI3og73ku6Pmm7/ooYzkuLror4Hmja7jgIIKMy4g5a+55q+P5p2h6aqM5pS26K6w5b2V5bey6KaG55uW44CB6YOo5YiG6KaG55uW44CB57y65aSx44CB5Yay56qB44CB5peg5rOV6aqM6K+B77yb5Yy65YiG5a6e546w57y65Y+j44CB5aSx5pWI55So5L6L44CB546v5aKD6Zeu6aKY5ZKM5paw5aKe6IyD5Zu044CCCjQuIOajgOafpeivgeaNrue7keWumuWQjOS4gCBQUkTjgIHlv6vnhaflkowgY29tbWl044CC5Y+v5oqK5pig5bCE5aGr5YWlIERFTElWRVJZIOi0qOmHj+WMheaJp+ihjCBgd29ya21lc2ggcXVhbGl0eSAtLWZpbGUgcXVhbGl0eS1idW5kbGUuanNvbiAtLWpzb25g77yb5bel5YW35LiN5LiL6L295byV55So44CB5LiN6K+75Luj56CB77yM5Lmf5LiN5Yik5a6a5Yqf6IO96YCa6L+H44CCCjUuIOWvuee8uuWPo+i/veWKoOeos+WumiBJROOAgemqjOaUtiBrZXnjgIHlpI3njrDjgIHlj5flvbHlk43mlofku7bjgIHlu7rorq7otJ/otKPkurrlkozlpI3pqozmnaHku7bjgILlt7LmnInorrDlvZXkv53nlZnvvIzph43lpI3lj5HnjrDlhbPogZTljp8gSUTvvIzojIPlm7TmlrDlop7lhYjotbDlj5jmm7TjgIIKNi4g5Lqn5Ye6IGBkZWxpdmVyeS1hdWRpdC5tZGDvvIzkvZzkuLrlvZPliY3ku7vliqHlhYHorrjnmoQgQ0FTRVMg5q2j5paH5oiW6K+E5a6h5p2Q5paZ77yM5LqkIEhVTUFOIOWGs+Wumui/lOS/ruOAgeWQjue7reW3peS9nOaIluato+W8j+mqjOaUtuOAggoKIyMg6L6555WMCgrkuI3oh6rliqjmiafooYzkv67lpI3lvqrnjq/jgIHkuI3opobnm5bljoblj7Lnu5PmnpzjgIHkuI3kv67mlLnlhbbku5bop5LoibLlt6Xku7bjgIHkuI3mibnlh4bjgILkv67lpI3lkI7lj6rlr7nlj5flvbHlk43pobnlpI3pqozvvIzkv53nlZnkuIrkuIDova7nu5PorrrlkozniYjmnKzvvJvku7vkvZXliankvZnpmLvloZ7pg73mmL7lvI/kv53nlZnjgIIK"
+        "bodyBase64": "LS0tCm5hbWU6IGF1ZGl0LWRlbGl2ZXJ5CmRlc2NyaXB0aW9uOiDlnKjkuqTku5jliY3pgJDmnaHlr7nnhafpqozmlLbjgIHlrp7pmYXku6PnoIHkuI7miafooYzor4Hmja7vvIzliJflh7rnvLrlpLHjgIHlgY/lt67lkozlkI7nu63lt6XkvZzvvJvlvZPlrp7njrDlrozmiJDjgIHov5Tkv67lkI7lpI3moLjmiJblh4blpIfpqozmlLbml7bkvb/nlKjjgIIKbGljZW5zZTogTUlUCm1ldGFkYXRhOgogIHJvbGVLZXk6IHFhCi0tLQoKIyDmoLjpqozkuqTku5jlrozmlbTmgKcKCjEuIOS7juS7u+WKoeW/q+eFp+WPliBQUkQg5LiO6aqM5pS277yM6K+75Y+W5pys5qyh5a6e546w5o+Q5Lqk44CB55So5L6L5L+u6K6i5ZKM5omn6KGM546v5aKD77yb5peg5rOV5Y+W5b6X5a6e6ZmF5Luj56CB5oiW57uT5p6c5bCx6K6w5b2V6Zi75aGe44CCCjIuIOmAkOadoei/vei4qiBg6aqM5pS2IGtleSDihpIg5Lu75YqhIOKGkiDku6PnoIHkvY3nva4g4oaSIOeUqOS+iyDihpIg5omn6KGM57uT5p6cL+ivgeaNrmDjgILku7vliqHli77pgInjgIHnlKjkvovorr7orqHopobnm5blkozmnoTlu7rmiJDlip/pg73kuI3og73ku6Pmm7/ooYzkuLror4Hmja7jgIIKMy4g5a+55q+P5p2h6aqM5pS26K6w5b2V5bey6KaG55uW44CB6YOo5YiG6KaG55uW44CB57y65aSx44CB5Yay56qB44CB5peg5rOV6aqM6K+B77yb5Yy65YiG5a6e546w57y65Y+j44CB5aSx5pWI55So5L6L44CB546v5aKD6Zeu6aKY5ZKM5paw5aKe6IyD5Zu044CCCjQuIOajgOafpeivgeaNrue7keWumuWQjOS4gCBQUkTjgIHlv6vnhafjgIHnmbvorrDku5PlupPkuI7lrozmlbQgY29tbWl044CCMS4xIERFTElWRVJZIOi0qOmHj+WMheeahCBjYXNlcyDlv4XpobvlvJXnlKjnnJ/lrp7kuI3lj6/lj5ggQ0FTRVMg5bel5Lu2IElEIOWSjCBTSEEtMjU277yM5q+P5p2hIGV2aWRlbmNlIOeUqOmdnuepuiBjYXNlUmVmcyDmjIflrprlrp7pmYXmiafooYznmoQgY2FzZUlkIOS4juebuOWQjOS/ruiuou+8m+WFqOmDqOWjsOaYjueUqOS+i+mDveimgeacieaYjuehrue7k+aenO+8jOS4jeiDveWPqueUqOS4gOadoSBQQVNTIOS7o+abv+WFtuS7lueUqOS+i+OAguWPr+aJp+ihjCBgd29ya21lc2ggcXVhbGl0eSAtLWZpbGUgcXVhbGl0eS1idW5kbGUuanNvbiAtLWpzb25g77yb5bel5YW35Y+q5qC45a+55pys5Zyw6L6T5YWl77yM5LiN5LiL6L295byV55So44CB5LiN6aqM6K+B5bel5Lu25a2Y5Zyo44CB5LiN5Yik5a6a5Yqf6IO96YCa6L+H44CCMS4wIOaKpeWRiuW/hemhu+azqOaYjue8uuWwkeeyvuehrueUqOS+i+S/ruiuouWFs+iBlO+8jOS4jeiDveWPquS/ruaUueeJiOacrOWPt+WNh+e6p+OAggo1LiDlr7nnvLrlj6Pov73liqDnqLPlrpogSUTjgIHpqozmlLYga2V544CB5aSN546w44CB5Y+X5b2x5ZON5paH5Lu244CB5bu66K6u6LSf6LSj5Lq65ZKM5aSN6aqM5p2h5Lu244CC5bey5pyJ6K6w5b2V5L+d55WZ77yM6YeN5aSN5Y+R546w5YWz6IGU5Y6fIElE77yM6IyD5Zu05paw5aKe5YWI6LWw5Y+Y5pu044CCCjYuIOS6p+WHuiBgZGVsaXZlcnktYXVkaXQubWRg77yM5L2c5Li65b2T5YmN5Lu75Yqh5YWB6K6455qEIENBU0VTIOato+aWh+aIluivhOWuoeadkOaWme+8jOS6pCBIVU1BTiDlhrPlrprov5Tkv67jgIHlkI7nu63lt6XkvZzmiJbmraPlvI/pqozmlLbjgIIKCiMjIOi+ueeVjAoK5LiN6Ieq5Yqo5omn6KGM5L+u5aSN5b6q546v44CB5LiN6KaG55uW5Y6G5Y+y57uT5p6c44CB5LiN5L+u5pS55YW25LuW6KeS6Imy5bel5Lu244CB5LiN5om55YeG44CC5L+u5aSN5ZCO5Y+q5a+55Y+X5b2x5ZON6aG55aSN6aqM77yM5L+d55WZ5LiK5LiA6L2u57uT6K665ZKM54mI5pys77yb5Lu75L2V5Ymp5L2Z6Zi75aGe6YO95pi+5byP5L+d55WZ44CCCg=="
       },
       {
         "resourceId": "skill-derive-cases",

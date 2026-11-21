@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { installReviewFixtures, requirement, revisions, task } from './fixtures';
 import type { ReviewDiscussion } from '../../apps/web/src/api/reviewDiscussions';
+import type { TaskView } from '../../apps/web/src/api/resources';
 
 async function taskJourneyFixtures(page: Page) {
   await installReviewFixtures(page);
@@ -464,6 +465,92 @@ for (const width of [1440, 390]) {
       '本轮问题',
     );
     await expect(discussions).toContainText('人工批准仍需在审批槽位单独提交');
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+    ).toBeLessThanOrEqual(1);
+  });
+
+  test(`${width}px 任务评审仅按需求概要和准确发布修订读取验收，发布变化后明确要求刷新`, async ({
+    page,
+  }) => {
+    const { requests } = await installReviewFixtures(page);
+    const reply = (data: unknown) => ({
+      json: { data, meta: { requestId: 'journey-prd-context' } },
+    });
+    await page.route('**/api/v1/review-requests/review-task-context', (route) =>
+      route.fulfill(
+        reply({
+          id: 'review-task-context',
+          projectId: 'p1',
+          kind: 'TASK_ACCEPTANCE',
+          status: 'OPEN',
+          version: 2,
+          subjectDigest: 'd'.repeat(64),
+          documentRevisionId: null,
+          subject: null,
+          artifactSetId: null,
+          taskId: 'task-1',
+          decisions: [],
+          slots: [],
+        }),
+      ),
+    );
+    const taskContext: TaskView = {
+      id: task.id,
+      projectId: 'p1',
+      workflowInstanceId: 'inst-1',
+      stepKey: task.stepKey,
+      stepDisplayName: task.stepDisplayName,
+      roleId: 'role-1',
+      responsibleUserId: task.responsibleUser.email,
+      version: task.version,
+      generation: task.generation,
+      executionStatus: 'REVIEW_PENDING',
+      workStatus: task.workStatus,
+      currentClaim: null,
+    };
+    await page.route('**/api/v1/tasks/task-1', (route) => route.fulfill(reply(taskContext)));
+    await page.route('**/api/v1/review-requests/review-task-context/discussions', (route) =>
+      route.fulfill(reply({ items: [], nextCursor: null, unresolvedCount: 0, canCreate: false })),
+    );
+    let published = true;
+    let metadataReads = 0;
+    await page.route('**/api/v1/documents/doc-1/revisions/rev-1/metadata', (route) => {
+      metadataReads += 1;
+      return route.fulfill(
+        reply({
+          ...revisions[0],
+          state: published ? 'PUBLISHED' : 'CANDIDATE',
+          acceptance: [
+            { key: 'ac-history', text: '第205版历史中仍读取原发布版验收', verification: 'TEST' },
+          ],
+        }),
+      );
+    });
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('/reviews/review-task-context?projectId=p1');
+    const matrix = page.getByRole('region', { name: '验收条件与证据映射' });
+    await expect(matrix).toContainText('第205版历史中仍读取原发布版验收');
+    await expect(matrix).toContainText('rev-1');
+    expect(metadataReads).toBe(1);
+    expect(requests).toContain('/api/v1/projects/p1/requirements/req-1/published-prds');
+    expect(requests.some((path) => path.startsWith('/api/v1/projects/p1/documents'))).toBe(false);
+    expect(
+      requests.some((path) => /^\/api\/v1\/documents\/doc-1(?:\/history|\/revisions)?$/.test(path)),
+    ).toBe(false);
+    published = false;
+    await page.reload();
+    const prdFailure = page.getByRole('status', { name: '无法读取 PRD 上下文', exact: true });
+    await expect(prdFailure).toBeVisible();
+    await prdFailure.getByText('查看技术详情', { exact: true }).click();
+    await expect(prdFailure.getByText(/PRD 发布版本已变化/)).toBeVisible();
+    await expect(page.getByRole('region', { name: '验收条件与证据映射' })).toHaveCount(0);
+    published = true;
+    await page.getByRole('button', { name: '重试读取 PRD', exact: true }).click();
+    await expect(page.getByRole('region', { name: '验收条件与证据映射' })).toContainText(
+      '第205版历史中仍读取原发布版验收',
+    );
+    expect(metadataReads).toBe(3);
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
     ).toBeLessThanOrEqual(1);

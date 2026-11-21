@@ -1,10 +1,11 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "stage": "PLAN",
   "requirementId": "PROJECT-001",
   "basis": {
     "prdRevisionId": "replace-with-published-prd-revision",
-    "snapshotId": "replace-with-task-snapshot"
+    "snapshotId": "replace-with-task-snapshot",
+    "projectRepositoryId": "replace-with-registered-workmesh-repository-id"
   },
   "acceptance": [{ "key": "ac-01", "text": "有效输入产生预期结果", "verification": "TEST" }],
   "tasks": [
@@ -16,6 +17,16 @@
       "parallel": false
     }
   ],
-  "cases": [{ "id": "TC-01", "covers": ["ac-01"], "kind": "TEST" }],
+  "cases": [
+    {
+      "id": "TC-01",
+      "covers": ["ac-01"],
+      "kind": "TEST",
+      "revision": {
+        "artifactId": "replace-with-existing-cases-artifact-id",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
+  ],
   "evidence": []
 }

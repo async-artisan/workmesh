@@ -1,7 +1,7 @@
 {
   "packageSchemaVersion": "1.1",
   "id": "workmesh.role.backend",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "protocolVersion": "1.0",
   "title": "后端角色包",
   "description": "把 PRD 转成可并行的接口契约，按契约实现并交付可验证证据。",
@@ -191,8 +191,8 @@
       "id": "skill-plan-change",
       "kind": "skill",
       "path": "skills/plan-change/SKILL.md",
-      "sha256": "806d12def1507648159f14b1ab5f4c16e7af4df16e785775f9d1191a8485f853",
-      "byteLength": 1942,
+      "sha256": "b6018666b1042baebc042929c63b15e1c8c2e3b1b31bcf1ddc5122e9e1d5065c",
+      "byteLength": 2253,
       "mediaType": "text/markdown"
     }
   ],

@@ -15,7 +15,7 @@ metadata:
 5. 按可独立验收的业务场景拆任务，每项明确 `acceptanceKeys / dependsOn / files / 验证方法`。基础依赖可先做，但计划要让首个切片尽早产生用户价值。
 6. 只有无未满足依赖、文件归属不重叠的任务才标可并行；标记不授予平台外领取、执行或批准权限。
 7. 对已有缺陷先记录可复现的失败或锁定当前行为；按风险安排契约和集成验证，纯文案修改不额外制造测试。
-8. 核对 PRD、计划、任务、用例是否覆盖一致。可将对应数据写为质量包并运行 `workmesh quality --file quality-bundle.json --json`；通过只表示本地数据一致。
+8. 核对 PRD、计划、任务、用例是否覆盖一致。1.1 质量包按登记仓库与单一提交组织，cases.revision 引用已形成的真实 CASES 工件 ID 与 SHA-256；交付 evidence.caseRefs 直接关联实际用例及相同修订。未形成用例工件时先保存计划，不填写假 ID；1.0 仍可分析但缺少精确执行关联，不能仅修改版本号。运行 `workmesh quality --file quality-bundle.json --json` 只表示本地输入一致，不核验工件或执行来源。
 
 ## 交接
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError, formatApiError } from '../api/client';
 import {
@@ -222,12 +222,37 @@ function DiscussionThread({
   );
 }
 
-export function ReviewDiscussions({ reviewId }: { reviewId: string }) {
+/** Advisory information from the discussion list, never an approval gate. */
+export type ReviewDiscussionSummary = {
+  scopeKey: string;
+  reviewId: string;
+  status: 'LOADING' | 'READY' | 'STALE' | 'ERROR';
+  unresolvedCount: number | null;
+};
+
+type ReviewDiscussionsProps = {
+  reviewId: string;
+  scopeKey?: string;
+  onSummaryChange?: (summary: ReviewDiscussionSummary) => void;
+};
+
+export function ReviewDiscussions({ reviewId, scopeKey, onSummaryChange }: ReviewDiscussionsProps) {
   const viewerId = useAuthStore((state) => state.user?.id ?? 'anonymous');
-  return <ReviewDiscussionsView key={`${viewerId}:${reviewId}`} reviewId={reviewId} />;
+  return (
+    <ReviewDiscussionsView
+      key={JSON.stringify([viewerId, reviewId, scopeKey])}
+      reviewId={reviewId}
+      scopeKey={scopeKey ?? JSON.stringify([viewerId, reviewId])}
+      onSummaryChange={onSummaryChange}
+    />
+  );
 }
 
-function ReviewDiscussionsView({ reviewId }: { reviewId: string }) {
+function ReviewDiscussionsView({
+  reviewId,
+  scopeKey,
+  onSummaryChange,
+}: ReviewDiscussionsProps & { scopeKey: string }) {
   const [page, setPage] = useState<DiscussionPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -261,6 +286,18 @@ function ReviewDiscussionsView({ reviewId }: { reviewId: string }) {
       sequence.current += 1;
     };
   }, [load]);
+  const summary = useMemo<ReviewDiscussionSummary>(
+    () => ({
+      scopeKey,
+      reviewId,
+      status: loading ? 'LOADING' : error ? (page ? 'STALE' : 'ERROR') : 'READY',
+      unresolvedCount: loading ? null : (page?.unresolvedCount ?? null),
+    }),
+    [scopeKey, reviewId, loading, error, page],
+  );
+  useEffect(() => {
+    onSummaryChange?.(summary);
+  }, [onSummaryChange, summary]);
   async function more() {
     if (!page?.nextCursor || loadingMore) return;
     setLoadingMore(true);

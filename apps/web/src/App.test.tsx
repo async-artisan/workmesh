@@ -784,6 +784,8 @@ describe('App（cookie WebSession 引导）', () => {
     fireEvent.click(bell);
     const panel = await screen.findByRole('dialog', { name: '通知中心' });
     expect(panel).toHaveAttribute('aria-modal', 'true');
+    // The shell is immediate; wait for its deferred content before testing the full tab order.
+    await screen.findByRole('button', { name: '发送邮件摘要' });
     // 打开后焦点进入面板，Tab 只在面板内循环。
     await waitFor(() => expect(panel.contains(document.activeElement)).toBe(true));
     const focusables = within(panel).getAllByRole('button');
@@ -803,6 +805,156 @@ describe('App（cookie WebSession 引导）', () => {
     fireEvent.mouseDown(document.body);
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '通知中心' })).toBeNull());
   });
+
+  function deferredReply() {
+    let resolve!: (reply: StubReply) => void;
+    const promise = new Promise<StubReply>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  }
+
+  function stubMailApis(send: () => Promise<StubReply>) {
+    return mockFetch((url, init) => {
+      const path = pathOf(url);
+      if (path === '/api/health') return { status: 200, body: {} };
+      if (path === '/api/v1/auth/session')
+        return { status: 200, body: envelope(authenticatedSession) };
+      if (path === '/api/v1/projects') return { status: 200, body: envelope([]) };
+      if (path === '/api/v1/workbench')
+        return {
+          status: 200,
+          body: envelope({
+            reviews: [],
+            changes: [],
+            readyTasks: [],
+            warnings: [],
+            counts: { reviews: 0, changes: 0, readyTasks: 0, total: 0 },
+          }),
+        };
+      if (path === '/api/v1/activity') return { status: 200, body: envelope({ items: [] }) };
+      if (path === '/api/v1/notifications/email-digest' && methodOf(init) === 'POST') return send();
+      return undefined;
+    });
+  }
+
+  it('邮件发送防止重复点击，关闭重开保留发送进度和结果', async () => {
+    const reply = deferredReply();
+    const mock = stubMailApis(() => reply.promise);
+    render(
+      <MemoryRouter initialEntries={['/projects']}>
+        <App />
+      </MemoryRouter>,
+    );
+    const bell = await screen.findByRole('button', { name: /通知：/ });
+    fireEvent.click(bell);
+    const send = await screen.findByRole('button', { name: '发送邮件摘要' });
+    fireEvent.click(send);
+    fireEvent.click(send);
+    expect(screen.getByRole('button', { name: '发送中…' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '关闭通知' }));
+    fireEvent.click(bell);
+    expect(await screen.findByRole('button', { name: '发送中…' })).toBeDisabled();
+    const requests = mock.mock.calls.filter(
+      ([url]) => pathOf(String(url)) === '/api/v1/notifications/email-digest',
+    );
+    expect(requests).toHaveLength(1);
+    expect(headersOf(requests[0]![1]!)).toMatchObject({ 'X-CSRF-Token': 'csrf-1' });
+    await act(async () => {
+      reply.resolve({
+        status: 200,
+        body: envelope({ sent: true, to: 'user@example.com', counts: {} }),
+      });
+      await reply.promise;
+    });
+    expect(await screen.findByText('邮件摘要已发送到 user@example.com')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '关闭通知' }));
+    fireEvent.click(bell);
+    expect(await screen.findByText('邮件摘要已发送到 user@example.com')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '发送邮件摘要' })).toBeEnabled();
+  });
+
+  it('邮件发送失败保留可见原因并可在同一账号重试', async () => {
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 503,
+        body: { error: { code: 'UNAVAILABLE', message: '邮件服务暂不可用' } },
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: envelope({ sent: true, to: 'user@example.com', counts: {} }),
+      });
+    stubMailApis(send);
+    render(
+      <MemoryRouter initialEntries={['/projects']}>
+        <App />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /通知：/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '发送邮件摘要' }));
+    expect(await screen.findByText(/邮件服务暂不可用/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '发送邮件摘要' }));
+    expect(await screen.findByText('邮件摘要已发送到 user@example.com')).toBeInTheDocument();
+    expect(screen.queryByText(/邮件服务暂不可用/)).not.toBeInTheDocument();
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['success', 'failure'] as const)(
+    '切换账号后旧邮件的 %s 不覆盖新账号或解除新发送锁',
+    async (outcome) => {
+      const oldReply = deferredReply();
+      const newReply = deferredReply();
+      const send = vi
+        .fn()
+        .mockImplementationOnce(() => oldReply.promise)
+        .mockImplementationOnce(() => newReply.promise);
+      stubMailApis(send);
+      render(
+        <MemoryRouter initialEntries={['/projects']}>
+          <App />
+        </MemoryRouter>,
+      );
+      fireEvent.click(await screen.findByRole('button', { name: /通知：/ }));
+      fireEvent.click(await screen.findByRole('button', { name: '发送邮件摘要' }));
+      expect(send).toHaveBeenCalledTimes(1);
+      act(() =>
+        useAuthStore.setState({
+          user: { id: 'user-2', email: 'second@example.com' },
+          status: 'authenticated',
+        }),
+      );
+      fireEvent.click(await screen.findByRole('button', { name: '发送邮件摘要' }));
+      expect(send).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        oldReply.resolve(
+          outcome === 'success'
+            ? {
+                status: 200,
+                body: envelope({ sent: true, to: 'old-account@example.com', counts: {} }),
+              }
+            : {
+                status: 503,
+                body: { error: { code: 'UNAVAILABLE', message: 'old-account-mail-failure' } },
+              },
+        );
+        await oldReply.promise;
+      });
+      expect(screen.queryByText(/old-account/)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '发送中…' })).toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name: '发送中…' }));
+      expect(send).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        newReply.resolve({
+          status: 200,
+          body: envelope({ sent: true, to: 'second@example.com', counts: {} }),
+        });
+        await newReply.promise;
+      });
+      expect(await screen.findByText('邮件摘要已发送到 second@example.com')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '发送邮件摘要' })).toBeEnabled();
+    },
+  );
 
   it('移动导航抽屉声明为对话框，打开后焦点在抽屉内，Escape 关闭并回到开关', async () => {
     stubShellApis();

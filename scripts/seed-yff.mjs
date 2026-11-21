@@ -16,6 +16,11 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import {
+  findDocumentSummaryByTitle,
+  findPublishedDocumentSummaryByTitle,
+  readDocumentSummaries,
+} from './lib/document-summary-reader.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const API = process.env.WORKMESH_API ?? 'http://127.0.0.1:3000';
@@ -75,7 +80,8 @@ class Session {
       const index = pair.indexOf('=');
       const name = pair.slice(0, index).trim();
       const value = pair.slice(index + 1);
-      if (value === '' || attrs.some((a) => /^\s*max-age=0\s*$/i.test(a))) this.cookies.delete(name);
+      if (value === '' || attrs.some((a) => /^\s*max-age=0\s*$/i.test(a)))
+        this.cookies.delete(name);
       else this.cookies.set(name, value);
       if (name.endsWith('wm_csrf')) this.csrf = value;
     }
@@ -169,7 +175,10 @@ function parseModuleDoc(relativePath) {
     const start = text.indexOf(`## ${heading}`);
     if (start < 0) return '';
     const next = text.indexOf('\n## ', start + 3);
-    return text.slice(start, next < 0 ? undefined : next).replace(/^## .*\n/, '').trim();
+    return text
+      .slice(start, next < 0 ? undefined : next)
+      .replace(/^## .*\n/, '')
+      .trim();
   };
   const goal = section('2. 目标与范围');
   const acceptanceRaw = section('12. 验收标准');
@@ -438,11 +447,8 @@ async function phaseKnowledge(project) {
   const productKb = await ensureKb('yff-product-req', '易番番产品需求库', 'PROJECT');
   const governanceKb = await ensureKb('yff-governance', '易番番项目治理', 'RESTRICTED');
 
-  const existingTitles = new Set(
-    ((await owner.call('GET', `/projects/${project.id}/documents?limit=50`)).items ?? []).map(
-      (item) => item.revisions?.[0]?.title ?? item.document?.title,
-    ),
-  );
+  const findExistingTitle = (title) =>
+    findDocumentSummaryByTitle(owner.call.bind(owner), project.id, title, { kind: 'KNOWLEDGE' });
 
   const publish = async (kb, title, markdown) => {
     const response = await owner.call(
@@ -463,7 +469,7 @@ async function phaseKnowledge(project) {
 
   for (const [relativePath, menu] of MODULES) {
     const title = `${menu} 需求正文`;
-    if (existingTitles.has(title)) continue;
+    if (await findExistingTitle(title)) continue;
     const doc = parseModuleDoc(relativePath);
     if (!doc.text) continue;
     await attempt(`document ${menu}`, async () => {
@@ -480,7 +486,7 @@ async function phaseKnowledge(project) {
     ['需求文档/00-项目治理/跨模块规范/操作日志规范.md', '跨模块操作日志规范'],
   ];
   for (const [relativePath, title] of governanceDocs) {
-    if (existingTitles.has(title)) continue;
+    if (await findExistingTitle(title)) continue;
     const file = join(DOC_ROOT, relativePath);
     if (!existsSync(file)) continue;
     await attempt(`governance ${title}`, async () => {
@@ -520,8 +526,10 @@ async function phasePrds(project) {
   const state = loadState();
   state.prds = state.prds ?? {};
 
-  const existingDocs =
-    (await owner.call('GET', `/projects/${project.id}/documents?limit=50`)).items ?? [];
+  const existingDocs = await readDocumentSummaries(owner.call.bind(owner), project.id, {
+    kind: 'UNDERSTANDING',
+    status: 'published',
+  });
   const understandingByRequirement = new Map();
   for (const item of existingDocs) {
     if (
@@ -566,7 +574,10 @@ async function phasePrds(project) {
           { idempotency: randomUUID() },
         );
         await approveReview(owner, project.id, understanding.reviewRequestId);
-        const published = await owner.call('GET', `/documents/${understanding.document.id}`);
+        const published = await owner.call(
+          'GET',
+          `/documents/${understanding.document.id}/summary`,
+        );
         basisRevisionId = published.publishedRevision?.id ?? null;
         if (!basisRevisionId) throw new Error('understanding not published');
         understandingByRequirement.set(requirementId, basisRevisionId);
@@ -595,7 +606,7 @@ async function phasePrds(project) {
 
       if (decision === 'PUBLISH') {
         await approveReview(owner, project.id, prd.reviewRequestId);
-        const published = await owner.call('GET', `/documents/${prd.document.id}`);
+        const published = await owner.call('GET', `/documents/${prd.document.id}/summary`);
         state.prds[code] = {
           documentId: published.document.id,
           acceptance: acceptance.map((item) => item.key),
@@ -698,7 +709,8 @@ function workflowDefinition(packageLocks) {
 
 async function phaseWorkflow(project) {
   log('\n== phase: workflow ==');
-  const packages = (await owner.call('GET', `/projects/${project.id}/role-packages?limit=100`)).items;
+  const packages = (await owner.call('GET', `/projects/${project.id}/role-packages?limit=100`))
+    .items;
   const best = new Map();
   for (const item of packages) {
     const current = best.get(item.roleKey);
@@ -841,16 +853,10 @@ function artifactForStep(stepKey, moduleName, repositoryId) {
       );
     default: {
       const repoKey = STEP_REPO[stepKey] ?? 'backend';
-      return gitArtifact(
-        'IMPL',
-        `${moduleName} 实现提交`,
-        repositoryId[repoKey],
-        repoKey,
-        [
-          { code: 'commit-has-requirement-code', passed: true },
-          { code: 'no-acceptance-drift', passed: true },
-        ],
-      );
+      return gitArtifact('IMPL', `${moduleName} 实现提交`, repositoryId[repoKey], repoKey, [
+        { code: 'commit-has-requirement-code', passed: true },
+        { code: 'no-acceptance-drift', passed: true },
+      ]);
     }
   }
 }
@@ -903,7 +909,12 @@ async function driveStep({ project, code, instanceId, moduleName, stepKey, repos
   let current = await session.call('GET', `/tasks/${task.id}`);
   let claimId = current.currentClaim?.id;
   if (!claimId) {
-    const claim = await session.call('POST', `/tasks/${task.id}/claims`, {}, { idempotency: randomUUID() });
+    const claim = await session.call(
+      'POST',
+      `/tasks/${task.id}/claims`,
+      {},
+      { idempotency: randomUUID() },
+    );
     claimId = claim.claimId ?? claim.task?.currentClaim?.id;
     current = await session.call('GET', `/tasks/${task.id}`);
   }
@@ -1086,7 +1097,8 @@ async function phaseMisc(project) {
         where: { reviewRequestId: review.id },
         select: { id: true, requiredRoleId: true },
       });
-      const reason = '发布后发现第 8 章运费分摊顺序与《PRD-运费计费规则修改》冲突，撤销本次批准并重新评审。';
+      const reason =
+        '发布后发现第 8 章运费分摊顺序与《PRD-运费计费规则修改》冲突，撤销本次批准并重新评审。';
       const binding = {
         action: 'REVIEW_REVOKE',
         projectId: project.id,
@@ -1119,11 +1131,11 @@ async function phaseMisc(project) {
   // 2) 撤回一份已发布知识文档 → 追加 WITHDRAW 发布记录。
   if (!state.misc.withdrawn) {
     await attempt('withdraw document', async () => {
-      const items =
-        (await owner.call('GET', `/projects/${project.id}/documents?limit=50&kind=KNOWLEDGE`)).items ??
-        [];
-      const target = items.find(
-        (item) => (item.revisions?.[0]?.title ?? item.document?.title) === '需求文档框架（13 章）',
+      const target = await findPublishedDocumentSummaryByTitle(
+        owner.call.bind(owner),
+        project.id,
+        '需求文档框架（13 章）',
+        { kind: 'KNOWLEDGE' },
       );
       if (!target?.publishedRevision) throw new Error('document not published');
       const reason = '13 章框架已被《项目需求统一口径》吸收，撤回独立文档避免口径重复。';
@@ -1166,8 +1178,18 @@ async function phaseMisc(project) {
         publicationApproverUserId: adminId,
         publicationApproverRoleId: roleId.product,
         grants: [
-          { subjectKind: 'ROLE', subjectUserId: null, subjectRoleId: roleId.product, permissions: ['READ', 'PROPOSE'] },
-          { subjectKind: 'USER', subjectUserId: adminId, subjectRoleId: null, permissions: ['READ', 'PROPOSE', 'PUBLISH', 'REVOKE'] },
+          {
+            subjectKind: 'ROLE',
+            subjectUserId: null,
+            subjectRoleId: roleId.product,
+            permissions: ['READ', 'PROPOSE'],
+          },
+          {
+            subjectKind: 'USER',
+            subjectUserId: adminId,
+            subjectRoleId: null,
+            permissions: ['READ', 'PROPOSE', 'PUBLISH', 'REVOKE'],
+          },
         ],
         reason,
       };
@@ -1268,10 +1290,11 @@ async function phaseMisc(project) {
           `/projects/${project.id}/requirements/${detail.requirement.id}`,
           {
             expectedVersion: detail.requirement.version,
-            description: `${detail.requirement.description ?? ''}\n\n变更（v1.0.6 口径）：复核意见必填，默认“同意”；驳回回到待签约并写入操作日志。`.slice(
-              0,
-              900,
-            ),
+            description:
+              `${detail.requirement.description ?? ''}\n\n变更（v1.0.6 口径）：复核意见必填，默认“同意”；驳回回到待签约并写入操作日志。`.slice(
+                0,
+                900,
+              ),
           },
           { idempotency: randomUUID() },
         );
@@ -1380,7 +1403,8 @@ async function main() {
   log(`\nWorkMesh × 易番番 seeding (phase=${phase})`);
 
   if (phase !== 'accounts') await owner.registerAndLogin('owner@yesgoo.local', '易番番项目负责人');
-  const project = phase === 'accounts' || phase === 'all' ? await phaseAccounts() : await projectOf();
+  const project =
+    phase === 'accounts' || phase === 'all' ? await phaseAccounts() : await projectOf();
   if (!project) throw new Error('project YFF not found; run --phase accounts first');
 
   if (phase === 'roles' || phase === 'all') await phaseRoles(project);

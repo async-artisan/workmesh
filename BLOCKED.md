@@ -14,6 +14,24 @@
 
 后续四文件的工作台按需加载切片已用同一基线独立复验：首页 raw 从 468746 B 降至 284700 B，Web 658/658、类型/构建及生产 Chromium 三项通过。原 200000 B 目标仍未达；该切片未重跑完整门禁或重打包，不能借用 r13 的包或完整结果，见[验收记录](docs/testing/workbench-dialog-loading-validation-2026-11-10.md)。Prisma 6 升级计划也已补齐，实际依赖未升级。
 
+文档历史与评审精确读取兼容首切片随后通过 r4 本地验证：API 936、Web 666、数据库/HTTP 41、生产 Chromium fixture 87 项；1,057 冻结文件后置一致，55 张业务表清理为空。旧文档列表仍嵌入全部历史，概要/完整搜索/主页面迁移及最终候选完整门禁仍待。该局部结果不覆盖其他并行 live 变更，也不借用 r13 制品，详见[验证记录](docs/testing/document-history-validation-2026-11-10.md)。
+
+需求专用 PRD 概要与任务评审迁移随后通过 r5/r7：API 957、Web 691、真实 PostgreSQL/HTTP 52、最终生产 Chromium fixture 89，1,062 文件冻结来源及 18 个 live 切片文件一致。r7 只改浏览器 fixture，未变化检查明确复用 r5；两轮浏览器失败均保留。第 61 份文档、205 条历史下仍精确读取发布版本，概要字节不随历史增长；旧通用列表、完整搜索/主页面分页、首页原始体积预算和最终完整门禁仍开放，详见同页后续切片记录。
+
+通知按需加载独立 r1 已通过 Web 696/696、类型/定向 ESLint/生产构建和生产 Chromium fixture 95/95，冻结源与六个 live 切片文件一致。同源首页 284938 B raw 降至 284227 B，仅减少 711 B，gzip 估算增加 220 B，原 `<200000 B raw` 目标仍开放。邮件操作由 fixture 拦截，真实投递未验证；本轮未运行 API/数据库/完整门禁或打包，详见[通知验证](docs/testing/notification-loading-validation-2026-11-10.md)。
+
+通用文档概要后端 r2 已通过 API 1015/1015、类型/定向 ESLint/18 项契约/生产构建和真实 PostgreSQL/Nest HTTP 65/65，新库 55 张业务表清理为空。1,079 冻结文件及 14 个 live API 文件一致，205 历史与 107 文档分页、搜索、权限及快照有实际证据；首轮 lint 失败保留。旧三个 GET 的完整历史数组和未迁移页面仍在使用，不能据新增概要 API 关闭读取放大、容量、最终完整门禁或发布条件，详见[概要接口验证](docs/testing/document-summary-validation-2026-11-10.md)。
+
+批量变更按需加载 r4 已通过 Web 709/709、类型/定向 ESLint/生产构建与生产 Chromium fixture 101/101；三轮失败记录保留，1,072 文件与九个 live 切片文件一致。同源首页降到 281475 B raw / 94334 B gzip，原 `<200000 B raw` 预算仍未达。浏览器确认写入为 fixture，本轮未跑实际 API/数据库写入、完整门禁、打包或远端 CI，详见[批量变更验证](docs/testing/batch-change-loading-validation-2026-11-10.md)。
+
+项目准备清单概要迁移 r1 已通过 Web 725/725、类型/定向 ESLint/生产构建与生产 Chromium fixture 117/117；1,088 个冻结文件及十四个整合/本切片 live 文件一致，API 与已通过 r2 相同。必需文档去重概要、读取失败待确认和切项目/流程隔离旧结果已验证；主列表迁移、容量、最终完整门禁和发布条件仍开放，见[准备清单验证](docs/testing/readiness-summary-validation-2026-11-10.md)。
+
+流程资料概要迁移 r1 已通过 Web 743/743、类型/定向 ESLint/生产构建与生产 Chromium fixture 137/137；1,091 个冻结文件及五个 live 实现/测试文件一致。分页部分失败、绑定未知禁写和跨作用域竞态已有 fixture 证据，API/数据库保持父来源并未重跑；主页面、容量及最终门禁仍开放，见[流程资料验证](docs/testing/workflow-summary-validation-2026-11-10.md)。
+
+概要真实 HTTP 对比 r1/r2 的 history 搜索事务超时失败保留；字段转换优化后 API r3 通过 1017 用例、18 契约及真实 PostgreSQL/HTTP 65，同源 benchmark r3 的 small/history 各 43 正确性和 200 测量请求零错误，两组新库各 55 业务表清理为空。history 旧列表 8298118 B、概要 146850 B；原超时问题有复验证据，但旧消费者、多 KB 权限查询、容量和最终门禁仍开放，见[API 回归](docs/testing/document-summary-validation-2026-11-10.md)与[对比记录](docs/testing/document-summary-benchmark-validation-2026-11-10.md)。
+
+PRD 主页面 r2 已通过 Web 789/789、类型/定向 lint/生产构建与生产 Chromium fixture 155/155；首轮四项失败保留，107 文档与 123 历史的原计数及后页评审场景复验通过。1,102 冻结文件一致，API 与概要 r3 相同；独立比较的 235 个 Web/UI-review 文件仅未纳入本轮的并行 Knowledge 页面不同。Knowledge、其他旧消费者、全局 legacy 评审兼容、真实写入与完整发布门禁仍待，见[PRD 验证](docs/testing/prd-summary-history-validation-2026-11-10.md)。
+
 - 2026-11-06 本机默认 Node.js 为 20.13.1，低于项目要求。临时使用 Node.js 24.22.1 的全仓测试曾出现真实 Git 集成用例超时；调整相关测试的有限时限后，一次无缓存全仓复测 8/8 个任务通过。该结果来自未提交工作树，不是最终候选 commit 的发布证据。
 - 2026-11-07 在官方 Node.js 20.19.0 的隔离源码副本完成 frozen 安装、无缓存构建 6/6、类型检查 10/10、全仓测试 8/8 和 18 项契约；后续变更后的 API 覆盖率为 923 passed / 1 skipped，真实 PostgreSQL 根集成为 181 passed / 1 skipped，Web 单测 529 项和真实 Chromium 四项通过。全仓构建、类型及测试为早于基线和页面改动的快照，后续检查的范围与失败修复记录见[质量收尾记录](docs/testing/quality-closeout-2026-11-07.md)。仍待最终 clean SHA 的同源远端 CI 与 Platform smoke，不能把 dirty 快照当作最终候选。
 - 发布工作流已接入严格 SemVer、全部 9 个 manifest 版本一致性及同 SHA `main` push CI/Platform smoke 最新匹配 run 成功门禁；本地 release guard 6 项测试通过，远端 run 仍须实际取得，不能因配置已加入而解除本项。
@@ -47,7 +65,8 @@
 - 只读 live 入口和证据归一化器已实现；2026-11-03 验收没有指定获准测试仓库、PR 和凭据，因此结果为 SKIPPED。
 - 仍待：真实仓库/PR/reviews 分页、Webhook 投递与签名、提交级证据绑定和发布链路联调。
 - 记录模板：[GitHub 仓库设置核验](docs/operations/github-settings-verification.md)。
-- 解除条件：提供获准测试仓库、只读凭据和可接收 Webhook 的隔离目标。
+- 本项是在测试用 GitHub 仓库核对代码、评审与交付通知的联动；不要求试用者先懂 GitHub 配置，也不阻塞可独立完成的本地整改。没有获准外部目标时继续标记未验证，凭据只通过本机密钥配置提供。
+- 解除条件：由负责联调的维护者准备获准测试仓库、只读凭据和可接收 Webhook 的隔离目标，再实际留证。
 
 ## B3 完整浏览器产品闭环
 

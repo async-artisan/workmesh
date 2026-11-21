@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowRight, RefreshCw } from 'lucide-react';
-import { ApiError, formatApiError } from '../api/client';
+import { formatApiError } from '../api/client';
 import {
   activityApi,
   changeApi,
@@ -13,10 +13,14 @@ import {
 } from '../api/resources';
 import { DependencyImpactHint } from '../components/DependencyImpactHint';
 import type { BatchReviewTarget } from '../components/BatchReviewApprove';
-import { DeferredBatchReviewApprove, DeferredChangeDrawer } from '../components/WorkbenchDialogs';
+import type { BatchChangeTarget } from '../components/BatchChangeAcknowledge';
+import {
+  DeferredBatchChangeAcknowledge,
+  DeferredBatchReviewApprove,
+  DeferredChangeDrawer,
+} from '../components/WorkbenchDialogs';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
-import { Modal } from '../components/Modal';
 import { ReviewDecisionDrawer } from '../components/ReviewDecisionDrawer';
 import { StaleDataBanner, formatUpdatedAtClock } from '../components/StaleDataBanner';
 import { InlineLoading } from '../components/Skeleton';
@@ -24,6 +28,15 @@ import { useProjectContext } from '../hooks/useProjectContext';
 import { ACTION_LABELS, STEP_LABELS, REVIEW_STATUS_LABELS, labelFor } from '../lib/labels';
 import { getWorkbenchSnapshot } from '../lib/workbenchSnapshot';
 import { changeFieldLabel } from '../lib/changeDisplay';
+import {
+  currentWorkbenchAttention,
+  WORKBENCH_REASON_LABELS,
+  workbenchCoverageStatus,
+  workbenchReviewMatchesReason,
+  workbenchStreamDescription,
+  workbenchStreamPath,
+  type WorkbenchReasonFilter,
+} from '../lib/workbenchAttention';
 import { useProjectStore } from '../store/project';
 import '../styles/workbench-actions.css';
 
@@ -39,26 +52,9 @@ type SortKey = 'oldest' | 'newest' | 'project' | 'type' | 'impact';
  */
 type WorkbenchDataState = 'loading' | 'ready' | 'stale' | 'error';
 
-/** 批量确认的提交目标：只包含当前快照中仍存在且被选中的变更。 */
-interface BatchTarget {
-  recipientId: string;
-  label: string;
-  version: number;
-}
-
-type BatchItemStatus = 'success' | 'failed' | 'unprocessed';
-
-interface BatchResult extends BatchTarget {
-  status: BatchItemStatus;
-  error?: string;
-  conflict?: boolean;
-}
-
 const ROLE_PREF_KEY = 'workmesh.workbench.role';
 const FILTER_CHANGED_NOTICE = '筛选已变化，已清除之前的选择。';
 const SNAPSHOT_CHANGED_NOTICE = '列表已更新，已移除不再存在的选中项。';
-const BATCH_CONFLICT_HINT = '数据已变化，请重新加载';
-const BATCH_REFRESH_FAILED = '批量确认已完成，但刷新工作台失败；当前显示的是上次成功的数据。';
 
 const TAB_KEYS: Tab[] = ['all', 'signOffs', 'approvals', 'changes', 'ready'];
 
@@ -141,12 +137,6 @@ function requirementLabel(item: {
   return item.subjectLabel ?? item.stepDisplayName?.trim() ?? item.stepKey ?? '未关联需求';
 }
 
-function batchStatusLabel(status: BatchItemStatus): string {
-  if (status === 'success') return '已确认';
-  if (status === 'failed') return '失败';
-  return '未处理';
-}
-
 function readyTaskNextAction(task: WorkbenchReadyTaskItem): string {
   const eligibility = task.claimEligibility;
   if (!eligibility) return '领取资格尚未确认，请刷新后查看。';
@@ -199,6 +189,7 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
     isTab(params.get('type')) ? (params.get('type') as Tab) : 'all',
   );
   const [query, setQuery] = useState('');
+  const [reasonFilter, setReasonFilter] = useState<WorkbenchReasonFilter>('');
   const [roleFilter, setRoleFilter] = useState(() => {
     if (scope) return '';
     try {
@@ -219,16 +210,11 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
   const [reviewBatchOpen, setReviewBatchOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchBusy, setBatchBusy] = useState(false);
-  const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
-  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(
-    null,
-  );
-  const [batchRefreshError, setBatchRefreshError] = useState('');
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   // 快照 / 选择项的同步镜像：异步回调里读到的必须是最新值，而不是渲染时的闭包。
   const snapshotRef = useRef<WorkbenchSnapshot | null>(null);
   const selectionRef = useRef<Set<string>>(new Set());
-  const filterKeyRef = useRef({ tab, query, roleFilter, scope });
+  const filterKeyRef = useRef({ tab, query, roleFilter, reasonFilter, scope });
   const loadRequestRef = useRef(0);
   const activeRef = useRef(true);
   useEffect(() => {
@@ -297,18 +283,19 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
       previous.tab === tab &&
       previous.query === query &&
       previous.roleFilter === roleFilter &&
+      previous.reasonFilter === reasonFilter &&
       previous.scope === scope
     ) {
       return;
     }
-    filterKeyRef.current = { tab, query, roleFilter, scope };
+    filterKeyRef.current = { tab, query, roleFilter, reasonFilter, scope };
     if (selectionRef.current.size > 0) {
       updateSelection(new Set());
       setNotice(FILTER_CHANGED_NOTICE);
     }
     setSelectedReviews(new Set());
     // updateSelection / setNotice 是稳定语义的状态写入，不需要作为依赖。
-  }, [tab, query, roleFilter, scope]);
+  }, [tab, query, roleFilter, reasonFilter, scope]);
 
   useEffect(() => {
     try {
@@ -331,89 +318,6 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
     if (next.has(recipientId)) next.delete(recipientId);
     else next.add(recipientId);
     updateSelection(next);
-  }
-
-  /** 打开批量确认：每次重新开始都清空上一次的结果与进度。 */
-  function openBatch() {
-    setBatchResults([]);
-    setBatchProgress(null);
-    setBatchRefreshError('');
-    setBatchOpen(true);
-  }
-
-  /**
-   * 逐条确认：失败即停止（后续标记 unprocessed），成功的条目立即从重试集合移除，
-   * 最后刷新工作台；刷新失败时保留结果弹窗并进入 stale 状态。
-   * retry 模式在既有结果上累加，已成功的条目不会被重新提交。
-   */
-  async function runBatch(targets: BatchTarget[], mode: 'new' | 'retry' = 'new') {
-    if (targets.length === 0) return;
-    setBatchBusy(true);
-    setBatchRefreshError('');
-    setBatchProgress({ current: 1, total: targets.length });
-    const carried =
-      mode === 'retry' ? batchResults.filter((result) => result.status === 'success') : [];
-    const results: BatchResult[] = targets.map((target) => ({
-      ...target,
-      status: 'unprocessed',
-    }));
-    const publish = () => setBatchResults([...carried, ...results]);
-    publish();
-    for (let index = 0; index < targets.length; index += 1) {
-      if (!activeRef.current) return;
-      const target = targets[index];
-      setBatchProgress({ current: index + 1, total: targets.length });
-      try {
-        await changeApi.ack(target.recipientId, target.version);
-        results[index] = { ...target, status: 'success' };
-        publish();
-        // 成功项立即移出选择：重试集合只由 failed / unprocessed 构成，绝不重复提交。
-        if (selectionRef.current.has(target.recipientId)) {
-          const next = new Set(selectionRef.current);
-          next.delete(target.recipientId);
-          updateSelection(next);
-        }
-      } catch (caught) {
-        results[index] = {
-          ...target,
-          status: 'failed',
-          error: formatApiError(caught),
-          conflict: caught instanceof ApiError && caught.status === 409,
-        };
-        publish();
-        // 失败即停止：剩余条目保持 unprocessed，由用户显式重试。
-        break;
-      }
-    }
-    const refreshed = await load();
-    if (!refreshed) {
-      setBatchRefreshError(BATCH_REFRESH_FAILED);
-    } else {
-      const successCount = results.filter((result) => result.status === 'success').length;
-      if (successCount > 0) setNotice(`已确认 ${successCount} 条变更。`);
-    }
-    setBatchProgress(null);
-    setBatchBusy(false);
-  }
-
-  /** 重试只提交失败 / 未处理、且当前快照中仍存在的条目。 */
-  function retryFailedBatch() {
-    const alive = new Map(
-      (snapshotRef.current?.changes ?? []).map((change) => [change.recipientId, change]),
-    );
-    const targets: BatchTarget[] = batchResults.flatMap((result) => {
-      if (result.status === 'success') return [];
-      const change = alive.get(result.recipientId);
-      if (!change) return [];
-      return [
-        {
-          recipientId: change.recipientId,
-          label: requirementLabel(change),
-          version: change.version,
-        },
-      ];
-    });
-    void runBatch(targets, 'retry');
   }
 
   /** 页签键盘操作：左右方向键切换、Home/End 跳首尾（roving tabindex）。 */
@@ -471,7 +375,9 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
 
   const matchesFilters = (item: WorkbenchItem) =>
     (!query.trim() || itemSearchText(item).includes(query.trim().toLowerCase())) &&
-    (!roleFilter || itemRoleKeys(item).includes(roleFilter));
+    (!roleFilter || itemRoleKeys(item).includes(roleFilter)) &&
+    (!reasonFilter ||
+      (item.type === 'review' && workbenchReviewMatchesReason(item.data, reasonFilter)));
   const signOffReviews = (snapshot?.reviews ?? []).filter(
     (review) => isSignOffKind(review.kind) && matchesFilters({ type: 'review', data: review }),
   );
@@ -526,6 +432,11 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
     const filtered = base.filter((item) => {
       if (text && !itemSearchText(item).includes(text)) return false;
       if (roleFilter && !itemRoleKeys(item).includes(roleFilter)) return false;
+      if (
+        reasonFilter &&
+        (item.type !== 'review' || !workbenchReviewMatchesReason(item.data, reasonFilter))
+      )
+        return false;
       return true;
     });
 
@@ -548,7 +459,7 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
       // "按项目"的组顺序在 groups 里排；组内仍按最久未处理。
       return ageOf(b) - ageOf(a);
     });
-  }, [snapshot, tab, query, roleFilter, sort]);
+  }, [snapshot, tab, query, roleFilter, reasonFilter, sort]);
 
   const visibleActivity = scope ? activity.filter((item) => item.projectId === scope) : activity;
 
@@ -570,7 +481,9 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
   }, [items, sort]);
 
   /** 有任一筛选条件（搜索 / 角色 / 项目范围 / 非“全部”标签）时，空列表是“没有匹配项”。 */
-  const hasActiveFilter = query.trim() !== '' || roleFilter !== '' || tab !== 'all';
+  const hasActiveFilter =
+    query.trim() !== '' || roleFilter !== '' || reasonFilter !== '' || tab !== 'all';
+  const coverageStatus = workbenchCoverageStatus(snapshot?.coverage);
   /** 逾期审批置顶：到期未决定，跨项目按 dueAt 升序；旧响应缺字段时按空数组处理。 */
   const overdueApprovals = [...(snapshot?.overdueApprovals ?? [])].sort(
     (a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt),
@@ -628,7 +541,7 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
   ];
 
   /** 批量按钮与提交只认“当前快照中仍存在且被选中”的变更。 */
-  const batchTargets = useMemo<BatchTarget[]>(() => {
+  const batchTargets = useMemo<BatchChangeTarget[]>(() => {
     if (!snapshot) return [];
     return snapshot.changes
       .filter((change) => selectedChanges.has(change.recipientId))
@@ -638,19 +551,6 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
         version: change.version,
       }));
   }, [snapshot, selectedChanges]);
-
-  const batchSuccessCount = batchResults.filter((result) => result.status === 'success').length;
-  const batchFailedCount = batchResults.filter((result) => result.status === 'failed').length;
-  const batchUnprocessedCount = batchResults.filter(
-    (result) => result.status === 'unprocessed',
-  ).length;
-  const batchRetryCount = useMemo(() => {
-    if (!snapshot) return 0;
-    const alive = new Set(snapshot.changes.map((change) => change.recipientId));
-    return batchResults.filter(
-      (result) => result.status !== 'success' && alive.has(result.recipientId),
-    ).length;
-  }, [batchResults, snapshot]);
 
   /** 批量批准只包含“我可决定且未决定”的评审；每条仍按自己的版本与票据提交。 */
   const reviewBatchTargets = useMemo<BatchReviewTarget[]>(() => {
@@ -689,6 +589,7 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
     const checks = review.evidence.checks ?? { total: 0, failed: 0 };
     const codeRefs = review.evidence.codeRefs ?? 0;
     const decidableSlot = review.slots.find((slot) => slot.viewerCanDecide && !slot.decided);
+    const attention = currentWorkbenchAttention(review);
     return (
       <article
         className="wb-row is-signOff"
@@ -729,6 +630,32 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
           <p className="wb-card-owner">
             下一步：{decidableSlot ? '打开评审并核验证据' : '查看评审与授权状态'}
           </p>
+          <div className="wb-card-owner" aria-label="评审关注原因">
+            {attention ? (
+              <>
+                {attention.reasons.map((reason) => (
+                  <p key={reason.code}>
+                    {WORKBENCH_REASON_LABELS[reason.code]}
+                    {reason.code === 'REPORTED_CHECK_FAILED'
+                      ? `：提交者报告 ${attention.reportedChecks.failed} 项失败，不代表独立执行核验`
+                      : '：质量包正文、代码评审、讨论未查询；基线适用性未知'}
+                    {' · '}责任角色：{reason.responsibleRole?.title ?? '待确认'}
+                  </p>
+                ))}
+                <p>
+                  原因采集：{attention.checkedAt} · 评审 v{attention.reviewVersion}
+                </p>
+              </>
+            ) : (
+              <p>详细证据待核验：服务端未提供同版本原因摘要，不能判断证据已通过。</p>
+            )}
+            <button
+              className="ghost"
+              onClick={() => navigate(`/reviews/${encodeURIComponent(review.reviewId)}`)}
+            >
+              查看证据与处理问题
+            </button>
+          </div>
           <DependencyImpactHint impact={review.dependencyImpact} />
           <details className="wb-card-details">
             <summary>证据与版本</summary>
@@ -737,8 +664,8 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
               {kinds.length ? `（${kinds.join(' / ')}）` : ''}
               {review.evidence.hasPr ? ' · 含 PR' : ''}
               {codeRefs ? ` · 代码引用 ${codeRefs}` : ''}
-              {checks.total ? ` · 检查 ${checks.total - checks.failed}/${checks.total}` : ''}
-              {checks.failed ? `（${checks.failed} 失败）` : ''} · v{review.version}
+              {checks.total ? ` · 提交报告检查 ${checks.total} 项` : ''}
+              {checks.failed ? `（其中 ${checks.failed} 项报告失败）` : ''} · v{review.version}
             </div>
           </details>
         </div>
@@ -956,7 +883,7 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
           <div className="hero-total">
             <span className="hero-label">待处理事项</span>
             <strong>{!snapshot ? '--' : String(counts.total).padStart(2, '0')}</strong>
-            <span className="hero-unit">件待办 · 当前范围</span>
+            <span className="hero-unit">件待办 · 已加载范围</span>
           </div>
           <section className="wb-priority-actions" aria-label="优先行动">
             <h3>现在可以处理</h3>
@@ -974,7 +901,7 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
                     </strong>
                     <span>
                       {!action.count
-                        ? '当前没有此类事项'
+                        ? '已加载范围内没有此类事项'
                         : action.age === null
                           ? '服务端未提供等待时间'
                           : `最早已等待 ${ageLabel(action.age)}`}
@@ -1035,6 +962,49 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
           部分数据加载失败：{snapshot.warnings.join('；')}
         </p>
       )}
+      {snapshot && (
+        <section className="page-sub" aria-label="工作台查询范围">
+          <strong>
+            {coverageStatus === 'COMPLETE'
+              ? '待办列表已读完'
+              : coverageStatus === 'ERROR'
+                ? '部分待办读取失败'
+                : coverageStatus === 'PARTIAL'
+                  ? '待办列表未完整加载'
+                  : '待办列表覆盖范围未知'}
+          </strong>
+          <p>
+            数量与筛选仅涵盖已加载的待办；原因筛选仅涵盖评审，不代表项目全量统计或证据核验结论。
+          </p>
+          {snapshot.coverage ? (
+            <details>
+              <summary>查看各类查询范围与采集时间</summary>
+              <p>
+                聚合时间：{snapshot.coverage.checkedAt}
+                {dataState === 'stale' ? '（保留的旧快照）' : ''}
+              </p>
+              <ul>
+                {snapshot.coverage.streams.map((stream) => (
+                  <li key={`${stream.stream}:${stream.projectIds.join(',')}`}>
+                    {workbenchStreamDescription(stream)} · 采集 {stream.checkedAt}
+                    {stream.errorCode ? ` · ${stream.errorCode}` : ''}
+                    {stream.status !== 'COMPLETE' && (
+                      <button
+                        className="ghost"
+                        onClick={() => navigate(workbenchStreamPath(stream))}
+                      >
+                        打开相关列表
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : (
+            <p>服务端未提供分页与查询状态；零条记录不能证明当前范围没有待办。</p>
+          )}
+        </section>
+      )}
 
       {!(dataState === 'error' && !snapshot) && (
         <>
@@ -1084,11 +1054,25 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
                 <option value="type">按类型</option>
               </select>
             </div>
+            <div className="wb-field">
+              <select
+                aria-label="评审原因筛选"
+                value={reasonFilter}
+                onChange={(event) => setReasonFilter(event.target.value as WorkbenchReasonFilter)}
+              >
+                <option value="">全部原因</option>
+                {Object.entries(WORKBENCH_REASON_LABELS).map(([code, label]) => (
+                  <option key={code} value={code}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {tab === 'changes' && batchTargets.length > 0 && (
             <div className="toolbar">
-              <button className="primary" onClick={openBatch}>
+              <button className="primary" onClick={() => setBatchOpen(true)}>
                 批量确认 {batchTargets.length} 条
               </button>
               <button className="ghost" onClick={() => updateSelection(new Set())}>
@@ -1276,7 +1260,7 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
                   {hasActiveFilter ? (
                     <EmptyState
                       title="当前筛选没有匹配项"
-                      description="当前搜索词或筛选条件下没有匹配的待办；可以清除筛选后再看。"
+                      description="已加载范围内没有符合当前搜索词或筛选条件的待办；可以清除筛选后再看。"
                       variant="no-match"
                     >
                       <div className="wb-empty-actions">
@@ -1288,6 +1272,11 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
                         {roleFilter !== '' && (
                           <button className="ghost" onClick={() => setRoleFilter('')}>
                             清除角色筛选
+                          </button>
+                        )}
+                        {reasonFilter !== '' && (
+                          <button className="ghost" onClick={() => setReasonFilter('')}>
+                            清除原因筛选
                           </button>
                         )}
                         {tab !== 'all' && (
@@ -1304,8 +1293,14 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
                     </EmptyState>
                   ) : (
                     <EmptyState
-                      title="现在没有待办"
-                      description={`当前范围：${scopeLabel}。没有等待你处理的事项；有新的交付或确认时，这里会自动出现。`}
+                      title={
+                        coverageStatus === 'COMPLETE' ? '现在没有待办' : '已加载范围内没有待办'
+                      }
+                      description={
+                        coverageStatus === 'COMPLETE'
+                          ? `当前范围：${scopeLabel}。本次待办列表已读完；有新的交付或确认时，刷新后会出现在这里。`
+                          : `当前范围：${scopeLabel}。列表存在未加载、读取失败或未知范围，请检查查询状态并刷新或打开相关列表。`
+                      }
                       variant="waiting"
                       actionLabel="打开看板"
                       onAction={() => navigate('/board')}
@@ -1398,110 +1393,27 @@ function WorkbenchScope({ scope, setScope }: { scope: string; setScope: (id: str
         </>
       )}
 
-      <Modal
+      <DeferredBatchChangeAcknowledge
         open={batchOpen}
-        title={batchResults.length > 0 || batchBusy ? '批量确认结果' : '批量确认变更'}
-        description={
-          batchResults.length > 0 || batchBusy
-            ? `共 ${batchResults.length} 条；每条仍按自己的版本提交。`
-            : `将逐一确认 ${batchTargets.length} 条变更；每条仍按自己的版本提交。`
+        targets={batchTargets}
+        getCurrentTargets={() =>
+          (snapshotRef.current?.changes ?? []).map((change) => ({
+            recipientId: change.recipientId,
+            label: requirementLabel(change),
+            version: change.version,
+          }))
         }
-        size="md"
-        busy={batchBusy}
-        onClose={() => {
-          if (!batchBusy) setBatchOpen(false);
+        onAcknowledged={(recipientId) => {
+          if (!selectionRef.current.has(recipientId)) return;
+          const next = new Set(selectionRef.current);
+          next.delete(recipientId);
+          updateSelection(next);
         }}
-        footer={
-          batchBusy ? (
-            <button className="ghost" disabled>
-              处理中…
-            </button>
-          ) : batchResults.length === 0 ? (
-            <>
-              <button className="ghost" onClick={() => setBatchOpen(false)}>
-                取消
-              </button>
-              <button
-                className="primary"
-                onClick={() => void runBatch(batchTargets)}
-                disabled={batchTargets.length === 0}
-              >
-                确认开始
-              </button>
-            </>
-          ) : (
-            <>
-              <button className="ghost" onClick={() => setBatchOpen(false)}>
-                关闭
-              </button>
-              {batchRetryCount > 0 && (
-                <button className="primary" onClick={() => retryFailedBatch()}>
-                  重试失败项（{batchRetryCount}）
-                </button>
-              )}
-            </>
-          )
-        }
-      >
-        {batchResults.length === 0 && !batchBusy ? (
-          <>
-            <p className="modal-note">
-              任一失败会立即停止，剩余条目标记为“未处理”；已确认的条目不会再次提交。
-            </p>
-            <ul className="detail-list" aria-label="待提交变更列表">
-              {batchTargets.map((target) => (
-                <li key={target.recipientId}>
-                  {target.label} · v{target.version}
-                </li>
-              ))}
-            </ul>
-          </>
-        ) : (
-          <>
-            {batchBusy && batchProgress && (
-              <p className="modal-note" role="status">
-                正在处理 {batchProgress.current} / {batchProgress.total}
-              </p>
-            )}
-            <p className="modal-note" role="status">
-              已确认 {batchSuccessCount} 条 · 失败 {batchFailedCount} 条 · 未处理{' '}
-              {batchUnprocessedCount} 条
-            </p>
-            {batchRefreshError && (
-              <p className="modal-error" role="alert">
-                {batchRefreshError}
-              </p>
-            )}
-            <ul className="detail-list" aria-label="批量确认结果">
-              {batchResults.map((result, index) => {
-                const missing = !(snapshot?.changes ?? []).some(
-                  (change) => change.recipientId === result.recipientId,
-                );
-                const processing =
-                  batchBusy &&
-                  result.status === 'unprocessed' &&
-                  batchProgress?.current === index + 1;
-                return (
-                  <li key={result.recipientId}>
-                    <strong>{result.label}</strong> · v{result.version} ·{' '}
-                    {processing ? '处理中…' : batchStatusLabel(result.status)}
-                    {result.status === 'failed' && result.conflict
-                      ? ` · ${BATCH_CONFLICT_HINT}`
-                      : ''}
-                    {result.status === 'failed' && result.error ? `（${result.error}）` : ''}
-                    {result.status === 'unprocessed' && missing ? ' · 已不在当前列表中' : ''}
-                  </li>
-                );
-              })}
-            </ul>
-            {batchRefreshError && (
-              <p className="modal-note">
-                工作台仍显示上次成功数据；可以关闭弹窗后重试刷新，已确认的条目不会重复提交。
-              </p>
-            )}
-          </>
-        )}
-      </Modal>
+        refresh={() => load()}
+        onCompleted={(confirmed) => setNotice(`已确认 ${confirmed} 条变更。`)}
+        onBusyChange={setBatchBusy}
+        onClose={() => setBatchOpen(false)}
+      />
 
       <DeferredBatchReviewApprove
         open={reviewBatchOpen}
